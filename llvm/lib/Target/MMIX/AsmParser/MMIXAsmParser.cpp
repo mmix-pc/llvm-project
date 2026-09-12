@@ -274,11 +274,12 @@ void MMIXAsmParser::onBeginOfFile() {
   if (AsmVariant == MMIXII::MMIXALAsmVariant) {
     if (!Parser.getStreamer().isObj())
       return;
-    Error(getLexer().getLoc(),
-          "MMIXAL complete-source emission is not available");
+    // File callbacks are outside the statement-level pending-error handling.
+    Parser.printError(getLexer().getLoc(),
+                      "MMIXAL complete-source emission is not available");
     return;
   }
-  Error(
+  Parser.printError(
       getLexer().getLoc(),
       Twine(
           "MMIX complete-source emission does not support assembly variant ") +

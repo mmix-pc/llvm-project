@@ -3,7 +3,7 @@
 // RUN:   %S/Inputs/record-layout.c 2>&1 | FileCheck %s --check-prefix=LAYOUT
 
 // RUN: %clang --target=mmix-unknown-unknown -ffreestanding -std=gnu2x -O1 \
-// RUN:   -S -emit-llvm %S/Inputs/record-layout.c -o %t.ll
+// RUN:   -S -emit-llvm -fdiscard-value-names %S/Inputs/record-layout.c -o %t.ll
 // RUN: FileCheck %s --check-prefix=IR < %t.ll
 
 // RUN: %clang --target=mmix-unknown-unknown -ffreestanding -std=gnu2x -O1 \

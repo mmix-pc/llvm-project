@@ -1,5 +1,5 @@
 // RUN: %clang --target=mmix-unknown-unknown -ffreestanding -std=gnu2x -O1 \
-// RUN:   -S -emit-llvm %S/Inputs/integer-control.c -o %t.ll
+// RUN:   -S -emit-llvm -fdiscard-value-names %S/Inputs/integer-control.c -o %t.ll
 // RUN: FileCheck %s --check-prefix=IR < %t.ll
 
 // RUN: %clang --target=mmix-unknown-unknown -ffreestanding -std=gnu2x -O1 \

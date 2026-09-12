@@ -47,6 +47,53 @@ static bool isDirectGETAValue(uint64_t Value) {
 }
 
 class MMIXAsmBackend : public MCAsmBackend {
+  void addRelocation(const MCFragment &F, const MCFixup &Fixup,
+                     const MCValue &Target, uint64_t Value) {
+    const MCSymbol *Sub = Target.getSubSym();
+    if (Sub && Sub->isInSection() && &Sub->getSection() == F.getParent()) {
+      // The generic ELF writer cannot fold an already PC-relative difference.
+      // Undefined and cross-section subtrahends retain its own diagnostics.
+      const char *Message = nullptr;
+      switch (Fixup.getKind()) {
+      case MMIX::fixup_mmix_addr19:
+        Message = "MMIX 19-bit terminal control relocation does not support "
+                  "symbol differences";
+        break;
+      case MMIX::fixup_mmix_addr27:
+        Message = "MMIX 27-bit terminal control relocation does not support "
+                  "symbol differences";
+        break;
+      case MMIX::fixup_mmix_call:
+      case MMIX::fixup_mmix_direction_neutral_call:
+        Message = "MMIX stubbable call relocations do not support symbol "
+                  "differences";
+        break;
+      case MMIX::fixup_mmix_geta:
+        Message = "R_MMIX_GETA does not support symbol differences";
+        break;
+      case MMIX::fixup_mmix_data_24:
+      case MMIX::fixup_mmix_pcrel_24:
+        Message = "MMIX 24-in-32 data relocations do not support symbol "
+                  "differences";
+        break;
+      case MMIX::fixup_mmix_branch_forward:
+      case MMIX::fixup_mmix_branch_backward:
+      case MMIX::fixup_mmix_jump_forward:
+      case MMIX::fixup_mmix_jump_backward:
+        Message = "MMIX PC-relative relocation does not support symbol "
+                  "differences";
+        break;
+      default:
+        break;
+      }
+      if (Message) {
+        getContext().reportError(Fixup.getLoc(), Message);
+        return;
+      }
+    }
+    maybeAddReloc(F, Fixup, Target, Value, /*IsResolved=*/false);
+  }
+
 public:
   MMIXAsmBackend() : MCAsmBackend(llvm::endianness::big) {}
   ~MMIXAsmBackend() override = default;
@@ -137,7 +184,7 @@ public:
         return;
       }
       if (Fixup.isLinkerRelaxable()) {
-        maybeAddReloc(F, Fixup, Target, Value, /*IsResolved=*/false);
+        addRelocation(F, Fixup, Target, Value);
         return;
       }
       if (!IsResolved) {
@@ -170,7 +217,7 @@ public:
     }
 
     if (!IsResolved) {
-      maybeAddReloc(F, Fixup, Target, Value, IsResolved);
+      addRelocation(F, Fixup, Target, Value);
       return;
     }
 

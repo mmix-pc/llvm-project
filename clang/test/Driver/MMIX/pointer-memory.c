@@ -1,5 +1,5 @@
 // RUN: %clang --target=mmix-unknown-unknown -ffreestanding -std=gnu2x -O1 \
-// RUN:   -S -emit-llvm %S/Inputs/pointer-memory.c -o %t.ll
+// RUN:   -S -emit-llvm -fdiscard-value-names %S/Inputs/pointer-memory.c -o %t.ll
 // RUN: FileCheck %s --check-prefix=IR < %t.ll
 // RUN: llc -mtriple=mmix -O1 -stop-after=prolog-epilog %t.ll -o - \
 // RUN:   | FileCheck %s --check-prefix=FRAME

@@ -1,22 +1,22 @@
 // RUN: %clang -### --target=mmix-unknown-unknown -ffreestanding -std=gnu2x \
-// RUN:   -S -emit-llvm %S/../../CodeGen/mmix-abi-backend-integration.c \
+// RUN:   -S -emit-llvm -fdiscard-value-names %S/../../CodeGen/mmix-abi-backend-integration.c \
 // RUN:   -o %t.ll 2>&1 \
 // RUN:   | FileCheck %s --check-prefix=TEXT-JOB \
 // RUN:       --implicit-check-not=-cc1as --implicit-check-not=-emit-obj \
 // RUN:       --implicit-check-not=llvm-dis
 // RUN: %clang -### --target=mmix-unknown-unknown -ffreestanding -std=gnu2x \
-// RUN:   -c -emit-llvm %S/../../CodeGen/mmix-abi-backend-integration.c \
+// RUN:   -c -emit-llvm -fdiscard-value-names %S/../../CodeGen/mmix-abi-backend-integration.c \
 // RUN:   -o %t.bc 2>&1 \
 // RUN:   | FileCheck %s --check-prefix=BC-JOB \
 // RUN:       --implicit-check-not=-cc1as --implicit-check-not=-emit-obj \
 // RUN:       --implicit-check-not=llvm-dis
 
 // RUN: %clang --target=mmix-unknown-unknown -ffreestanding -std=gnu2x \
-// RUN:   -S -emit-llvm %S/../../CodeGen/mmix-abi-backend-integration.c \
+// RUN:   -S -emit-llvm -fdiscard-value-names %S/../../CodeGen/mmix-abi-backend-integration.c \
 // RUN:   -o %t.ll
 // RUN: FileCheck %s --check-prefix=IR < %t.ll
 // RUN: %clang --target=mmix-unknown-unknown -ffreestanding -std=gnu2x \
-// RUN:   -c -emit-llvm %S/../../CodeGen/mmix-abi-backend-integration.c \
+// RUN:   -c -emit-llvm -fdiscard-value-names %S/../../CodeGen/mmix-abi-backend-integration.c \
 // RUN:   -o %t.bc
 // RUN: llvm-dis %t.bc -o - | FileCheck %s --check-prefix=IR
 

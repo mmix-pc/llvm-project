@@ -1,5 +1,5 @@
 // RUN: %clang --target=mmix-unknown-unknown -ffreestanding -std=gnu2x \
-// RUN:   -S -emit-llvm %S/Inputs/scalar-calls.c -o %t.ll
+// RUN:   -S -emit-llvm -fdiscard-value-names %S/Inputs/scalar-calls.c -o %t.ll
 // RUN: FileCheck %s --check-prefix=IR < %t.ll
 // RUN: llc -mtriple=mmix-unknown-elf -verify-machineinstrs \
 // RUN:   -stop-after=mmix-isel %t.ll -o - | FileCheck %s --check-prefix=ISEL

@@ -33,7 +33,7 @@ public:
             /*HasRelocationAddend=*/true, /*ABIVersion=*/0) {}
 
 protected:
-  unsigned getRelocType(const MCFixup &Fixup, const MCValue &Target,
+  unsigned getRelocType(const MCFixup &Fixup, const MCValue &,
                         bool IsPCRel) const override {
     unsigned AbsoluteType;
     unsigned PCRelativeType;
@@ -79,11 +79,6 @@ protected:
         return rejectRelocation(
             Fixup, Twine("MMIX ") + Field +
                        " terminal control relocation must be PC-relative");
-      if (Target.getSubSym())
-        return rejectRelocation(
-            Fixup, Twine("MMIX ") + Field +
-                       " terminal control relocation does not support symbol "
-                       "differences");
       return Fixup.getKind() == MMIX::fixup_mmix_addr19
                  ? ELF::R_MMIX_ADDR19
                  : ELF::R_MMIX_ADDR27;
@@ -93,23 +88,11 @@ protected:
       if (!IsPCRel)
         return rejectRelocation(
             Fixup, "MMIX stubbable call relocation must be PC-relative");
-      if (Target.getSubSym())
-        return rejectRelocation(
-            Fixup,
-            "MMIX stubbable call relocations do not support symbol "
-            "differences");
       return ELF::R_MMIX_PUSHJ_STUBBABLE;
     case MMIX::fixup_mmix_geta:
-      if (Target.getSubSym())
-        return rejectRelocation(
-            Fixup, "R_MMIX_GETA does not support symbol differences");
       return ELF::R_MMIX_GETA;
     case MMIX::fixup_mmix_data_24:
     case MMIX::fixup_mmix_pcrel_24:
-      if (Target.getSubSym())
-        return rejectRelocation(
-            Fixup,
-            "MMIX 24-in-32 data relocations do not support symbol differences");
       return Fixup.getKind() == MMIX::fixup_mmix_pcrel_24
                  ? ELF::R_MMIX_PC_24
                  : ELF::R_MMIX_24;

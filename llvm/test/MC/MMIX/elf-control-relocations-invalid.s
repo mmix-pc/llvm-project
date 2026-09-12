@@ -31,6 +31,8 @@
 
 # DIFFERENCES: symbol-differences.s:1:17: error: MMIX 19-bit terminal control relocation does not support symbol differences
 # DIFFERENCES: symbol-differences.s:2:14: error: MMIX 27-bit terminal control relocation does not support symbol differences
+# DIFFERENCES: symbol-differences.s:3:18: error: MMIX 19-bit terminal control relocation does not support symbol differences
+# DIFFERENCES: symbol-differences.s:4:15: error: MMIX 27-bit terminal control relocation does not support symbol differences
 
 # SUBTRAHEND: unresolved-subtrahend.s:3:14: error: symbol 'external' can not be undefined in a subtraction expression
 # SUBTRAHEND: unresolved-subtrahend.s:4:11: error: symbol 'external' can not be undefined in a subtraction expression
@@ -46,11 +48,13 @@
 # GETA: geta-reclassification.s:1:1: error: '%geta' expression requires a GETA instruction
 # GETA: geta-reclassification.s:2:1: error: '%geta' expression requires a GETA instruction
 
-# A resolvable subtrahend reaches the object writer and must retain the
-# terminal fixup identity rather than becoming a data or GETA relocation.
+# Reject unresolved differences before the generic object writer can try to
+# make an already PC-relative fixup PC-relative again. Keep the fixup identity.
 #--- symbol-differences.s
 BN r1, external - local
 JMP external - local
+BNB r1, external - local
+JMPB external - local
 local:
 SWYM 0, 0, 0
 

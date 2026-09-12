@@ -71,7 +71,9 @@ TEST_F(MMIXDwarfRegMappingTest, ExcludedRegistersAndNumbersFailClosed) {
 
   for (bool IsEH : {false, true}) {
     EXPECT_EQ(MRI->getDwarfRegNum(MCRegister(), IsEH), -1);
-    EXPECT_EQ(MRI->getDwarfRegNum(MCRegister::from(1U << 31), IsEH), -1);
+    EXPECT_EQ(MRI->getDwarfRegNum(
+                  MCRegister::from(MCRegister::LastPhysicalReg), IsEH),
+              -1);
     EXPECT_EQ(MRI->getLLVMRegNum(305, IsEH), std::nullopt);
   }
 }
