@@ -1,24 +1,47 @@
 # RUN: split-file %s %t
 # RUN: cmake -DLIBC_SOURCE=%S/../../../../libc -DTEST_ROOT=%t -P %t/check.cmake
-# RUN: not cmake -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=MISSING
-# RUN: not cmake -DLIBC_KERNEL_HEADERS=%t/missing -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=MISSING
+# RUN: not cmake -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=SYSROOT
+# RUN: not cmake -DCMAKE_SYSROOT=/ -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=SYSROOT
+# RUN: not cmake -DCMAKE_SYSROOT=/./ -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=SYSROOT
+# RUN: not cmake -DCMAKE_SYSROOT=%t/missing -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=SYSROOT
+# RUN: not cmake -DCMAKE_SYSROOT=%t/uapi -DLIBC_KERNEL_HEADERS=include -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=PATH
+# RUN: not cmake -DCMAKE_SYSROOT=%t/uapi -DLIBC_KERNEL_HEADERS=/../uapi/include -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=PATH
+# RUN: not cmake -DCMAKE_SYSROOT=%t/uapi -DLIBC_KERNEL_HEADERS=%t/uapi/include -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=HEADERS
+# RUN: not cmake -DCMAKE_SYSROOT=%t/uapi -DLIBC_KERNEL_HEADERS=/missing -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=HEADERS
+# RUN: not cmake -DCMAKE_SYSROOT=%t/uapi -DLIBC_KERNEL_HEADERS=/escaped -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=HEADERS
+# RUN: not cmake -DCMAKE_SYSROOT=%t/uapi -DLIBC_KERNEL_HEADERS=/file-escape -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=HEADERS
+# RUN: cmake -DCMAKE_SYSROOT=%t/sysroot -DLIBC_KERNEL_HEADERS=/usr/include -P %S/../../../../libc/cmake/caches/mmix-linux.cmake
+# RUN: rm %t/uapi/include/asm/unistd_64.h
+# RUN: not cmake -DCMAKE_SYSROOT=%t/uapi -DLIBC_KERNEL_HEADERS=/include -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=HEADERS
 # RUN: cmake -S %t/registration -B %t/without -DLIBC_SOURCE=%S/../../../../libc -DHAVE_OSUTIL=OFF
 # RUN: cmake -S %t/registration -B %t/with -DLIBC_SOURCE=%S/../../../../libc -DHAVE_OSUTIL=ON
 # RUN: cmake -S %t/osutil -B %t/adapter-only -DLIBC_SOURCE=%S/../../../../libc -DHAVE_SYSCALL_OVERLOADS=OFF
 # RUN: cmake -S %t/osutil -B %t/adapter-and-overloads -DLIBC_SOURCE=%S/../../../../libc -DHAVE_SYSCALL_OVERLOADS=ON
 # RUN: cmake -S %t/osutil -B %t/with-vdso -DLIBC_SOURCE=%S/../../../../libc -DHAVE_SYSCALL_OVERLOADS=ON -DHAVE_VDSO=ON
 
-# MISSING: MMIX Linux libc requires an explicit LIBC_KERNEL_HEADERS export
+# SYSROOT: MMIX Linux libc requires an explicit non-root CMAKE_SYSROOT
+# PATH: MMIX Linux libc requires a sysroot-relative LIBC_KERNEL_HEADERS path
+# HEADERS: MMIX Linux libc requires kernel headers inside CMAKE_SYSROOT
 
 #--- check.cmake
 cmake_minimum_required(VERSION 3.20)
 # Synthetic headers test cache validation only, not Linux ABI compatibility.
-file(MAKE_DIRECTORY "${TEST_ROOT}/uapi/asm" "${TEST_ROOT}/uapi/linux")
+file(MAKE_DIRECTORY "${TEST_ROOT}/uapi/include/asm" "${TEST_ROOT}/uapi/include/linux")
 foreach(header asm/unistd.h asm/unistd_64.h linux/errno.h)
-  file(WRITE "${TEST_ROOT}/uapi/${header}" "")
+  file(WRITE "${TEST_ROOT}/uapi/include/${header}" "")
+endforeach()
+file(MAKE_DIRECTORY "${TEST_ROOT}/sysroot/usr")
+file(COPY "${TEST_ROOT}/uapi/include" DESTINATION "${TEST_ROOT}/sysroot/usr")
+file(CREATE_LINK "${TEST_ROOT}/sysroot/usr/include" "${TEST_ROOT}/uapi/escaped" SYMBOLIC)
+file(MAKE_DIRECTORY "${TEST_ROOT}/uapi/file-escape/asm")
+file(CREATE_LINK "${TEST_ROOT}/sysroot/usr/include/linux" "${TEST_ROOT}/uapi/file-escape/linux" SYMBOLIC)
+foreach(header unistd.h unistd_64.h)
+  file(CREATE_LINK "${TEST_ROOT}/sysroot/usr/include/asm/${header}"
+       "${TEST_ROOT}/uapi/file-escape/asm/${header}" SYMBOLIC)
 endforeach()
 
-set(LIBC_KERNEL_HEADERS "${TEST_ROOT}/uapi")
+set(CMAKE_SYSROOT "${TEST_ROOT}/uapi")
+set(LIBC_KERNEL_HEADERS "/include")
 include(${LIBC_SOURCE}/cmake/caches/mmix-linux.cmake)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
    NOT LIBC_TARGET_TRIPLE STREQUAL "mmix-unknown-linux-unknown" OR

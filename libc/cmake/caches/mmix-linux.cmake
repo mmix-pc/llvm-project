@@ -1,12 +1,42 @@
-# Supply installed host compilers, LLVM utilities and LIBC_KERNEL_HEADERS.
+# Supply installed host tools, CMAKE_SYSROOT and sysroot-relative kernel headers.
 # This cache builds Linux libc components, not an installed complete runtime.
-if(NOT IS_ABSOLUTE "${LIBC_KERNEL_HEADERS}" OR
-   NOT EXISTS "${LIBC_KERNEL_HEADERS}/asm/unistd.h" OR
-   NOT EXISTS "${LIBC_KERNEL_HEADERS}/asm/unistd_64.h" OR
-   NOT EXISTS "${LIBC_KERNEL_HEADERS}/linux/errno.h")
-  message(FATAL_ERROR
-    "MMIX Linux libc requires an explicit LIBC_KERNEL_HEADERS export")
+if(NOT IS_ABSOLUTE "${CMAKE_SYSROOT}" OR
+   NOT IS_DIRECTORY "${CMAKE_SYSROOT}" OR CMAKE_SYSROOT STREQUAL "/")
+  message(FATAL_ERROR "MMIX Linux libc requires an explicit non-root CMAKE_SYSROOT")
 endif()
+get_filename_component(_mmix_sysroot "${CMAKE_SYSROOT}" REALPATH)
+if(_mmix_sysroot STREQUAL "/")
+  message(FATAL_ERROR "MMIX Linux libc requires an explicit non-root CMAKE_SYSROOT")
+endif()
+
+# Cross builds emit -idirafter=<path>, where '=' denotes the compiler sysroot.
+if(NOT IS_ABSOLUTE "${LIBC_KERNEL_HEADERS}" OR
+   LIBC_KERNEL_HEADERS MATCHES "(^|/)\\.\\.(/|$)" OR
+   LIBC_KERNEL_HEADERS MATCHES ";")
+  message(FATAL_ERROR "MMIX Linux libc requires a sysroot-relative LIBC_KERNEL_HEADERS path")
+endif()
+get_filename_component(_mmix_kernel_headers
+  "${CMAKE_SYSROOT}${LIBC_KERNEL_HEADERS}" REALPATH)
+string(FIND "${_mmix_kernel_headers}/" "${_mmix_sysroot}/" _mmix_header_prefix)
+if(NOT _mmix_header_prefix EQUAL 0 OR
+   NOT EXISTS "${_mmix_kernel_headers}/asm/unistd.h" OR
+   NOT EXISTS "${_mmix_kernel_headers}/asm/unistd_64.h" OR
+   NOT EXISTS "${_mmix_kernel_headers}/linux/errno.h")
+  message(FATAL_ERROR
+    "MMIX Linux libc requires kernel headers inside CMAKE_SYSROOT")
+endif()
+foreach(_mmix_header asm/unistd.h asm/unistd_64.h linux/errno.h)
+  get_filename_component(_mmix_header_path "${_mmix_kernel_headers}/${_mmix_header}" REALPATH)
+  string(FIND "${_mmix_header_path}" "${_mmix_sysroot}/" _mmix_header_prefix)
+  if(NOT _mmix_header_prefix EQUAL 0 OR IS_DIRECTORY "${_mmix_header_path}")
+    message(FATAL_ERROR "MMIX Linux libc requires kernel headers inside CMAKE_SYSROOT")
+  endif()
+endforeach()
+unset(_mmix_sysroot)
+unset(_mmix_kernel_headers)
+unset(_mmix_header_prefix)
+unset(_mmix_header)
+unset(_mmix_header_path)
 
 set(CMAKE_SYSTEM_NAME Linux CACHE STRING "")
 set(CMAKE_SYSTEM_PROCESSOR mmix CACHE STRING "")
