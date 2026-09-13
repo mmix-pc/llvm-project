@@ -23,6 +23,7 @@ class MMIXMachineFunctionInfo final : public MachineFunctionInfo {
   unsigned VarArgsSaveSize = 0;
   int VarArgsFrameIndex = std::numeric_limits<int>::max();
   int UnwindReturnAddressFrameIndex = std::numeric_limits<int>::max();
+  Register ReturnAddressRegister;
 
 public:
   MMIXMachineFunctionInfo(const Function &, const TargetSubtargetInfo *) {}
@@ -78,6 +79,8 @@ public:
   bool hasUnwindReturnAddressFrameIndex() const {
     return UnwindReturnAddressFrameIndex != std::numeric_limits<int>::max();
   }
+
+  Register getOrCreateReturnAddressRegister(MachineFunction &MF);
 };
 
 } // namespace llvm

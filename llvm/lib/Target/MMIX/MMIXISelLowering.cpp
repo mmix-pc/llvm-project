@@ -785,9 +785,10 @@ MMIXTargetLowering::MMIXTargetLowering(const TargetMachine &TM,
     setOperationAction(Opcode, MVT::i64, Custom);
 
   static constexpr unsigned AddressOperations[] = {
-      ISD::FRAMEADDR, ISD::RETURNADDR, ISD::ADDRSPACECAST};
+      ISD::FRAMEADDR, ISD::ADDRSPACECAST};
   for (unsigned Opcode : AddressOperations)
     RejectOperation(Opcode, MVT::i64);
+  setOperationAction(ISD::RETURNADDR, MVT::i64, Custom);
 
   setOperationAction(ISD::FrameIndex, MVT::i64, Legal);
   setOperationAction(ISD::LOAD, MVT::i64, Legal);
@@ -959,6 +960,17 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
                                            SelectionDAG &DAG) const {
   const Function &F = DAG.getMachineFunction().getFunction();
   const SDLoc DL(Op);
+  if (Op.getOpcode() == ISD::RETURNADDR) {
+    if (Op.getConstantOperandVal(0) != 0)
+      reportFatalUsageError(
+          Twine("MMIX supports only return address depth 0 in function '") +
+          F.getName() + "'");
+    MachineFunction &MF = DAG.getMachineFunction();
+    MF.getFrameInfo().setReturnAddressIsTaken(true);
+    Register Reg = MF.getInfo<MMIXMachineFunctionInfo>()
+                       ->getOrCreateReturnAddressRegister(MF);
+    return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, MVT::i64);
+  }
   if (Op.getOpcode() == ISD::ATOMIC_FENCE) {
     auto SSID = static_cast<SyncScope::ID>(Op.getConstantOperandVal(2));
     if (SSID == SyncScope::SingleThread)
