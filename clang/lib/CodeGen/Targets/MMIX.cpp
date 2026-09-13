@@ -926,8 +926,12 @@ void MMIXABIInfo::computeInfo(CGFunctionInfo &FI) const {
 
 RValue MMIXABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
                               QualType Ty, AggValueSlot Slot) const {
+  // Scalar i128 occupies two adjacent octa slots, including across the
+  // register-save/stack boundary. Source type admission is handled separately.
+  bool IsInt128 = Ty->isSpecificBuiltinType(BuiltinType::Int128) ||
+                  Ty->isSpecificBuiltinType(BuiltinType::UInt128);
   if (Ty->isAtomicType() ||
-      (!isSupportedMMIXComplexType(Ty) &&
+      (!IsInt128 && !isSupportedMMIXComplexType(Ty) &&
        isUnsupportedMMIXScalarType(getContext(), Ty, /*AllowVoid=*/false))) {
     unsigned DiagID = CGF.CGM.getDiags().getCustomDiagID(
         DiagnosticsEngine::Error,
