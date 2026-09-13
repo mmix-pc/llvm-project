@@ -6,6 +6,7 @@
 # RUN: cmake -S %t/registration -B %t/with -DLIBC_SOURCE=%S/../../../../libc -DHAVE_OSUTIL=ON
 # RUN: cmake -S %t/osutil -B %t/adapter-only -DLIBC_SOURCE=%S/../../../../libc -DHAVE_SYSCALL_OVERLOADS=OFF
 # RUN: cmake -S %t/osutil -B %t/adapter-and-overloads -DLIBC_SOURCE=%S/../../../../libc -DHAVE_SYSCALL_OVERLOADS=ON
+# RUN: cmake -S %t/osutil -B %t/with-vdso -DLIBC_SOURCE=%S/../../../../libc -DHAVE_SYSCALL_OVERLOADS=ON -DHAVE_VDSO=ON
 
 # MISSING: MMIX Linux libc requires an explicit LIBC_KERNEL_HEADERS export
 
@@ -35,7 +36,8 @@ if(DEFINED CMAKE_C_COMPILER_WORKS OR DEFINED CMAKE_CXX_COMPILER_WORKS OR
 endif()
 include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
 set(expected libc.src.string.memcpy libc.src.string.memmove
-    libc.src.string.memset libc.src.string.memcmp libc.src.string.strlen)
+    libc.src.string.memset libc.src.string.memcmp libc.src.string.strlen
+    libc.src.unistd.getpid libc.src.unistd._exit libc.src.stdlib._Exit)
 if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL expected OR
    NOT TARGET_LLVMLIBC_ENTRYPOINTS STREQUAL expected)
   message(FATAL_ERROR "incorrect initial Linux entrypoints")
@@ -92,17 +94,29 @@ function(add_object_library name)
 endfunction()
 function(add_header_library name)
   add_custom_target(${name})
+  if(name STREQUAL "linux_mmix_util" AND HAVE_SYSCALL_OVERLOADS)
+    cmake_parse_arguments(ARG "" "" "DEPENDS;HDRS" ${ARGN})
+    if(NOT ".syscall" IN_LIST ARG_DEPENDS)
+      message(FATAL_ERROR "Linux utility lacks the syscall interface")
+    endif()
+    add_custom_target(libc.src.__support.OSUtil.linux.mmix.linux_mmix_util)
+  endif()
 endfunction()
 function(add_subdirectory name)
   if(name STREQUAL "mmix")
     include(${LIBC_SOURCE}/src/__support/OSUtil/linux/mmix/CMakeLists.txt)
   endif()
 endfunction()
-if(HAVE_SYSCALL_OVERLOADS)
-  add_custom_target(libc.src.__support.OSUtil.linux.mmix.linux_mmix_util)
+if(HAVE_VDSO)
+  add_custom_target(libc.src.__support.OSUtil.linux.mmix.vdso)
 endif()
 # Exercise dependency-based registration without pretending to implement calls.
 include(${LIBC_SOURCE}/src/__support/OSUtil/linux/CMakeLists.txt)
+if(HAVE_SYSCALL_OVERLOADS AND HAVE_VDSO AND NOT TARGET vdso)
+  message(FATAL_ERROR "missing vDSO with its architecture provider")
+elseif(NOT HAVE_VDSO AND TARGET vdso)
+  message(FATAL_ERROR "vDSO registered without its architecture provider")
+endif()
 if(NOT TARGET syscall_asm)
   message(FATAL_ERROR "missing independent raw adapter")
 endif()

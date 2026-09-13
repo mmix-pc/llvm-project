@@ -1,10 +1,15 @@
-# Start with platform-independent objects; Linux providers are added separately.
+# Only entries with buildable dependencies belong in the initial archive.
 set(TARGET_LIBC_ENTRYPOINTS
     libc.src.string.memcpy
     libc.src.string.memmove
     libc.src.string.memset
     libc.src.string.memcmp
     libc.src.string.strlen
+    libc.src.unistd.getpid
+    libc.src.unistd._exit
+    libc.src.stdlib._Exit
 )
+
+# read/write/close/lseek are compile-only consumers until errno is provided.
 
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})

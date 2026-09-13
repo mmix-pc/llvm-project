@@ -2,6 +2,12 @@ if(NOT TARGET libc.src.__support.OSUtil.osutil)
   return()
 endif()
 
+set(selected_err_entrypoints ${TARGET_ENTRYPOINT_NAME_LIST})
+list(FILTER selected_err_entrypoints INCLUDE REGEX "^(err|verr|errx|verrx|warn|vwarn|warnx|vwarnx)$")
+if(NOT selected_err_entrypoints)
+  return()
+endif()
+
 set(extra_deps)
 if(LLVM_LIBC_FULL_BUILD)
   list(APPEND extra_deps libc.src.errno.program_invocation_short_name)

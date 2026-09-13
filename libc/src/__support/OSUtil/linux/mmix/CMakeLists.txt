@@ -6,7 +6,7 @@ add_object_library(
     syscall.h
 )
 
-# Keep the syscall interface independent of stateful OSUtil consumers.
+# Keep the syscall interface available to independent consumers.
 add_header_library(
   syscall
   HDRS
@@ -14,4 +14,12 @@ add_header_library(
   DEPENDS
     .syscall_asm
     libc.src.__support.common
+)
+
+add_header_library(
+  linux_mmix_util
+  HDRS
+    syscall.h
+  DEPENDS
+    .syscall
 )

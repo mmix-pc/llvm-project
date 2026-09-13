@@ -94,6 +94,10 @@ add_header_library(
     libc.src.__support.common
 )
 
+if(NOT TARGET libc.src.__support.OSUtil.linux.${LIBC_TARGET_ARCHITECTURE}.vdso)
+  return()
+endif()
+
 add_object_library(
   vdso
   HDRS

@@ -454,18 +454,21 @@ add_entrypoint_object(
     libc.src.unistd.linux.pathconf_utils
 )
 
-add_object_library(
-  pathconf_utils
-  SRCS
-    pathconf_utils.cpp
-  HDRS
-    pathconf_utils.h
-  DEPENDS
-    libc.hdr.limits_macros
-    libc.hdr.unistd_macros
-    libc.src.errno.errno
-    libc.hdr.types.struct_statfs
-)
+if("pathconf" IN_LIST TARGET_ENTRYPOINT_NAME_LIST OR
+   "fpathconf" IN_LIST TARGET_ENTRYPOINT_NAME_LIST)
+  add_object_library(
+    pathconf_utils
+    SRCS
+      pathconf_utils.cpp
+    HDRS
+      pathconf_utils.h
+    DEPENDS
+      libc.hdr.limits_macros
+      libc.hdr.unistd_macros
+      libc.src.errno.errno
+      libc.hdr.types.struct_statfs
+  )
+endif()
 
 add_entrypoint_object(
   pipe

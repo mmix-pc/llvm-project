@@ -1,18 +1,20 @@
-add_object_library(
-  clock_gettime
-  HDRS
-    ../clock_gettime.h
-  SRCS
-    clock_gettime.cpp
-  DEPENDS
-    libc.include.sys_syscall
-    libc.hdr.types.struct_timespec
-    libc.hdr.types.clockid_t
-    libc.src.__support.common
-    libc.src.__support.error_or
-    libc.src.__support.OSUtil.osutil
-    libc.src.__support.OSUtil.linux.vdso
-)
+if(TARGET libc.src.__support.OSUtil.linux.vdso)
+  add_object_library(
+    clock_gettime
+    HDRS
+      ../clock_gettime.h
+    SRCS
+      clock_gettime.cpp
+    DEPENDS
+      libc.include.sys_syscall
+      libc.hdr.types.struct_timespec
+      libc.hdr.types.clockid_t
+      libc.src.__support.common
+      libc.src.__support.error_or
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.OSUtil.linux.vdso
+  )
+endif()
 
 add_object_library(
   clock_settime

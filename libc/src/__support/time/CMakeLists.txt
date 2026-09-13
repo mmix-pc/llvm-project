@@ -15,21 +15,23 @@ else()
   return()
 endif()
 
-add_object_library(
-  clock_gettime
-  ALIAS
-  DEPENDS
-    libc.src.__support.time.${LIBC_TARGET_OS}.clock_gettime
-)
+if(TARGET libc.src.__support.time.${LIBC_TARGET_OS}.clock_gettime)
+  add_object_library(
+    clock_gettime
+    ALIAS
+    DEPENDS
+      libc.src.__support.time.${LIBC_TARGET_OS}.clock_gettime
+  )
 
-add_header_library(
-  clock_conversion
-  HDRS
-    clock_conversion.h
-  DEPENDS
-    .clock_gettime
-    libc.src.__support.time.units
-)
+  add_header_library(
+    clock_conversion
+    HDRS
+      clock_conversion.h
+    DEPENDS
+      .clock_gettime
+      libc.src.__support.time.units
+  )
+endif()
 
 if(TARGET libc.src.__support.time.${LIBC_TARGET_OS}.clock_settime)
   add_object_library(
@@ -50,12 +52,14 @@ add_header_library(
     libc.src.__support.CPP.expected
 )
 
-add_header_library(
-  monotonicity
-  HDRS
-    monotonicity.h
-  DEPENDS
-    .clock_conversion
-    .abs_timeout
-    libc.hdr.time_macros
-)
+if(TARGET libc.src.__support.time.clock_conversion)
+  add_header_library(
+    monotonicity
+    HDRS
+      monotonicity.h
+    DEPENDS
+      .clock_conversion
+      .abs_timeout
+      libc.hdr.time_macros
+  )
+endif()
