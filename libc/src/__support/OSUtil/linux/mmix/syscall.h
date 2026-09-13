@@ -1,4 +1,4 @@
-//===-- MMIX Linux raw syscall declaration -----------------------*- C++ -*-===//
+//===-- MMIX Linux syscall interface -----------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -23,6 +23,51 @@ long __llvm_libc_mmix_syscall(unsigned long number, long arg1, long arg2,
                              long arg3, long arg4, long arg5, long arg6);
 #ifdef __cplusplus
 }
+
+#include "src/__support/common.h"
+#include "src/__support/macros/config.h"
+
+namespace LIBC_NAMESPACE_DECL {
+
+LIBC_INLINE long syscall_impl(long number) {
+  return __llvm_libc_mmix_syscall(static_cast<unsigned long>(number), 0, 0, 0, 0,
+                                 0, 0);
+}
+
+LIBC_INLINE long syscall_impl(long number, long arg1) {
+  return __llvm_libc_mmix_syscall(static_cast<unsigned long>(number), arg1, 0, 0,
+                                 0, 0, 0);
+}
+
+LIBC_INLINE long syscall_impl(long number, long arg1, long arg2) {
+  return __llvm_libc_mmix_syscall(static_cast<unsigned long>(number), arg1, arg2,
+                                 0, 0, 0, 0);
+}
+
+LIBC_INLINE long syscall_impl(long number, long arg1, long arg2, long arg3) {
+  return __llvm_libc_mmix_syscall(static_cast<unsigned long>(number), arg1, arg2,
+                                 arg3, 0, 0, 0);
+}
+
+LIBC_INLINE long syscall_impl(long number, long arg1, long arg2, long arg3,
+                              long arg4) {
+  return __llvm_libc_mmix_syscall(static_cast<unsigned long>(number), arg1, arg2,
+                                 arg3, arg4, 0, 0);
+}
+
+LIBC_INLINE long syscall_impl(long number, long arg1, long arg2, long arg3,
+                              long arg4, long arg5) {
+  return __llvm_libc_mmix_syscall(static_cast<unsigned long>(number), arg1, arg2,
+                                 arg3, arg4, arg5, 0);
+}
+
+LIBC_INLINE long syscall_impl(long number, long arg1, long arg2, long arg3,
+                              long arg4, long arg5, long arg6) {
+  return __llvm_libc_mmix_syscall(static_cast<unsigned long>(number), arg1, arg2,
+                                 arg3, arg4, arg5, arg6);
+}
+
+} // namespace LIBC_NAMESPACE_DECL
 #endif
 
 #endif
