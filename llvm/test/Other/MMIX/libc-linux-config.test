@@ -4,6 +4,8 @@
 # RUN: not cmake -DLIBC_KERNEL_HEADERS=%t/missing -P %S/../../../../libc/cmake/caches/mmix-linux.cmake 2>&1 | FileCheck %s --check-prefix=MISSING
 # RUN: cmake -S %t/registration -B %t/without -DLIBC_SOURCE=%S/../../../../libc -DHAVE_OSUTIL=OFF
 # RUN: cmake -S %t/registration -B %t/with -DLIBC_SOURCE=%S/../../../../libc -DHAVE_OSUTIL=ON
+# RUN: cmake -S %t/osutil -B %t/adapter-only -DLIBC_SOURCE=%S/../../../../libc -DHAVE_SYSCALL_OVERLOADS=OFF
+# RUN: cmake -S %t/osutil -B %t/adapter-and-overloads -DLIBC_SOURCE=%S/../../../../libc -DHAVE_SYSCALL_OVERLOADS=ON
 
 # MISSING: MMIX Linux libc requires an explicit LIBC_KERNEL_HEADERS export
 
@@ -14,6 +16,7 @@ file(MAKE_DIRECTORY "${TEST_ROOT}/uapi/asm" "${TEST_ROOT}/uapi/linux")
 foreach(header asm/unistd.h asm/unistd_64.h linux/errno.h)
   file(WRITE "${TEST_ROOT}/uapi/${header}" "")
 endforeach()
+
 set(LIBC_KERNEL_HEADERS "${TEST_ROOT}/uapi")
 include(${LIBC_SOURCE}/cmake/caches/mmix-linux.cmake)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
@@ -78,3 +81,33 @@ foreach(name sigsetjmp_epilogue __restore)
     message(FATAL_ERROR "object ${name} registered without its provider")
   endif()
 endforeach()
+
+#--- osutil/CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(CheckLinuxUtilityPrerequisite NONE)
+set(LIBC_TARGET_ARCHITECTURE mmix)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/mmix")
+function(add_object_library name)
+  add_custom_target(${name})
+endfunction()
+function(add_header_library name)
+  add_custom_target(${name})
+endfunction()
+function(add_subdirectory name)
+  if(name STREQUAL "mmix")
+    include(${LIBC_SOURCE}/src/__support/OSUtil/linux/mmix/CMakeLists.txt)
+  endif()
+endfunction()
+if(HAVE_SYSCALL_OVERLOADS)
+  add_custom_target(libc.src.__support.OSUtil.linux.mmix.linux_mmix_util)
+endif()
+# Exercise dependency-based registration without pretending to implement calls.
+include(${LIBC_SOURCE}/src/__support/OSUtil/linux/CMakeLists.txt)
+if(NOT TARGET syscall_asm)
+  message(FATAL_ERROR "missing independent raw adapter")
+endif()
+if(HAVE_SYSCALL_OVERLOADS AND NOT TARGET linux_util)
+  message(FATAL_ERROR "missing Linux utility with its provider")
+elseif(NOT HAVE_SYSCALL_OVERLOADS AND TARGET linux_util)
+  message(FATAL_ERROR "Linux utility registered without syscall overloads")
+endif()

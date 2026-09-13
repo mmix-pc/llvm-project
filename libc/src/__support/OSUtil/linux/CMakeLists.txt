@@ -3,6 +3,10 @@ if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_ARCHITECTURE})
 endif()
 
 add_subdirectory(${LIBC_TARGET_ARCHITECTURE})
+if(NOT TARGET libc.src.__support.OSUtil.linux.${LIBC_TARGET_ARCHITECTURE}.linux_${LIBC_TARGET_ARCHITECTURE}_util)
+  return()
+endif()
+
 add_subdirectory(syscall_wrappers)
 add_subdirectory(stat)
 
