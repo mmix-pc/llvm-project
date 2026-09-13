@@ -1,0 +1,8 @@
+# REQUIRES: mmix-registered-target
+# RUN: cmake -DROOT=%t.dir -DCLANG=clang -DPYTHON=%python -P %S/Inputs/int128-library.cmake
+
+# Compile real upstream consumers at O0/O2 for Linux and Generic. The driver
+# generates only configuration/public headers, never replacement library code.
+# Optional manual link verification uses -DHELPERS=<clang-resource-directory>,
+# -DLLD=<build>/bin/ld.lld and -DNM=<build>/bin/llvm-nm. It is runtime-free,
+# not a hosted link or an execution test; no installed providers are required.
