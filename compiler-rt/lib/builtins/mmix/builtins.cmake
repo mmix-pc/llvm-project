@@ -1,9 +1,26 @@
+# clzti2 and udivmodti4 close the wide conversion and division dependencies.
 set(mmix_SOURCES
+  clzti2.c
   divdc3.c
   divsc3.c
+  divti3.c
   ffsdi2.c
+  fixdfti.c
+  fixsfti.c
+  fixunsdfti.c
+  fixunssfti.c
+  floattidf.c
+  floattisf.c
+  floatuntidf.c
+  floatuntisf.c
+  modti3.c
   muldc3.c
-  mulsc3.c)
+  muloti4.c
+  mulsc3.c
+  multi3.c
+  udivmodti4.c
+  udivti3.c
+  umodti3.c)
 
 set(mmix_ATOMIC_SOURCES
   mmix/atomic.c)

@@ -1,0 +1,68 @@
+# REQUIRES: mmix-registered-target
+# RUN: cmake -DROOT=%t.dir -DCLANG=clang -DAR=llvm-ar -DLLD=ld.lld \
+# RUN:   -DNM=llvm-nm -DREADOBJ=llvm-readobj -DPYTHON=%python -P %s
+# RUN: clang --target=mmix-unknown-linux -ffreestanding -O2 -S -emit-llvm \
+# RUN:   %S/../../../../compiler-rt/lib/builtins/multi3.c -o - | FileCheck %s --check-prefix=ABI
+# RUN: clang --target=mmix-unknown-linux -ffreestanding -O2 -S -emit-llvm \
+# RUN:   %S/../../../../compiler-rt/lib/builtins/muloti4.c -o - | FileCheck %s --check-prefix=OVERFLOW-ABI
+# RUN: clang --target=mmix-unknown-linux -ffreestanding -O2 -S -emit-llvm \
+# RUN:   %S/Inputs/compiler-runtime/int128-call.c -o - | FileCheck %s --check-prefix=CALLER
+
+# ABI: define{{.*}} i128 @__multi3(i128 noundef {{.*}}, i128 noundef
+# OVERFLOW-ABI: define{{.*}} i128 @__muloti4(i128 noundef {{.*}}, i128 noundef {{.*}}, ptr
+# CALLER-LABEL: define{{.*}} i128 @multiply(i128 noundef {{.*}}, i128 noundef
+# CALLER: call i128 @__multi3(i128 noundef {{.*}}, i128 noundef
+
+cmake_minimum_required(VERSION 3.20)
+set(builtins ${CMAKE_CURRENT_LIST_DIR}/../../../../compiler-rt/lib/builtins)
+set(inputs ${CMAKE_CURRENT_LIST_DIR}/Inputs/compiler-runtime)
+include(${builtins}/mmix/builtins.cmake)
+
+function(run)
+  execute_process(COMMAND ${ARGV} WORKING_DIRECTORY ${output}
+                  RESULT_VARIABLE status OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr)
+  if(NOT status EQUAL 0)
+    message(FATAL_ERROR "${ARGV}: ${status}\n${stdout}\n${stderr}")
+  endif()
+endfunction()
+
+foreach(triple mmix-unknown-linux mmix-unknown-unknown)
+  foreach(level 0 2)
+    set(output ${ROOT}/${triple}/O${level})
+    file(MAKE_DIRECTORY ${output})
+    set(objects)
+    foreach(source IN LISTS mmix_SOURCES)
+      run(${CLANG} --target=${triple} -ffreestanding -fno-builtin
+          -fno-stack-protector -ffp-contract=off -O${level}
+          -c ${builtins}/${source} -o ${source}.o)
+      list(APPEND objects ${source}.o)
+    endforeach()
+    # Recreate the archive so removed sources cannot survive a repeated test.
+    file(REMOVE ${output}/libclang_rt.builtins.a)
+    run(${AR} rcD libclang_rt.builtins.a ${objects})
+    run(${PYTHON} ${inputs}/check-int128-builtins.py ${READOBJ}
+        ${output}/libclang_rt.builtins.a)
+    run(${CLANG} --target=${triple} -ffreestanding -fno-stack-protector
+        -O${level} -c ${inputs}/int128-call.c -o caller.o)
+    run(${LLD} -static -e _start caller.o libclang_rt.builtins.a -o linked.elf)
+    execute_process(COMMAND ${NM} --undefined-only ${output}/linked.elf
+                    RESULT_VARIABLE status OUTPUT_VARIABLE undefined)
+    if(NOT status EQUAL 0 OR NOT undefined STREQUAL "")
+      message(FATAL_ERROR "unresolved executable: ${undefined}")
+    endif()
+    file(MAKE_DIRECTORY ${output}/invalid)
+    configure_file(${output}/libclang_rt.builtins.a
+                   ${output}/invalid/libclang_rt.builtins.a COPYONLY)
+    run(${CLANG} --target=${triple} -ffreestanding -fno-builtin -O0
+        -c ${inputs}/int128-recursive.c -o invalid/multi3.c.o)
+    run(${AR} rD invalid/libclang_rt.builtins.a invalid/multi3.c.o)
+    execute_process(COMMAND ${PYTHON} ${inputs}/check-int128-builtins.py
+                    ${READOBJ} ${output}/invalid/libclang_rt.builtins.a
+                    RESULT_VARIABLE status ERROR_VARIABLE diagnostic)
+    if(status EQUAL 0 OR NOT diagnostic MATCHES "recursive helper dependency")
+      message(FATAL_ERROR "recursive provider escaped validation: ${diagnostic}")
+    endif()
+    # Do not leave the intentionally invalid archive as successful evidence.
+    file(REMOVE ${output}/invalid/libclang_rt.builtins.a)
+  endforeach()
+endforeach()

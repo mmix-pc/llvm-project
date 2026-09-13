@@ -44,7 +44,7 @@
 # RUN:   | FileCheck %s --check-prefix=SYMBOL
 # RUN: llvm-ar t \
 # RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.builtins.a \
-# RUN:   | count 5
+# RUN:   | count 21
 # RUN: llvm-readobj --file-headers \
 # RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.atomic.a \
 # RUN:   | FileCheck %s --check-prefix=ATOMIC-ELF
@@ -69,10 +69,14 @@
 # RUN: llvm-nm --undefined-only \
 # RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.stack_protector.a \
 # RUN:   | not grep ' U '
-# RUN: llvm-nm --undefined-only \
-# RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.builtins.a \
-# RUN:   | not grep ' U '
-# ELF-COUNT-5: Format: elf64-mmix
+# RUN: %python %S/Inputs/compiler-runtime/check-int128-builtins.py llvm-readobj \
+# RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.builtins.a
+# RUN: clang --target=mmix-unknown-unknown -ffreestanding -O2 \
+# RUN:   -c %S/Inputs/compiler-runtime/int128-call.c -o %t.dir/int128.o
+# RUN: ld.lld -static -e _start %t.dir/int128.o \
+# RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.builtins.a -o %t.dir/int128.elf
+# RUN: llvm-nm --undefined-only %t.dir/int128.elf | count 0
+# ELF-COUNT-21: Format: elf64-mmix
 # ELF: Arch: mmix
 # ELF: DataEncoding: BigEndian
 # ELF: Type: Relocatable

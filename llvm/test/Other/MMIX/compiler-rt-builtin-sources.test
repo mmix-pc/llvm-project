@@ -29,8 +29,9 @@
 # SYMBOL-DAG: T __mulsc3
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../../../compiler-rt/lib/builtins/mmix/builtins.cmake)
+list(SORT mmix_SOURCES)
 list(JOIN mmix_SOURCES ";" actual_sources)
-if(NOT actual_sources STREQUAL "divdc3.c;divsc3.c;ffsdi2.c;muldc3.c;mulsc3.c")
+if(NOT actual_sources STREQUAL "clzti2.c;divdc3.c;divsc3.c;divti3.c;ffsdi2.c;fixdfti.c;fixsfti.c;fixunsdfti.c;fixunssfti.c;floattidf.c;floattisf.c;floatuntidf.c;floatuntisf.c;modti3.c;muldc3.c;muloti4.c;mulsc3.c;multi3.c;udivmodti4.c;udivti3.c;umodti3.c")
   message(FATAL_ERROR "unexpected MMIX builtin sources: ${actual_sources}")
 endif()
 list(JOIN mmix_ATOMIC_SOURCES ";" actual_atomic_sources)
