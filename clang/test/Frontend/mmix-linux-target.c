@@ -40,7 +40,7 @@
 #if __BYTE_ORDER__ != __ORDER_BIG_ENDIAN__ || __STDC_NO_THREADS__ != 1
 #error Unexpected architectural capability
 #endif
-#if defined(__SIZEOF_INT128__) || defined(__FLOAT128__) || defined(__ANDROID__)
+#if __SIZEOF_INT128__ != 16 || defined(__FLOAT128__) || defined(__ANDROID__)
 #error Unexpected type or OS capability
 #endif
 

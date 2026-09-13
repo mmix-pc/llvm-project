@@ -52,7 +52,7 @@
 // NAND: error: MMIX GNU ABI does not support atomic operation __scoped_atomic_fetch_nand
 // UINC: error: MMIX GNU ABI does not support atomic operation __scoped_atomic_fetch_uinc
 // UDEC: error: MMIX GNU ABI does not support atomic operation __scoped_atomic_fetch_udec
-// WIDE: error: __int128 is not supported on this target
+// WIDE: error: MMIX GNU ABI does not support atomic operation __scoped_atomic_fetch_add
 // ADDRESS-SPACE: error: MMIX GNU ABI does not support argument type 'address_space_one *'
 // ORDER: error: memory order argument to atomic operation is invalid
 // FAILURE-ORDER: error: failure memory order argument to atomic operation is invalid

@@ -13,10 +13,6 @@
 // RUN:   | FileCheck %s --check-prefix=NARROW
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -std=c++17 \
 // RUN:   -mrelocation-model static -emit-llvm -o /dev/null \
-// RUN:   -DTEST_EXTENDED_INTEGER %s 2>&1 \
-// RUN:   | FileCheck %s --check-prefix=EXTENDED
-// RUN: not %clang_cc1 -triple mmix-unknown-unknown -std=c++17 \
-// RUN:   -mrelocation-model static -emit-llvm -o /dev/null \
 // RUN:   -DTEST_ADDRESS_SPACE %s 2>&1 \
 // RUN:   | FileCheck %s --check-prefix=ADDRESS-SPACE
 
@@ -41,11 +37,6 @@ unsigned int lose_pointer(void *value) {
   return reinterpret_cast<unsigned int>(value);
 }
 // NARROW: error: cast from pointer to smaller type 'unsigned int' loses information
-#elif defined(TEST_EXTENDED_INTEGER)
-__int128 unsupported_integer(void *value) {
-  return reinterpret_cast<__int128>(value);
-}
-// EXTENDED: error: __int128 is not supported on this target
 #elif defined(TEST_ADDRESS_SPACE)
 using AS1Source = Source __attribute__((address_space(1)));
 Target *change_address_space(AS1Source *value) {

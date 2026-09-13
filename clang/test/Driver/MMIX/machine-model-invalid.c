@@ -48,6 +48,6 @@
 // CODE-MODEL: error: unsupported argument 'large' to option '-mcmodel=' for target 'mmix-unknown-unknown'
 // PIC: fatal error: error in backend: MMIX supports only the static relocation model
 // HALF: error: _Float16 is not supported on this target
-// WIDE-COUNT-2: error: __int128 is not supported on this target
+// WIDE-COUNT-2: error: signed _BitInt of bit sizes greater than 64 not supported
 // ADDRESS-SPACE: error: MMIX GNU ABI does not support return type 'as1_int *'
 // ADDRESS-SPACE: error: MMIX GNU ABI does not support argument type 'as1_int *'

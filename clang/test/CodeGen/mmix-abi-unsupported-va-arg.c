@@ -1,7 +1,7 @@
 // REQUIRES: mmix-registered-target
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -std=gnu17 \
-// RUN:   -emit-llvm -o /dev/null -DINT128 %s 2>&1 | FileCheck %s \
-// RUN:   --check-prefix=INT128-ERR
+// RUN:   -emit-llvm -o /dev/null -DBITINT128 %s 2>&1 | FileCheck %s \
+// RUN:   --check-prefix=BITINT128-ERR
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -std=gnu17 \
 // RUN:   -emit-llvm -o /dev/null -DCOMPLEX %s 2>&1 | FileCheck %s \
 // RUN:   --check-prefix=COMPLEX-ERR
@@ -15,13 +15,13 @@
 typedef int int2 __attribute__((ext_vector_type(2)));
 typedef _Atomic(int) atomic_int;
 
-#if defined(INT128)
+#if defined(BITINT128)
 long unsupported(int named, ...) {
   __builtin_va_list ap;
   __builtin_va_start(ap, named);
-  return (long)__builtin_va_arg(ap, __int128);
+  return (long)__builtin_va_arg(ap, _BitInt(128));
 }
-// INT128-ERR: error: __int128 is not supported on this target
+// BITINT128-ERR: error: signed _BitInt of bit sizes greater than 64 not supported
 #elif defined(COMPLEX)
 long unsupported(int named, ...) {
   __builtin_va_list ap;

@@ -4,7 +4,6 @@
 // RUN:   | FileCheck -match-full-lines --implicit-check-not=__FLT16 \
 // RUN:       --implicit-check-not=__FLT128 --implicit-check-not=__BFLT16 \
 // RUN:       --implicit-check-not=__MMIX_ABI_MMIXWARE__ \
-// RUN:       --implicit-check-not=__SIZEOF_INT128__ \
 // RUN:       --implicit-check-not=__STDC_LIB_EXT1__ \
 // RUN:       --implicit-check-not=__STDC_NO_ATOMICS__ \
 // RUN:       --implicit-check-not=__STDC_NO_COMPLEX__ \
@@ -14,7 +13,6 @@
 // RUN:       --implicit-check-not=__FP_FAST_FMA %s
 // RUN: %clang_cc1 -E -dM -std=c17 -triple=mmix-unknown-unknown \
 // RUN:   < /dev/null | FileCheck -match-full-lines --check-prefix=C17 \
-// RUN:     --implicit-check-not=__SIZEOF_INT128__ \
 // RUN:     --implicit-check-not=__STDC_LIB_EXT1__ \
 // RUN:     --implicit-check-not=__STDC_NO_ATOMICS__ \
 // RUN:     --implicit-check-not=__STDC_NO_COMPLEX__ \
@@ -22,6 +20,7 @@
 // RUN:     --implicit-check-not=__STDC_IEC_ \
 // RUN:     --implicit-check-not=__STDC_FENV_ %s
 
+// C17: #define __SIZEOF_INT128__ 16
 // C17: #define __STDC_HOSTED__ 1
 // C17: #define __STDC_NO_THREADS__ 1
 // C17: #define __STDC_VERSION__ 201710L
@@ -69,6 +68,7 @@
 // CHECK: #define __SCHAR_WIDTH__ 8
 // CHECK: #define __SIZEOF_DOUBLE__ 8
 // CHECK: #define __SIZEOF_FLOAT__ 4
+// CHECK: #define __SIZEOF_INT128__ 16
 // CHECK: #define __SIZEOF_INT__ 4
 // CHECK: #define __SIZEOF_LONG_DOUBLE__ 8
 // CHECK: #define __SIZEOF_LONG_LONG__ 8

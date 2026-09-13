@@ -39,11 +39,11 @@ int4 value;
 // VECTOR: error: MMIX GNU ABI does not support vector value CodeGen involving type 'int4'
 #elif defined(TEST_WIDE_OPERATION)
 long multiply(long value) {
-  __int128 wide = value;
+  _BitInt(128) wide = value;
   wide *= wide;
   return (long)wide;
 }
-// WIDE: error: __int128 is not supported on this target
+// WIDE: error: signed _BitInt of bit sizes greater than 64 not supported
 #elif defined(TEST_BITINT)
 _BitInt(17) add_bitint(_BitInt(17) lhs, _BitInt(17) rhs) {
   return lhs + rhs;

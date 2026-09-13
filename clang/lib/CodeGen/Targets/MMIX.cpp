@@ -48,7 +48,7 @@ static bool isSupportedMMIXScalarType(const ASTContext &Context, QualType Ty,
   if (Ty->isIntegralOrEnumerationType()) {
     if (Ty->isBitIntType())
       return false;
-    return Context.getTypeSize(Ty) <= 64;
+    return Context.getTypeSize(Ty) <= 128;
   }
 
   if (Ty->isNullPtrType())
@@ -163,10 +163,12 @@ static bool isMMIXNativeAtomicStorageType(const ASTContext &Context,
   return (Size == 8 || Size == 16 || Size == 32 || Size == 64) && Align >= Size;
 }
 
-static bool isSupportedMMIXAtomicRMWType(QualType Ty) {
+static bool isSupportedMMIXAtomicRMWType(const ASTContext &Context, QualType Ty) {
   if (const auto *AT = Ty->getAs<AtomicType>())
     Ty = AT->getValueType();
-  return Ty->isIntegerType() || Ty->isPointerType();
+  // Scalar i128 support does not supply a wide atomic RMW runtime ABI.
+  return (Ty->isIntegerType() || Ty->isPointerType()) &&
+         Context.getTypeSize(Ty) <= 64;
 }
 
 enum class MMIXUnsupportedObjectKind {
@@ -398,7 +400,7 @@ public:
 
   bool VisitBinaryOperator(BinaryOperator *E) {
     if (E->isCompoundAssignmentOp() && E->getLHS()->getType()->isAtomicType() &&
-        !isSupportedMMIXAtomicRMWType(E->getLHS()->getType()))
+        !isSupportedMMIXAtomicRMWType(CGM.getContext(), E->getLHS()->getType()))
       return diagnoseAtomicOperation(E->getExprLoc(), E->getOpcodeStr());
     return diagnoseExtendedScalarOperation(E->getExprLoc(), E->getType()) &&
            diagnoseExtendedScalarOperation(E->getExprLoc(),
@@ -410,7 +412,7 @@ public:
   bool VisitUnaryOperator(UnaryOperator *E) {
     if (E->isIncrementDecrementOp() &&
         E->getSubExpr()->getType()->isAtomicType() &&
-        !isSupportedMMIXAtomicRMWType(E->getSubExpr()->getType()))
+        !isSupportedMMIXAtomicRMWType(CGM.getContext(), E->getSubExpr()->getType()))
       return diagnoseAtomicOperation(
           E->getExprLoc(), UnaryOperator::getOpcodeStr(E->getOpcode()));
     return diagnoseExtendedScalarOperation(E->getExprLoc(), E->getType()) &&
@@ -443,7 +445,7 @@ public:
         return true;
 
       QualType StorageTy = E->getArg(0)->getType()->getPointeeType();
-      if (isSupportedMMIXAtomicRMWType(StorageTy) &&
+      if (isSupportedMMIXAtomicRMWType(CGM.getContext(), StorageTy) &&
           isMMIXNativeAtomicStorageType(CGM.getContext(), StorageTy))
         return true;
     }
@@ -511,7 +513,7 @@ public:
     case AtomicExpr::AO__scoped_atomic_fetch_and:
     case AtomicExpr::AO__scoped_atomic_fetch_or:
     case AtomicExpr::AO__scoped_atomic_fetch_xor:
-      if (!isSupportedMMIXAtomicRMWType(E->getValueType()))
+      if (!isSupportedMMIXAtomicRMWType(CGM.getContext(), E->getValueType()))
         return diagnoseAtomicOperation(E->getExprLoc(), E->getOpAsString());
       break;
     default:
@@ -926,12 +928,8 @@ void MMIXABIInfo::computeInfo(CGFunctionInfo &FI) const {
 
 RValue MMIXABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
                               QualType Ty, AggValueSlot Slot) const {
-  // Scalar i128 occupies two adjacent octa slots, including across the
-  // register-save/stack boundary. Source type admission is handled separately.
-  bool IsInt128 = Ty->isSpecificBuiltinType(BuiltinType::Int128) ||
-                  Ty->isSpecificBuiltinType(BuiltinType::UInt128);
   if (Ty->isAtomicType() ||
-      (!IsInt128 && !isSupportedMMIXComplexType(Ty) &&
+      (!isSupportedMMIXComplexType(Ty) &&
        isUnsupportedMMIXScalarType(getContext(), Ty, /*AllowVoid=*/false))) {
     unsigned DiagID = CGF.CGM.getDiags().getCustomDiagID(
         DiagnosticsEngine::Error,

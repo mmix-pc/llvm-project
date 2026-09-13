@@ -33,7 +33,7 @@
 // UNALIGNED-DAG: U __atomic_load
 // ADDRESS-SPACE: error: MMIX GNU ABI does not support argument type 'address_space_one *'
 // RUNTIME-QUERY: U __atomic_is_lock_free
-// WIDE-SYNC-COUNT-2: error: __int128 is not supported on this target
+// WIDE-SYNC: error: MMIX GNU ABI does not support atomic builtin __sync_fetch_and_add_16
 // ORDER: error: memory order argument to atomic operation is invalid
 // SCOPED-NAND: error: MMIX GNU ABI does not support atomic operation __scoped_atomic_fetch_nand
 

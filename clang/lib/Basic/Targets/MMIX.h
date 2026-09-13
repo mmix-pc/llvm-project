@@ -78,7 +78,7 @@ public:
 
   bool hasFeature(StringRef Feature) const override;
 
-  bool hasInt128Type() const override { return false; }
+  bool hasInt128Type() const override { return true; }
 
   int getEHDataRegisterNumber(unsigned RegNo) const override {
     // DWARF numbers for the exception pointer ($231) and selector ($232).

@@ -1,6 +1,6 @@
 // REQUIRES: mmix-registered-target
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -emit-llvm -o /dev/null \
-// RUN:   -DTEST_INT128 %s 2>&1 | FileCheck %s --check-prefix=INT128
+// RUN:   -DTEST_BITINT128 %s 2>&1 | FileCheck %s --check-prefix=BITINT128
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -emit-llvm -o /dev/null \
 // RUN:   -DTEST_COMPLEX %s 2>&1 | FileCheck %s --check-prefix=COMPLEX
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -emit-llvm -o /dev/null \
@@ -13,9 +13,9 @@
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -emit-llvm -o /dev/null \
 // RUN:   -DTEST_INDIRECT_CALL %s 2>&1 | FileCheck %s --check-prefix=CALL
 
-#if defined(TEST_INT128)
-__int128 unsupported(__int128 value) { return value; }
-// INT128-COUNT-2: error: __int128 is not supported on this target
+#if defined(TEST_BITINT128)
+_BitInt(128) unsupported(_BitInt(128) value) { return value; }
+// BITINT128-COUNT-2: error: signed _BitInt of bit sizes greater than 64 not supported
 #elif defined(TEST_COMPLEX)
 _Complex int unsupported(_Complex int value) { return value; }
 // COMPLEX: error: MMIX GNU ABI does not support return type '_Complex int'
@@ -35,7 +35,7 @@ as1_int *unsupported(as1_int *value) { return value; }
 // AS: error: MMIX GNU ABI does not support return type 'as1_int *'
 // AS: error: MMIX GNU ABI does not support argument type 'as1_int *'
 #elif defined(TEST_INDIRECT_CALL)
-typedef __int128 (*unsupported_function)(__int128);
+typedef _BitInt(128) (*unsupported_function)(_BitInt(128));
 void call_unsupported(unsupported_function fn) { (void)fn(0); }
-// CALL-COUNT-2: error: __int128 is not supported on this target
+// CALL-COUNT-2: error: signed _BitInt of bit sizes greater than 64 not supported
 #endif

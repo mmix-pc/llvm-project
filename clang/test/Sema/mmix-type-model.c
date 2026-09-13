@@ -12,7 +12,7 @@ _Static_assert(sizeof(int) == 4 && _Alignof(int) == 4, "int");
 _Static_assert(sizeof(long) == 8 && _Alignof(long) == 8, "long");
 _Static_assert(sizeof(long long) == 8 && _Alignof(long long) == 8,
                "long long");
-__int128 unsupported_int128; // expected-error {{__int128 is not supported on this target}}
+_Static_assert(sizeof(__int128) == 16 && _Alignof(__int128) == 8, "__int128");
 
 _Static_assert(sizeof(float) == 4 && _Alignof(float) == 4, "float");
 _Static_assert(sizeof(double) == 8 && _Alignof(double) == 8, "double");

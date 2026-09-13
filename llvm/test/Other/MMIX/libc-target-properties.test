@@ -24,7 +24,7 @@
 static_assert(sizeof(fenv_t) == 8 && alignof(fenv_t) == 8,
               "unexpected MMIX floating environment representation");
 
-#if !defined(LIBC_TYPES_HAS_INT64) || defined(LIBC_TYPES_HAS_INT128)
+#if !defined(LIBC_TYPES_HAS_INT64) || !defined(LIBC_TYPES_HAS_INT128)
 #error "unexpected LLVM libc integer capabilities"
 #endif
 
