@@ -38,9 +38,12 @@ if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL expected OR
   message(FATAL_ERROR "incorrect initial Linux entrypoints")
 endif()
 include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
-foreach(header libc.include.string libc.include.strings libc.include.stdint)
+foreach(header libc.include.features libc.include.limits libc.include.stdint
+               libc.include.string libc.include.strings libc.include.stdlib
+               libc.include.unistd libc.include.errno libc.include.sys_types
+               libc.include.sys_syscall libc.include.sys_mman)
   if(NOT header IN_LIST TARGET_PUBLIC_HEADERS)
-    message(FATAL_ERROR "missing primitive header ${header}")
+    message(FATAL_ERROR "missing foundation header ${header}")
   endif()
 endforeach()
 file(READ ${LIBC_SOURCE}/config/linux/mmix/config.json config)
