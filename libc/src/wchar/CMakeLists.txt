@@ -740,6 +740,6 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
-if(LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+if(LIBC_TARGET_OS_IS_BAREMETAL AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
   add_subdirectory(baremetal/mmix)
 endif()

@@ -13,14 +13,16 @@
 
 #if defined(LIBC_TARGET_ARCH_IS_GPU)
 #include "src/stdlib/gpu/abort_utils.h"
-#elif defined(LIBC_TARGET_ARCH_IS_MMIX)
-#include "src/stdlib/baremetal/mmix/abort_utils.h"
 #elif defined(__linux__)
 #include "src/stdlib/linux/abort_utils.h"
 #elif defined(__ELF__)
 // TODO:ELF detection logic is borrowed from io.h (as we are still missing
 // LIBC_TARGET_OS_IS_BAREMETAL).
+#if defined(LIBC_TARGET_ARCH_IS_MMIX)
+#include "src/stdlib/baremetal/mmix/abort_utils.h"
+#else
 #include "src/stdlib/baremetal/abort_utils.h"
+#endif
 #endif
 
 #endif // LLVM_LIBC_SRC_STDLIB_ABORT_UTILS_H
