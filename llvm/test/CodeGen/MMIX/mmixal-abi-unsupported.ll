@@ -49,7 +49,7 @@
 ; RUN: test ! -s %t/nonlocal-stack.mms
 
 ; VARIADIC: LLVM ERROR: MMIXAL output variant 1 does not support variadic calls in function 'variadic_owner'
-; WIDE: LLVM ERROR: MMIX does not support ABI type 'i128' for call arguments in function 'wide_owner'
+; WIDE: LLVM ERROR: MMIX does not support ABI type 'i256' for call arguments in function 'wide_owner'
 ; DIRECT-AGGREGATE: LLVM ERROR: MMIXAL output variant 1 does not support direct aggregate call arguments in function 'direct_aggregate_owner'
 ; SRET: LLVM ERROR: MMIXAL output variant 1 does not support indirect aggregate call results in function 'sret_owner'
 ; ALTERNATE-CC: LLVM ERROR: MMIXAL output variant 1 requires the C calling convention for calls in function 'alternate_cc_owner'
@@ -77,8 +77,8 @@ loop:
 target triple = "mmix-unknown-elf"
 
 define void @wide_owner() {
-  %wide = zext i64 1 to i128
-  call void @wide_target(i128 %wide)
+  %wide = zext i64 1 to i256
+  call void @wide_target(i256 %wide)
   ret void
 }
 
@@ -88,7 +88,7 @@ loop:
   br label %loop
 }
 
-define void @wide_target(i128 %value) {
+define void @wide_target(i256 %value) {
   ret void
 }
 

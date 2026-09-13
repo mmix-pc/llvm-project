@@ -3,8 +3,8 @@
 ; RUN: not llc -mtriple=mmix -filetype=obj %s -o %t.o 2>&1 | FileCheck %s
 ; RUN: test ! -s %t.o
 
-; CHECK: LLVM ERROR: MMIX does not support ABI type 'i128' for function results in function 'unsupported_wide_return'
+; CHECK: LLVM ERROR: MMIX does not support ABI type 'i256' for function results in function 'unsupported_wide_return'
 
-define i128 @unsupported_wide_return() {
-  ret i128 undef
+define i256 @unsupported_wide_return() {
+  ret i256 undef
 }

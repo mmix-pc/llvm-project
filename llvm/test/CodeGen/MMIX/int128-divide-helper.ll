@@ -1,6 +1,9 @@
-; RUN: not --crash llc -mtriple=mmix %s -o /dev/null 2>&1 | FileCheck %s
+; RUN: llc -mtriple=mmix -O0 -verify-machineinstrs %s -o - | FileCheck %s
+; RUN: llc -mtriple=mmix -O2 -verify-machineinstrs %s -o - | FileCheck %s
 
-; CHECK: LLVM ERROR: unsupported library call operation
+; CHECK-LABEL: wide_divide:
+; CHECK: __udivti3
+; CHECK: PUSH{{J|GO}}
 
 define i64 @wide_divide(i64 %lhs, i64 %rhs) {
   %lhs.wide = zext i64 %lhs to i128

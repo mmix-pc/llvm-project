@@ -44,6 +44,23 @@ void MMIXSubtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
   Info.setLibcallImpl(RTLIB::MEMCPY, RTLIB::impl_memcpy);
   Info.setLibcallImpl(RTLIB::MEMMOVE, RTLIB::impl_memmove);
   Info.setLibcallImpl(RTLIB::MEMSET, RTLIB::impl_memset);
+
+  // Wide integer helpers use the same two-octa scalar ABI as ordinary IR calls.
+  Info.setLibcallImpl(RTLIB::MUL_I128, RTLIB::impl___multi3);
+  Info.setLibcallImpl(RTLIB::MULO_I128, RTLIB::impl___muloti4);
+  Info.setLibcallImpl(RTLIB::SDIV_I128, RTLIB::impl___divti3);
+  Info.setLibcallImpl(RTLIB::UDIV_I128, RTLIB::impl___udivti3);
+  Info.setLibcallImpl(RTLIB::SREM_I128, RTLIB::impl___modti3);
+  Info.setLibcallImpl(RTLIB::UREM_I128, RTLIB::impl___umodti3);
+  Info.setLibcallImpl(RTLIB::SINTTOFP_I128_F32, RTLIB::impl___floattisf);
+  Info.setLibcallImpl(RTLIB::SINTTOFP_I128_F64, RTLIB::impl___floattidf);
+  Info.setLibcallImpl(RTLIB::UINTTOFP_I128_F32, RTLIB::impl___floatuntisf);
+  Info.setLibcallImpl(RTLIB::UINTTOFP_I128_F64, RTLIB::impl___floatuntidf);
+  Info.setLibcallImpl(RTLIB::FPTOSINT_F32_I128, RTLIB::impl___fixsfti);
+  Info.setLibcallImpl(RTLIB::FPTOSINT_F64_I128, RTLIB::impl___fixdfti);
+  Info.setLibcallImpl(RTLIB::FPTOUINT_F32_I128, RTLIB::impl___fixunssfti);
+  Info.setLibcallImpl(RTLIB::FPTOUINT_F64_I128, RTLIB::impl___fixunsdfti);
+
   Info.setLibcallImpl(RTLIB::REM_F32, RTLIB::impl_fmodf);
   Info.setLibcallImpl(RTLIB::REM_F64, RTLIB::impl_fmod);
   Info.setLibcallImpl(RTLIB::FMA_F32, RTLIB::impl_fmaf);

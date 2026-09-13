@@ -695,6 +695,8 @@ MMIXTargetLowering::MMIXTargetLowering(const TargetMachine &TM,
   // expand those i64 operations into supported shifts and Boolean operations.
   setOperationAction(ISD::ROTL, MVT::i64, Expand);
   setOperationAction(ISD::ROTR, MVT::i64, Expand);
+  for (unsigned Opcode : {ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS})
+    setOperationAction(Opcode, MVT::i64, Expand);
   setOperationAction(ISD::BSWAP, MVT::i64, Expand);
   setOperationAction(ISD::CTLZ, MVT::i64, Expand);
   setOperationAction(ISD::CTTZ, MVT::i64, Expand);
@@ -1415,20 +1417,25 @@ static MMIXAggregateABIClassification classifyMMIXABIValue(
     unsigned NumParts = 1) {
   bool IsDirectAggregate = AggregateTy && AggregateTy->isAggregateType() &&
                            !Flags.isByVal() && !Flags.isSRet();
+  // A scalar i128 is legalized into two ordinary big-endian octa slots.
+  // This does not change direct aggregate or unsupported-width classification.
+  bool IsWideInteger = AggregateTy && AggregateTy->isIntegerTy(128) &&
+                       !Flags.isByVal() && !Flags.isSRet();
   MMIXAggregateABIValue Value;
   Value.Role = Flags.isSRet() ? MMIXAggregateABIRole::Result : Role;
   Value.IsAggregate = AggregateTy && AggregateTy->isAggregateType();
   Value.IsByVal = Flags.isByVal();
   Value.IsSRet = Flags.isSRet();
-  Value.IsSplit = !IsDirectAggregate &&
+  Value.IsSplit = !IsDirectAggregate && !IsWideInteger &&
                   (Flags.isSplit() || Flags.isSplitEnd());
-  Value.IsInConsecutiveRegs =
-      !IsDirectAggregate && (Flags.isInConsecutiveRegs() ||
-                             Flags.isInConsecutiveRegsLast());
+  Value.IsInConsecutiveRegs = !IsDirectAggregate && !IsWideInteger &&
+                             (Flags.isInConsecutiveRegs() ||
+                              Flags.isInConsecutiveRegsLast());
   Value.HasUnsupportedFlags = hasUnsupportedABIFlags(Flags);
   Value.AddressSpace =
       Flags.isPointer() ? Flags.getPointerAddrSpace() : 0;
-  Value.NumParts = IsDirectAggregate ? 1 : NumParts;
+  Value.NumParts =
+      IsDirectAggregate || (IsWideInteger && NumParts <= 2) ? 1 : NumParts;
 
   if (Flags.isByVal()) {
     Value.Size = Flags.getByValSize();
@@ -1475,6 +1482,9 @@ classifyMMIXCallerTailResult(const TargetLowering &TLI, const Function &F,
                            F.getReturnType(), ValueVTs.size());
   if (!Classification.isValid())
     return MMIXTailCallResultShape::Unsupported;
+
+  if (F.getReturnType()->isIntegerTy(128))
+    return MMIXTailCallResultShape::TwoRegisters;
 
   unsigned NumResultRegisters = ValueVTs.size();
   if (Classification.Kind == MMIXAggregateABIKind::DirectResult)
@@ -1541,7 +1551,8 @@ static bool isSupportedMMIXABIType(Type *Ty, const DataLayout &DL) {
   if (Ty->isVoidTy() || Ty->isAggregateType() || Ty->isPointerTy() ||
       Ty->isFloatTy() || Ty->isDoubleTy())
     return true;
-  return Ty->isIntegerTy() && Ty->getIntegerBitWidth() <= 64;
+  return Ty->isIntegerTy() &&
+         (Ty->getIntegerBitWidth() <= 64 || Ty->isIntegerTy(128));
 }
 
 [[noreturn]] static void reportUnsupportedMMIXABIType(
@@ -1944,9 +1955,9 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
     if (!CLI.Ins.empty())
       report_fatal_error("MMIX empty aggregate call result has value parts");
   } else {
-    if (CLI.Ins.size() > 1)
+    if (CLI.Ins.size() > (CLI.OrigRetTy->isIntegerTy(128) ? 2u : 1u))
       reportFatalUsageError(
-          Twine("MMIX supports at most one scalar call result in ") +
+          Twine("MMIX cannot lower this scalar call result representation in ") +
           "function '" + MF.getName() + "'");
     for (const ISD::InputArg &Result : CLI.Ins) {
       MMIXAggregateABIClassification Classification = classifyMMIXABIValue(
@@ -2108,10 +2119,13 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
         classifyMMIXCallerTailResult(*this, Caller, DAG.getDataLayout());
     if (!hasCompatibleMMIXTailResultAttributes(Caller, CLI.CB))
       ABI.CallerResult = MMIXTailCallResultShape::Unsupported;
-    ABI.CalleeResult =
-        CalleeSRet ? MMIXTailCallResultShape::Indirect
-                   : classifyMMIXTailCallResultShape(ResultClassification.Kind,
-                                                     ABIIns.size());
+    if (CalleeSRet)
+      ABI.CalleeResult = MMIXTailCallResultShape::Indirect;
+    else if (CLI.OrigRetTy->isIntegerTy(128))
+      ABI.CalleeResult = MMIXTailCallResultShape::TwoRegisters;
+    else
+      ABI.CalleeResult = classifyMMIXTailCallResultShape(
+          ResultClassification.Kind, ABIIns.size());
     bool HasVectorArgument =
         llvm::any_of(CLI.Args, [&](const ArgListEntry &Arg) {
           Type *Ty = Arg.IndirectType ? Arg.IndirectType : Arg.OrigTy;
@@ -2655,17 +2669,18 @@ bool MMIXTargetLowering::CanLowerReturn(
   bool SupportedType =
       Classification.isValid() && !Classification.isAggregate() &&
       (RetTy->isVoidTy() ||
-       (RetTy->isIntegerTy() && RetTy->getIntegerBitWidth() <= 64) ||
+       (RetTy->isIntegerTy() &&
+        (RetTy->getIntegerBitWidth() <= 64 || RetTy->isIntegerTy(128))) ||
        (RetTy->isPointerTy() && RetTy->getPointerAddressSpace() == 0) ||
        RetTy->isFloatTy() || RetTy->isDoubleTy());
   if (!isSupportedMMIXCallingConv(CallConv))
     return false;
   // Claim unsupported results so LowerReturn owns the target diagnostic
   // instead of allowing SelectionDAG to silently demote them to sret.
-  if (Outs.size() > 1 || !SupportedType)
+  if (Outs.size() > (RetTy->isIntegerTy(128) ? 2u : 1u) || !SupportedType)
     return true;
 
-  SmallVector<CCValAssign, 1> RetLocs;
+  SmallVector<CCValAssign, 2> RetLocs;
   CCState CCInfo(CallConv, IsVarArg, MF, RetLocs, Context);
   return CCInfo.CheckReturn(Outs, RetCC_MMIX);
 }
