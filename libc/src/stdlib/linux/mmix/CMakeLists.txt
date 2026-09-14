@@ -15,13 +15,14 @@ add_object_library(
     libc.src.string.memory_utils.inline_memset
 )
 
-foreach(entrypoint malloc free)
+foreach(entrypoint malloc free calloc realloc)
   add_entrypoint_object(${entrypoint}
     SRCS ${entrypoint}.cpp
     HDRS ../../${entrypoint}.h
     DEPENDS
       .allocator
       libc.src.__support.common
+      libc.src.string.memory_utils.inline_memset
       libc.src.__support.libc_errno
       libc.src.errno.errno)
 endforeach()

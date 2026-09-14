@@ -5,13 +5,13 @@ if(LLVM_LIBC_INCLUDE_SCUDO OR NOT LLVM_LIBC_FULL_BUILD OR
 endif()
 
 add_subdirectory(linux/mmix)
-foreach(entrypoint malloc free)
+foreach(entrypoint malloc free calloc realloc)
   add_entrypoint_object(${entrypoint}
     ALIAS
     DEPENDS .linux.mmix.${entrypoint})
 endforeach()
 
 # Keep unfinished allocation interfaces explicit external dependencies.
-foreach(entrypoint calloc realloc aligned_alloc mallopt posix_memalign)
+foreach(entrypoint aligned_alloc mallopt posix_memalign)
   add_entrypoint_external(${entrypoint})
 endforeach()

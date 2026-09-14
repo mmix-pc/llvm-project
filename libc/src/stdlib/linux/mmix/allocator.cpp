@@ -33,6 +33,16 @@ static_assert(alignof(Region) <= BlockRef::MIN_ALIGN);
 // Revisit synchronization and fork handling with the pthread runtime.
 Region *regions = nullptr;
 
+Region **find_region(void *ptr) {
+  uintptr_t address = reinterpret_cast<uintptr_t>(ptr);
+  for (Region **link = &regions; *link; link = &(*link)->next) {
+    uintptr_t begin = reinterpret_cast<uintptr_t>((*link)->mapping.heap.data());
+    if (address >= begin && address - begin < (*link)->mapping.heap.size())
+      return link;
+  }
+  return nullptr;
+}
+
 void release_empty(Region **link) {
   Region *region = *link;
   Region *next = region->next;
@@ -71,12 +81,8 @@ void *allocate(size_t size) {
 void deallocate(void *ptr) {
   if (!ptr)
     return;
-  uintptr_t address = reinterpret_cast<uintptr_t>(ptr);
-  for (Region **link = &regions; *link; link = &(*link)->next) {
+  if (Region **link = find_region(ptr)) {
     Region *region = *link;
-    uintptr_t begin = reinterpret_cast<uintptr_t>(region->mapping.heap.data());
-    if (address < begin || address - begin >= region->mapping.heap.size())
-      continue;
     region->heap.free(ptr);
     --region->live;
     if (!region->live)
@@ -84,6 +90,35 @@ void deallocate(void *ptr) {
     return;
   }
   LIBC_ASSERT(false && "allocation does not belong to this heap");
+}
+
+void *resize(void *ptr, size_t size) {
+  if (!size) {
+    deallocate(ptr);
+    return nullptr;
+  }
+  if (!ptr)
+    return allocate(size);
+  if (size > size_t(cpp::numeric_limits<ptrdiff_t>::max()))
+    return nullptr;
+  Region **link = find_region(ptr);
+  if (!link) {
+    LIBC_ASSERT(false && "allocation does not belong to this heap");
+    return nullptr;
+  }
+  Region *region = *link;
+  size_t old_size = region->heap.allocation_size(ptr);
+  if (void *resized = region->heap.realloc(ptr, size))
+    return resized;
+
+  // FreeListHeap resizes within one region. Keep the original allocation live
+  // until another region supplies storage and its contents have been copied.
+  void *resized = allocate(size);
+  if (!resized)
+    return nullptr;
+  inline_memcpy(resized, ptr, cpp::min(old_size, size));
+  deallocate(ptr);
+  return resized;
 }
 
 } // namespace mmix

@@ -16,6 +16,7 @@ namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 
 void *allocate(size_t size);
+void *resize(void *ptr, size_t size);
 void deallocate(void *ptr);
 
 } // namespace mmix
