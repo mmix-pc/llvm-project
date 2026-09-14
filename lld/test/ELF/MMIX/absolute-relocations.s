@@ -5,8 +5,12 @@
 # RUN: yaml2obj --docnum=1 %s -o %t.o
 # RUN: ld.lld -e 0 -T %t.script %t.o -o %t
 # RUN: llvm-objdump -s --section=.data %t | FileCheck %s --check-prefix=DATA
+# RUN: ld.lld -m elf64mmix_linux -e 0 -T %t.script %t.o -o %t.linux
+# RUN: llvm-objdump -s --section=.data %t.linux | FileCheck %s --check-prefix=DATA
 # RUN: yaml2obj --docnum=2 %s -o %t-overflow.o
 # RUN: not ld.lld -e 0 -T %t.script %t-overflow.o -o /dev/null 2>&1 \
+# RUN:   | FileCheck %s --check-prefix=OVERFLOW
+# RUN: not ld.lld -m elf64mmix_linux -e 0 -T %t.script %t-overflow.o -o /dev/null 2>&1 \
 # RUN:   | FileCheck %s --check-prefix=OVERFLOW
 # RUN: yaml2obj --docnum=3 %s -o %t-malformed.o
 # RUN: not ld.lld -e 0 -T %t.script %t-malformed.o -o /dev/null 2>&1 \
