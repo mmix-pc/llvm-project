@@ -1,0 +1,61 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %S/libcxx-linux-thread-types.test %t
+# RUN: cmake -S %t -B %t/build -DSOURCE=%S/../../../.. -DOUT=%t
+# RUN: cmake -DSOURCE=%S/../../../.. -DOUT=%t/llvm-headers -P %S/Inputs/linux-state-config.cmake
+# RUN: split-file %s %t/probe
+# RUN: %python %t/probe/check.py %S/../../../.. %t
+
+#--- check.py
+import pathlib
+import shutil
+import subprocess
+import sys
+import yaml
+
+source, root = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+headers = root / "c"
+(headers / "sys").mkdir()
+(headers / "linux").mkdir()
+# Source-only error constants, not Linux UAPI qualification.
+shutil.copyfile(source / "libc/include/llvm-libc-macros/generic-error-number-macros.h",
+                headers / "linux/errno.h")
+shutil.copyfile(source / "libc/include/__llvm-libc-common.h", headers / "__llvm-libc-common.h")
+shutil.copyfile(source / "libcxx/vendor/llvm/default_assertion_handler.in",
+                root / "__assertion_handler")
+for directory in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(source / "libc/include" / directory, headers / directory)
+for header in ("stdio", "stdlib", "string", "strings", "stdint", "inttypes",
+               "ctype", "errno", "assert", "time"):
+    subprocess.run([sys.executable, str(source / "libc/utils/hdrgen/main.py"),
+                    "--output", str(headers / (header + ".h")),
+                    str(source / ("libc/include/" + header + ".yaml"))], check=True)
+# loff_t is unused here and imports external kernel UAPI. The installed gate
+# uses the complete generated sys/types.h and the real MMIX Linux headers.
+types = yaml.safe_load((source / "libc/include/sys/types.yaml").read_text())
+types["types"] = [t for t in types["types"] if t["type_name"] != "loff_t"]
+description = root / "sys-types.yaml"
+description.write_text(yaml.safe_dump(types))
+subprocess.run([sys.executable, str(source / "libc/utils/hdrgen/main.py"),
+                "--output", str(headers / "sys/types.h"), str(description)], check=True)
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+flags = ["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++17",
+         "-mrelocation-model", "static", "-ffreestanding", "-DNDEBUG",
+         "-internal-isystem", resource + "/include", "-I", str(root),
+         "-I", str(source / "libcxx/include"), "-I", str(headers),
+         "-I", str(source / "libc/include"), "-I", str(root / "llvm-headers"),
+         "-I", str(source / "llvm/include")]
+for level in ("0", "2"):
+    for name, file in (("consumer", source / "llvm/test/Other/MMIX/Inputs/linux-state-consumer.cpp"),
+                       ("managed", source / "llvm/lib/Support/ManagedStatic.cpp")):
+        obj = root / (name + level + ".o")
+        subprocess.run(flags + ["-O" + level, "-emit-obj", "-o", str(obj), str(file)], check=True)
+        undefined = subprocess.check_output(["llvm-nm", "-C", "-u", str(obj)], text=True)
+        assert "pthread_" not in undefined and "__tls_get_addr" not in undefined
+        elf = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
+        assert "TLS" not in elf
+        if name == "consumer":
+            assert "recursive_mutex::lock()" in undefined, undefined
+            assert "::lock_shared()" in undefined, undefined
+            assert "ManagedStaticBase::RegisterManagedStatic" in undefined, undefined
+        # Whole-source dependencies stay visible; no fabricated providers or link claim.

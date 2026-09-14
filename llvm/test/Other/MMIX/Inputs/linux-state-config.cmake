@@ -1,0 +1,13 @@
+set(LLVM_ENABLE_THREADS OFF)
+set(LLVM_ENABLE_UNIX_THREADS OFF)
+set(LLVM_ENABLE_PTHREADS OFF)
+set(LLVM_ON_UNIX 1)
+set(LLVM_DEFAULT_TARGET_TRIPLE mmix-unknown-linux)
+set(LLVM_HOST_TRIPLE mmix-unknown-linux)
+set(LLVM_VERSION_MAJOR 24)
+set(LLVM_VERSION_MINOR 0)
+set(LLVM_VERSION_PATCH 0)
+foreach(header llvm-config.h config.h abi-breaking.h)
+  configure_file(${SOURCE}/llvm/include/llvm/Config/${header}.cmake
+    ${OUT}/llvm/Config/${header})
+endforeach()
