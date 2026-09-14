@@ -12,3 +12,18 @@ set(TARGET_PUBLIC_HEADERS
     libc.include.sys_types
     libc.include.unistd
 )
+
+if(LIBC_MMIX_BUILD_RUNTIME_STATE)
+  # Storage types for libc++'s external API, not public C thread operations.
+  list(APPEND TARGET_PUBLIC_HEADERS
+    libc.include.assert
+    libc.include.stdio
+    libc.include.llvm-libc-types.cnd_t
+    libc.include.llvm-libc-types.mtx_t
+    libc.include.llvm-libc-types.once_flag
+    libc.include.llvm-libc-types.pid_t
+    libc.include.llvm-libc-types.struct_timespec
+    libc.include.llvm-libc-types.thrd_t
+    libc.include.llvm-libc-types.tss_t
+  )
+endif()

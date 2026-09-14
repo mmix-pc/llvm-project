@@ -1,0 +1,29 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+set(baseline ${TARGET_PUBLIC_HEADERS})
+set(LIBC_MMIX_BUILD_RUNTIME_STATE ON)
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+foreach(header assert stdio)
+  if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
+    message(FATAL_ERROR "Internal lock diagnostic header missing: ${header}")
+  endif()
+endforeach()
+foreach(type cnd_t mtx_t once_flag pid_t struct_timespec thrd_t tss_t)
+  if(NOT "libc.include.llvm-libc-types.${type}" IN_LIST TARGET_PUBLIC_HEADERS)
+    message(FATAL_ERROR "External synchronization storage type missing: ${type}")
+  endif()
+endforeach()
+if("libc.include.threads" IN_LIST TARGET_PUBLIC_HEADERS OR
+   "libc.include.pthread" IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "State preparation must not expose public thread operations")
+endif()
+set(LIBC_MMIX_BUILD_RUNTIME_STATE OFF)
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT "${baseline}" STREQUAL "${TARGET_PUBLIC_HEADERS}")
+  message(FATAL_ERROR "Foundation header selection changed")
+endif()
