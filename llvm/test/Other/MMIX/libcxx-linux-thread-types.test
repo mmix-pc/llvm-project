@@ -1,0 +1,100 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: cmake -S %t -B %t/build -DSOURCE=%S/../../../.. -DOUT=%t
+# RUN: %python %t/run.py %S/../../../.. %t
+# RUN: not cmake -S %t -B %t/install -DSOURCE=%S/../../../.. -DOUT=%t/install -DLIBCXX_INSTALL_HEADERS=ON 2>&1 | FileCheck %s
+# RUN: not cmake -S %t -B %t/pthread -DSOURCE=%S/../../../.. -DOUT=%t/pthread -DLIBCXX_HAS_PTHREAD_API=ON 2>&1 | FileCheck %s
+# RUN: not cmake -S %t -B %t/newlib -DSOURCE=%S/../../../.. -DOUT=%t/newlib -DRUNTIMES_USE_LIBC=newlib 2>&1 | FileCheck %s
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/generic.cmake
+# CHECK: MMIX Linux libc++ requires non-installing static external-thread
+# CHECK-NEXT: preparation with LLVM libc
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libcxx/cmake/caches/MMIXLinux.cmake)
+project(ThreadTypes NONE)
+set(RUNTIMES_USE_LIBC llvm-libc CACHE STRING "")
+set(LIBCXX_GENERATED_INCLUDE_TARGET_DIR ${OUT})
+include(${SOURCE}/libcxx/src/support/mmix/Sources.cmake)
+# Exercise the real config template with the selected cache's thread settings.
+set(_LIBCPP_ABI_VERSION 1)
+set(_LIBCPP_ABI_NAMESPACE __1)
+set(_LIBCPP_HAS_THREADS ${LIBCXX_ENABLE_THREADS})
+set(_LIBCPP_HAS_MONOTONIC_CLOCK ${LIBCXX_ENABLE_MONOTONIC_CLOCK})
+set(_LIBCPP_HAS_THREAD_API_EXTERNAL ${LIBCXX_HAS_EXTERNAL_THREAD_API})
+set(_LIBCPP_LIBC_LLVM_LIBC 1)
+set(_LIBCPP_HARDENING_MODE_DEFAULT 2)
+set(_LIBCPP_ASSERTION_SEMANTIC_DEFAULT 2)
+configure_file(${SOURCE}/libcxx/include/__config_site.in ${OUT}/__config_site @ONLY)
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+source, root = map(pathlib.Path, sys.argv[1:])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+base = ["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++17",
+        "-mrelocation-model", "static",
+        "-ffreestanding", "-internal-isystem", resource + "/include",
+        "-I", str(root), "-I", str(source / "libcxx/include"),
+        "-I", str(root / "c"),
+        "-I", str(source / "libc/include")]
+for level in ("0", "2"):
+    obj = root / ("types" + level + ".o")
+    subprocess.run(base + ["-O" + level, "-emit-obj", "-o", str(obj),
+                          str(root / "types.cpp")], check=True)
+    undefined = subprocess.check_output(["llvm-nm", "-C", "-u", str(obj)], text=True)
+    assert "__libcpp_mutex_lock" in undefined, undefined
+    assert "__libcpp_execute_once" in undefined, undefined
+    assert "pthread_" not in undefined and "__tls_get_addr" not in undefined
+    report = subprocess.check_output(["llvm-readobj", "--sections", "--relocations",
+                                      str(obj)], text=True)
+    assert "TLS" not in report
+# Generic consumers must not silently pick up the Linux-only provider.
+bad = base.copy()
+bad[bad.index("mmix-unknown-linux")] = "mmix-unknown-unknown"
+result = subprocess.run(bad + ["-fsyntax-only", str(root / "types.cpp")],
+                        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+assert result.returncode and "MMIX Linux preparation profile" in result.stdout
+
+#--- types.cpp
+#include <__mutex/mutex.h>
+#include <__external_threading>
+#include <__type_traits/is_same.h>
+
+static_assert(std::is_same<std::mutex::native_handle_type,
+                           std::__libcpp_mutex_t*>::value, "native handle");
+static_assert(std::is_same<std::__libcpp_mutex_t, mtx_t>::value, "libc storage");
+static_assert(std::is_same<std::__libcpp_recursive_mutex_t, mtx_t>::value, "recursive storage");
+static_assert(std::is_same<std::__libcpp_condvar_t, cnd_t>::value, "condition storage");
+static_assert(std::is_same<std::__libcpp_exec_once_flag, once_flag>::value, "once storage");
+constexpr std::__libcpp_mutex_t mutex_init = _LIBCPP_MUTEX_INITIALIZER;
+constexpr std::__libcpp_condvar_t cond_init = _LIBCPP_CONDVAR_INITIALIZER;
+constexpr std::__libcpp_thread_t thread_init = _LIBCPP_NULL_THREAD;
+constexpr std::__libcpp_exec_once_flag once_init = _LIBCPP_EXEC_ONCE_INITIALIZER;
+static_assert(mutex_init.__ftxw.__word == 0 && once_init.__word == 0 && cond_init.__qfront == nullptr &&
+              thread_init.__attrib == nullptr, "constant initialization");
+
+extern "C" int needs_provider(std::__libcpp_mutex_t* mutex,
+                              std::__libcpp_exec_once_flag* flag, void (*fn)()) {
+  return std::__libcpp_mutex_lock(mutex) + std::__libcpp_execute_once(flag, fn);
+}
+
+#--- c/string.h
+// Isolate this type test from installed C headers. Full-header LLVM consumers
+// are checked separately with generated LLVM libc.
+#include <stddef.h>
+extern "C" void* memcpy(void*, const void*, size_t);
+
+#--- generic.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libcxx/cmake/caches/MMIX.cmake)
+set(LIBCXX_SOURCES mutex.cpp chrono.cpp charconv.cpp)
+include(${SOURCE}/libcxx/src/support/mmix/Sources.cmake)
+if(LIBCXX_ENABLE_THREADS OR LIBCXX_HAS_EXTERNAL_THREAD_API OR
+   NOT CMAKE_SYSTEM_NAME STREQUAL "Generic" OR
+   "chrono.cpp" IN_LIST LIBCXX_SOURCES OR "charconv.cpp" IN_LIST LIBCXX_SOURCES)
+  message(FATAL_ERROR "Generic configuration changed")
+endif()

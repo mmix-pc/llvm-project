@@ -1,3 +1,8 @@
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  include("${CMAKE_CURRENT_LIST_DIR}/Linux.cmake")
+  return()
+endif()
+
 # MMIX's public profile does not provide clocks, filesystem services, floating
 # charconv, or C++23 printing. Do not build them against missing C interfaces.
 foreach(feature THREADS FILESYSTEM LOCALIZATION MONOTONIC_CLOCK

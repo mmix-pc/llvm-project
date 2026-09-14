@@ -1,0 +1,86 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP_MMIX_LINUX_EXTERNAL_THREADING
+#define _LIBCPP_MMIX_LINUX_EXTERNAL_THREADING
+
+#include <__chrono/duration.h>
+#include <__config>
+#include <llvm-libc-types/cnd_t.h>
+#include <llvm-libc-types/mtx_t.h>
+#include <llvm-libc-types/once_flag.h>
+#include <llvm-libc-types/pid_t.h>
+#include <llvm-libc-types/struct_timespec.h>
+#include <llvm-libc-types/thrd_t.h>
+#include <llvm-libc-types/tss_t.h>
+
+#if !defined(__mmix__) || !defined(__linux__) || !_LIBCPP_HAS_THREADS || !_LIBCPP_HAS_THREAD_API_EXTERNAL
+#  error "This external threading provider requires the MMIX Linux preparation profile"
+#endif
+
+// FIXME: Replace this temporary provider with pthread when threads/TLS are
+// integrated. These libc-owned types are not a promised future pthread ABI.
+// Declarations alone do not provide thread creation, waits or TLS operations.
+_LIBCPP_BEGIN_NAMESPACE_STD
+_LIBCPP_BEGIN_EXPLICIT_ABI_ANNOTATIONS
+
+using __libcpp_timespec_t        = ::timespec;
+using __libcpp_mutex_t           = ::mtx_t;
+using __libcpp_recursive_mutex_t = ::mtx_t;
+using __libcpp_condvar_t         = ::cnd_t;
+using __libcpp_exec_once_flag    = ::once_flag;
+using __libcpp_thread_id         = ::pid_t;
+using __libcpp_thread_t          = ::thrd_t;
+using __libcpp_tls_key           = ::tss_t;
+
+#define _LIBCPP_MUTEX_INITIALIZER                                                                                      \
+  {                                                                                                                    \
+  }
+#define _LIBCPP_CONDVAR_INITIALIZER                                                                                    \
+  {                                                                                                                    \
+  }
+#define _LIBCPP_EXEC_ONCE_INITIALIZER {}
+#define _LIBCPP_NULL_THREAD                                                                                            \
+  {                                                                                                                    \
+  }
+#define _LIBCPP_TLS_DESTRUCTOR_CC
+
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_recursive_mutex_init(__libcpp_recursive_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_recursive_mutex_lock(__libcpp_recursive_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI bool __libcpp_recursive_mutex_trylock(__libcpp_recursive_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_recursive_mutex_unlock(__libcpp_recursive_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_recursive_mutex_destroy(__libcpp_recursive_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_mutex_lock(__libcpp_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI bool __libcpp_mutex_trylock(__libcpp_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_mutex_unlock(__libcpp_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_mutex_destroy(__libcpp_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_condvar_signal(__libcpp_condvar_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_condvar_broadcast(__libcpp_condvar_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_condvar_wait(__libcpp_condvar_t*, __libcpp_mutex_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_condvar_timedwait(__libcpp_condvar_t*, __libcpp_mutex_t*, __libcpp_timespec_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_condvar_destroy(__libcpp_condvar_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_execute_once(__libcpp_exec_once_flag*, void (*)());
+_LIBCPP_EXPORTED_FROM_ABI bool __libcpp_thread_id_equal(__libcpp_thread_id, __libcpp_thread_id);
+_LIBCPP_EXPORTED_FROM_ABI bool __libcpp_thread_id_less(__libcpp_thread_id, __libcpp_thread_id);
+_LIBCPP_EXPORTED_FROM_ABI bool __libcpp_thread_isnull(const __libcpp_thread_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_thread_create(__libcpp_thread_t*, void* (*)(void*), void*);
+_LIBCPP_EXPORTED_FROM_ABI __libcpp_thread_id __libcpp_thread_get_current_id();
+_LIBCPP_EXPORTED_FROM_ABI __libcpp_thread_id __libcpp_thread_get_id(const __libcpp_thread_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_thread_join(__libcpp_thread_t*);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_thread_detach(__libcpp_thread_t*);
+_LIBCPP_EXPORTED_FROM_ABI void __libcpp_thread_yield();
+_LIBCPP_EXPORTED_FROM_ABI void __libcpp_thread_sleep_for(const chrono::nanoseconds&);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_tls_create(__libcpp_tls_key*, void (*)(void*));
+_LIBCPP_EXPORTED_FROM_ABI void* __libcpp_tls_get(__libcpp_tls_key);
+_LIBCPP_EXPORTED_FROM_ABI int __libcpp_tls_set(__libcpp_tls_key, void*);
+
+_LIBCPP_END_EXPLICIT_ABI_ANNOTATIONS
+_LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP_MMIX_LINUX_EXTERNAL_THREADING
