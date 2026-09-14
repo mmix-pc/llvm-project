@@ -147,7 +147,9 @@ static const Value *getMMIXStructRetArgument(const CallBase *Call) {
   return nullptr;
 }
 
-static bool isUnsafeInlineAsmRegister(MCRegister Reg) {
+static bool isUnsafeInlineAsmRegister(MCRegister Reg, bool IsLinux) {
+  if (IsLinux && Reg == MMIX::R230)
+    return true;
   switch (Reg.id()) {
   case MMIX::R30:  // Holds the incoming rJ in non-leaf functions.
   case MMIX::R253: // Frame pointer.
@@ -519,7 +521,8 @@ MMIXTargetLowering::ParseConstraints(const DataLayout &DL,
         continue;
       StringRef Name = Code.drop_front().drop_back();
       MCRegister Reg = MatchRegisterName(Name);
-      if (!Reg || !isUnsafeInlineAsmRegister(Reg))
+      if (!Reg || !isUnsafeInlineAsmRegister(
+                      Reg, getTargetMachine().getTargetTriple().isOSLinux()))
         continue;
       reportFatalUsageError(
           Twine("MMIX inline assembly may not clobber register '") +
@@ -609,7 +612,8 @@ MMIXTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
     return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 
   MCRegister Reg = MatchRegisterName(Constraint.drop_front().drop_back());
-  if (!Reg || isUnsafeInlineAsmRegister(Reg))
+  if (!Reg || isUnsafeInlineAsmRegister(
+                  Reg, getTargetMachine().getTargetTriple().isOSLinux()))
     return {0, nullptr};
 
   if (MMIX::GPR64CodeGenRegClass.contains(Reg)) {

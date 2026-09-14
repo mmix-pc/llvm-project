@@ -9,6 +9,7 @@
 #include "LinkerScript.h"
 #include "OutputSections.h"
 #include "RelocScan.h"
+#include "SymbolTable.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
@@ -44,6 +45,7 @@ constexpr StringLiteral linkerAllocatedRegisterContentsSectionName =
     ".MMIX.reg_contents.linker_allocated";
 constexpr uint16_t defaultFirstGlobalRegister = 255;
 constexpr uint16_t minimumGlobalRegister = 32;
+constexpr uint64_t linuxPageSize = 8192;
 
 struct MMIXRelaxationSequence {
   uint8_t size;
@@ -327,7 +329,8 @@ private:
                                                 const uint8_t *loc) const;
   bool isRegisterContentReference(const Symbol &sym) const;
   bool isRegisterContentSymbol(const Symbol &sym) const;
-  void validateRelocatableSection(InputSectionBase &sec) const;
+  void validateInputRelocations(InputSectionBase &sec) const;
+  void validateLinuxLayout() const;
   std::optional<uint16_t>
   getRegisterContentValue(const Symbol &sym, int64_t addend,
                           const uint8_t *loc = nullptr) const;
@@ -345,6 +348,7 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
   if (isLinux()) {
     // Linux fixes rG at process entry; the loader does not initialize GREGs.
     firstGlobalRegister = 230;
+    defaultMaxPageSize = defaultCommonPageSize = linuxPageSize;
     if (!ctx.bitcodeFiles.empty())
       ErrAlways(ctx) << "MMIX Linux does not support bitcode input";
   }
@@ -372,10 +376,20 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
       ErrAlways(ctx) << file << ": unsupported MMIX ELF ABI version "
                      << static_cast<unsigned>(file->abiVersion);
 
+  if (isLinux())
+    for (ELFFileBase *file : ctx.objectFiles)
+      if (file->getObj<ELF64BE>().getHeader().e_flags)
+        ErrAlways(ctx) << file << ": MMIX Linux does not support ELF e_flags";
+
   collectRegisterModel();
 }
 
 void MMIX::initTargetSpecificSections() {
+  if (isLinux() && !ctx.arg.relocatable &&
+      (ctx.arg.maxPageSize < linuxPageSize ||
+       ctx.arg.commonPageSize < linuxPageSize))
+    Err(ctx) << "MMIX Linux requires maximum and common page sizes of at "
+                "least 8192 bytes";
   StringRef name = ctx.script->hasSectionsCommand
                        ? linkerAllocatedRegisterContentsSectionName
                        : registerContentsSectionName;
@@ -383,15 +397,16 @@ void MMIX::initTargetSpecificSections() {
       std::make_unique<MMIXLinkerAllocatedRegisterSection>(ctx, name);
   ctx.inputSections.push_back(linkerAllocatedRegisterContents.get());
 
-  if (ctx.arg.relocatable)
+  // Inspect selected Linux inputs before GC can hide incompatible relocations.
+  if (ctx.arg.relocatable || isLinux())
     for (ELFFileBase *file : ctx.objectFiles)
       for (InputSectionBase *section : file->getSections())
         if (section && section != &InputSection::discarded &&
             section->kind() == SectionBase::Regular)
-          validateRelocatableSection(*section);
+          validateInputRelocations(*section);
 }
 
-void MMIX::validateRelocatableSection(InputSectionBase &sec) const {
+void MMIX::validateInputRelocations(InputSectionBase &sec) const {
   RelsOrRelas<ELF64BE> relocs = sec.relsOrRelas<ELF64BE>();
   if (relocs.areRelocsRel() || relocs.areRelocsCrel()) {
     Err(ctx) << &sec << ": MMIX supports only RELA relocations";
@@ -1222,6 +1237,54 @@ void MMIX::finalizeRelax(int passes) const {
 
   if (registerContentsOutput)
     registerContentsOutput->addr = uint64_t(firstGlobalRegister) * 8;
+  if (isLinux())
+    validateLinuxLayout();
+}
+
+void MMIX::validateLinuxLayout() const {
+  constexpr uint64_t userLimit = uint64_t(1) << 63;
+  for (OutputSection *sec : ctx.outputSections) {
+    if (sec->size && (sec->name == registerContentsSectionName ||
+                      sec->name == linkerAllocatedRegisterContentsSectionName))
+      Err(ctx) << "MMIX Linux does not support register-content output "
+               << sec->name;
+    if (!(sec->flags & SHF_ALLOC) || !sec->size)
+      continue;
+    if (sec->addr >= userLimit || sec->size > userLimit - sec->addr)
+      Err(ctx) << "MMIX Linux section " << sec->name
+               << " is outside the nonnegative user address range";
+    if (!sec->ptLoad) {
+      Err(ctx) << "MMIX Linux allocated section " << sec->name
+               << " is not in a PT_LOAD segment";
+      continue;
+    }
+    uint32_t required = PF_R;
+    if (sec->flags & SHF_WRITE)
+      required |= PF_W;
+    if (sec->flags & SHF_EXECINSTR)
+      required |= PF_X;
+    if ((sec->ptLoad->p_flags & required) != required)
+      Err(ctx) << "MMIX Linux PT_LOAD permissions do not cover section "
+               << sec->name;
+  }
+
+  uint64_t entry = 0;
+  if (Symbol *sym = ctx.symtab->find(ctx.arg.entry))
+    entry = sym->getVA(ctx);
+  else if (!to_integer(ctx.arg.entry, entry)) {
+    Err(ctx) << "MMIX Linux requires a defined entry symbol or address";
+    return;
+  }
+  if (entry >= userLimit || (entry & 3)) {
+    Err(ctx) << "MMIX Linux entry must be a nonnegative 4-byte-aligned address";
+    return;
+  }
+  if (llvm::none_of(ctx.outputSections, [&](const OutputSection *sec) {
+        return (sec->flags & SHF_ALLOC) && (sec->flags & SHF_EXECINSTR) &&
+               sec->ptLoad && (sec->ptLoad->p_flags & PF_X) &&
+               entry >= sec->addr && entry - sec->addr < sec->size;
+      }))
+    Err(ctx) << "MMIX Linux entry is not in a loaded executable section";
 }
 
 void MMIX::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {

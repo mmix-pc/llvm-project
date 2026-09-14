@@ -30,3 +30,8 @@ def CSR_MMIX : CalleeSavedRegs<
     (add (sequence "R%u", 0, 30), R253)> {
   let OtherPreserved = (add R254, RG, RL, RO);
 }
+
+def CSR_MMIX_Linux : CalleeSavedRegs<
+    (add (sequence "R%u", 0, 30), R253)> {
+  let OtherPreserved = (add R230, R254, RG, RL, RO);
+}

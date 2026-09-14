@@ -2,6 +2,9 @@
 ; RUN:   -stop-after=prolog-epilog %s -o - | FileCheck %s --check-prefix=MIR
 ; RUN: llc -mtriple=mmix-unknown-elf -O2 -verify-machineinstrs \
 ; RUN:   -filetype=asm %s -o - | FileCheck %s --check-prefix=ASM
+; RUN: llc -mtriple=mmix-unknown-linux -O2 -verify-machineinstrs \
+; RUN:   -filetype=asm %s -o - | FileCheck %s --check-prefix=ASM \
+; RUN:   --implicit-check-not=r230 --implicit-check-not="PUT rG"
 
 target triple = "mmix-unknown-elf"
 

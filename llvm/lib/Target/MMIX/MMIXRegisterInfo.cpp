@@ -17,6 +17,7 @@
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Target/TargetMachine.h"
 
 using namespace llvm;
 
@@ -31,9 +32,12 @@ MMIXRegisterInfo::getCalleeSavedRegs(const MachineFunction *) const {
 }
 
 const uint32_t *
-MMIXRegisterInfo::getCallPreservedMask(const MachineFunction &,
+MMIXRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
                                        CallingConv::ID CC) const {
-  return isSupportedMMIXCallingConv(CC) ? CSR_MMIX_RegMask : nullptr;
+  if (!isSupportedMMIXCallingConv(CC))
+    return nullptr;
+  return MF.getTarget().getTargetTriple().isOSLinux() ? CSR_MMIX_Linux_RegMask
+                                                   : CSR_MMIX_RegMask;
 }
 
 BitVector MMIXRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
