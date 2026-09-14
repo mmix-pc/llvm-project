@@ -1,0 +1,233 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import shutil
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+for directory in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(libc / "include" / directory, root / "headers" / directory,
+                    dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                root / "headers/__llvm-libc-common.h")
+for header in ("stdint", "llvm-libc-proxy/elf_proxy"):
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+        "-o", str(root / "headers" / (header + ".h")),
+        str(libc / "include" / (header + ".yaml"))], check=True)
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+sources = [libc / "startup/linux/mmix" / name for name in
+           ("start.cpp", "process_args.cpp", "bootstrap.cpp")]
+storage = [libc / name for name in ("src/unistd/environ.cpp",
+    "src/errno/program_invocation_name.cpp", "src/errno/program_invocation_short_name.cpp")]
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin",
+          "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=startup_test",
+          "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
+          "-I", str(root / "headers"), "-I", str(root / "sync"),
+          "-I", str(libc), "-I", str(libc / "include")]
+for opt in ("0", "2"):
+    objects = []
+    for index, source in enumerate(sources + storage):
+        obj = root / (str(index) + "-O" + opt + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+            "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+            *common, "-O" + opt, "-emit-obj", "-o", str(obj), str(source)], check=True)
+        objects.append(str(obj))
+    obj = root / ("startup-O" + opt + ".o")
+    subprocess.run(["ld.lld", "-r", *objects, "-o", str(obj)], check=True)
+    undefined = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+    assert {line.split()[-1] for line in undefined.splitlines()} == {
+        "__llvm_libc_mmix_linux_start_fail", "__llvm_libc_mmix_linux_init_guard",
+        "__llvm_libc_mmix_linux_run"}, undefined
+    elf = subprocess.check_output(["llvm-readobj", "--sections", str(obj)], text=True)
+    for name in ("SHF_TLS", ".init_array", ".MMIX.reg_contents"):
+        assert name not in elf, elf
+
+# Optional, explicitly selected host semantics; these hooks never close a
+# target link and do not qualify kernel delivery or Linux execution.
+if len(sys.argv) == 4:
+    for opt in ("0", "2"):
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt,
+            *map(str, sources[1:] + storage), str(root / "test.cpp"),
+            "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+# Header fixtures only cover parsing/compilation, not syscall qualification.
+# The real runtime build separately uses the reviewed Linux UAPI and generated
+# proxy headers. All ELF layouts and auxv tags below use libc's real headers.
+#--- headers/linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#define EWOULDBLOCK EAGAIN
+#--- headers/linux/mman.h
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define MAP_PRIVATE 2
+#define MAP_ANONYMOUS 32
+#--- headers/linux/param.h
+#define EXEC_PAGESIZE 8192
+#--- headers/linux/prctl.h
+#--- headers/sys/syscall.h
+#define SYS_openat 56
+#define SYS_close 57
+#define SYS_read 63
+#define SYS_write 64
+#define SYS_mmap 222
+#define SYS_munmap 215
+#define SYS_futex 98
+
+#--- test.cpp
+#include "startup/linux/mmix/process_args.h"
+#include "hdr/elf_proxy.h"
+#include "src/unistd/environ.h"
+#include "src/errno/program_invocation_name.h"
+#include "src/errno/program_invocation_short_name.h"
+
+using namespace startup_test;
+uintptr_t stack[128];
+Elf64_Phdr phdrs[2];
+unsigned char random_bytes[17];
+char name[] = "/bin/clang", arg[] = "-v", env[] = "A=B";
+unsigned aux_index;
+bool guard_called;
+
+static void require(bool value) {
+  if (!value)
+    __builtin_abort();
+}
+
+static void prepare(unsigned argc, unsigned envc) {
+  for (auto &word : stack)
+    word = 0;
+  phdrs[0].p_type = PT_LOAD;
+  phdrs[1].p_type = PT_PHDR;
+  stack[0] = argc;
+  for (unsigned i = 0; i < argc; ++i)
+    stack[i + 1] = reinterpret_cast<uintptr_t>(i ? arg : name);
+  for (unsigned i = 0; i < envc; ++i)
+    stack[argc + 2 + i] = reinterpret_cast<uintptr_t>(env);
+  aux_index = argc + envc + 3;
+  auto *aux = reinterpret_cast<auxv::Entry *>(stack + aux_index);
+  aux[0] = {AT_PHDR, reinterpret_cast<uintptr_t>(phdrs)};
+  aux[1] = {AT_PHNUM, 2};
+  aux[2] = {AT_PHENT, sizeof(Elf64_Phdr)};
+  aux[3] = {AT_PAGESZ, 8192};
+  aux[4] = {AT_RANDOM, reinterpret_cast<uintptr_t>(random_bytes + 1)};
+  aux[5] = {AT_HWCAP, 0};
+  aux[6] = {AT_EXECFN, reinterpret_cast<uintptr_t>(name)};
+  aux[7] = {AT_BASE, 0};
+  aux[8] = {0x12345, 0xabcdef}; // Preserve tags not interpreted by bootstrap.
+  aux[9] = {AT_NULL, 0};
+}
+
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start(uintptr_t *);
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start_fail() {
+  require(!guard_called);
+  throw 1;
+}
+extern "C" void __llvm_libc_mmix_linux_init_guard(const unsigned char *random) {
+  require(random == random_bytes + 1 && !guard_called && !app.args);
+  guard_called = true;
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_run() {
+  require(guard_called && app.args == reinterpret_cast<Args *>(stack));
+  require(app.page_size == 8192 && app.env_ptr == stack + stack[0] + 2);
+  require(reinterpret_cast<uintptr_t *>(startup_test::environ) == app.env_ptr);
+  require(app.tls.address == 0 && app.tls.size == 0);
+  auto it = auxv::Vector::begin();
+  require(&*it == reinterpret_cast<auxv::Entry *>(stack + aux_index));
+  require(auxv::get(AT_PHDR).value() == reinterpret_cast<uintptr_t>(phdrs));
+  require(auxv::get(AT_PHNUM).value() == 2);
+  require(auxv::get(AT_HWCAP).value() == 0);
+  require(auxv::get(0x12345).value() == 0xabcdef);
+  require(!auxv::get(0x12346).has_value());
+  if (stack[0]) {
+    require(startup_test::program_invocation_name == name);
+    require(startup_test::program_invocation_short_name == name + 5);
+  }
+  throw 2;
+}
+
+int main() {
+  mmix::ProcessArgs parsed;
+  unsigned counts[] = {0, 2};
+  for (unsigned argc : counts)
+    for (unsigned envc : counts) {
+      prepare(argc, envc);
+      require(mmix::parse_process_args(stack, parsed));
+      require(parsed.args->argc == argc && parsed.env == stack + argc + 2);
+      require(parsed.random == random_bytes + 1 && parsed.page_size == 8192);
+      app.args = nullptr;
+      guard_called = false;
+      try {
+        __llvm_libc_mmix_linux_start(stack);
+      } catch (int stage) {
+        require(stage == 2);
+      }
+    }
+  // Required tags cannot be missing, duplicated, malformed or substituted.
+  for (unsigned i = 0; i < 5; ++i) {
+    prepare(2, 2);
+    auto *aux = reinterpret_cast<auxv::Entry *>(stack + aux_index);
+    aux[i].type = AT_IGNORE;
+    require(!mmix::parse_process_args(stack, parsed));
+    prepare(2, 2);
+    aux[5] = aux[i];
+    require(!mmix::parse_process_args(stack, parsed));
+    prepare(2, 2);
+    aux[i].val = 0;
+    require(!mmix::parse_process_args(stack, parsed));
+  }
+  unsigned unsupported[] = {PT_TLS, PT_INTERP, PT_DYNAMIC};
+  for (unsigned type : unsupported) {
+    prepare(0, 0);
+    phdrs[1].p_type = type;
+    require(!mmix::parse_process_args(stack, parsed));
+  }
+  prepare(0, 0);
+  auto *aux = reinterpret_cast<auxv::Entry *>(stack + aux_index);
+  aux[7].val = 8192;
+  require(!mmix::parse_process_args(stack, parsed));
+  aux[7].val = 0;
+  aux[9].val = 1;
+  require(!mmix::parse_process_args(stack, parsed));
+  prepare(0, 0);
+  aux[3].val = 4096;
+  require(!mmix::parse_process_args(stack, parsed));
+  aux[3].val = 8192;
+  aux[4].val = UINTPTR_MAX >> 1;
+  require(!mmix::parse_process_args(stack, parsed));
+  prepare(0, 0);
+  aux[2].type = AT_NULL; // Early termination cannot hide required fields.
+  require(!mmix::parse_process_args(stack, parsed));
+  prepare(2, 0);
+  stack[3] = 1; // Missing argv terminator.
+  require(!mmix::parse_process_args(stack, parsed));
+  prepare(2, 0);
+  stack[1] = 0; // Premature argv terminator.
+  require(!mmix::parse_process_args(stack, parsed));
+  stack[0] = uintptr_t(__INT_MAX__) + 1;
+  require(!mmix::parse_process_args(stack, parsed));
+  require(!mmix::parse_process_args(nullptr, parsed));
+  require(!mmix::parse_process_args(reinterpret_cast<uintptr_t *>(1), parsed));
+  require(!mmix::parse_process_args(reinterpret_cast<uintptr_t *>(UINTPTR_MAX - 7), parsed));
+  prepare(0, 0);
+  aux = reinterpret_cast<auxv::Entry *>(stack + aux_index);
+  aux[1].val = UINTPTR_MAX; // PHNUM multiplication overflow.
+  require(!mmix::parse_process_args(stack, parsed));
+  aux[1].val = 2;
+  aux[0].val += 1; // Unaligned PHDR.
+  require(!mmix::parse_process_args(stack, parsed));
+  guard_called = false;
+  app.args = nullptr;
+  try {
+    __llvm_libc_mmix_linux_start(stack);
+  } catch (int stage) {
+    require(stage == 1 && !app.args);
+  }
+  return 0;
+}
