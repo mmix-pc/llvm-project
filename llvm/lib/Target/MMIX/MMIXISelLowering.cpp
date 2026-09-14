@@ -843,6 +843,21 @@ bool MMIXTargetLowering::allowsMisalignedMemoryAccesses(
 }
 
 TargetLowering::AtomicExpansionKind
+MMIXTargetLowering::shouldCastAtomicLoadInIR(LoadInst *LI) const {
+  // The cmpxchg-based load/store expansion operates on integer register values.
+  if (LI->getType()->isPointerTy())
+    return AtomicExpansionKind::CastToInteger;
+  return TargetLowering::shouldCastAtomicLoadInIR(LI);
+}
+
+TargetLowering::AtomicExpansionKind
+MMIXTargetLowering::shouldCastAtomicStoreInIR(StoreInst *SI) const {
+  if (SI->getValueOperand()->getType()->isPointerTy())
+    return AtomicExpansionKind::CastToInteger;
+  return TargetLowering::shouldCastAtomicStoreInIR(SI);
+}
+
+TargetLowering::AtomicExpansionKind
 MMIXTargetLowering::shouldExpandAtomicLoadInIR(LoadInst *LI) const {
   if (LI->getType()->isIntegerTy() &&
       LI->getType()->getPrimitiveSizeInBits() < 64)
