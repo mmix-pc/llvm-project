@@ -4,6 +4,10 @@
 # RUN:   %t.o | FileCheck %s --check-prefix=OBJ --implicit-check-not=R_MMIX_
 # RUN: llvm-objdump --no-print-imm-hex -dr %t.o \
 # RUN:   | FileCheck %s --check-prefix=DIS
+# RUN: llc -mtriple=mmix-unknown-linux -start-before=postrapseudos -verify-machineinstrs -filetype=obj %s -o %t.linux.o
+# RUN: llvm-readobj --sections --section-data --relocations --expand-relocs \
+# RUN:   %t.linux.o | FileCheck %s --check-prefix=OBJ --implicit-check-not=R_MMIX_ --implicit-check-not=.MMIX.reg_contents
+# RUN: llvm-objdump --no-print-imm-hex -dr %t.linux.o | FileCheck %s --check-prefix=DIS
 
 # OBJ:      Name: .rodata.cst8
 # OBJ-NEXT: Type: SHT_PROGBITS

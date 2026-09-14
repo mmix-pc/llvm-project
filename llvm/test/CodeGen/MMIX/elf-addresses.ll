@@ -8,6 +8,11 @@
 ; RUN:   | FileCheck %s --check-prefix=RELOCS --implicit-check-not=R_MMIX_
 ; RUN: llvm-objdump --no-print-imm-hex -dr %t.o \
 ; RUN:   | FileCheck %s --check-prefix=OBJ
+; RUN: llc -mtriple=mmix-unknown-linux -O2 -verify-machineinstrs -filetype=obj %s -o %t.linux.o
+; RUN: llvm-readobj --sections --relocations --expand-relocs %t.linux.o \
+; RUN:   | FileCheck %s --check-prefix=RELOCS --implicit-check-not=R_MMIX_ --implicit-check-not=.MMIX.reg_contents
+; RUN: llvm-objdump --no-print-imm-hex -dr %t.linux.o | FileCheck %s --check-prefix=OBJ
+; RUN: llc -mtriple=mmix-unknown-linux -O2 -verify-machineinstrs -filetype=asm %s -o - | FileCheck %s --check-prefix=ASM
 
 ; Constant-pool object emission is covered by elf-constant-pool-address.mir.
 ; The dormant jump-table address operand remains structurally covered by

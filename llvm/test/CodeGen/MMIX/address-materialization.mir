@@ -1,6 +1,8 @@
 # RUN: llc -mtriple=mmix -run-pass=postrapseudos -verify-machineinstrs %s -o - | FileCheck %s
 # RUN: llc -mtriple=mmix -start-before=postrapseudos -verify-machineinstrs \
 # RUN:   -filetype=asm %s -o - | FileCheck %s --check-prefix=ASM
+# RUN: llc -mtriple=mmix-unknown-linux -start-before=postrapseudos -verify-machineinstrs \
+# RUN:   -filetype=asm %s -o - | FileCheck %s --check-prefix=ASM
 
 # ASM-LABEL: address_materialization:
 # ASM:       GETA r0, %geta([[CPI:\.LCPI[0-9]+_0]])
