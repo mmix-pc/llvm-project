@@ -51,6 +51,10 @@ set(LLVM_DEFAULT_TARGET_TRIPLE mmix-unknown-linux CACHE STRING "")
 set(LIBC_TARGET_TRIPLE mmix-unknown-linux-unknown CACHE STRING "")
 set(LLVM_ENABLE_RUNTIMES libc CACHE STRING "")
 set(LLVM_LIBC_FULL_BUILD ON CACHE BOOL "")
+# FIXME: Replace this transitional single-thread state with per-thread errno
+# and the pthread/TLS configuration when Linux runtime integration is ready.
+set(LIBC_CONF_ERRNO_MODE LIBC_ERRNO_MODE_SHARED CACHE STRING "")
+set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_SINGLE CACHE STRING "")
 set(LLVM_INCLUDE_TESTS OFF CACHE BOOL "")
 set(LLVM_INCLUDE_BENCHMARKS OFF CACHE BOOL "")
 set(CMAKE_BUILD_TYPE Release CACHE STRING "")

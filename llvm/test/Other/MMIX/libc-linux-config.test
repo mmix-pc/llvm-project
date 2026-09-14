@@ -53,12 +53,15 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
    NOT LLVM_LIBC_FULL_BUILD OR LLVM_INCLUDE_TESTS)
   message(FATAL_ERROR "incorrect isolated Linux component profile")
 endif()
-if(DEFINED CMAKE_C_COMPILER_WORKS OR DEFINED CMAKE_CXX_COMPILER_WORKS OR
-   DEFINED LIBC_CONF_ERRNO_MODE OR DEFINED LIBC_CONF_THREAD_MODE)
-  message(FATAL_ERROR "compiler probes or runtime state were overridden")
+if(DEFINED CMAKE_C_COMPILER_WORKS OR DEFINED CMAKE_CXX_COMPILER_WORKS)
+  message(FATAL_ERROR "compiler probes were overridden")
+endif()
+if(NOT LIBC_CONF_ERRNO_MODE STREQUAL "LIBC_ERRNO_MODE_SHARED" OR
+   NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE")
+  message(FATAL_ERROR "incorrect single-thread Linux state configuration")
 endif()
 include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
-set(expected libc.src.string.memcpy libc.src.string.memmove
+set(expected libc.src.errno.errno libc.src.string.memcpy libc.src.string.memmove
     libc.src.string.memset libc.src.string.memcmp libc.src.string.strlen
     libc.src.unistd.getpid libc.src.unistd._exit libc.src.stdlib._Exit)
 if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL expected OR

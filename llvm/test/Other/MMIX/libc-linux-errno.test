@@ -1,0 +1,28 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# Host-compatible IR checks shared storage semantics, not MMIX execution.
+# Storage semantics do not need external Linux UAPI error constants.
+# RUN: clang -cc1 -triple x86_64-unknown-linux-gnu -U__linux__ -std=c++17 -ffreestanding -I %S/../../../../libc -DLIBC_FULL_BUILD -DLIBC_NAMESPACE=errno_test -DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED -DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE -emit-llvm-bc -o %t/errno.bc %S/../../../../libc/src/errno/libc_errno.cpp
+# RUN: clang -cc1 -triple x86_64-unknown-linux-gnu -U__linux__ -std=c++17 -ffreestanding -I %S/../../../../libc -DLIBC_FULL_BUILD -DLIBC_NAMESPACE=errno_test -DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED -emit-llvm-bc -o %t/consumer.bc %t/consumer.cpp
+# RUN: llvm-link %t/errno.bc %t/consumer.bc -o %t/test.bc
+# RUN: lli -force-interpreter=true %t/test.bc
+# RUN: opt -passes='default<O2>' %t/test.bc -o %t/optimized.bc
+# RUN: lli -force-interpreter=true %t/optimized.bc
+
+#--- consumer.cpp
+#include "src/__support/libc_errno.h"
+
+extern "C" int main() {
+  // Preserve the assignment/read check from libc/test/src/errno/errno_test.cpp.
+  libc_errno = 123;
+  if (static_cast<int>(libc_errno) != 123)
+    return 1;
+  int *storage = errno_test::__llvm_libc_errno();
+  if (*storage != 123)
+    return 2;
+  *storage = 0;
+  if (static_cast<int>(libc_errno) != 0)
+    return 3;
+  libc_errno = -1;
+  return *storage != -1 || storage != errno_test::__llvm_libc_errno();
+}

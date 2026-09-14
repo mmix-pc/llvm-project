@@ -1,5 +1,6 @@
 # Only entries with buildable dependencies belong in the initial archive.
 set(TARGET_LIBC_ENTRYPOINTS
+    libc.src.errno.errno
     libc.src.string.memcpy
     libc.src.string.memmove
     libc.src.string.memset
@@ -10,6 +11,6 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.stdlib._Exit
 )
 
-# read/write/close/lseek are compile-only consumers until errno is provided.
+# read/write/close/lseek remain compile-only until their full closure is qualified.
 
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
