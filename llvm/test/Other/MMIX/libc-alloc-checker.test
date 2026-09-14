@@ -1,0 +1,41 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+base = ["clang", "-cc1", "-std=c++17", "-ffreestanding",
+        "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+        "-I", str(libc), "-I", str(libc / "include"),
+        "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=allocation_test"]
+for target in ("mmix-unknown-linux", "mmix-unknown-unknown"):
+    for level in ("0", "2"):
+        obj = root / (target + level + ".o")
+        subprocess.run(base + ["-triple", target, "-O" + level, "-emit-obj",
+            "-o", str(obj), str(root / "test.cpp")], check=True)
+        symbols = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+        assert "malloc" in symbols, symbols
+        for name in ("__cxa_", "__tls_get_addr", "pthread_", "_Zna", "_Znw"):
+            assert name not in symbols, symbols
+
+#--- test.cpp
+#include "src/__support/alloc-checker.h"
+
+extern "C" unsigned char *allocate_bytes(size_t size, bool *success) {
+  allocation_test::AllocChecker check;
+  auto *result = new (check) unsigned char[size];
+  *success = check;
+  return result;
+}
+
+extern "C" long *allocate_value(bool *success) {
+  allocation_test::AllocChecker check;
+  auto *result = new (check) long(42);
+  *success = check;
+  return result;
+}

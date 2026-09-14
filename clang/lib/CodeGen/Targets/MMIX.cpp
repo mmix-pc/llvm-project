@@ -128,6 +128,14 @@ static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E) {
     return false;
   if (OperatorNew->isReservedGlobalPlacementOperator())
     return true;
+  // Allocator adapters use a reference to report failure without throwing.
+  // Scalar elements need no array cookie or element destructor.
+  if (!isa<CXXMethodDecl>(OperatorNew) && !E.passAlignment() &&
+      E.getAllocatedType()->isScalarType() && E.getNumPlacementArgs() == 1 &&
+      OperatorNew->getNumParams() == 2 && !OperatorNew->isVariadic() &&
+      OperatorNew->getParamDecl(1)->getType()->isLValueReferenceType() &&
+      OperatorNew->getType()->castAs<FunctionProtoType>()->isNothrow())
+    return true;
   // Typed single-object placement is used by runtimes with caller-owned storage.
   if (isa<CXXMethodDecl>(OperatorNew) && !E.isArray() && !E.passAlignment() &&
       E.getNumPlacementArgs() == 1 && OperatorNew->getNumParams() == 2) {
