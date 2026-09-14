@@ -55,6 +55,9 @@ set(LLVM_LIBC_FULL_BUILD ON CACHE BOOL "")
 # and the pthread/TLS configuration when Linux runtime integration is ready.
 set(LIBC_CONF_ERRNO_MODE LIBC_ERRNO_MODE_SHARED CACHE STRING "")
 set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_SINGLE CACHE STRING "")
+# FIXME: Revisit timeout conversion when Linux clock providers and timed
+# synchronization are integrated. Untimed raw locks need no clock conversion.
+set(LIBC_CONF_TIMEOUT_ENSURE_MONOTONICITY OFF CACHE BOOL "")
 set(LLVM_INCLUDE_TESTS OFF CACHE BOOL "")
 set(LLVM_INCLUDE_BENCHMARKS OFF CACHE BOOL "")
 set(CMAKE_BUILD_TYPE Release CACHE STRING "")

@@ -1,0 +1,117 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+base = ["clang", "-cc1", "-std=c++17", "-ffreestanding",
+        "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+        "-I", str(root), "-I", str(libc), "-DLIBC_FULL_BUILD",
+        "-DLIBC_NAMESPACE=sync_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE"]
+for opt in ("0", "2"):
+    files = []
+    for index, source in enumerate([root / "test.cpp",
+            libc / "src/__support/threads/fork_callbacks.cpp"]):
+        path = str(root / (str(index) + opt))
+        subprocess.run(base + ["-triple", "mmix-unknown-linux", "-O" + opt,
+                       "-emit-obj", "-o", path + ".o", str(source)], check=True)
+        undefined = subprocess.check_output(["llvm-nm", "-u", path + ".o"], text=True)
+        for forbidden in ("clock_gettime", "__atomic_", "pthread_", "__tls_get_addr"):
+            assert forbidden not in undefined, undefined
+        report = subprocess.check_output(["llvm-readobj", "--sections", "--relocations",
+                                          path + ".o"], text=True)
+        assert "TLS" not in report
+        # Interpret the O0 host harness only. lli cannot evaluate all intrinsics
+        # introduced by optimization; O0/O2 target objects are checked above.
+        if opt != "0":
+            continue
+        subprocess.run(base + ["-triple", "x86_64-unknown-linux-gnu",
+                       "-disable-O0-optnone", "-O" + opt,
+                       "-emit-llvm-bc", "-o", path + ".bc", str(source)], check=True)
+        files.append(path + ".bc")
+    if opt != "0":
+        continue
+    linked = str(root / ("host" + opt + ".bc"))
+    subprocess.run(["llvm-link", *files, "-o", linked], check=True)
+    # lli does not implement atomic RMW or fixed-size memcpy.inline. Lower
+    # them only in this sequential host harness; target objects are unmodified.
+    lowered = linked + ".lowered.bc"
+    subprocess.run(["opt", "-passes=function(lower-atomic,sroa,instcombine)",
+                    linked, "-o", lowered], check=True)
+    subprocess.run(["lli", "-force-interpreter=true", lowered], check=True)
+
+# Synthetic include inputs isolate this unit test from external Linux UAPI.
+# Real-header and syscall closure are checked by separate component probes.
+#--- stdio.h
+// RawMutex does not use declarations from its stdio.h include.
+#--- linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#define EWOULDBLOCK EAGAIN
+#define ETIMEDOUT 110
+#--- sys/syscall.h
+#define SYS_futex 100
+#define SYS_write 101
+#--- linux/futex.h
+#define FUTEX_WAIT_BITSET 9
+#define FUTEX_WAIT_BITSET_PRIVATE 137
+#define FUTEX_CLOCK_REALTIME 256
+#define FUTEX_BITSET_MATCH_ANY 0xffffffffu
+#define FUTEX_WAKE 1
+#define FUTEX_WAKE_PRIVATE 129
+#define FUTEX_CMP_REQUEUE 4
+#define FUTEX_CMP_REQUEUE_PRIVATE 132
+#define FUTEX_REQUEUE 3
+#define FUTEX_REQUEUE_PRIVATE 131
+#--- test/UnitTest/Test.h
+// Run the original CPP/mutex_test.cpp without importing the host test runtime.
+extern bool failed;
+#define TEST(Suite, Name) void Suite##_##Name()
+#define ASSERT_TRUE(Value) do { if (!(Value)) { failed = true; return; } } while (false)
+#define ASSERT_FALSE(Value) ASSERT_TRUE(!(Value))
+#--- test.cpp
+#include "src/__support/threads/callonce.h"
+#include "src/__support/threads/fork_callbacks.h"
+#include "src/__support/threads/mutex.h"
+#include "src/__support/threads/raw_mutex.h"
+#include "test/src/__support/CPP/mutex_test.cpp"
+
+bool failed;
+int once_calls;
+int fork_callbacks;
+void initialize() { ++once_calls; }
+void fork_callback() { ++fork_callbacks; }
+
+extern "C" int main() {
+  LlvmLibcMutexTest_Basic();
+  LlvmLibcMutexTest_AcquireLocked();
+  if (failed)
+    return 1;
+  sync_test::Mutex internal(false, false, false, false);
+  if (internal.lock() != sync_test::MutexError::NONE ||
+      internal.unlock() != sync_test::MutexError::NONE ||
+      internal.try_lock() != sync_test::MutexError::NONE)
+    return 2;
+  internal.unlock();
+
+  // Adapted from the upstream RawMutex SmokeTest; timed and process-shared
+  // cases are intentionally outside this sequential smoke test.
+  sync_test::RawMutex raw;
+  if (!raw.lock() || !raw.unlock() || !raw.try_lock() || raw.try_lock() ||
+      !raw.unlock() || raw.unlock())
+    return 3;
+  sync_test::CallOnceFlag flag(0);
+  if (sync_test::callonce(&flag, initialize) ||
+      sync_test::callonce(&flag, initialize) || once_calls != 1)
+    return 4;
+  if (!sync_test::register_atfork_callbacks(fork_callback, fork_callback, fork_callback))
+    return 5;
+  sync_test::invoke_prepare_callbacks();
+  sync_test::invoke_parent_callbacks();
+  sync_test::invoke_child_callbacks();
+  return fork_callbacks != 3;
+}
