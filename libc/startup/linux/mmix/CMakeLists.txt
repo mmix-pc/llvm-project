@@ -1,4 +1,6 @@
 # The Linux entry is preparation only until the complete CRT is composed.
+# FIXME: Revisit the unprotected TLS-free bootstrap and guard ownership for
+# pthread/TLS and dynamic-loader integration; normal runtime code stays protected.
 add_startup_object(
   start
   SRC start.cpp
@@ -22,5 +24,14 @@ add_startup_object(
   SRC bootstrap.cpp
   DEPENDS
     .process_args
+  COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector
+)
+
+add_startup_object(
+  stack_guard
+  SRC stack_guard.cpp
+  DEPENDS
+    libc.src.__support.OSUtil.linux.mmix.syscall
+    libc.include.sys_syscall
   COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector
 )

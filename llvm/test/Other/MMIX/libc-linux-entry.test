@@ -49,7 +49,7 @@ endfunction()
 # Exercise registration only; the real source is compiled and inspected above.
 function(add_object_library name)
   cmake_parse_arguments(ARG "" "" "SRCS;DEPENDS;COMPILE_OPTIONS" ${ARGN})
-  set(expected start process_args bootstrap)
+  set(expected start process_args bootstrap stack_guard)
   if(NOT name IN_LIST expected)
     message(FATAL_ERROR "unexpected common startup or provider dependency")
   endif()
