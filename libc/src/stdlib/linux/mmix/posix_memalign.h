@@ -1,4 +1,4 @@
-//===-- MMIX Linux region allocator -----------------------------*- C++ -*-===//
+//===-- MMIX Linux posix_memalign declaration --------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,20 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_SRC_STDLIB_LINUX_MMIX_ALLOCATOR_H
-#define LLVM_LIBC_SRC_STDLIB_LINUX_MMIX_ALLOCATOR_H
+#ifndef LLVM_LIBC_SRC_STDLIB_LINUX_MMIX_POSIX_MEMALIGN_H
+#define LLVM_LIBC_SRC_STDLIB_LINUX_MMIX_POSIX_MEMALIGN_H
 
 #include "hdr/types/size_t.h"
 #include "src/__support/macros/config.h"
 
 namespace LIBC_NAMESPACE_DECL {
-namespace mmix {
-
-void *allocate(size_t size, size_t alignment = 1);
-void *resize(void *ptr, size_t size);
-void deallocate(void *ptr);
-
-} // namespace mmix
+int posix_memalign(void **result, size_t alignment, size_t size);
 } // namespace LIBC_NAMESPACE_DECL
 
-#endif // LLVM_LIBC_SRC_STDLIB_LINUX_MMIX_ALLOCATOR_H
+#endif

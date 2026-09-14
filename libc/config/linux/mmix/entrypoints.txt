@@ -13,6 +13,8 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.stdlib.free
     libc.src.stdlib.calloc
     libc.src.stdlib.realloc
+    libc.src.stdlib.aligned_alloc
+    libc.src.stdlib.posix_memalign
 )
 
 # read/write/close/lseek remain compile-only until their full closure is qualified.

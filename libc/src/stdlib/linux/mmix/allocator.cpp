@@ -55,22 +55,26 @@ void release_empty(Region **link) {
 
 } // namespace
 
-void *allocate(size_t size) {
-  if (!size || size > size_t(cpp::numeric_limits<ptrdiff_t>::max()))
+void *allocate(size_t size, size_t alignment) {
+  constexpr size_t LIMIT = cpp::numeric_limits<ptrdiff_t>::max();
+  if (!size || !alignment || (alignment & (alignment - 1)) ||
+      alignment > LIMIT || size > LIMIT - (alignment - 1))
     return nullptr;
+  // FreeListHeap requires a size multiple; POSIX callers need not supply one.
+  size = (size + alignment - 1) & ~(alignment - 1);
   for (Region *region = regions; region; region = region->next) {
-    if (void *ptr = region->heap.allocate(size)) {
+    if (void *ptr = region->heap.aligned_allocate(alignment, size)) {
       ++region->live;
       return ptr;
     }
   }
 
-  auto mapping = map_heap_region(size, BlockRef::MIN_ALIGN, sizeof(Region));
+  auto mapping = map_heap_region(size, alignment, sizeof(Region));
   if (!mapping)
     return nullptr;
   auto *region = new (mapping->storage.data()) Region(*mapping, regions);
   regions = region;
-  if (void *ptr = region->heap.allocate(size)) {
+  if (void *ptr = region->heap.aligned_allocate(alignment, size)) {
     region->live = 1;
     return ptr;
   }

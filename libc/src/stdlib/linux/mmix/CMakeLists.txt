@@ -15,10 +15,15 @@ add_object_library(
     libc.src.string.memory_utils.inline_memset
 )
 
-foreach(entrypoint malloc free calloc realloc)
+foreach(entrypoint malloc free calloc realloc aligned_alloc posix_memalign)
+  if(entrypoint STREQUAL "posix_memalign")
+    set(header posix_memalign.h)
+  else()
+    set(header ../../${entrypoint}.h)
+  endif()
   add_entrypoint_object(${entrypoint}
     SRCS ${entrypoint}.cpp
-    HDRS ../../${entrypoint}.h
+    HDRS ${header}
     DEPENDS
       .allocator
       libc.src.__support.common
