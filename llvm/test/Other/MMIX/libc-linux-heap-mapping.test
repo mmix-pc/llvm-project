@@ -1,0 +1,168 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+base = ["clang", "-cc1", "-std=c++17", "-ffreestanding",
+        "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+        "-I", str(root / "headers"), "-I", str(libc), "-I", str(libc / "include"),
+        "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=mapping_test", "-DNDEBUG"]
+source = libc / "src/__support/OSUtil/linux/mmix/heap.cpp"
+for opt in ("0", "2"):
+    obj = root / ("target" + opt + ".o")
+    subprocess.run(base + ["-triple", "mmix-unknown-linux", "-O" + opt,
+        "-emit-obj", "-o", str(obj), str(source)], check=True)
+    undefined = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+    assert "__llvm_libc_mmix_syscall" in undefined, undefined
+    for name in ("malloc", "freelist_heap", "__tls_get_addr", "pthread_", "__cxa_"):
+        assert name not in undefined, undefined
+    elf = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
+    assert "SHF_TLS" not in elf and "R_MMIX_TLS" not in elf
+
+# Optional native semantic validation uses a caller-selected host C++ compiler.
+# It is separate from lit's target-object gate and never supplies a target link.
+# lli cannot execute all aggregate/overflow operations in the real allocator.
+if len(sys.argv) == 4:
+    for opt in ("0", "2"):
+        exe = root / ("host" + opt)
+        subprocess.run([sys.argv[3], "-std=c++17", "-O" + opt, "-DNDEBUG",
+            "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=mapping_test",
+            "-I", str(root / "fake"), "-I", str(root / "headers"),
+            "-I", str(libc), "-I", str(libc / "include"),
+            str(root / "test.cpp"), str(source),
+            str(libc / "src/__support/freelist.cpp"),
+            str(libc / "src/__support/freetrie.cpp"), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+# The source test is independent of an external UAPI checkout. Separate
+# component validation uses the approved MMIX UAPI and generated libc headers.
+#--- headers/linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#--- headers/hdr/sys_mman_macros.h
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define MAP_PRIVATE 2
+#define MAP_ANONYMOUS 32
+#--- headers/sys/syscall.h
+#define SYS_mmap 222
+#define SYS_munmap 215
+#define SYS_write 64
+
+#--- fake/src/__support/OSUtil/linux/syscall_wrappers/mmap.h
+#include "src/__support/error_or.h"
+#include "hdr/types/off_t.h"
+namespace LIBC_NAMESPACE::linux_syscalls {
+ErrorOr<void *> mmap(void *, size_t, int, int, int, off_t);
+}
+#--- fake/src/__support/OSUtil/linux/syscall_wrappers/munmap.h
+#include "src/__support/error_or.h"
+namespace LIBC_NAMESPACE::linux_syscalls {
+ErrorOr<int> munmap(void *, size_t);
+}
+
+#--- test.cpp
+#include "src/__support/OSUtil/linux/mmix/heap.h"
+#include "src/__support/freelist_heap.h"
+#include "hdr/types/off_t.h"
+#include "hdr/errno_macros.h"
+
+using namespace mapping_test;
+alignas(8192) unsigned char arena[65536];
+int map_calls, unmap_calls, map_error, unmap_error;
+bool malformed, arguments_ok = true;
+size_t last_size;
+void *last_unmapped;
+
+namespace mapping_test::linux_syscalls {
+ErrorOr<void *> mmap(void *addr, size_t size, int prot, int flags, int fd, off_t offset) {
+  ++map_calls;
+  last_size = size;
+  arguments_ok &= !addr && prot == 3 && flags == 34 && fd == -1 && offset == 0;
+  if (map_error)
+    return Error(map_error);
+  return static_cast<void *>(arena + (malformed ? 1 : 0));
+}
+ErrorOr<int> munmap(void *addr, size_t size) {
+  ++unmap_calls;
+  last_unmapped = addr;
+  arguments_ok &= size == last_size;
+  if (unmap_error)
+    return Error(unmap_error);
+  return 0;
+}
+}
+
+extern "C" int main() {
+  auto invalid = mmix::map_heap_region(1, 3, 0);
+  if (invalid || invalid.error() != EINVAL || map_calls)
+    return 1;
+  const size_t max = static_cast<size_t>(-1);
+  auto huge = mmix::map_heap_region(max, 16, 0);
+  auto prefix = mmix::map_heap_region(1, 16, max);
+  auto rounding = mmix::map_heap_region(max >> 1, 16, 0);
+  auto align = mmix::map_heap_region(1, size_t(1) << 63, 0);
+  if (huge || prefix || rounding || align || map_calls)
+    return 2;
+  map_error = ENOMEM;
+  auto failed = mmix::map_heap_region(128, 16, 33);
+  if (failed || failed.error() != ENOMEM || unmap_calls)
+    return 3;
+  map_error = 0;
+  auto result = mmix::map_heap_region(20000, 4096, 33);
+  if (!result || !arguments_ok || last_size % 8192 || last_size <= 20000)
+    return 4;
+  auto mapping = result.value();
+  if (mapping.heap.data() < mapping.storage.data() + 33 ||
+      mapping.heap.size() + (mapping.heap.data() - mapping.storage.data()) != last_size)
+    return 5;
+  FreeListHeap heap(mapping.heap);
+  void *ptr = heap.aligned_allocate(4096, 16384);
+  if (!ptr || reinterpret_cast<uintptr_t>(ptr) % 4096)
+    return 6;
+  heap.free(ptr);
+  unmap_error = EINVAL;
+  auto release_failed = mmix::unmap_heap_region(mapping);
+  if (release_failed || release_failed.error() != EINVAL || mapping.storage.empty())
+    return 7;
+  unmap_error = 0;
+  if (!mmix::unmap_heap_region(mapping) || !mapping.storage.empty() || !mapping.heap.empty())
+    return 8;
+  int releases = unmap_calls;
+  if (!mmix::unmap_heap_region(mapping) || releases != unmap_calls)
+    return 9;
+  malformed = true;
+  auto bad = mmix::map_heap_region(1, 16, 0);
+  if (bad || bad.error() != ENOMEM || unmap_calls != releases + 1 ||
+      last_unmapped != arena + 1 || !arguments_ok)
+    return 10;
+  unmap_error = EINVAL;
+  auto rollback_failed = mmix::map_heap_region(1, 16, 0);
+  if (rollback_failed || rollback_failed.error() != EINVAL)
+    return 11;
+  malformed = false;
+  unmap_error = 0;
+  // Reuse the real FreeListHeap alignment/allocation scenario over each span.
+  const size_t alignments[] = {16, 4096, 16384};
+  for (size_t alignment : alignments) {
+    for (size_t count = 1; count <= 2; ++count) {
+      size_t requested = alignment * count;
+      auto region = mmix::map_heap_region(requested, alignment, 4000);
+      if (!region || region->storage.size() > sizeof(arena))
+        return 12;
+      FreeListHeap owner(region->heap);
+      void *allocation = owner.aligned_allocate(alignment, requested);
+      if (!allocation || reinterpret_cast<uintptr_t>(allocation) % alignment)
+        return 13;
+      owner.free(allocation);
+      if (!mmix::unmap_heap_region(*region))
+        return 14;
+    }
+  }
+  return 0;
+}

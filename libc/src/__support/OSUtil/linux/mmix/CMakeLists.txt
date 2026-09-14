@@ -23,3 +23,23 @@ add_header_library(
   DEPENDS
     .syscall
 )
+
+add_object_library(
+  heap
+  SRCS
+    heap.cpp
+  HDRS
+    heap.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.sys_mman_macros
+    libc.src.__support.CPP.cstddef
+    libc.src.__support.CPP.limits
+    libc.src.__support.CPP.span
+    libc.src.__support.OSUtil.linux.syscall_wrappers.mmap
+    libc.src.__support.OSUtil.linux.syscall_wrappers.munmap
+    libc.src.__support.block
+    libc.src.__support.error_or
+    libc.src.__support.freestore
+)
