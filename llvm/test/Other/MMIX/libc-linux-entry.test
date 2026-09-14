@@ -1,0 +1,70 @@
+# REQUIRES: mmix-registered-target
+# RUN: clang --target=mmix-unknown-linux -O0 -ffreestanding -fno-builtin -fno-stack-protector -c %S/../../../../libc/startup/linux/mmix/start.cpp -o %t.O0.o
+# RUN: clang --target=mmix-unknown-linux -O2 -ffreestanding -fno-builtin -fno-stack-protector -c %S/../../../../libc/startup/linux/mmix/start.cpp -o %t.O2.o
+# RUN: llvm-objdump -dr %t.O0.o | FileCheck %s --check-prefix=ENTRY
+# RUN: llvm-objdump -dr %t.O2.o | FileCheck %s --check-prefix=ENTRY
+# RUN: llvm-nm --undefined-only %t.O0.o | FileCheck %s --check-prefix=UNDEFINED
+# RUN: llvm-nm --undefined-only %t.O2.o | FileCheck %s --check-prefix=UNDEFINED
+# RUN: llvm-readobj --symbols --sections %t.O2.o | FileCheck %s --check-prefix=ELF --implicit-check-not=.MMIX.reg_contents --implicit-check-not=.tdata --implicit-check-not=.tbss
+# RUN: split-file %s %t.dir
+# RUN: cmake -S %t.dir -B %t.dir/build -DLIBC_SOURCE=%S/../../../../libc
+
+# The entire entry is checked: no prologue, SP adjustment, GREG initialization,
+# TP write, incoming-rJ access or semihosting. The kernel's octa alignment is
+# preserved rather than reconstructed from a different register-stack address.
+# ENTRY-LABEL: <_start>:
+# ENTRY-NEXT: {{.*}} OR r231, r254, 0x0
+# ENTRY-NEXT: {{.*}} PUSHJ r31, 0x0
+# ENTRY-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE __llvm_libc_mmix_linux_start
+# ENTRY-NEXT: {{.*}} TRAP 0xff, 0x0, 0x0
+# ENTRY-NEXT: {{.*}} JMPB -0x1
+# ENTRY-NOT: {{[0-9a-f]+:}}
+
+# This is an entry object, not a complete CRT or a successful runtime link.
+# UNDEFINED-NOT: {{.}}
+# UNDEFINED: {{^ *}}U __llvm_libc_mmix_linux_start{{$}}
+# UNDEFINED-NOT: {{.}}
+# ELF: Name: .text
+# ELF: AddressAlignment: 4
+# ELF: Name: _start
+# ELF: Size: 16
+# ELF: Binding: Global
+# ELF: Type: Function
+# ELF: Section: .text
+# ELF: Name: __llvm_libc_mmix_linux_start
+# ELF: STV_HIDDEN
+# ELF: Section: Undefined
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(CheckLinuxEntryRegistration NONE)
+set(LIBC_TARGET_ARCHITECTURE mmix)
+set(LIBC_TARGET_ARCHITECTURE_IS_MMIX ON)
+set(LIBC_LINKER_SUPPORTS_RELOCATABLE ON)
+function(check_cxx_compiler_flag)
+endfunction()
+function(get_fq_target_name name result)
+  set(${result} "libc.startup.linux.mmix.${name}" PARENT_SCOPE)
+endfunction()
+# Exercise registration only; the real source is compiled and inspected above.
+function(add_object_library name)
+  cmake_parse_arguments(ARG "" "" "SRCS;DEPENDS;COMPILE_OPTIONS" ${ARGN})
+  if(NOT name STREQUAL "start" OR ARG_DEPENDS)
+    message(FATAL_ERROR "unexpected common startup or provider dependency")
+  endif()
+  foreach(option -ffreestanding -fno-builtin -fno-stack-protector)
+    if(NOT option IN_LIST ARG_COMPILE_OPTIONS)
+      message(FATAL_ERROR "missing bootstrap option ${option}")
+    endif()
+  endforeach()
+  foreach(source IN LISTS ARG_SRCS)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${source}")
+      message(FATAL_ERROR "missing entry source ${source}")
+    endif()
+  endforeach()
+  add_custom_target(libc.startup.linux.mmix.${name})
+endfunction()
+add_subdirectory(${LIBC_SOURCE}/startup/linux startup)
+if(NOT TARGET libc.startup.linux.mmix.start OR TARGET libc-startup)
+  message(FATAL_ERROR "entry preparation must not publish an incomplete CRT")
+endif()

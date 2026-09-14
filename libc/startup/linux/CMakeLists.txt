@@ -88,6 +88,10 @@ endif()
 
 add_subdirectory(${LIBC_TARGET_ARCHITECTURE})
 
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  return()
+endif()
+
 add_object_library(
   gnu_property_section
   SRCS
