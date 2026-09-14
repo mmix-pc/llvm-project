@@ -1,0 +1,48 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../.. %t
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libcxx/cmake/caches/MMIXLinux.cmake)
+project(StateConfig NONE)
+if(MODE STREQUAL "libc")
+  set(LIBC_MMIX_BUILD_RUNTIME_STATE ON)
+  set(LLVM_LIBC_FULL_BUILD ON)
+  set(LIBC_CONF_ERRNO_MODE LIBC_ERRNO_MODE_SHARED CACHE STRING "")
+  set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_SINGLE CACHE STRING "")
+  include(${SOURCE}/libc/config/linux/mmix/RuntimeState.cmake)
+else()
+  include(${SOURCE}/libcxx/src/support/mmix/linux/RuntimeState.cmake)
+endif()
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+source, root = map(pathlib.Path, sys.argv[1:])
+cases = [
+    ("libc", "LIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL", "shared errno"),
+    ("libc", "LIBC_CONF_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM", "shared errno"),
+    ("libc", "LIBC_CONF_TIMEOUT_ENSURE_MONOTONICITY=ON", "shared errno"),
+    ("libc", "CMAKE_BUILD_TYPE=Debug", "shared errno"),
+    ("cxx", "LIBCXXABI_ENABLE_THREADS=ON", "single-thread LIBCXXABI"),
+    ("cxx", "LIBUNWIND_ENABLE_THREADS=ON", "single-thread LIBUNWIND"),
+    ("cxx", "LIBCXXABI_INSTALL_LIBRARY=ON", "single-thread LIBCXXABI"),
+    ("cxx", "LIBUNWIND_ENABLE_SHARED=ON", "single-thread LIBUNWIND"),
+    ("cxx", "LIBCXXABI_USE_COMPILER_RT=OFF", "single-thread LIBCXXABI"),
+    ("cxx", "LIBCXX_CXX_ABI=libstdc++", "process-global ABI state"),
+    ("cxx", "LIBCXXABI_ENABLE_EXCEPTIONS=OFF", "process-global ABI state"),
+    ("cxx", "LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=ON", "process-global ABI state"),
+    ("cxx", "LIBCXXABI_HAS_PTHREAD_API=ON", "process-global ABI state"),
+    ("cxx", "LIBUNWIND_USE_FRAME_HEADER_CACHE=ON", "process-global ABI state"),
+]
+for index, (mode, option, diagnostic) in enumerate(cases):
+    result = subprocess.run(
+        ["cmake", "-S", str(root), "-B", str(root / str(index)),
+         "-DSOURCE=" + str(source), "-DMODE=" + mode, "-D" + option],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    output = " ".join(result.stdout.split())
+    assert result.returncode != 0 and diagnostic in output, result.stdout

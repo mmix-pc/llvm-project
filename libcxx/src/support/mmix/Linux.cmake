@@ -1,4 +1,4 @@
-# Keep declaration-only preparation out of published runtime resources.
+# Keep Linux preparation out of published runtime resources.
 if(NOT RUNTIMES_USE_LIBC STREQUAL "llvm-libc" OR
    NOT LIBCXX_ENABLE_THREADS OR NOT LIBCXX_HAS_EXTERNAL_THREAD_API OR
    LIBCXX_HAS_PTHREAD_API OR LIBCXX_HAS_C11_THREAD_API OR
@@ -21,4 +21,7 @@ if(TARGET cxx-headers)
   target_link_libraries(cxx_mmix_thread_api PRIVATE cxx-headers)
   target_compile_features(cxx_mmix_thread_api PRIVATE cxx_std_23)
   target_compile_definitions(cxx_mmix_thread_api PRIVATE _LIBCPP_BUILDING_LIBRARY)
+  if(LIBCXX_MMIX_LINUX_STATE_DIR)
+    include("${CMAKE_CURRENT_LIST_DIR}/linux/RuntimeState.cmake")
+  endif()
 endif()
