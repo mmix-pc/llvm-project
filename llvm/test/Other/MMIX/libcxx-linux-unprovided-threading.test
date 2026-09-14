@@ -1,0 +1,67 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %S/libcxx-linux-thread-types.test %t
+# RUN: cmake -S %t -B %t/build -DSOURCE=%S/../../../.. -DOUT=%t
+# RUN: split-file %s %t/probe
+# RUN: %python %t/probe/check.py %S/../../../.. %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+source, root = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+flags = ["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++23",
+         "-mrelocation-model", "static", "-ffreestanding",
+         "-internal-isystem", resource + "/include", "-I", str(root),
+         "-I", str(source / "libcxx/include"), "-I", str(root / "c"),
+         "-I", str(source / "libc/include")]
+missing = ("condvar_timedwait", "execute_once", "thread_create", "thread_join",
+           "thread_detach", "thread_yield", "thread_sleep_for", "tls_create",
+           "tls_get", "tls_set", "thread_get_id", "thread_isnull")
+for level in ("0", "2"):
+    objects = []
+    for name, file in (("caller", root / "probe/caller.cpp"),
+                       ("provider", source / "libcxx/src/support/mmix/linux/external_threading.cpp")):
+        obj = root / (name + level + ".o")
+        subprocess.run(flags + ["-O" + level, "-emit-obj", "-o", str(obj), str(file)], check=True)
+        objects.append(str(obj))
+    obj = root / ("combined" + level + ".o")
+    subprocess.run(["ld.lld", "-r", *objects, "-o", str(obj)], check=True)
+    undefined = subprocess.check_output(["llvm-nm", "-C", "-u", str(obj)], text=True)
+    for name in missing:
+        assert "__libcpp_" + name + "(" in undefined, undefined
+    assert "__libcpp_mutex_lock(" not in undefined, undefined
+    elf = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
+    assert "TLS" not in elf and "pthread_" not in undefined
+    result = subprocess.run(["ld.lld", "--error-limit=0", "-e", "unsupported", str(obj),
+                             "-o", str(root / "invalid.elf")], text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert result.returncode != 0
+    for name in missing:
+        assert "__libcpp_" + name + "(" in result.stdout, result.stdout
+for triple in ("mmix-unknown-unknown", "x86_64-unknown-linux"):
+    other = flags.copy()
+    other[other.index("mmix-unknown-linux")] = triple
+    result = subprocess.run(other + ["-fsyntax-only", str(root / "probe/caller.cpp")],
+                            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert result.returncode and "MMIX Linux preparation profile" in result.stdout
+
+#--- caller.cpp
+#include <__external_threading>
+extern "C" void unsupported() {
+  std::__libcpp_mutex_lock(nullptr);
+  std::__libcpp_condvar_timedwait(nullptr, nullptr, nullptr);
+  std::__libcpp_execute_once(nullptr, nullptr);
+  std::__libcpp_thread_create(nullptr, nullptr, nullptr);
+  std::__libcpp_thread_join(nullptr);
+  std::__libcpp_thread_detach(nullptr);
+  std::__libcpp_thread_yield();
+  std::__libcpp_thread_sleep_for(std::chrono::nanoseconds(1));
+  std::__libcpp_tls_create(nullptr, nullptr);
+  std::__libcpp_tls_get(0);
+  std::__libcpp_tls_set(0, nullptr);
+  std::__libcpp_thread_get_id(nullptr);
+  std::__libcpp_thread_isnull(nullptr);
+}
