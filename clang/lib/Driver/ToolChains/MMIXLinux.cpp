@@ -102,7 +102,7 @@ public:
     const bool DefaultLibs =
         !Relocatable &&
         !Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs);
-    ArgStringList CmdArgs{"-m", "elf64mmix"};
+    ArgStringList CmdArgs{"-m", "elf64mmix_linux"};
     CmdArgs.push_back(Relocatable ? "-r" : "-static");
     if (!Relocatable) {
       CmdArgs.push_back("--no-dynamic-linker");

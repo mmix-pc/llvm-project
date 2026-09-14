@@ -44,8 +44,8 @@
 // BUILTIN: "-internal-isystem" "{{.*}}/include"
 // ELF-COUNT-3: Format: elf64-mmix
 // LINK: error: the clang compiler does not support 'implicit system resources without --sysroot for MMIX Linux'
-// LINK-RELOC: "-m" "elf64mmix" "-r"
-// LINK-STATIC: "-m" "elf64mmix" "-static" "--no-dynamic-linker"
+// LINK-RELOC: "-m" "elf64mmix_linux" "-r"
+// LINK-STATIC: "-m" "elf64mmix_linux" "-static" "--no-dynamic-linker"
 // ASSEMBLER: error: the clang compiler does not support 'external assembly for MMIX Linux'
 // REJECT: error: unsupported option '{{.*}}' for target 'mmix-unknown-linux'
 // BARE: "{{.*}}ld.lld{{.*}}"

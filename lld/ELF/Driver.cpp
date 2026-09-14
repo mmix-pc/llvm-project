@@ -177,7 +177,7 @@ static std::tuple<ELFKind, uint16_t, uint8_t> parseEmulation(Ctx &ctx,
           .Case("elf64_amdgpu", {ELF64LEKind, EM_AMDGPU})
           .Case("elf64loongarch", {ELF64LEKind, EM_LOONGARCH})
           .Case("elf64_s390", {ELF64BEKind, EM_S390})
-          .Case("elf64mmix", {ELF64BEKind, EM_MMIX})
+          .Cases({"elf64mmix", "elf64mmix_linux"}, {ELF64BEKind, EM_MMIX})
           .Case("hexagonelf", {ELF32LEKind, EM_HEXAGON})
           .Default({ELFNoneKind, EM_NONE});
 

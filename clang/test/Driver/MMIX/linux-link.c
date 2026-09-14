@@ -27,10 +27,11 @@
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -Wl,-Bdynamic -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -Wl,-r -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -Wl,-m,elf_x86_64 -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang --target=mmix-unknown-linux -nostdlib -Wl,-m,elf64mmix -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto -### %t/input.o 2>&1 | FileCheck %s --check-prefix=LTO
 
 // Empty fixtures establish command composition, not Linux runtime validity.
-// C: "{{.*}}ld.lld{{.*}}" "-m" "elf64mmix" "-static" "--no-dynamic-linker" "--eh-frame-hdr"
+// C: "{{.*}}ld.lld{{.*}}" "-m" "elf64mmix_linux" "-static" "--no-dynamic-linker" "--eh-frame-hdr"
 // C-SAME: "-z" "max-page-size=8192" "-z" "common-page-size=8192"
 // C-SAME: "{{.*}}/root/usr/lib/crt1.o" "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o" "{{.*}}/input.o" "--start-group" "{{.*}}/root/usr/lib/libc.a" "{{.*}}/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a" "--end-group" "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtend.o" "-o" "{{.*}}/a.out"
 // CXX: "--start-group" "{{.*}}/root/usr/lib/libc++.a" "{{.*}}/root/usr/lib/libc++abi.a" "{{.*}}/root/usr/lib/libm.a" "{{.*}}/root/usr/lib/libunwind.a" "{{.*}}/root/usr/lib/libc.a" "{{.*}}/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a" "--end-group"
@@ -40,12 +41,12 @@
 // DEFAULTS-SAME: "{{.*}}/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a" "--end-group"
 // START: "{{.*}}/root/usr/lib/crt1.o" "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o"
 // START-SAME: "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtend.o"
-// RAW: "-m" "elf64mmix" "-static"
+// RAW: "-m" "elf64mmix_linux" "-static"
 // RAW-SAME: "{{.*}}/input.o"
 // FORWARD: "-L{{.*}}/extra"
 // FORWARD-SAME: "--gc-sections" "--strip-debug"
 // FORWARD-SAME: "-T" "{{.*}}/script"
-// RELOC: "-m" "elf64mmix" "-r"
+// RELOC: "-m" "elf64mmix_linux" "-r"
 // RELOC-SAME: "{{.*}}/input.o"
 // MISSING-CRT: error: no such file or directory: '{{.*}}/missing/usr/lib/crt1.o'
 // MISSING-LIBC: error: no such file or directory: '{{.*}}/missing/usr/lib/libc.a'

@@ -259,6 +259,8 @@ private:
     Invalid
   };
 
+  bool isLinux() const { return ctx.arg.emulation == "elf64mmix_linux"; }
+
   struct RelaxationSite {
     InputSection *section;
     uint32_t relocationIndex;
@@ -340,6 +342,12 @@ private:
 } // namespace
 
 MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
+  if (isLinux()) {
+    // Linux fixes rG at process entry; the loader does not initialize GREGs.
+    firstGlobalRegister = 230;
+    if (!ctx.bitcodeFiles.empty())
+      ErrAlways(ctx) << "MMIX Linux does not support bitcode input";
+  }
   if (ctx.arg.ekind != ELF64BEKind)
     ErrAlways(ctx) << "MMIX supports only ELF64 big-endian input and output";
 
@@ -437,6 +445,14 @@ void MMIX::collectRegisterModel() {
     ArrayRef<InputSectionBase *> sections = file->getSections();
 
     for (InputSectionBase *section : sections) {
+      if (isLinux() && section && section != &InputSection::discarded &&
+          (section->name == registerContentsSectionName ||
+           section->name == linkerAllocatedRegisterContentsSectionName)) {
+        Err(ctx) << section
+                 << ": MMIX Linux does not support loader-initialized "
+                    "register contents";
+        continue;
+      }
       if (!section || section == &InputSection::discarded ||
           section->name != registerContentsSectionName)
         continue;
@@ -831,6 +847,12 @@ std::optional<uint8_t> MMIX::resolveRegister(const Relocation &rel,
 
 RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
                          const uint8_t *loc) const {
+  if (isLinux() && type == R_MMIX_BASE_PLUS_OFFSET) {
+    Err(ctx) << getErrorLoc(ctx, loc)
+             << "MMIX Linux does not support R_MMIX_BASE_PLUS_OFFSET "
+                "requiring loader-initialized global registers";
+    return R_NONE;
+  }
   RelExpr expr = R_NONE;
   bool implemented = true;
   switch (type) {
@@ -902,7 +924,7 @@ void MMIX::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
     if (type == R_MMIX_NONE)
       continue;
 
-    if (type == R_MMIX_BASE_PLUS_OFFSET)
+    if (type == R_MMIX_BASE_PLUS_OFFSET && !isLinux())
       linkerAllocatedRegisterContents->markNeeded();
 
     if (type == R_MMIX_LOCAL && it->r_offset >= sec.getSize()) {
