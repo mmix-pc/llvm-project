@@ -1,0 +1,152 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+# RUN: cmake -S %t/selection -B %t/build -DLIBC_SOURCE=%S/../../../../libc
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["clang", "-cc1", "-std=c++17", "-ffreestanding",
+          "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+          "-I", str(root), "-I", str(libc), "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=state_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE"]
+sources = [libc / "src/__support/threads/thread.cpp",
+           libc / "src/__support/threads/linux/mmix/main_thread.cpp",
+           root / "test.cpp"]
+for opt in ("0", "2"):
+    files = []
+    for index, source in enumerate(sources):
+        bc = root / (str(index) + opt + ".bc")
+        # Native IR and an injected syscall test lifecycle semantics only.
+        subprocess.run(common + ["-triple", "x86_64-unknown-linux-gnu", "-D__mmix__",
+                       "-disable-O0-optnone", "-O" + opt, "-emit-llvm-bc", "-o", str(bc), str(source)], check=True)
+        files.append(str(bc))
+        subprocess.run(common + ["-triple", "mmix-unknown-linux", "-O" + opt,
+                       "-emit-obj", "-o", str(bc) + ".o", str(source)], check=True)
+        report = subprocess.check_output(["llvm-readobj", "--sections", "--relocations",
+                                          str(bc) + ".o"], text=True)
+        assert "SHF_TLS" not in report and "TLS" not in report
+    linked = str(root / ("host" + opt + ".bc"))
+    subprocess.run(["llvm-link", *files, "-o", linked], check=True)
+    # Fold fixed-size inline copies before using the interpreter, which cannot
+    # lower llvm.memcpy.inline. Target objects above retain the original flags.
+    lowered = linked + ".lowered.bc"
+    subprocess.run(["opt", "-passes=function(sroa,instcombine)", linked,
+                    "-o", lowered], check=True)
+    subprocess.run(["lli", "-force-interpreter=true", lowered], check=True)
+
+# The following inputs are test-only constants, not Linux ABI definitions.
+#--- selection/CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(CheckThreadProvider NONE)
+# Execute the real provider dispatch without building unrelated Linux objects.
+function(add_header_library)
+endfunction()
+function(add_object_library name)
+  cmake_parse_arguments(ARG "ALIAS" "" "DEPENDS;SRCS" ${ARGN})
+  if(name STREQUAL "thread")
+    set(selected_alias "${ARG_ALIAS}" PARENT_SCOPE)
+    set(selected_deps "${ARG_DEPENDS}" PARENT_SCOPE)
+    set(selected_sources "${ARG_SRCS}" PARENT_SCOPE)
+  endif()
+endfunction()
+function(add_subdirectory name)
+  if(NOT name STREQUAL "mmix")
+    message(FATAL_ERROR "unexpected platform provider")
+  endif()
+  include(${LIBC_SOURCE}/src/__support/threads/linux/mmix/CMakeLists.txt)
+endfunction()
+add_custom_target(libc.src.__support.OSUtil.osutil)
+foreach(LIBC_TARGET_ARCHITECTURE mmix x86_64)
+  foreach(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_SINGLE LIBC_THREAD_MODE_PLATFORM)
+    include(${LIBC_SOURCE}/src/__support/threads/linux/CMakeLists.txt)
+    if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+       LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE")
+      if(NOT selected_alias OR NOT selected_deps STREQUAL ".mmix.main_thread")
+        message(FATAL_ERROR "missing main-thread provider")
+      endif()
+    elseif(selected_alias OR NOT selected_sources STREQUAL "thread.cpp")
+      message(FATAL_ERROR "changed platform thread provider")
+    endif()
+  endforeach()
+endforeach()
+#--- linux/param.h
+#define EXEC_PAGESIZE 4096
+#--- sys/syscall.h
+#define SYS_gettid 123
+#define SYS_write 124
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/main_thread.h"
+#include "src/__support/threads/thread.h"
+#include <sys/syscall.h>
+
+using namespace state_test;
+extern "C" int __cxa_thread_atexit_impl(void (*)(void *), void *, void *);
+
+#if defined(__mmix__) && !defined(__x86_64__)
+static_assert(STACK_ALIGNMENT == 8);
+static_assert(alignof(ThreadAttributes) == 8);
+#endif
+
+long next_tid;
+int syscall_count;
+int sequence[8];
+int count;
+
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c,
+                                         long d, long e, long f) {
+  ++syscall_count;
+  if (n != SYS_gettid || a || b || c || d || e || f)
+    return -1;
+  return next_tid;
+}
+
+void callback(void *p) {
+  int value = *static_cast<int *>(p);
+  sequence[count++] = value;
+  internal::cleanup_main_thread();
+  if (value == 2) {
+    static int late = 3;
+    __cxa_thread_atexit_impl(callback, &late, nullptr);
+  }
+}
+
+extern "C" int main() {
+  if (current_thread().attrib != nullptr)
+    return 1;
+  internal::cleanup_main_thread();
+  long invalid_values[] = {-5L, 0L, 2147483648L};
+  for (long invalid : invalid_values) {
+    next_tid = invalid;
+    if (internal::initialize_main_thread() || current_thread().attrib)
+      return 2;
+  }
+  next_tid = 321;
+  if (!internal::initialize_main_thread() || syscall_count != 4)
+    return 3;
+  auto *attr = current_thread().attrib;
+  if (!attr || attr->tid != 321 || !attr->atexit_callback_mgr || attr->stack ||
+      attr->stacksize || attr->guardsize || attr->tls || attr->tls_size ||
+      attr->owned_stack)
+    return 4;
+  if (!internal::initialize_main_thread() || current_thread().attrib != attr ||
+      syscall_count != 4)
+    return 5;
+  int one = 1, two = 2, four = 4;
+  if (__cxa_thread_atexit_impl(callback, &one, nullptr) ||
+      __cxa_thread_atexit_impl(callback, &two, nullptr))
+    return 6;
+  auto key = new_tss_key(callback);
+  if (!key || !set_tss_value(*key, &four))
+    return 7;
+  internal::cleanup_main_thread();
+  internal::cleanup_main_thread();
+  if (count != 4 || sequence[0] != 2 || sequence[1] != 3 ||
+      sequence[2] != 1 || sequence[3] != 4)
+    return 8;
+  return internal::initialize_main_thread() || syscall_count != 4;
+}
