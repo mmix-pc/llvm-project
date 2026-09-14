@@ -505,7 +505,9 @@ add_entrypoint_object(
 )
 
 if(NOT LIBC_TARGET_OS_IS_BAREMETAL AND NOT LIBC_TARGET_OS_IS_GPU)
-  if(LLVM_LIBC_INCLUDE_SCUDO)
+  if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+    include(linux/mmix/Entrypoints.cmake)
+  elseif(LLVM_LIBC_INCLUDE_SCUDO)
     set(SCUDO_DEPS "")
 
     include(${LIBC_SOURCE_DIR}/../compiler-rt/cmake/Modules/AllSupportedArchDefs.cmake)

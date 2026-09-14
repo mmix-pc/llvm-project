@@ -9,6 +9,8 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.unistd.getpid
     libc.src.unistd._exit
     libc.src.stdlib._Exit
+    libc.src.stdlib.malloc
+    libc.src.stdlib.free
 )
 
 # read/write/close/lseek remain compile-only until their full closure is qualified.

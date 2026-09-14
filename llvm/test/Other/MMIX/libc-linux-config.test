@@ -64,7 +64,8 @@ endif()
 include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
 set(expected libc.src.errno.errno libc.src.string.memcpy libc.src.string.memmove
     libc.src.string.memset libc.src.string.memcmp libc.src.string.strlen
-    libc.src.unistd.getpid libc.src.unistd._exit libc.src.stdlib._Exit)
+    libc.src.unistd.getpid libc.src.unistd._exit libc.src.stdlib._Exit
+    libc.src.stdlib.malloc libc.src.stdlib.free)
 if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL expected OR
    NOT TARGET_LLVMLIBC_ENTRYPOINTS STREQUAL expected)
   message(FATAL_ERROR "incorrect initial Linux entrypoints")
