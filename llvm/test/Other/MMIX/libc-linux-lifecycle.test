@@ -24,7 +24,9 @@ lifecycle = libc / "startup/linux/mmix/lifecycle.cpp"
 state = [libc / "src/__support/threads/thread.cpp",
          libc / "src/__support/threads/linux/mmix/main_thread.cpp"]
 atexit = libc / "src/stdlib/atexit.cpp"
-providers = [*state, atexit, libc / "src/stdlib/exit.cpp",
+normal_exit = libc / "src/stdlib/linux/mmix/exit.cpp"
+immediate_exit = [libc / "src/stdlib/_Exit.cpp", libc / "src/unistd/_exit.cpp"]
+providers = [*state, atexit, normal_exit, *immediate_exit,
     libc / "src/__support/OSUtil/linux/exit.cpp",
     *[libc / "src/stdlib/linux/mmix" / (name + ".cpp") for name in ("allocator", "malloc", "free")],
     libc / "src/__support/OSUtil/linux/mmix/heap.cpp",
@@ -39,16 +41,29 @@ for opt in ("0", "2"):
     for i, source in enumerate([lifecycle, *providers, root / "consumer.cpp"]):
         obj = root / (str(i) + "-O" + opt + ".o")
         subprocess.run([*base, "-O" + opt, "-emit-obj", "-o", str(obj), str(source)], check=True)
+        if source == normal_exit or source in immediate_exit:
+            undefined = subprocess.check_output(
+                ["llvm-nm", "-u", "--demangle", str(obj)], text=True)
+            assert "startup_test::internal::exit(int)" in undefined, undefined
+            if source == normal_exit:
+                assert "cleanup_main_thread()" in undefined, undefined
+                assert "__cxa_finalize" in undefined, undefined
+            else:
+                assert "cleanup_main_thread" not in undefined, undefined
+                assert "__cxa_finalize" not in undefined, undefined
         objects.append(str(obj))
     linked = root / ("lifecycle-O" + opt + ".elf")
-    # Offline composition only: common exit does not yet integrate MMIX main-
-    # thread cleanup. No target test-only state, allocator or exit provider.
+    # Offline composition only, with real state, allocator and exit providers.
     subprocess.run(["ld.lld", "-m", "elf64mmix_linux", "-static", "--gc-sections",
         "-e", "_start", str(guard / ("bootstrap-O" + opt + ".o")), *objects,
         "-o", str(linked)], check=True)
     assert not subprocess.check_output(["llvm-nm", "-u", str(linked)], text=True).strip()
     symbols = subprocess.check_output(["llvm-nm", "--defined-only", "--demangle", str(linked)], text=True)
     assert "initialize_main_thread()" in symbols, symbols
+    assert "cleanup_main_thread()" in symbols, symbols
+    for name in ("startup_test::exit(int)", "startup_test::_Exit(int)",
+                 "startup_test::_exit(int)"):
+        assert name in symbols, symbols
     for name in ("main", "pre", "init", "fini", "__preinit_array_start",
                  "__init_array_start", "__fini_array_start", "__llvm_libc_mmix_syscall"):
         assert any(line.endswith(" " + name) for line in symbols.splitlines()), name
@@ -78,13 +93,16 @@ if len(sys.argv) == 4:
             exe = root / ("native-O" + opt + ("-empty" if empty else ""))
             subprocess.run([sys.argv[3], *native, "-D__mmix__", "-O" + opt,
                 *(["-DEMPTY_ARRAYS"] if empty else []), str(obj),
-                *map(str, [*state, atexit]), str(root / "test.cpp"),
+                *map(str, [*state, atexit, normal_exit, *immediate_exit]), str(root / "test.cpp"),
                 "-o", str(exe)], check=True)
-            for mode in ("ok", "tid-failure", "registration-failure"):
+            for mode in ("ok", "tid-failure", "registration-failure", "explicit",
+                         "constructor", "immediate", "underscore"):
                 subprocess.run([str(exe), mode], check=True)
 
 #--- consumer.cpp
 #include "src/__support/threads/thread.h"
+#include "src/stdlib/_Exit.h"
+#include "src/unistd/_exit.h"
 int sequence;
 extern "C" void pre(int, char **, char **) {
   sequence = startup_test::current_thread().attrib ? 1 : -100;
@@ -95,18 +113,26 @@ using Callback = void(int, char **, char **);
 __attribute__((used, section(".preinit_array"))) Callback *pre_slot = pre;
 __attribute__((used, section(".init_array"))) Callback *init_slot = init;
 __attribute__((used, section(".fini_array"))) void (*fini_slot)() = fini;
-extern "C" int main(int, char **, char **) { return sequence == 3 ? 0 : 1; }
+extern "C" int main(int argc, char **, char **) {
+  if (argc == 2) startup_test::_Exit(17);
+  if (argc == 3) startup_test::_exit(18);
+  return sequence == 3 ? 0 : 1;
+}
 
 #--- test.cpp
 #include "config/linux/app.h"
 #include "src/__support/threads/thread.h"
+#include "src/__support/threads/linux/mmix/main_thread.h"
 #include "src/stdlib/atexit.h"
 #include "src/stdlib/exit.h"
+#include "src/stdlib/_Exit.h"
+#include "src/unistd/_exit.h"
 #include <sys/syscall.h>
 using namespace startup_test;
 namespace startup_test { AppProperties app; }
 extern "C" [[noreturn]] void __llvm_libc_mmix_linux_run();
 extern "C" void __cxa_finalize(void *);
+extern "C" int __cxa_thread_atexit_impl(void (*)(void *), void *, void *);
 static int mode, count, events[16], tid_calls;
 static uintptr_t args[] = {1, 0, 0}, env[] = {0};
 static void require(bool value) { if (!value) __builtin_abort(); }
@@ -124,16 +150,35 @@ static void validate(int argc, char **argv, char **envp) {
           envp == reinterpret_cast<char **>(env));
 }
 static void late() { event(6); }
+static void added() { event(13); }
+static void thread_late(void *) { event(10); }
+static void thread_cleanup(void *) {
+  event(9);
+  internal::cleanup_main_thread(); // Reentry must not repeat this callback.
+  require(__cxa_thread_atexit_impl(thread_late, nullptr, nullptr) == 0);
+  require(startup_test::atexit(added) == 0);
+}
+static void tss_cleanup(void *) { event(11); }
+static void register_thread_cleanup() {
+  require(__cxa_thread_atexit_impl(thread_cleanup, nullptr, nullptr) == 0);
+  auto key = new_tss_key(tss_cleanup);
+  require(key.has_value() && set_tss_value(*key, &mode));
+}
 extern "C" void pre1(int n, char **v, char **e) { validate(n,v,e); event(1); }
 extern "C" void pre2(int n, char **v, char **e) { validate(n,v,e); event(2); }
 extern "C" void init1(int n, char **v, char **e) {
   validate(n,v,e); event(3); require(startup_test::atexit(late) == 0);
+  if (mode == 4) { register_thread_cleanup(); startup_test::exit(42); }
 }
 extern "C" void init2(int n, char **v, char **e) { validate(n,v,e); event(4); }
 extern "C" void fini1() { event(8); }
 extern "C" void fini2() { event(7); }
 extern "C" int program_main(int n, char **v, char **e) {
-  validate(n,v,e); event(5); return 42;
+  validate(n,v,e); event(5); register_thread_cleanup();
+  if (mode == 3) startup_test::exit(42);
+  if (mode == 5) startup_test::_Exit(42);
+  if (mode == 6) startup_test::_exit(42);
+  return 42;
 }
 // Distinct native symbols prevent the host CRT from running these callbacks.
 extern "C" {
@@ -150,29 +195,42 @@ asm(".global test__preinit_array_end\n.set test__preinit_array_end,test__preinit
     ".global test__init_array_end\n.set test__init_array_end,test__init_array_start+" ARRAY_SIZE "\n"
     ".global test__fini_array_end\n.set test__fini_array_end,test__fini_array_start+" ARRAY_SIZE "\n");
 extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start_fail() { throw 1; }
-namespace startup_test {
+namespace startup_test::internal {
 [[noreturn]] void exit(int status) {
-  require(status == 42); __cxa_finalize(nullptr); throw 2;
+  require(status == 42); throw 2;
 }
 }
 static void unused() {}
 int main(int argc, char **argv) {
   require(argc == 2);
-  mode = argv[1][0] == 't' ? 1 : argv[1][0] == 'r' ? 2 : 0;
+  mode = argv[1][0] == 't' ? 1 : argv[1][0] == 'r' ? 2 :
+         argv[1][0] == 'e' ? 3 : argv[1][0] == 'c' ? 4 :
+         argv[1][0] == 'i' ? 5 : argv[1][0] == 'u' ? 6 : 0;
   app.args = reinterpret_cast<Args *>(args); app.env_ptr = env; app.page_size = 8192;
   if (mode == 2)
     for (unsigned i = 0; i != 1024; ++i) require(startup_test::atexit(unused) == 0);
   try { __llvm_libc_mmix_linux_run(); }
   catch (int result) {
     require(tid_calls == 1);
-    if (mode) { require(result == 1 && count == 0); return 0; }
+    if (mode == 1 || mode == 2) { require(result == 1 && count == 0); return 0; }
     require(result == 2);
 #ifdef EMPTY_ARRAYS
-    require(count == 1 && events[0] == 5);
+    int expected[] = {5, 9, 10, 11, 13};
+    int size = mode >= 5 ? 1 : 5;
 #else
-    require(count == 8);
-    for (int i = 0; i != 8; ++i) require(events[i] == i + 1);
+    int expected[] = {1, 2, 3, 4, 5, 9, 10, 11, 13, 6, 7, 8};
+    int size = mode >= 5 ? 5 : 12;
+    if (mode == 4) {
+      for (int i = 3; i != 10; ++i) expected[i] = expected[i + 2];
+      size = 10;
+    }
 #endif
+    require(count == size);
+    for (int i = 0; i != size; ++i) require(events[i] == expected[i]);
+    if (mode < 5) {
+      internal::cleanup_main_thread(); __cxa_finalize(nullptr);
+      require(count == size);
+    }
   }
   return 0;
 }

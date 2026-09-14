@@ -813,9 +813,12 @@ if(NOT LIBC_TARGET_OS_IS_BAREMETAL)
 endif()
 
 set(exit_compile_options "")
+set(exit_source exit.cpp)
 # TODO: Revisit this when/if LIBC_CONF_THREAD_MODE controls more than the
 # mutex implementation.
-if(TARGET libc.src.__support.threads.thread)
+if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  include(linux/mmix/Exit.cmake)
+elseif(TARGET libc.src.__support.threads.thread)
   list(APPEND exit_deps
     libc.src.__support.threads.thread
   )
@@ -825,7 +828,7 @@ endif()
 add_entrypoint_object(
   exit
   SRCS
-    exit.cpp
+    ${exit_source}
   HDRS
     exit.h
   COMPILE_OPTIONS
