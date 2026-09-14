@@ -47,6 +47,14 @@ for opt in ("0", "2"):
     refs = subprocess.check_output(["llvm-nm", "-u", str(consumer)], text=True)
     for name in ("_ZnwmSt11align_val_t", "_ZdlPvSt11align_val_t"):
         assert name in refs, refs
+    checked = root / ("checked-O" + opt + ".o")
+    subprocess.run(base + ["-O" + opt, "-emit-obj", "-o", str(checked),
+                          str(root / "checked.cpp")], check=True)
+    joined = root / ("checked-provider-O" + opt + ".o")
+    subprocess.run(["ld.lld", "-r", str(checked), str(combined), "-o", str(joined)], check=True)
+    refs = subprocess.check_output(["llvm-nm", "-u", str(joined)], text=True)
+    assert {line.split()[-1] for line in refs.splitlines()} == {
+        "__llvm_libc_mmix_syscall", "__stack_chk_guard", "__stack_chk_fail"}, refs
 
 # Native semantics are explicitly selected by the validation caller, not a
 # target execution result. Do not override the native process's malloc/free.
@@ -273,3 +281,19 @@ Object *create() {
   return static_cast<Object *>(::operator new(sizeof(Object), std::align_val_t(alignof(Object))));
 }
 void destroy(Object *p) { ::operator delete(p, std::align_val_t(alignof(Object))); }
+
+#--- checked.cpp
+#include "src/__support/alloc-checker.h"
+#include "hdr/func/free.h"
+extern "C" int checked_allocation(size_t count) {
+  LIBC_NAMESPACE::AllocChecker ac;
+  unsigned char *p = new (ac) unsigned char[count];
+  if (!ac)
+    return 1;
+  ::free(p);
+  void *q = LIBC_NAMESPACE::AllocChecker::aligned_alloc(64, std::align_val_t(64), ac);
+  if (!ac)
+    return 2;
+  ::free(q);
+  return 0;
+}

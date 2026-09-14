@@ -1,0 +1,8 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %S/libcxx-linux-thread-types.test %t
+# RUN: cmake -S %t -B %t/build -DSOURCE=%S/../../../.. -DOUT=%t
+# RUN: cmake -DSOURCE=%S/../../../.. -DOUT=%t/llvm-headers -P %S/Inputs/linux-state-config.cmake
+# RUN: split-file %S/linux-state-consumers.test %t/probe
+# RUN: split-file %S/libc-linux-heap-mapping.test %t/mapping
+# RUN: %python %t/probe/check.py %S/../../../.. %t allocation

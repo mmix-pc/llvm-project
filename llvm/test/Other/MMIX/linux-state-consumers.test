@@ -13,7 +13,8 @@ import subprocess
 import sys
 import yaml
 
-source, root = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+source, root = (pathlib.Path(p).resolve() for p in sys.argv[1:3])
+allocation = len(sys.argv) == 4 and sys.argv[3] == "allocation"
 headers = root / "c"
 (headers / "sys").mkdir()
 (headers / "linux").mkdir()
@@ -45,9 +46,13 @@ flags = ["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++17",
          "-I", str(source / "libcxx/include"), "-I", str(headers),
          "-I", str(source / "libc/include"), "-I", str(root / "llvm-headers"),
          "-I", str(source / "llvm/include")]
+workloads = (("consumer", source / "llvm/test/Other/MMIX/Inputs/linux-state-consumer.cpp"),
+             ("managed", source / "llvm/lib/Support/ManagedStatic.cpp"))
+if allocation:
+    workloads = (("allocation", source / "llvm/test/Other/MMIX/Inputs/linux-allocation-consumer.cpp"),
+                 ("vector", source / "llvm/lib/Support/SmallVector.cpp"))
 for level in ("0", "2"):
-    for name, file in (("consumer", source / "llvm/test/Other/MMIX/Inputs/linux-state-consumer.cpp"),
-                       ("managed", source / "llvm/lib/Support/ManagedStatic.cpp")):
+    for name, file in workloads:
         obj = root / (name + level + ".o")
         subprocess.run(flags + ["-O" + level, "-emit-obj", "-o", str(obj), str(file)], check=True)
         undefined = subprocess.check_output(["llvm-nm", "-C", "-u", str(obj)], text=True)
@@ -58,4 +63,32 @@ for level in ("0", "2"):
             assert "recursive_mutex::lock()" in undefined, undefined
             assert "::lock_shared()" in undefined, undefined
             assert "ManagedStaticBase::RegisterManagedStatic" in undefined, undefined
+        if name == "allocation":
+            for symbol in ("malloc", "calloc", "realloc", "operator new", "operator delete",
+                           "report_bad_alloc_error"):
+                assert symbol in undefined, undefined
         # Whole-source dependencies stay visible; no fabricated providers or link claim.
+    if allocation:
+        cobj = root / ("allocation-c" + level + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c17",
+            "-mrelocation-model", "static", "-ffreestanding", "-stack-protector", "2",
+            "-internal-isystem", resource + "/include", "-I", str(headers),
+            "-O" + level, "-emit-obj", "-o", str(cobj),
+            str(source / "llvm/test/Other/MMIX/Inputs/linux-allocation-c.c")], check=True)
+        refs = subprocess.check_output(["llvm-nm", "-u", str(cobj)], text=True)
+        for name in ("malloc", "calloc", "realloc", "free", "aligned_alloc", "posix_memalign"):
+            assert name in refs, refs
+        obj = root / ("file" + level + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++17",
+            "-mrelocation-model", "static", "-ffreestanding", "-DNDEBUG",
+            "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=file_test",
+            "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE", "-stack-protector", "2",
+            "-internal-isystem", resource + "/include", "-I", str(headers),
+            "-I", str(root / "mapping/headers"),
+            "-I", str(source / "libc"), "-I", str(source / "libc/include"),
+            "-O" + level, "-emit-obj", "-o", str(obj),
+            str(source / "libc/src/__support/File/file.cpp")], check=True)
+        refs = subprocess.check_output(["llvm-nm", "-C", "-u", str(obj)], text=True)
+        for name in ("malloc", "realloc", "__stack_chk_guard", "__stack_chk_fail"):
+            assert name in refs, refs
+        assert "pthread_" not in refs and "__tls_get_addr" not in refs
