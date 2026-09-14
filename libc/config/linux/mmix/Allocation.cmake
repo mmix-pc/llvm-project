@@ -3,8 +3,14 @@ option(LIBC_MMIX_BUILD_ALLOCATION "Prepare Linux allocation consumers and inputs
 if(NOT LIBC_MMIX_BUILD_ALLOCATION)
   return()
 endif()
-if(NOT LIBC_MMIX_BUILD_RUNTIME_STATE OR LLVM_LIBC_INCLUDE_SCUDO)
-  message(FATAL_ERROR "MMIX Linux allocation preparation requires runtime state without Scudo")
+if(NOT LIBC_MMIX_BUILD_RUNTIME_STATE OR LLVM_LIBC_INCLUDE_SCUDO OR
+   NOT LLVM_LIBC_FULL_BUILD OR NOT CMAKE_CROSSCOMPILING OR
+   NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+   NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "mmix" OR
+   NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR
+   NOT LIBC_CONF_ERRNO_MODE STREQUAL "LIBC_ERRNO_MODE_SHARED" OR
+   NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE")
+  message(FATAL_ERROR "MMIX Linux allocation preparation requires cross Release, full libc, SINGLE state and shared errno without Scudo")
 endif()
 set(LIBC_MMIX_COMPILER_RT_BUILTINS "" CACHE FILEPATH "Matching Linux compiler-rt builtins archive")
 if(NOT IS_ABSOLUTE "${LIBC_MMIX_COMPILER_RT_BUILTINS}" OR
