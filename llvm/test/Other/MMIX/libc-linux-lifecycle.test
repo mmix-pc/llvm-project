@@ -1,0 +1,178 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-stack-guard.test %t/guard
+# RUN: split-file %S/libc-linux-process-args.test %t/guard/args
+# RUN: split-file %S/libc-linux-synchronization.test %t/guard/args/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+guard = root / "guard"
+subprocess.run([sys.executable, str(guard / "run.py"), str(libc), str(guard)], check=True)
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+    "-DLIBC_NAMESPACE=startup_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
+    "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED", "-DNDEBUG",
+    "-DSYS_gettid=178", "-DSYS_exit=93", "-DSYS_exit_group=94",
+    "-I", str(guard / "args/headers"), "-I", str(guard / "args/sync"),
+    "-I", str(libc), "-I", str(libc / "include")]
+lifecycle = libc / "startup/linux/mmix/lifecycle.cpp"
+state = [libc / "src/__support/threads/thread.cpp",
+         libc / "src/__support/threads/linux/mmix/main_thread.cpp"]
+atexit = libc / "src/stdlib/atexit.cpp"
+providers = [*state, atexit, libc / "src/stdlib/exit.cpp",
+    libc / "src/__support/OSUtil/linux/exit.cpp",
+    *[libc / "src/stdlib/linux/mmix" / (name + ".cpp") for name in ("allocator", "malloc", "free")],
+    libc / "src/__support/OSUtil/linux/mmix/heap.cpp",
+    libc / "src/__support/freelist.cpp", libc / "src/__support/freetrie.cpp",
+    libc / "src/errno/libc_errno.cpp", libc / "src/__support/CPP/new.cpp",
+    libc / "src/string/memset.cpp"]
+base = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
+    "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+    *common, "-DLIBC_COPT_PUBLIC_PACKAGING", "-stack-protector", "2"]
+for opt in ("0", "2"):
+    objects = []
+    for i, source in enumerate([lifecycle, *providers, root / "consumer.cpp"]):
+        obj = root / (str(i) + "-O" + opt + ".o")
+        subprocess.run([*base, "-O" + opt, "-emit-obj", "-o", str(obj), str(source)], check=True)
+        objects.append(str(obj))
+    linked = root / ("lifecycle-O" + opt + ".elf")
+    # Offline composition only: common exit does not yet integrate MMIX main-
+    # thread cleanup. No target test-only state, allocator or exit provider.
+    subprocess.run(["ld.lld", "-m", "elf64mmix_linux", "-static", "--gc-sections",
+        "-e", "_start", str(guard / ("bootstrap-O" + opt + ".o")), *objects,
+        "-o", str(linked)], check=True)
+    assert not subprocess.check_output(["llvm-nm", "-u", str(linked)], text=True).strip()
+    symbols = subprocess.check_output(["llvm-nm", "--defined-only", "--demangle", str(linked)], text=True)
+    assert "initialize_main_thread()" in symbols, symbols
+    for name in ("main", "pre", "init", "fini", "__preinit_array_start",
+                 "__init_array_start", "__fini_array_start", "__llvm_libc_mmix_syscall"):
+        assert any(line.endswith(" " + name) for line in symbols.splitlines()), name
+    sections = subprocess.check_output(["llvm-readobj", "--sections", str(linked)], text=True)
+    for name in (".preinit_array", ".init_array", ".fini_array"):
+        assert name in sections, sections
+    assert "SHF_TLS" not in sections and ".MMIX.reg_contents" not in sections
+
+# Native lifecycle semantics reuse actual state and atexit algorithms. The
+# upstream non-public FixedVector callback store permits deterministic capacity
+# failure tests; production allocation is covered by the real target links.
+if len(sys.argv) == 4:
+    native = [*common, "-DLIBC_COPT_USE_MEM_BUILTINS",
+              "-D__cxa_atexit=test_cxa_atexit",
+              "-D__cxa_finalize=test_cxa_finalize",
+              "-D__cxa_thread_atexit_impl=test_cxa_thread_atexit_impl"]
+    renames = ["-Dmain=program_main"]
+    for kind in ("preinit", "init", "fini"):
+        for bound in ("start", "end"):
+            name = "__" + kind + "_array_" + bound
+            renames.append("-D" + name + "=test" + name)
+    for opt in ("0", "2"):
+        obj = root / ("native-lifecycle-O" + opt + ".o")
+        subprocess.run([sys.argv[3], *native, *renames, "-O" + opt,
+            "-c", str(lifecycle), "-o", str(obj)], check=True)
+        for empty in (False, True):
+            exe = root / ("native-O" + opt + ("-empty" if empty else ""))
+            subprocess.run([sys.argv[3], *native, "-D__mmix__", "-O" + opt,
+                *(["-DEMPTY_ARRAYS"] if empty else []), str(obj),
+                *map(str, [*state, atexit]), str(root / "test.cpp"),
+                "-o", str(exe)], check=True)
+            for mode in ("ok", "tid-failure", "registration-failure"):
+                subprocess.run([str(exe), mode], check=True)
+
+#--- consumer.cpp
+#include "src/__support/threads/thread.h"
+int sequence;
+extern "C" void pre(int, char **, char **) {
+  sequence = startup_test::current_thread().attrib ? 1 : -100;
+}
+extern "C" void init(int, char **, char **) { sequence += 2; }
+extern "C" void fini() { sequence += 4; }
+using Callback = void(int, char **, char **);
+__attribute__((used, section(".preinit_array"))) Callback *pre_slot = pre;
+__attribute__((used, section(".init_array"))) Callback *init_slot = init;
+__attribute__((used, section(".fini_array"))) void (*fini_slot)() = fini;
+extern "C" int main(int, char **, char **) { return sequence == 3 ? 0 : 1; }
+
+#--- test.cpp
+#include "config/linux/app.h"
+#include "src/__support/threads/thread.h"
+#include "src/stdlib/atexit.h"
+#include "src/stdlib/exit.h"
+#include <sys/syscall.h>
+using namespace startup_test;
+namespace startup_test { AppProperties app; }
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_run();
+extern "C" void __cxa_finalize(void *);
+static int mode, count, events[16], tid_calls;
+static uintptr_t args[] = {1, 0, 0}, env[] = {0};
+static void require(bool value) { if (!value) __builtin_abort(); }
+static void event(int value) { require(count < 16); events[count++] = value; }
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+    long c, long d, long e, long f) {
+  require(n == SYS_gettid && !(a | b | c | d | e | f));
+  ++tid_calls;
+  return mode == 1 ? -1 : 321;
+}
+static void validate(int argc, char **argv, char **envp) {
+  require(current_thread().attrib && current_thread().attrib->tid == 321);
+  require(current_thread().attrib->atexit_callback_mgr && tid_calls == 1);
+  require(argc == 1 && argv == reinterpret_cast<char **>(args + 1) &&
+          envp == reinterpret_cast<char **>(env));
+}
+static void late() { event(6); }
+extern "C" void pre1(int n, char **v, char **e) { validate(n,v,e); event(1); }
+extern "C" void pre2(int n, char **v, char **e) { validate(n,v,e); event(2); }
+extern "C" void init1(int n, char **v, char **e) {
+  validate(n,v,e); event(3); require(startup_test::atexit(late) == 0);
+}
+extern "C" void init2(int n, char **v, char **e) { validate(n,v,e); event(4); }
+extern "C" void fini1() { event(8); }
+extern "C" void fini2() { event(7); }
+extern "C" int program_main(int n, char **v, char **e) {
+  validate(n,v,e); event(5); return 42;
+}
+// Distinct native symbols prevent the host CRT from running these callbacks.
+extern "C" {
+uintptr_t test__preinit_array_start[] = {reinterpret_cast<uintptr_t>(pre1), reinterpret_cast<uintptr_t>(pre2)};
+uintptr_t test__init_array_start[] = {reinterpret_cast<uintptr_t>(init1), reinterpret_cast<uintptr_t>(init2)};
+uintptr_t test__fini_array_start[] = {reinterpret_cast<uintptr_t>(fini1), reinterpret_cast<uintptr_t>(fini2)};
+}
+#ifdef EMPTY_ARRAYS
+#define ARRAY_SIZE "0"
+#else
+#define ARRAY_SIZE "16"
+#endif
+asm(".global test__preinit_array_end\n.set test__preinit_array_end,test__preinit_array_start+" ARRAY_SIZE "\n"
+    ".global test__init_array_end\n.set test__init_array_end,test__init_array_start+" ARRAY_SIZE "\n"
+    ".global test__fini_array_end\n.set test__fini_array_end,test__fini_array_start+" ARRAY_SIZE "\n");
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start_fail() { throw 1; }
+namespace startup_test {
+[[noreturn]] void exit(int status) {
+  require(status == 42); __cxa_finalize(nullptr); throw 2;
+}
+}
+static void unused() {}
+int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = argv[1][0] == 't' ? 1 : argv[1][0] == 'r' ? 2 : 0;
+  app.args = reinterpret_cast<Args *>(args); app.env_ptr = env; app.page_size = 8192;
+  if (mode == 2)
+    for (unsigned i = 0; i != 1024; ++i) require(startup_test::atexit(unused) == 0);
+  try { __llvm_libc_mmix_linux_run(); }
+  catch (int result) {
+    require(tid_calls == 1);
+    if (mode) { require(result == 1 && count == 0); return 0; }
+    require(result == 2);
+#ifdef EMPTY_ARRAYS
+    require(count == 1 && events[0] == 5);
+#else
+    require(count == 8);
+    for (int i = 0; i != 8; ++i) require(events[i] == i + 1);
+#endif
+  }
+  return 0;
+}

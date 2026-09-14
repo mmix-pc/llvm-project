@@ -37,3 +37,17 @@ extern "C" long *words(size_t size, AllocationState &state) {
 // CHECK: select i1 {{.*}}, i64 -1, i64
 // CHECK: call{{.*}}ptr @_ZnamR15AllocationState
 
+struct Block {
+  unsigned char data[16] = {};
+  Block *next = nullptr;
+};
+extern "C" Block *block(AllocationState &state) {
+  return new (state) Block();
+}
+// CHECK-LABEL: define{{.*}} @block(
+// CHECK: call{{.*}}ptr @_ZnwmR15AllocationState(i64{{.*}}24, ptr{{.*}})
+// CHECK: icmp eq ptr
+// CHECK: br i1
+// CHECK: call void @llvm.memset
+// CHECK: call{{.*}} @_ZN5BlockC1Ev
+// CHECK: ret ptr

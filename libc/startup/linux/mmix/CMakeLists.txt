@@ -35,3 +35,14 @@ add_startup_object(
     libc.include.sys_syscall
   COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector
 )
+
+# Guard initialization precedes this ordinary protected runtime path.
+add_startup_object(
+  lifecycle
+  SRC lifecycle.cpp
+  DEPENDS
+    libc.config.app_h
+    libc.hdr.types.size_t
+    libc.src.__support.threads.linux.mmix.main_thread
+  COMPILE_OPTIONS -ffreestanding -fno-builtin
+)
