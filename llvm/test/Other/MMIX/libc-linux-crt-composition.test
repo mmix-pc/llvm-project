@@ -16,6 +16,7 @@ endforeach()
 #--- run.py
 import pathlib
 import runpy
+import shutil
 import struct
 import subprocess
 import sys
@@ -93,6 +94,30 @@ for opt in ("0", "2"):
             "--gc-sections", "-e", "_start", crt1, begin, consumer,
             "--start-group", archive, helper_archive, "--end-group", end, "-o", elf]
     run(*link)
+    # Exercise the actual Linux Driver, using only these real target providers.
+    sysroot = out / "sysroot"
+    library = sysroot / "usr/lib"
+    library.mkdir(parents=True, exist_ok=True)
+    resource = out / "resource"
+    resource_library = resource / "lib/mmix-unknown-linux"
+    resource_library.mkdir(parents=True, exist_ok=True)
+    for source, destination in ((crt1, library / "crt1.o"),
+                                (archive, library / "libc.a"),
+                                (helper_archive, resource_library / "libclang_rt.builtins.a"),
+                                (begin, resource_library / "clang_rt.crtbegin.o"),
+                                (end, resource_library / "clang_rt.crtend.o")):
+        shutil.copy2(source, destination)
+    driver_elf = out / "driver.elf"
+    driver = ["clang", "--target=mmix-unknown-linux", "--sysroot=" + str(sysroot),
+              "-resource-dir", resource, "-static", "-Wl,--eh-frame-hdr",
+              "-Wl,--gc-sections", consumer, "-o", driver_elf]
+    run(*driver)
+    assert driver_elf.read_bytes() == elf.read_bytes(), "Driver/provider ordering drift"
+    duplicate = subprocess.run(list(map(str, [*driver, crt1])), capture_output=True, text=True)
+    assert duplicate.returncode and "duplicate symbol: _start" in duplicate.stderr
+    (resource_library / "libclang_rt.builtins.a").unlink()
+    missing = subprocess.run(list(map(str, driver)), capture_output=True, text=True)
+    assert missing.returncode and "libclang_rt.builtins.a" in missing.stderr
     assert not output("llvm-nm", "-u", elf).strip()
     symbols = output("llvm-nm", "--defined-only", elf)
     for name in ("_start", "__dso_handle", "__cxa_atexit", "__cxa_finalize",
