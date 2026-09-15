@@ -13,6 +13,10 @@ set(TARGET_PUBLIC_HEADERS
     libc.include.unistd
 )
 
+if(LIBC_MMIX_BUILD_CORE)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.inttypes)
+endif()
+
 if(LIBC_MMIX_BUILD_RUNTIME_STATE)
   # Storage types for libc++'s external API, not public C thread operations.
   list(APPEND TARGET_PUBLIC_HEADERS

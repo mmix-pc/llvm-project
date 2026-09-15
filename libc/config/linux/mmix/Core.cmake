@@ -1,0 +1,74 @@
+# Keep the initial foundation profile available during runtime composition.
+option(LIBC_MMIX_BUILD_CORE "Build Linux core string and conversion providers" OFF)
+if(NOT LIBC_MMIX_BUILD_CORE)
+  return()
+endif()
+
+set(MMIX_CORE_ENTRYPOINTS
+  libc.src.string.memchr
+  libc.src.string.memrchr
+  libc.src.string.memccpy
+  libc.src.string.stpcpy
+  libc.src.string.stpncpy
+  libc.src.string.strcat
+  libc.src.string.strchr
+  libc.src.string.strcmp
+  libc.src.string.strcpy
+  libc.src.string.strcspn
+  libc.src.string.strdup
+  libc.src.string.strncat
+  libc.src.string.strncmp
+  libc.src.string.strncpy
+  libc.src.string.strndup
+  libc.src.string.strnlen
+  libc.src.string.strpbrk
+  libc.src.string.strrchr
+  libc.src.string.strspn
+  libc.src.string.strstr
+  libc.src.string.strcasestr
+  libc.src.string.strtok
+  libc.src.string.strtok_r
+  libc.src.strings.bcmp
+  libc.src.strings.bcopy
+  libc.src.strings.bzero
+  libc.src.strings.strcasecmp
+  libc.src.strings.strncasecmp
+  libc.src.stdlib.abs
+  libc.src.stdlib.labs
+  libc.src.stdlib.llabs
+  libc.src.stdlib.div
+  libc.src.stdlib.ldiv
+  libc.src.stdlib.lldiv
+  libc.src.stdlib.atoi
+  libc.src.stdlib.atol
+  libc.src.stdlib.atoll
+  libc.src.stdlib.atof
+  libc.src.stdlib.strtol
+  libc.src.stdlib.strtoll
+  libc.src.stdlib.strtoul
+  libc.src.stdlib.strtoull
+  libc.src.stdlib.strtof
+  libc.src.stdlib.strtod
+  libc.src.stdlib.strtold
+  libc.src.stdlib.bsearch
+  libc.src.stdlib.qsort
+  libc.src.inttypes.imaxabs
+  libc.src.inttypes.imaxdiv
+  libc.src.inttypes.strtoimax
+  libc.src.inttypes.strtoumax
+  libc.src.ctype.isalnum
+  libc.src.ctype.isalpha
+  libc.src.ctype.isblank
+  libc.src.ctype.iscntrl
+  libc.src.ctype.isdigit
+  libc.src.ctype.isgraph
+  libc.src.ctype.islower
+  libc.src.ctype.isprint
+  libc.src.ctype.ispunct
+  libc.src.ctype.isspace
+  libc.src.ctype.isupper
+  libc.src.ctype.isxdigit
+  libc.src.ctype.tolower
+  libc.src.ctype.toupper
+)
+list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_CORE_ENTRYPOINTS})

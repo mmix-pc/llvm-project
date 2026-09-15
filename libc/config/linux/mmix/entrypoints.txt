@@ -19,6 +19,7 @@ set(TARGET_LIBC_ENTRYPOINTS
 
 # read/write/close/lseek remain compile-only until their full closure is qualified.
 
+include(${CMAKE_CURRENT_LIST_DIR}/Core.cmake)
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeState.cmake)
