@@ -1,0 +1,13 @@
+add_object_library(
+  clock_gettime
+  SRCS
+    mmix/clock_gettime.cpp
+  HDRS
+    ../clock_gettime.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.hdr.types.struct_timespec
+    libc.hdr.types.clockid_t
+    libc.src.__support.error_or
+    libc.src.__support.OSUtil.osutil
+)

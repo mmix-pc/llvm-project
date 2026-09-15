@@ -53,7 +53,11 @@
 
 // TODO: Move these limit macros to a separate file
 #define _POSIX_CHOWN_RESTRICTED 1
+#if defined(__mmix__)
+#include "../mmix/unistd-macros.h"
+#else
 #define _POSIX_THREADS 202405L
+#endif
 #define _POSIX_PIPE_BUF 512
 #define _POSIX_NO_TRUNC 1
 #define _POSIX_VDISABLE '\0'

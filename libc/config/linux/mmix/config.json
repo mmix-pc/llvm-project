@@ -1,4 +1,9 @@
 {
+  "printf": {
+    "LIBC_CONF_PRINTF_DISABLE_FIXED_POINT": {
+      "value": true
+    }
+  },
   "string": {
     "LIBC_CONF_STRING_LENGTH_IMPL": {
       "value": "element"

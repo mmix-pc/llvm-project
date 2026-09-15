@@ -1,0 +1,27 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/unistd.h %S/../../../../libc/include/unistd.yaml
+# RUN: clang -cc1 -triple mmix-unknown-linux -std=c17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang -cc1 -triple mmix-unknown-linux -x c++ -std=c++17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang -cc1 -triple mmix-unknown-linux -std=c17 -ffreestanding -DLIBC_THREAD_MODE=0 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang -cc1 -triple mmix-unknown-linux -std=c17 -ffreestanding -DLIBC_THREAD_MODE=1 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang -cc1 -triple mmix-unknown-unknown -std=c17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang -cc1 -triple x86_64-unknown-linux-gnu -std=c17 -ffreestanding -DLIBC_THREAD_MODE=1 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+
+#--- public.c
+#include <unistd.h>
+
+#ifdef __cplusplus
+#define CHECK static_assert
+#else
+#define CHECK _Static_assert
+#endif
+
+// Public capability is independent of private libc compilation flags.
+#if defined(__linux__) && defined(__mmix__)
+CHECK(_POSIX_THREADS == -1L, "MMIX Linux has no pthread provider");
+#elif defined(__linux__)
+CHECK(_POSIX_THREADS == 202405L, "retain other Linux targets");
+#elif defined(_POSIX_THREADS)
+#error "Do not expose Linux thread capability on bare metal"
+#endif

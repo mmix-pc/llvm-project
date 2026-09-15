@@ -17,6 +17,22 @@ if(LIBC_MMIX_BUILD_CORE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.inttypes)
 endif()
 
+if(LIBC_MMIX_BUILD_DESCRIPTORS)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.fcntl)
+endif()
+if(LIBC_MMIX_BUILD_STDIO)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.stdio)
+endif()
+if(LIBC_MMIX_BUILD_FILESYSTEM)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.sys_stat libc.include.dirent)
+endif()
+if(LIBC_MMIX_BUILD_TIME)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.time libc.include.sys_time)
+endif()
+if(LIBC_MMIX_BUILD_PROCESS_BASE)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.sys_resource libc.include.sys_wait)
+endif()
+
 if(LIBC_MMIX_BUILD_RUNTIME_STATE)
   # Storage types for libc++'s external API, not public C thread operations.
   list(APPEND TARGET_PUBLIC_HEADERS

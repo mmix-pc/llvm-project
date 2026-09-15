@@ -17,9 +17,10 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.stdlib.posix_memalign
 )
 
-# read/write/close/lseek remain compile-only until their full closure is qualified.
-
 include(${CMAKE_CURRENT_LIST_DIR}/Core.cmake)
+foreach(family Descriptors Stdio Filesystem VM Time Process)
+  include(${CMAKE_CURRENT_LIST_DIR}/${family}.cmake)
+endforeach()
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeState.cmake)

@@ -1,0 +1,52 @@
+option(LIBC_MMIX_BUILD_STDIO "Build Linux stdio providers" OFF)
+if(NOT LIBC_MMIX_BUILD_STDIO)
+  return()
+endif()
+
+set(MMIX_STDIO_ENTRYPOINTS
+  libc.src.stdlib.atexit
+  libc.src.stdlib.exit
+  libc.src.stdio.stdin
+  libc.src.stdio.stdout
+  libc.src.stdio.stderr
+  libc.src.stdio.fopen
+  libc.src.stdio.fdopen
+  libc.src.stdio.fclose
+  libc.src.stdio.fread
+  libc.src.stdio.fwrite
+  libc.src.stdio.fflush
+  libc.src.stdio.ferror
+  libc.src.stdio.feof
+  libc.src.stdio.clearerr
+  libc.src.stdio.fileno
+  libc.src.stdio.fseek
+  libc.src.stdio.ftell
+  libc.src.stdio.rewind
+  libc.src.stdio.setbuf
+  libc.src.stdio.setvbuf
+  libc.src.stdio.fgetc
+  libc.src.stdio.fgets
+  libc.src.stdio.fputc
+  libc.src.stdio.fputs
+  libc.src.stdio.getc
+  libc.src.stdio.putc
+  libc.src.stdio.puts
+  libc.src.stdio.ungetc
+  libc.src.stdio.printf
+  libc.src.stdio.fprintf
+  libc.src.stdio.sprintf
+  libc.src.stdio.snprintf
+  libc.src.stdio.vprintf
+  libc.src.stdio.vfprintf
+  libc.src.stdio.vsprintf
+  libc.src.stdio.vsnprintf
+  libc.src.stdio.scanf
+  libc.src.stdio.fscanf
+  libc.src.stdio.sscanf
+  libc.src.stdio.vscanf
+  libc.src.stdio.vfscanf
+  libc.src.stdio.vsscanf
+  libc.src.string.strerror
+  libc.src.string.strerror_r
+)
+list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_STDIO_ENTRYPOINTS})

@@ -1,4 +1,6 @@
-if(TARGET libc.src.__support.OSUtil.linux.vdso)
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  include(mmix/Clock.cmake)
+elseif(TARGET libc.src.__support.OSUtil.linux.vdso)
   add_object_library(
     clock_gettime
     HDRS

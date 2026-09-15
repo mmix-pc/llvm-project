@@ -1,0 +1,244 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import shutil
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+headers = root / "headers"
+for directory in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(libc / "include" / directory, headers / directory, dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h", headers / "__llvm-libc-common.h")
+for name in ("stdint", "stdio"):
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    "-o", str(headers / (name + ".h")),
+                    str(libc / "include" / (name + ".yaml"))], check=True)
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+sources = ["fcntl/linux/fcntl.cpp", "unistd/linux/sysconf.cpp",
+           "__support/time/linux/mmix/clock_gettime.cpp", "sys/wait/linux/wait4.cpp",
+           "sys/wait/linux/waitpid.cpp", "sys/wait/linux/wait.cpp", "errno/libc_errno.cpp",
+           "unistd/linux/pread.cpp", "unistd/linux/pwrite.cpp", "unistd/linux/lseek.cpp",
+           "sys/mman/linux/mmap.cpp", "sys/mman/linux/munmap.cpp", "sys/mman/linux/mprotect.cpp",
+           "sys/stat/linux/umask.cpp"]
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=service_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
+          "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED", "-I", str(headers),
+          "-I", str(root), "-I", str(libc), "-I", str(libc / "include")]
+for opt in ("0", "2"):
+    for index, source in enumerate(sources):
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+                        "-mrelocation-model", "static",
+                        "-internal-isystem", resource + "/include", *common,
+                        "-O" + opt, "-emit-obj", "-o", str(root / f"{index}-{opt}.o"),
+                        str(libc / "src" / source)], check=True)
+# Optional host semantics intercept only the raw syscall boundary. They do not
+# execute target code or substitute providers in a target executable.
+if len(sys.argv) == 4:
+    for opt in ("0", "2"):
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt,
+                        "-include", str(root / "native-boundary.h"),
+                        *[str(libc / "src" / source) for source in sources],
+                        str(root / "semantics.cpp"), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+#--- native-boundary.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+// Header fixtures select the reviewed LP64 syscall forms. The external UAPI
+// comparison belongs to the real configured-runtime gate, not this unit fixture.
+#--- sys/syscall.h
+#define SYS_fcntl 25
+#define SYS_openat 56
+#define SYS_close 57
+#define SYS_lseek 62
+#define SYS_read 63
+#define SYS_write 64
+#define SYS_pread64 67
+#define SYS_pwrite64 68
+#define SYS_clock_gettime 113
+#define SYS_sched_getaffinity 123
+#define SYS_prctl 167
+#define SYS_sysinfo 179
+#define SYS_munmap 215
+#define SYS_mmap 222
+#define SYS_mprotect 226
+#define SYS_wait4 260
+#define SYS_prlimit64 261
+#define SYS_futex 98
+#define SYS_umask 166
+#--- linux/futex.h
+#define FUTEX_WAIT_BITSET 9
+#define FUTEX_WAIT_BITSET_PRIVATE 137
+#define FUTEX_CLOCK_REALTIME 256
+#define FUTEX_BITSET_MATCH_ANY 0xffffffffu
+#define FUTEX_WAKE 1
+#define FUTEX_WAKE_PRIVATE 129
+#define FUTEX_CMP_REQUEUE 4
+#define FUTEX_CMP_REQUEUE_PRIVATE 132
+#define FUTEX_REQUEUE 3
+#define FUTEX_REQUEUE_PRIVATE 131
+#--- linux/mman.h
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define MAP_PRIVATE 2
+#define MAP_ANONYMOUS 32
+#--- linux/limits.h
+#define ARG_MAX 131072
+#--- linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#define EWOULDBLOCK EAGAIN
+#define ETIMEDOUT 110
+#define EOVERFLOW 75
+#define ENOSYS 38
+#--- linux/param.h
+#define EXEC_PAGESIZE 8192
+#--- linux/sysinfo.h
+#ifndef SERVICE_TEST_SYSINFO_H
+#define SERVICE_TEST_SYSINFO_H
+struct sysinfo {
+  long uptime;
+  unsigned long loads[3];
+  unsigned long totalram, freeram, sharedram, bufferram, totalswap, freeswap;
+  unsigned short procs, pad;
+  unsigned long totalhigh, freehigh;
+  unsigned int mem_unit;
+};
+#endif
+#--- linux/prctl.h
+// PR_GET_AUXV is optional; the fixture exercises explicit auxv initialization.
+
+#--- semantics.cpp
+#include "src/fcntl/fcntl.h"
+#include "src/unistd/sysconf.h"
+#include "src/unistd/pread.h"
+#include "src/unistd/pwrite.h"
+#include "src/unistd/lseek.h"
+#include "src/sys/mman/mmap.h"
+#include "src/sys/mman/munmap.h"
+#include "src/sys/mman/mprotect.h"
+#include "src/sys/wait/wait4.h"
+#include "src/sys/wait/waitpid.h"
+#include "src/sys/stat/umask.h"
+#include "src/__support/time/clock_gettime.h"
+#include "src/__support/OSUtil/linux/auxv.h"
+#include "src/__support/libc_errno.h"
+#include "hdr/types/struct_rlimit.h"
+#include "hdr/types/struct_flock.h"
+#include "hdr/types/struct_f_owner_ex.h"
+#include "hdr/unistd_macros.h"
+#include "hdr/sys_resource_macros.h"
+#include "hdr/time_macros.h"
+
+using namespace service_test;
+static_assert(_POSIX_THREADS == -1L);
+static unsigned long number, calls;
+static long arguments[6], reply;
+static unsigned long stack_limit;
+static void require(bool condition) { if (!condition) __builtin_trap(); }
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c,
+                                         long d, long e, long f) {
+  number = n;
+  ++calls;
+  arguments[0] = a; arguments[1] = b; arguments[2] = c;
+  arguments[3] = d; arguments[4] = e; arguments[5] = f;
+  if (n == SYS_fcntl && b == -1) return -EINVAL;
+  if (reply < 0) return reply;
+  if (n == SYS_prlimit64) {
+    auto *limit = reinterpret_cast<struct rlimit *>(d);
+    limit->rlim_cur = stack_limit;
+    limit->rlim_max = stack_limit;
+  }
+  if (n == SYS_fcntl && b == F_GETOWN_EX) {
+    auto *owner = reinterpret_cast<struct f_owner_ex *>(c);
+    owner->type = F_OWNER_PGRP;
+    owner->pid = 12;
+  }
+  return reply;
+}
+
+int main() {
+  reply = 0022;
+  libc_errno = EDOM;
+  require(service_test::umask(0077) == 0022 && libc_errno == EDOM);
+  require(number == SYS_umask && arguments[0] == 0077);
+  reply = 3;
+  require(service_test::fcntl(7, F_GETFD) == 3);
+  require(number == SYS_fcntl && arguments[0] == 7 && arguments[2] == 0);
+  require(service_test::fcntl(7, F_SETOWN, -123) == 3 && arguments[2] == -123);
+  struct flock lock{};
+  require(service_test::fcntl(7, F_GETLK, &lock) == 3);
+  require(arguments[2] == reinterpret_cast<long>(&lock));
+  require(service_test::fcntl(7, F_GETOWN) == -12);
+  auto before = calls;
+  require(service_test::fcntl(7, -1, static_cast<void *>(nullptr)) == -1 &&
+          libc_errno == EINVAL && calls == before + 1);
+  reply = -EBADF;
+  require(service_test::fcntl(7, F_GETFL) == -1 && libc_errno == EBADF);
+
+  auxv::Entry aux[] = {{AT_PAGESZ, 8192}, {AT_NULL, 0}};
+  auxv::Vector::initialize_unsafe(aux);
+  require(service_test::sysconf(_SC_PAGESIZE) == 8192);
+  libc_errno = EDOM;
+  require(service_test::sysconf(_SC_THREADS) == -1 && libc_errno == EDOM);
+  require(service_test::sysconf(_SC_ARG_MAX) == -1 && libc_errno == EBADF);
+  require(service_test::sysconf(_SC_OPEN_MAX) == -1 && libc_errno == EBADF);
+  require(service_test::sysconf(_SC_PHYS_PAGES) == -1 && libc_errno == EBADF);
+  reply = 0;
+  stack_limit = 1;
+  require(service_test::sysconf(_SC_ARG_MAX) == 131072);
+  stack_limit = 4 * 1024 * 1024;
+  require(service_test::sysconf(_SC_ARG_MAX) == 1024 * 1024);
+  stack_limit = ~0UL;
+  require(service_test::sysconf(_SC_ARG_MAX) == 6 * 1024 * 1024);
+  stack_limit = 64 * 1024 * 1024;
+  require(service_test::sysconf(_SC_ARG_MAX) == 6 * 1024 * 1024);
+
+  timespec now{};
+  require(internal::clock_gettime(CLOCK_MONOTONIC, &now).has_value());
+  require(number == SYS_clock_gettime && arguments[0] == CLOCK_MONOTONIC &&
+          arguments[1] == reinterpret_cast<long>(&now));
+  reply = -EINVAL;
+  auto clock_error = internal::clock_gettime(-1, &now);
+  require(!clock_error && clock_error.error() == EINVAL);
+
+  char buffer[16];
+  constexpr off_t offset = (off_t(1) << 40) + 8192;
+  reply = 8;
+  require(service_test::pread(3, buffer, sizeof(buffer), offset) == 8);
+  require(number == SYS_pread64 && arguments[3] == offset);
+  require(service_test::pwrite(3, buffer, sizeof(buffer), offset) == 8);
+  require(number == SYS_pwrite64 && arguments[3] == offset);
+  reply = offset;
+  require(service_test::lseek(3, offset, 0) == offset);
+  require(number == SYS_lseek && arguments[1] == offset);
+  reply = -EBADF;
+  require(service_test::pread(-1, buffer, sizeof(buffer), offset) == -1 && libc_errno == EBADF);
+
+  reply = 0x100000;
+  require(service_test::mmap(nullptr, 8192, PROT_READ, MAP_PRIVATE, 3, offset) ==
+          reinterpret_cast<void *>(reply));
+  require(number == SYS_mmap && arguments[5] == offset);
+  reply = -ENOMEM;
+  require(service_test::mmap(nullptr, 8192, PROT_READ, MAP_PRIVATE, 3, offset) == MAP_FAILED);
+  require(libc_errno == ENOMEM);
+  require(service_test::mprotect(buffer, 8192, PROT_READ) == -1 && libc_errno == ENOMEM);
+  require(service_test::munmap(buffer, 8192) == -1 && libc_errno == ENOMEM);
+
+  int status = 123;
+  reply = 0;
+  require(service_test::waitpid(-1, &status, 1) == 0 && status == 123);
+  require(number == SYS_wait4 && arguments[0] == -1 && arguments[3] == 0);
+  reply = -ECHILD;
+  require(service_test::wait4(42, &status, 0, nullptr) == -1 && libc_errno == ECHILD);
+  return 0;
+}

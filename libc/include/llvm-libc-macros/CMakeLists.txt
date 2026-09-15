@@ -399,10 +399,16 @@ add_macro_header(
     time-macros.h
 )
 
+set(unistd_macro_deps)
+if(TARGET libc.include.llvm-libc-macros.mmix.unistd_macros)
+  list(APPEND unistd_macro_deps .mmix.unistd_macros)
+endif()
 add_macro_header(
   unistd_macros
   HDR
     unistd-macros.h
+  DEPENDS
+    ${unistd_macro_deps}
 )
 
 add_macro_header(
