@@ -814,6 +814,47 @@ add_libc_test(
     libc.test.UnitTest.ErrnoSetterMatcher
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  set(sysconf_test_modes full)
+  if(NOT LLVM_LIBC_FULL_BUILD)
+    list(PREPEND sysconf_test_modes overlay)
+  endif()
+  foreach(mode IN LISTS sysconf_test_modes)
+    foreach(thread_mode platform single)
+      string(TOUPPER ${thread_mode} thread_mode_upper)
+      set(sysconf_test_options
+        -include ${CMAKE_CURRENT_SOURCE_DIR}/sysconf_test_syscall.h
+        -ULIBC_THREAD_MODE
+        -DLIBC_THREAD_MODE=LIBC_THREAD_MODE_${thread_mode_upper})
+      if(mode STREQUAL "full")
+        list(APPEND sysconf_test_options -DLIBC_FULL_BUILD)
+      endif()
+      add_libc_test(
+        sysconf_${mode}_${thread_mode}_test
+        SUITE
+          libc_unistd_unittests
+        SRCS
+          sysconf_limits_test.cpp
+          ${LIBC_SOURCE_DIR}/src/unistd/linux/sysconf.cpp
+        HDRS
+          sysconf_test_syscall.h
+        COMPILE_OPTIONS
+          ${sysconf_test_options}
+        DEPENDS
+          libc.hdr.stdint_proxy
+          libc.hdr.sys_resource_macros
+          libc.hdr.unistd_macros
+          libc.src.errno.errno
+          libc.src.__support.macros.attributes
+          libc.src.__support.OSUtil.linux.auxv
+          libc.src.__support.OSUtil.linux.sysinfo
+          libc.src.__support.OSUtil.linux.syscall_wrappers.prlimit
+          libc.src.__support.OSUtil.linux.syscall_wrappers.sysinfo
+      )
+    endforeach()
+  endforeach()
+endif()
+
 add_libc_test(
   sysconf_test
   SUITE

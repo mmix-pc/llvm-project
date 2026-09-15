@@ -39,9 +39,8 @@ namespace LIBC_NAMESPACE_DECL {
 
 namespace { // Anonymous namespace for internal helpers
 
-// Fallback value for ARG_MAX when RLIMIT_STACK is RLIM_INFINITY (unlimited).
-// When the stack is unlimited, the kernel caps the argument limit at 3/4 of the
-// default stack limit (_STK_LIM = 8MB), which yields 6MB.
+// Linux caps argument space at 3/4 of the default stack limit (_STK_LIM),
+// including when RLIMIT_STACK is finite.
 constexpr long DEFAULT_STACK_LIMIT = 8 * 1024 * 1024;          // 8MB
 constexpr long ARG_MAX_FALLBACK = DEFAULT_STACK_LIMIT / 4 * 3; // 6MB
 
@@ -57,14 +56,16 @@ long get_arg_max() {
   ErrorOr<int> ret = linux_syscalls::prlimit(
       0, RLIMIT_STACK, nullptr, reinterpret_cast<struct rlimit *>(&limits));
   if (!ret) {
-    libc_errno = -ret.error();
+    libc_errno = ret.error();
     return -1;
   }
   if (limits.rlim_cur == ~0ULL)
     return ARG_MAX_FALLBACK;
 
-  long val = static_cast<long>(limits.rlim_cur / 4);
-  return val > ARG_MAX ? val : ARG_MAX;
+  uint64_t val = limits.rlim_cur / 4;
+  if (val > ARG_MAX_FALLBACK)
+    val = ARG_MAX_FALLBACK;
+  return static_cast<long>(val > ARG_MAX ? val : ARG_MAX);
 }
 
 long get_open_max() {
@@ -72,7 +73,7 @@ long get_open_max() {
   ErrorOr<int> ret = linux_syscalls::prlimit(
       0, RLIMIT_NOFILE, nullptr, reinterpret_cast<struct rlimit *>(&limits));
   if (!ret) {
-    libc_errno = -ret.error();
+    libc_errno = ret.error();
     return -1;
   }
   if (limits.rlim_cur == ~0ULL)
@@ -102,7 +103,7 @@ long get_phys_pages() {
   struct ::sysinfo info;
   ErrorOr<int> ret = linux_syscalls::sysinfo(&info);
   if (!ret) {
-    libc_errno = -ret.error();
+    libc_errno = ret.error();
     return -1;
   }
   cpp::optional<unsigned long> page_size = auxv::get(AT_PAGESZ);
