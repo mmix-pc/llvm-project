@@ -51,3 +51,18 @@ extern "C" Block *block(AllocationState &state) {
 // CHECK: call void @llvm.memset
 // CHECK: call{{.*}} @_ZN5BlockC1Ev
 // CHECK: ret ptr
+
+struct Element {
+  long value;
+  Element() : value(7) {}
+};
+extern "C" Element *elements(size_t count, AllocationState &state) {
+  return new (state) Element[count];
+}
+// CHECK-LABEL: define{{.*}} @elements(
+// CHECK: call { i64, i1 } @llvm.umul.with.overflow.i64(i64 {{.*}}, i64 8)
+// CHECK: call{{.*}}ptr @_ZnamR15AllocationState
+// CHECK: icmp eq ptr
+// CHECK: br i1
+// CHECK: call{{.*}} @_ZN7ElementC1Ev
+// CHECK: ret ptr

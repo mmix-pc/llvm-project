@@ -39,3 +39,15 @@ extern "C" long *allocate_value(bool *success) {
   *success = check;
   return result;
 }
+
+struct Ownership {
+  bool owned;
+  Ownership() : owned(false) {}
+};
+
+extern "C" Ownership *allocate_ownership(size_t count, bool *success) {
+  allocation_test::AllocChecker check;
+  auto *result = new (check) Ownership[count];
+  *success = check;
+  return result;
+}

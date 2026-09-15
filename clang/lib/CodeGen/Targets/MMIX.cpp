@@ -129,11 +129,12 @@ static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E) {
   if (OperatorNew->isReservedGlobalPlacementOperator())
     return true;
   // Allocator adapters use a reference to report failure without throwing.
-  // Single objects use the ordinary initialization path; scalar arrays need
-  // no array cookie or element destructor.
+  // Single objects use the ordinary initialization path. Arrays of scalar or
+  // trivially destructible record elements need no destructor cookie.
+  const CXXRecordDecl *Record = E.getAllocatedType()->getAsCXXRecordDecl();
   if (!isa<CXXMethodDecl>(OperatorNew) && !E.passAlignment() &&
       (E.getAllocatedType()->isScalarType() ||
-       (!E.isArray() && E.getAllocatedType()->isRecordType())) &&
+       (Record && (!E.isArray() || Record->hasTrivialDestructor()))) &&
       E.getNumPlacementArgs() == 1 &&
       OperatorNew->getNumParams() == 2 && !OperatorNew->isVariadic() &&
       OperatorNew->getParamDecl(1)->getType()->isLValueReferenceType() &&
