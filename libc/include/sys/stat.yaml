@@ -20,6 +20,10 @@ types:
 enums: []
 objects: []
 functions:
+  - name: umask
+    return_type: mode_t
+    arguments:
+      - type: mode_t
   - name: chmod
     return_type: int
     arguments:

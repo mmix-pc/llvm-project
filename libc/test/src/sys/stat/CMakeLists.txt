@@ -3,6 +3,18 @@ add_custom_target(libc_sys_stat_unittests)
 add_subdirectory(testdata)
 
 add_libc_test(
+  umask_test
+  SUITE
+    libc_sys_stat_unittests
+  SRCS
+    umask_test.cpp
+  DEPENDS
+    libc.hdr.types.mode_t
+    libc.src.errno.errno
+    libc.src.sys.stat.umask
+)
+
+add_libc_test(
   chmod_test
   SUITE
     libc_sys_stat_unittests

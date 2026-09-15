@@ -2,6 +2,15 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
+if(TARGET libc.src.sys.stat.${LIBC_TARGET_OS}.umask)
+  add_entrypoint_object(
+    umask
+    ALIAS
+    DEPENDS
+      .${LIBC_TARGET_OS}.umask
+  )
+endif()
+
 add_entrypoint_object(
   chmod
   ALIAS
