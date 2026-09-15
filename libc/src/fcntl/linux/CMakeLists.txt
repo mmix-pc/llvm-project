@@ -18,6 +18,7 @@ add_entrypoint_object(
   HDRS
     ../fcntl.h
   DEPENDS
+    libc.hdr.stdint_proxy
     libc.hdr.fcntl_macros
     libc.src.__support.OSUtil.linux.syscall_wrappers.fcntl
     libc.src.__support.OSUtil.osutil

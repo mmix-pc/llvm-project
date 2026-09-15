@@ -10,15 +10,67 @@
 #include "hdr/stdio_macros.h"
 #include "hdr/sys_stat_macros.h" // For S_IRWXU
 #include "hdr/types/struct_flock.h"
+#include "hdr/types/struct_f_owner_ex.h"
 #include "src/fcntl/fcntl.h"
 #include "src/fcntl/open.h"
 #include "src/unistd/close.h"
 #include "src/unistd/getpid.h"
+#include "src/unistd/getpgid.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/ErrnoSetterMatcher.h"
 #include "test/UnitTest/Test.h"
 
 using LlvmLibcFcntlTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
+
+TEST_F(LlvmLibcFcntlTest, DescriptorFlags) {
+  int fd = LIBC_NAMESPACE::open("/dev/null", O_RDONLY);
+  ASSERT_GE(fd, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_SETFD, FD_CLOEXEC), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_GETFD), FD_CLOEXEC);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_SETFD, 0), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_GETFD), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
+}
+
+TEST_F(LlvmLibcFcntlTest, NegativeOwnerAndOwnerPointer) {
+  pid_t group = LIBC_NAMESPACE::getpgid(0);
+  ASSERT_GT(group, 0);
+  int fd = LIBC_NAMESPACE::open("/dev/null", O_RDONLY);
+  ASSERT_GE(fd, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_SETOWN, -int(group)), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_GETOWN), -int(group));
+  struct f_owner_ex owner = {};
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_GETOWN_EX, &owner), 0);
+  EXPECT_EQ(owner.type, F_OWNER_PGRP);
+  EXPECT_EQ(owner.pid, group);
+  owner.type = F_OWNER_PID;
+  owner.pid = LIBC_NAMESPACE::getpid();
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_SETOWN_EX, &owner), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_GETOWN), owner.pid);
+  EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
+}
+
+TEST_F(LlvmLibcFcntlTest, UnknownCommandPassthrough) {
+  int fd = LIBC_NAMESPACE::open("/dev/null", O_RDONLY);
+  ASSERT_GE(fd, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, -1, static_cast<void *>(nullptr)), -1);
+  ASSERT_ERRNO_EQ(EINVAL);
+  EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
+}
+
+#ifdef F_DUPFD_CLOEXEC
+TEST_F(LlvmLibcFcntlTest, DuplicateCloseOnExec) {
+  int fd = LIBC_NAMESPACE::open("/dev/null", O_RDONLY);
+  ASSERT_GE(fd, 0);
+  int copy = LIBC_NAMESPACE::fcntl(fd, F_DUPFD_CLOEXEC, 0);
+  EXPECT_GE(copy, 0);
+  if (copy >= 0) {
+    EXPECT_EQ(LIBC_NAMESPACE::fcntl(copy, F_GETFD), FD_CLOEXEC);
+    EXPECT_EQ(LIBC_NAMESPACE::close(copy), 0);
+  }
+  EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
+}
+#endif
 
 TEST_F(LlvmLibcFcntlTest, FcntlDupfd) {
   using LIBC_NAMESPACE::testing::ErrnoSetterMatcher::Succeeds;
