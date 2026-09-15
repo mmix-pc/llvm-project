@@ -53,3 +53,21 @@ foreach(target IN LISTS platform_file_targets)
 endforeach()
 
 add_subdirectory(testdata)
+
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
+    linux_file_allocation_test
+    OVERLAY_BUILD_ONLY
+    SUITE
+      libc-support-tests
+    SRCS
+      linux_file_allocation_test.cpp
+    DEPENDS
+      libc.src.__support.CPP.new
+      libc.src.__support.File.file
+      libc.src.__support.File.platform_file
+    LINK_LIBRARIES
+      "-Wl,--wrap=malloc"
+      "-Wl,--wrap=free"
+  )
+endif()

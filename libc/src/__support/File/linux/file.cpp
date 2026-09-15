@@ -111,14 +111,19 @@ ErrorOr<File *> openfile(const char *path, const char *mode) {
   {
     AllocChecker ac;
     buffer = new (ac) uint8_t[File::DEFAULT_BUFFER_SIZE];
-    if (!ac)
+    if (!ac) {
+      linux_syscalls::close(fd.value());
       return Error(ENOMEM);
+    }
   }
   AllocChecker ac;
   auto *file = new (ac) LinuxFile(fd.value(), buffer, File::DEFAULT_BUFFER_SIZE,
                                   _IOFBF, true, modeflags);
-  if (!ac)
+  if (!ac) {
+    delete[] buffer;
+    linux_syscalls::close(fd.value());
     return Error(ENOMEM);
+  }
   File::add_file(file);
   return file;
 }
@@ -175,6 +180,7 @@ ErrorOr<LinuxFile *> create_file_from_fd(int fd, const char *mode) {
   auto *file = new (ac)
       LinuxFile(fd, buffer, File::DEFAULT_BUFFER_SIZE, _IOFBF, true, modeflags);
   if (!ac) {
+    delete[] buffer;
     return Error(ENOMEM);
   }
   File::add_file(file);
@@ -182,6 +188,7 @@ ErrorOr<LinuxFile *> create_file_from_fd(int fd, const char *mode) {
     result = file->seek(0, SEEK_END);
     if (!result.has_value()) {
       File::remove_file(file);
+      delete[] buffer;
       delete file;
       return Error(result.error());
     }
