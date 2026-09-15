@@ -14,16 +14,19 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_OSUTIL_SYSCALL_WRAPPERS_WAIT4_H
 #define LLVM_LIBC_SRC___SUPPORT_OSUTIL_SYSCALL_WRAPPERS_WAIT4_H
 
-#include "hdr/signal_macros.h"
-#include "hdr/sys_wait_macros.h"
 #include "hdr/types/pid_t.h"
-#include "hdr/types/siginfo_t.h"
 #include "hdr/types/struct_rusage.h"
 #include "src/__support/OSUtil/linux/syscall.h" // For syscall_checked
 #include "src/__support/common.h"
 #include "src/__support/error_or.h"
 #include "src/__support/macros/config.h"
 #include <sys/syscall.h> // For syscall numbers
+
+#if !defined(SYS_wait4) && defined(SYS_waitid)
+#include "hdr/signal_macros.h"
+#include "hdr/sys_wait_macros.h"
+#include "hdr/types/siginfo_t.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace linux_syscalls {
