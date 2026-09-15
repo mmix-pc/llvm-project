@@ -1,4 +1,4 @@
-# The Linux entry is preparation only until the complete CRT is composed.
+# The Linux CRT is preparation until the complete libc profile is published.
 # FIXME: Revisit the unprotected TLS-free bootstrap and guard ownership for
 # pthread/TLS and dynamic-loader integration; normal runtime code stays protected.
 add_startup_object(
@@ -46,3 +46,16 @@ add_startup_object(
     libc.src.__support.threads.linux.mmix.main_thread
   COMPILE_OPTIONS -ffreestanding -fno-builtin
 )
+
+# Keep libc state, termination and syscall providers in the runtime archive.
+merge_relocatable_object(
+  crt1
+  .start
+  .process_args
+  .bootstrap
+  .stack_guard
+  .lifecycle
+)
+
+add_custom_target(libc-startup)
+add_dependencies(libc-startup libc.startup.linux.mmix.crt1)

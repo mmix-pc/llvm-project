@@ -1,0 +1,137 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-lifecycle.test %t/lifecycle
+# RUN: split-file %S/libc-linux-stack-guard.test %t/lifecycle/guard
+# RUN: split-file %S/libc-linux-process-args.test %t/lifecycle/guard/args
+# RUN: split-file %S/libc-linux-synchronization.test %t/lifecycle/guard/args/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- sources.cmake
+include(${BUILTINS}/mmix/builtins.cmake)
+file(WRITE ${OUTPUT} "")
+foreach(source IN LISTS mmix_SOURCES)
+  file(APPEND ${OUTPUT} "${source}\n")
+endforeach()
+
+#--- run.py
+import pathlib
+import runpy
+import struct
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+life = root / "lifecycle"
+sys.argv = [str(life / "run.py"), str(libc), str(life)]
+ctx = runpy.run_path(sys.argv[0])
+builtins = libc.parent / "compiler-rt/lib/builtins"
+sources = root / "builtin-sources.txt"
+subprocess.run(["cmake", "-DBUILTINS=" + str(builtins), "-DOUTPUT=" + str(sources),
+                "-P", str(root / "sources.cmake")], check=True)
+
+def run(*args):
+    subprocess.run(list(map(str, args)), check=True)
+
+def output(*args):
+    return subprocess.check_output(list(map(str, args)), text=True)
+
+for opt in ("0", "2"):
+    out = root / ("O" + opt)
+    out.mkdir(exist_ok=True)
+    startup = []
+    for name in ("start", "process_args", "bootstrap", "stack_guard", "lifecycle"):
+        obj = out / (name + ".o")
+        run(*ctx["base"], "-O" + opt,
+            *([] if name == "lifecycle" else ["-stack-protector", "0"]),
+            "-emit-obj", "-o", obj, libc / "startup/linux/mmix" / (name + ".cpp"))
+        startup.append(obj)
+    crt1 = out / "crt1.o"
+    run("clang", "--target=mmix-unknown-linux", "-r", "-nostdlib",
+        *startup, "-o", crt1)
+    refs = output("llvm-nm", "-u", "--demangle", crt1)
+    assert "main" in refs and "atexit" in refs and "environ" in refs, refs
+    assert "__stack_chk_guard" not in refs and "__stack_chk_fail" not in refs, refs
+    # CRT owns bootstrap only; the actual state and syscall providers remain
+    # archive members, selected by their ordinary unresolved references.
+    runtime = []
+    storage = [libc / path for path in ("src/unistd/environ.cpp",
+        "src/errno/program_invocation_name.cpp", "src/errno/program_invocation_short_name.cpp")]
+    for i, source in enumerate([*ctx["providers"], *storage]):
+        obj = out / ("libc-" + str(i) + ".o")
+        run(*ctx["base"], "-O" + opt, "-emit-obj", "-o", obj, source)
+        runtime.append(obj)
+    runtime.append(life / "guard/syscall.o")
+    archive = out / "libc.a"
+    run("llvm-ar", "rcs", archive, *runtime)
+    cflags = ["clang", "--target=mmix-unknown-linux", "-ffreestanding",
+              "-ffp-contract=off", "-O" + opt]
+    helpers = []
+    for source in sources.read_text().splitlines():
+        obj = out / (pathlib.Path(source).stem + ".o")
+        run(*cflags, "-c", builtins / source, "-o", obj)
+        helpers.append(obj)
+    helper_archive = out / "libclang_rt.builtins.a"
+    run("llvm-ar", "rcs", helper_archive, *helpers)
+    for name in ("crtbegin", "crtend"):
+        run(*cflags, "-DCRT_HAS_INITFINI_ARRAY", "-UEH_USE_FRAME_REGISTRY",
+            "-c", builtins / (name + ".c"), "-o", out / (name + ".o"))
+    begin, end = out / "crtbegin.o", out / "crtend.o"
+    begin_refs = output("llvm-nm", "-u", begin)
+    assert "__cxa_finalize" in begin_refs, begin_refs
+    assert "__register_frame" not in begin_refs and "__deregister_frame" not in begin_refs
+    assert not output("llvm-nm", "-u", end).strip()
+    assert "00000000" in output("llvm-readobj", "--hex-dump=.eh_frame", end)
+    consumer = out / "consumer.o"
+    run(*ctx["base"], "-O" + opt, "-funwind-tables=1", "-emit-obj",
+        "-o", consumer, root / "consumer.cpp")
+    consumer_refs = output("llvm-nm", "-u", consumer)
+    assert "__udivti3" in consumer_refs and "__cxa_atexit" in consumer_refs, consumer_refs
+    assert "__dso_handle" in consumer_refs, consumer_refs
+    elf = out / "consumer.elf"
+    # Same ordering as the Linux Driver, without claiming a published sysroot.
+    link = ["ld.lld", "-m", "elf64mmix_linux", "-static", "--eh-frame-hdr",
+            "--gc-sections", "-e", "_start", crt1, begin, consumer,
+            "--start-group", archive, helper_archive, "--end-group", end, "-o", elf]
+    run(*link)
+    assert not output("llvm-nm", "-u", elf).strip()
+    symbols = output("llvm-nm", "--defined-only", elf)
+    for name in ("_start", "__dso_handle", "__cxa_atexit", "__cxa_finalize",
+                 "__stack_chk_guard", "__stack_chk_fail", "__udivti3"):
+        assert sum(line.endswith(" " + name) for line in symbols.splitlines()) == 1, symbols
+    for name in ("__register_frame", "__deregister_frame", "__mmix_stack_chk_terminate"):
+        assert name not in symbols, symbols
+    sections = output("llvm-readobj", "--sections", "--program-headers", elf)
+    for name in (".init_array", ".fini_array", ".eh_frame", ".eh_frame_hdr"):
+        assert "Name: " + name + " " in sections, sections
+    for name in ("SHF_TLS", ".MMIX.reg_contents", "PT_INTERP", "PT_DYNAMIC", ".ctors", ".dtors"):
+        assert name not in sections, sections
+    addresses = {line.split()[-1]: int(line.split()[0], 16)
+                 for line in symbols.splitlines() if len(line.split()) == 3}
+    for section, expected in ((".preinit_array", ["prepare"]),
+                              (".init_array", ["__do_init", "_GLOBAL__sub_I_consumer.cpp"]),
+                              (".fini_array", ["__do_fini", "finish"])):
+        data = out / (section + ".bin")
+        run("llvm-objcopy", "--dump-section", section + "=" + str(data), elf)
+        entries = [value for (value,) in struct.iter_unpack(">Q", data.read_bytes())]
+        assert entries == [addresses[name] for name in expected], (section, entries)
+    # Missing helpers must fail; neither CRT nor libc supplies a fake builtin.
+    missing_helpers = [out / "missing-helper.elf" if x == elf else x
+                       for x in link if x != helper_archive]
+    failure = subprocess.run(list(map(str, missing_helpers)),
+                             capture_output=True, text=True)
+    assert failure.returncode and "__udivti3" in failure.stderr, failure.stderr
+
+#--- consumer.cpp
+volatile unsigned __int128 numerator = 123, denominator = 7;
+volatile int state;
+extern "C" void prepare(int, char **, char **) { state = 0; }
+__attribute__((used, section(".preinit_array")))
+void (*preinit)(int, char **, char **) = prepare;
+extern "C" __attribute__((destructor)) void finish() { state = 3; }
+struct Lifetime {
+  Lifetime() { state = 1; }
+  ~Lifetime() { state = 2; }
+} lifetime;
+extern "C" int main(int, char **, char **) {
+  return static_cast<int>(numerator / denominator) + state;
+}
