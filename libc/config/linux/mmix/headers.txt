@@ -37,6 +37,9 @@ endif()
 if(LIBC_MMIX_BUILD_PROCESS_BASE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.sys_resource libc.include.sys_wait)
 endif()
+if(LIBC_MMIX_BUILD_SPAWN)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.spawn)
+endif()
 
 if(LIBC_MMIX_BUILD_RUNTIME_STATE)
   # Storage types for libc++'s external API, not public C thread operations.

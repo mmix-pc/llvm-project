@@ -1,0 +1,265 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %S/libc-linux-fork.test %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- spawn.h
+#include "include/llvm-libc-types/posix_spawn_file_actions_t.h"
+#include "include/llvm-libc-types/posix_spawnattr_t.h"
+#include "include/llvm-libc-types/pid_t.h"
+#include "include/llvm-libc-types/mode_t.h"
+
+#--- sys/syscall.h
+// Independently checked against exported MMIX Linux UAPI.
+#define SYS_dup3 24
+#define SYS_fcntl 25
+#define SYS_openat 56
+#define SYS_close 57
+#define SYS_exit 93
+#define SYS_exit_group 94
+#define SYS_rt_sigaction 134
+#define SYS_rt_sigprocmask 135
+#define SYS_clone 220
+#define SYS_execve 221
+
+#--- linux/errno.h
+#define EBADF 9
+#define ENOMEM 12
+#define EINVAL 22
+#define EFAULT 14
+#define ENOSYS 38
+#define EOVERFLOW 75
+#define ENOTSUP 95
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=spawn_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
+          "-DLIBC_ERRNO_MODE=3", "-I", str(root), "-I", str(libc)]
+target = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
+          "-mrelocation-model", "static", "-internal-isystem", resource + "/include"]
+sources = [libc / "src/spawn/linux/mmix/posix_spawn.cpp", root / "semantics.cpp"]
+sources += [libc / f"src/spawn/posix_spawn_file_actions_{name}.cpp"
+            for name in ("init", "destroy", "addopen", "adddup2", "addclose")]
+for opt in ("0", "2"):
+    for source in sources:
+        obj = root / (source.stem + opt + ".o")
+        subprocess.run([*target, *common, "-O" + opt, "-emit-obj", str(source),
+                        "-o", str(obj)], check=True)
+        sections = subprocess.check_output(["llvm-readobj", "--sections", str(obj)], text=True)
+        assert "SHF_TLS" not in sections
+        if source.stem == "posix_spawn":
+            names = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+            assert "__llvm_libc_mmix_syscall" in names
+            assert not any(x in names for x in (
+                "vdso", "clone3", "current_thread", "callbacks", "libc_errno"))
+    if len(sys.argv) == 4:
+        exe = root / ("native" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+                        str(root / "native-boundary.h"), str(root / "semantics.cpp"),
+                        "-o", str(exe)], check=True)
+        for mode in range(21):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=30)
+
+selection = root / "selection.cmake"
+selection.write_text('include("' + str(libc.resolve() / "config/linux/mmix/Spawn.cmake") + '")\n'
+                     'file(WRITE "' + str(root.resolve() / "selected.txt") + '" "${TARGET_LIBC_ENTRYPOINTS}")\n')
+variables = {"LIBC_MMIX_BUILD_SPAWN": "ON", "LIBC_MMIX_BUILD_FORK": "ON",
+             "LIBC_MMIX_BUILD_DESCRIPTORS": "ON", "LIBC_MMIX_BUILD_ALLOCATION": "ON"}
+for missing in [None, *variables]:
+    options = dict(variables)
+    if missing:
+        options[missing] = "OFF"
+    result = subprocess.run(["cmake", *[f"-D{k}={v}" for k, v in options.items()],
+                             "-P", str(selection)], text=True, capture_output=True)
+    if missing not in (None, "LIBC_MMIX_BUILD_SPAWN"):
+        assert result.returncode and "requires fork, descriptor" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        selected = (root / "selected.txt").read_text().split(";")
+        assert selected == (["libc.src.spawn.posix_spawn"] + [
+            "libc.src.spawn.posix_spawn_file_actions_" + x
+            for x in ("init", "destroy", "addopen", "adddup2", "addclose")]
+            if missing is None else [""])
+
+#--- semantics.cpp
+#include "src/spawn/linux/mmix/posix_spawn.cpp"
+#include "src/__support/OSUtil/linux/exit.cpp"
+
+extern "C" [[noreturn]] void _Exit(int);
+using namespace spawn_test;
+using mmix::KernelSigaction;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+enum Case {
+  Parent, NullPID, Again, NoMemory, NoSyscall, Interrupted, BlockFailure,
+  ParentRestoreFailure, Attributes, Child, NoActions, OpenSameFD, OpenFailure,
+  DupFailure, CloseFailure, GetFlagsFailure, SetFlagsFailure, QueryFailure,
+  ResetFailure, ChildRestoreFailure, ExecReturnsZero
+};
+static int mode, blocks, restores, clones, queries, resets, steps, execs, terminals;
+static constexpr unsigned long ORIGINAL_MASK = 0x120UL;
+static unsigned long mask = ORIGINAL_MASK;
+static char path[] = "/tool", redirect[] = "/output", argument[] = "arg";
+static char *args[] = {path, argument, nullptr}, *env[] = {nullptr};
+static pid_t pid = -41;
+static posix_spawn_file_actions_t actions{};
+static SpawnFileOpenAction open_action(redirect, 7, O_WRONLY | O_CREAT, 0600);
+static SpawnFileDup2Action dup_action(7, 8), same_action(8, 8);
+static SpawnFileCloseAction close_action(7);
+static void handler(int) { __builtin_trap(); }
+static void handler3(int, siginfo_t *, void *) { __builtin_trap(); }
+static long clone_result() {
+  if (mode >= Child) return 0;
+  const int errors[] = {11, 12, 38, 4};
+  if (mode >= Again && mode <= Interrupted) return -errors[mode - Again];
+  return 501;
+}
+static void terminal_checks() {
+  require(pid == -41 && blocks == 1 && clones == 1);
+  require(actions.__front == &open_action && actions.__back == &close_action);
+  require(open_action.next == &dup_action && dup_action.next == &same_action);
+  require(same_action.next == &close_action && !close_action.next);
+  if (mode == ParentRestoreFailure) {
+    require(restores == 1 && !queries && !steps && !execs && mask == ~0UL);
+    return;
+  }
+  if (mode == QueryFailure) {
+    require(queries == 1 && !resets && !steps && !restores && !execs);
+    return;
+  }
+  if (mode == ResetFailure) {
+    require(queries == 2 && resets == 1 && !steps && !restores && !execs);
+    return;
+  }
+  require(queries == NSIG - 3 && resets == 2);
+  int expected = 8;
+  if (mode == NoActions) expected = 0;
+  if (mode == OpenSameFD) expected = 6;
+  if (mode == OpenFailure) expected = 2;
+  if (mode == DupFailure) expected = 4;
+  if (mode == GetFlagsFailure) expected = 6;
+  if (mode == SetFlagsFailure) expected = 7;
+  require(steps == expected);
+  bool failed_action = mode >= OpenFailure && mode <= SetFlagsFailure;
+  require(restores == (failed_action ? 0 : 1));
+  require(execs == (failed_action || mode == ChildRestoreFailure ? 0 : 1));
+  require(mask == (execs ? ORIGINAL_MASK : ~0UL));
+}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
+                                        long c, long d, long e, long f) {
+  require(!e && !f && pid == -41);
+  if (nr == SYS_rt_sigprocmask) {
+    require(b && d == 8);
+    unsigned long bits = reinterpret_cast<const sigset_t *>(b)->__signals[0];
+    if (a == SIG_BLOCK) {
+      require(!blocks++ && !clones && c && bits == ~0UL && !restores);
+      if (mode == BlockFailure) return -22;
+      reinterpret_cast<sigset_t *>(c)->__signals[0] = mask;
+      mask = ~0UL;
+    } else {
+      require(a == SIG_SETMASK && !c && !restores++ && clones == 1);
+      require(bits == ORIGINAL_MASK && mask == ~0UL);
+      if (mode == ParentRestoreFailure || mode == ChildRestoreFailure) return -22;
+      mask = bits;
+    }
+    return 0;
+  }
+  if (nr == SYS_clone) {
+    require(a == SIGCHLD && !b && !c && !d && !clones++ && blocks == 1);
+    require(mask == ~0UL && !queries && !steps && !restores);
+    return clone_result();
+  }
+  if (nr == SYS_rt_sigaction) {
+    require(mode >= Child && mask == ~0UL && d == 8 && !steps && !restores);
+    require(a > 0 && a < NSIG && a != SIGKILL && a != SIGSTOP);
+    if (!b) {
+      require(c);
+      int expected = ++queries;
+      if (expected >= SIGKILL) ++expected;
+      if (expected >= SIGSTOP) ++expected;
+      require(a == expected);
+      if (mode == QueryFailure) return -22;
+      auto &old = *reinterpret_cast<KernelSigaction *>(c);
+      old = {};
+      old.sa_handler = SIG_DFL;
+      if (a == 1) old.sa_handler = SIG_IGN;
+      if (a == 2) old.sa_handler = handler;
+      if (a == 3) { old.sa_sigaction = handler3; old.sa_flags = SA_SIGINFO; }
+    } else {
+      require(!c && a == 2 + resets++);
+      const auto &reset = *reinterpret_cast<const KernelSigaction *>(b);
+      require(reset.sa_handler == SIG_DFL && !reset.sa_flags);
+      require(!reset.sa_mask && !reset.sa_restorer);
+      if (mode == ResetFailure) return -22;
+    }
+    return 0;
+  }
+  if (nr == SYS_exit_group || nr == SYS_exit) {
+    require(a == 127 && !b && !c && !d);
+    terminal_checks();
+    require(nr == static_cast<unsigned long>(terminals == 1 ? SYS_exit : SYS_exit_group));
+    if (++terminals == 3) _Exit(0);
+    return -38;
+  }
+  if (nr == SYS_execve) {
+    require(a == reinterpret_cast<long>(path) && b == reinterpret_cast<long>(args));
+    require(c == reinterpret_cast<long>(env) && !d && !execs++);
+    require(restores == 1 && mask == ORIGINAL_MASK);
+    return mode == ExecReturnsZero ? 0 : -2;
+  }
+  require(mode >= Child && mode != NoActions && mask == ~0UL && !restores);
+  require(queries == NSIG - 3 && resets == 2);
+  int step = steps++;
+  if (mode == OpenSameFD && step >= 2) step += 2;
+  switch (step) {
+  case 0: require(nr == SYS_close && a == 7 && !b && !c && !d); return -9;
+  case 1:
+    require(nr == SYS_openat && a == AT_FDCWD && b == reinterpret_cast<long>(redirect));
+    require(c == (O_WRONLY | O_CREAT) && d == 0600);
+    return mode == OpenFailure ? -13 : mode == OpenSameFD ? 7 : 9;
+  case 2:
+    require(nr == SYS_dup3 && a == 9 && b == 7 && !c && !d);
+    return mode == DupFailure ? -9 : 7;
+  case 3: require(nr == SYS_close && a == 9 && !b && !c && !d); return 0;
+  case 4: require(nr == SYS_dup3 && a == 7 && b == 8 && !c && !d); return 8;
+  case 5:
+    require(nr == SYS_fcntl && a == 8 && b == F_GETFD && !c && !d);
+    return mode == GetFlagsFailure ? -9 : FD_CLOEXEC;
+  case 6:
+    require(nr == SYS_fcntl && a == 8 && b == F_SETFD && !c && !d);
+    return mode == SetFlagsFailure ? -9 : 0;
+  case 7:
+    require(nr == SYS_close && a == 7 && !b && !c && !d);
+    return mode == CloseFailure ? -9 : 0;
+  default: __builtin_trap();
+  }
+}
+int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = argv[1][0] - '0';
+  if (argv[1][1]) mode = 10 * mode + argv[1][1] - '0';
+  BaseSpawnFileAction::add_action(&actions, &open_action);
+  BaseSpawnFileAction::add_action(&actions, &dup_action);
+  BaseSpawnFileAction::add_action(&actions, &same_action);
+  BaseSpawnFileAction::add_action(&actions, &close_action);
+  posix_spawnattr_t attr{};
+  int result = spawn_test::posix_spawn(mode == NullPID ? nullptr : &pid, path,
+      mode == NoActions ? nullptr : &actions, mode == Attributes ? &attr : nullptr,
+      args, env);
+  if (mode == Attributes) {
+    require(result == ENOTSUP && !blocks && !clones && pid == -41);
+  } else if (mode == BlockFailure) {
+    require(result == EINVAL && blocks == 1 && !clones && !restores && pid == -41);
+  } else {
+    require(mode < ParentRestoreFailure && clones == 1 && restores == 1);
+    require(result == (clone_result() < 0 ? -clone_result() : 0));
+    require(pid == (mode == Parent ? 501 : -41));
+  }
+  require(mask == ORIGINAL_MASK && !queries && !steps && !execs && !terminals);
+  return 0;
+}
