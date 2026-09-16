@@ -1,0 +1,135 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %S/libc-linux-sigaction.test %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- sys/syscall.h
+// Separately compared with exported MMIX Linux UAPI.
+#define SYS_kill 129
+#define SYS_tgkill 131
+#define SYS_rt_sigprocmask 135
+#define SYS_getpid 172
+#define SYS_gettid 178
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=sending_test", "-DLIBC_ERRNO_MODE=3",
+          "-I", str(root), "-I", str(libc)]
+target = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
+          "-mrelocation-model", "static", "-internal-isystem", resource + "/include"]
+for opt in ("0", "2"):
+    for source in (root / "semantics.cpp", libc / "src/signal/linux/kill.cpp",
+                   libc / "src/signal/linux/raise.cpp", libc / "src/unistd/linux/getpid.cpp"):
+        obj = root / (source.stem + opt + ".o")
+        subprocess.run([*target, *common, "-O" + opt, "-emit-obj", str(source),
+                        "-o", str(obj)], check=True)
+        if source.stem != "semantics":
+            names = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+            assert "__llvm_libc_mmix_syscall" in names
+            assert "vdso" not in names and "current_thread" not in names
+    if len(sys.argv) == 4:
+        exe = root / ("native" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+                        str(root / "native-boundary.h"), str(root / "semantics.cpp"),
+                        "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+#--- semantics.cpp
+#include "src/signal/linux/kill.cpp"
+#include "src/signal/linux/raise.cpp"
+#include "src/unistd/linux/getpid.cpp"
+
+using namespace sending_test;
+namespace sending_test {
+static int error_value;
+Errno libc_errno;
+void Errno::operator=(int value) { error_value = value; }
+Errno::operator int() { return error_value; }
+}
+static void require(bool value) { if (!value) __builtin_trap(); }
+static int count, expected_signal, failure = -1;
+static long expected_pid, pid = 101, tid = 202, direct_reply;
+static bool raising;
+static int error_code = 22;
+static sigset_t saved{{0x1234UL}};
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
+                                        long c, long d, long e, long f) {
+  require(!e && !f);
+  int step = count++;
+  if (!raising) {
+    if (nr == SYS_kill)
+      require(a == expected_pid && b == expected_signal && !c && !d);
+    else
+      require(nr == SYS_getpid && !a && !b && !c && !d);
+    return direct_reply;
+  }
+  if (nr == SYS_rt_sigprocmask) {
+    require(d == 8 && b);
+    auto *set = reinterpret_cast<const sigset_t *>(b);
+    if (a == SIG_BLOCK) {
+      require(step == 0 && c && set->__signals[0] == ~0UL);
+      if (failure != 0)
+        *reinterpret_cast<sigset_t *>(c) = saved;
+      return failure == 0 ? -error_code : 0;
+    }
+    require(a == SIG_SETMASK && !c && set->__signals[0] == saved.__signals[0]);
+    return failure == 4 ? -error_code : 0;
+  }
+  if (nr == SYS_getpid || nr == SYS_gettid) {
+    require(!a && !b && !c && !d);
+    require(step == (nr == SYS_getpid ? 1 : 2));
+    return failure == step ? -error_code : (step == 1 ? pid : tid);
+  }
+  require(nr == SYS_tgkill && step == 3);
+  require(a == pid && b == tid && c == expected_signal && !d);
+  return failure == 3 ? -error_code : 0;
+}
+int main() {
+  const int signals[] = {0, 1, 64, -1, 65};
+  const long pids[] = {101, 0, -1, -42};
+  const int errors[] = {1, 3, 22, 38};
+  const bool outcomes[] = {false, true};
+  for (auto process : pids) {
+    for (auto sig : signals) {
+      expected_pid = process;
+      expected_signal = sig;
+      for (int error : errors) {
+        for (bool fail : outcomes) {
+          direct_reply = fail ? -error : 0;
+          count = 0;
+          libc_errno = 77;
+          require(sending_test::kill(process, sig) == (fail ? -1 : 0));
+          require(count == 1 && int(libc_errno) == (fail ? error : 77));
+        }
+      }
+    }
+  }
+  direct_reply = 314;
+  libc_errno = 77;
+  require(sending_test::getpid() == 314 && int(libc_errno) == 77);
+  raising = true;
+  for (auto sig : signals) {
+    expected_signal = sig;
+    for (auto error : errors) {
+      error_code = error;
+      for (failure = -1; failure != 5; ++failure) {
+        count = 0;
+        libc_errno = 77;
+        require(sending_test::raise(sig) == (failure < 0 ? 0 : -1));
+        require(int(libc_errno) == (failure < 0 ? 77 : error));
+        const int counts[] = {1, 3, 4, 5, 5};
+        require(count == (failure < 0 ? 5 : counts[failure]));
+      }
+    }
+    // Identity is queried afresh; no cached PID==TID assumption is allowed.
+    pid += 7;
+    tid += 11;
+  }
+  return 0;
+}

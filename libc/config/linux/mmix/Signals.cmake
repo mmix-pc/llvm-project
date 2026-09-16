@@ -12,4 +12,6 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.signal.sigaction
   libc.src.signal.signal
   libc.src.signal.sigaltstack
+  libc.src.signal.kill
+  libc.src.signal.raise
 )
