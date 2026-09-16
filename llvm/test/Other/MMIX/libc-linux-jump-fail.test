@@ -1,0 +1,83 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- asm/unistd.h
+// Independently compared with the exported MMIX UAPI in the runtime build.
+#define __NR_exit_group 94
+#define __NR_mmix_rstack_query 245
+
+#--- asm/rstack.h
+struct mmix_rstack_query {
+  unsigned long chain_id;
+  unsigned long sigmask;
+};
+
+#--- check.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+source = libc / "src/setjmp/mmix/linux"
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+for opt in ("0", "2"):
+    obj = root / ("failure" + opt + ".o")
+    subprocess.run(["clang", "--target=mmix-unknown-linux", "-nostdinc",
+                    "-I", str(root), "-O" + opt, "-c", str(source / "jump_fail.S"),
+                    "-o", str(obj)], check=True)
+    undefined = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+    assert not undefined.strip()
+    disassembly = subprocess.check_output(
+        ["llvm-objdump", "-d", "--no-show-raw-insn", str(obj)], text=True)
+    instructions = []
+    for line in disassembly.splitlines():
+        match = re.match(r"\s*([0-9a-f]+):\s+(\w+)\s+(.*)", line)
+        if match:
+            instructions.append((int(match[1], 16), match[2],
+                                 [x.strip() for x in match[3].split(",")]))
+    assert len(instructions) == 9
+    assert [pc for pc, _, _ in instructions] == list(range(0, 36, 4))
+    # No local register, SP, FP or TP access, loads/stores, calls or POP.
+    assert [op for _, op, _ in instructions] == ["SETL"] * 7 + ["TRAP", "JMP"]
+    regs = {}
+    for _, _, (reg, val) in instructions[:7]:
+        assert reg not in regs
+        regs[reg] = int(val, 0)
+    assert regs == {"r231": 127, "r232": 0, "r233": 0, "r234": 0,
+                    "r235": 0, "r236": 0, "r237": 94}
+    assert [int(x, 0) for x in instructions[7][2]] == [1, 0, 0]
+    # Any impossible syscall return remains at the backedge. In particular it
+    # cannot retry query/jump/exit, call abort or report a setjmp success.
+    for result in (0, -1, -38, 1):
+        returned = dict(regs, r231=result, r237=0xBAD, r255=0xBAD)
+        pc = instructions[8][0]
+        assert pc + int(instructions[8][2][0], 0) == pc
+        assert returned["r231"] == result
+    objects = []
+    for name in ("setjmp", "sigsetjmp"):
+        save = root / (name + opt + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+                        "-mrelocation-model", "static", "-std=c++17",
+                        "-ffreestanding", "-DLIBC_FULL_BUILD",
+                        "-DLIBC_NAMESPACE=failure_test", "-DLIBC_COPT_PUBLIC_PACKAGING",
+                        "-internal-isystem", resource + "/include",
+                        "-I", str(root), "-I", str(libc), "-O" + opt,
+                        "-emit-obj", str(source / (name + ".cpp")),
+                        "-o", str(save)], check=True)
+        objects.append(str(save))
+    output = root / ("save-failure" + opt + ".elf")
+    link = ["ld.lld", "-m", "elf64mmix_linux", "-e", "setjmp", "-u", "sigsetjmp",
+            "--gc-sections", *objects, "-o", str(output)]
+    missing = subprocess.run(link, text=True, capture_output=True)
+    assert missing.returncode != 0
+    assert "__llvm_libc_mmix_jump_fail" in missing.stderr
+    subprocess.run([*link, str(obj)], check=True)
+    assert not subprocess.check_output(["llvm-nm", "-u", str(output)], text=True).strip()
+    names = subprocess.check_output(["llvm-nm", "--defined-only", str(output)],
+                                    text=True)
+    for symbol in ("setjmp", "sigsetjmp", "__llvm_libc_mmix_jump_fail"):
+        assert any(line.split()[-1] == symbol for line in names.splitlines())
+    for forbidden in ("__llvm_libc_mmix_syscall", "abort", "__stack_chk_fail"):
+        assert not any(line.split()[-1] == forbidden for line in names.splitlines())
