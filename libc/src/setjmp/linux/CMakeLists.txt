@@ -1,4 +1,5 @@
-if(TARGET libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask)
+if(NOT LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+   TARGET libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask)
   add_object_library(
     sigsetjmp_epilogue
     HDRS

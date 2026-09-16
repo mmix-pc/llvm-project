@@ -1,3 +1,21 @@
+if(LIBC_TARGET_OS STREQUAL "linux")
+  foreach(entry setjmp sigsetjmp)
+    add_entrypoint_object(
+      ${entry}
+      SRCS linux/${entry}.cpp
+      HDRS ../setjmp_impl.h ../sigsetjmp.h linux/save.h
+      DEPENDS
+        libc.hdr.types.jmp_buf
+        libc.hdr.types.sigjmp_buf
+        libc.include.sys_syscall
+        libc.src.__support.common
+        libc.src.__support.macros.macro_utils
+    )
+  endforeach()
+  # Linux restore needs kernel preparation; never use the Generic longjmp.
+  return()
+endif()
+
 add_entrypoint_object(
   setjmp
   SRCS

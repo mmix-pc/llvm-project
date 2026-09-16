@@ -19,7 +19,12 @@ namespace LIBC_NAMESPACE_DECL {
 [[gnu::nothrow]]
 #endif
 [[gnu::returns_twice]] int
-sigsetjmp(sigjmp_buf buf, int savesigs);
+sigsetjmp(sigjmp_buf buf, int savesigs)
+#if defined(__mmix__) && defined(__linux__)
+    // Enter assembly directly; a C++ wrapper would save its own window.
+    __asm__("__llvm_libc_mmix_linux_sigsetjmp")
+#endif
+    ;
 
 } // namespace LIBC_NAMESPACE_DECL
 

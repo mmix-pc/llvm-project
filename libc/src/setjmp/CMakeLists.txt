@@ -41,7 +41,10 @@ if(TARGET libc.src.setjmp.sigsetjmp_epilogue)
     DEPENDS
       .longjmp
   )
+endif()
 
+if(TARGET libc.src.setjmp.sigsetjmp_epilogue OR
+   TARGET libc.src.setjmp.mmix.sigsetjmp)
   add_entrypoint_object(
     sigsetjmp
     ALIAS

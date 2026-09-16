@@ -66,7 +66,15 @@ typedef struct {
   __UINT64_TYPE__ return_address;
   __UINT64_TYPE__ stack_pointer;
   __UINT64_TYPE__ register_stack_offset;
+#if defined(__linux__)
+  // Linux saves the complete compiler local prefix, independently of backing.
+  __UINT64_TYPE__ locals[31];
+  __UINT64_TYPE__ chain_id;
+  __UINT64_TYPE__ signal_mask;
+  __UINT64_TYPE__ save_mask;
+#else
   __UINT64_TYPE__ transfer_word;
+#endif
 #else
 #error "__jmp_buf not available for your target architecture."
 #endif

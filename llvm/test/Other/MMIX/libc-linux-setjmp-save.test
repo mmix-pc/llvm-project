@@ -1,0 +1,192 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+# RUN: clang -cc1 -triple mmix-unknown-linux -x c -std=c17 -I %S/../../../../libc -fsyntax-only %t/layout.cpp
+# RUN: clang -cc1 -triple mmix-unknown-unknown -x c -std=c17 -I %S/../../../../libc -fsyntax-only %t/layout.cpp
+
+#--- asm/unistd.h
+// Compare independently with the exported UAPI in the runtime build.
+#define __NR_mmix_rstack_query 245
+
+#--- asm/rstack.h
+struct mmix_rstack_query {
+  unsigned long chain_id;
+  unsigned long sigmask;
+};
+
+#--- consumer.cpp
+#include "src/setjmp/setjmp_impl.h"
+#include "src/setjmp/sigsetjmp.h"
+int call_save(jmp_buf buf) { return LIBC_NAMESPACE::setjmp(buf); }
+int call_signal_save(sigjmp_buf buf) { return LIBC_NAMESPACE::sigsetjmp(buf, -1); }
+
+#--- layout.cpp
+#ifndef __cplusplus
+#define static_assert _Static_assert
+#define alignof _Alignof
+#endif
+#include "include/llvm-libc-types/jmp_buf.h"
+#include "include/llvm-libc-types/sigjmp_buf.h"
+#ifdef __linux__
+static_assert(sizeof(jmp_buf) == 304 && sizeof(sigjmp_buf) == 304);
+static_assert(__builtin_offsetof(__jmp_buf, locals) == 32);
+static_assert(__builtin_offsetof(__jmp_buf, chain_id) == 280);
+static_assert(__builtin_offsetof(__jmp_buf, signal_mask) == 288);
+static_assert(__builtin_offsetof(__jmp_buf, save_mask) == 296);
+#else
+static_assert(sizeof(jmp_buf) == 40 && sizeof(sigjmp_buf) == 40);
+static_assert(__builtin_offsetof(__jmp_buf, transfer_word) == 32);
+#endif
+static_assert(alignof(__jmp_buf) == 8);
+
+#--- check.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+base = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
+        "-mrelocation-model", "static", "-std=c++17", "-ffreestanding",
+        "-internal-isystem", resource + "/include", "-DLIBC_FULL_BUILD",
+        "-DLIBC_NAMESPACE=save_test", "-I", str(root), "-I", str(libc)]
+
+
+def parse(text):
+    instructions, labels = [], {}
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line.endswith(":"):
+            labels[line[:-1]] = len(instructions)
+        elif line and not line.startswith("."):
+            op, operands = line.split(None, 1)
+            instructions.append((op, [x.strip() for x in operands.split(",")]))
+    return instructions, labels
+
+
+def run(code, labels, name, savesigs, reply, chain):
+    # Model only this bridge's integer/transport semantics, not kernel delivery.
+    regs = {f"r{i}": 0x100000 + i for i in range(256)}
+    caller = [0xAB0000 + i * 17 for i in range(31)]
+    buf, pc, fp, sp, caller_o = 0x4000, 0x9870, 0x9000, 0x8800, 0x2000
+    regs.update(r231=buf, r232=savesigs & ((1 << 64) - 1), r253=fp, r254=sp)
+    special = {"rJ": pc, "rO": caller_o + 256}
+    memory, pops, queries = {}, 0, 0
+    ip = labels["__llvm_libc_mmix_linux_" + name]
+    def value(x):
+        return regs[x] if x in regs else int(x)
+    for _ in range(150):
+        op, a = code[ip]
+        ip += 1
+        if op in ("SETL", "OR", "ADDU", "CMPU"):
+            assert int(a[0][1:]) >= 231, "bridge must not overwrite caller locals"
+            if op == "SETL": regs[a[0]] = value(a[1])
+            elif op == "OR": regs[a[0]] = value(a[1]) | value(a[2])
+            elif op == "ADDU": regs[a[0]] = value(a[1]) + value(a[2])
+            else: regs[a[0]] = int(value(a[1]) > value(a[2]))
+        elif op == "GET":
+            if a[1] == "rO": assert pops == 1
+            regs[a[0]] = special[a[1]]
+        elif op == "STOU":
+            address = value(a[1]) + value(a[2])
+            assert buf <= address < buf + 304 and address % 8 == 0
+            if 32 <= address - buf <= 272:
+                assert pops == 1
+            memory[address] = value(a[0])
+        elif op == "LDOU":
+            regs[a[0]] = memory[value(a[1]) + value(a[2])]
+        elif op == "TRAP":
+            assert a == ["1", "0", "0"] and pops == 0 and queries == 0
+            assert regs["r237"] == 245 and regs["r231"] == buf + 280
+            assert all(regs[f"r{i}"] == 0 for i in range(232, 237))
+            assert memory[buf + 296] == 0
+            queries += 1
+            memory[buf + 280], memory[buf + 288] = chain, 0x8000000000000101
+            regs.update(r231=reply, r237=0xDEAD, r255=0xBAD)
+        elif op in ("BNZ", "BZ"):
+            if (value(a[0]) != 0) == (op == "BNZ"): ip = labels[a[1]]
+        elif op == "GETA":
+            regs[a[0]] = labels[a[1]]
+        elif op == "PUT":
+            assert a[0] == "rJ"
+            special[a[0]] = value(a[1])
+        elif op == "POP":
+            assert a == ["0", "0"] and queries == 1 and pops == 0
+            pops += 1
+            special["rO"] = caller_o
+            for i, v in enumerate(caller): regs[f"r{i}"] = v
+            ip = special["rJ"]
+        elif op == "JMP":
+            assert a == ["__llvm_libc_mmix_jump_fail"]
+            assert reply != 0 or chain == 0
+            assert pops == 0 and queries == 1 and memory[buf + 296] == 0
+            return
+        elif op == "GO":
+            assert reply == 0 and chain != 0 and pops == 1 and queries == 1
+            assert value(a[1]) + value(a[2]) == pc and regs["r231"] == 0
+            assert regs["r253"] == fp and regs["r254"] == sp
+            assert regs["r230"] == 0x100000 + 230  # Preserve current Linux TP.
+            expected = [fp, pc, sp, caller_o] + caller
+            saved = int(name == "sigsetjmp" and savesigs != 0)
+            expected += [chain, 0x8000000000000101 if saved else 0, saved]
+            assert memory == {buf + i * 8: v for i, v in enumerate(expected)}
+            return
+        else:
+            raise AssertionError(op)
+    raise AssertionError("bridge did not finish")
+
+
+for triple in ("mmix-unknown-linux", "mmix-unknown-unknown"):
+    subprocess.run([*base, "-triple", triple, "-fsyntax-only",
+                    str(root / "layout.cpp")], check=True)
+
+for opt in ("0", "2"):
+    for public in (False, True):
+        flags = [*base, "-O" + opt]
+        if public: flags += ["-DLIBC_COPT_PUBLIC_PACKAGING"]
+        for name in ("setjmp", "sigsetjmp"):
+            source = libc / "src/setjmp/mmix/linux" / (name + ".cpp")
+            stem = root / (name + opt + str(public))
+            subprocess.run([*flags, "-S", str(source), "-o", str(stem) + ".s"],
+                           check=True)
+            subprocess.run([*flags, "-emit-obj", str(source),
+                            "-o", str(stem) + ".o"], check=True)
+            undefined = subprocess.check_output(
+                ["llvm-nm", "--undefined-only", str(stem) + ".o"], text=True)
+            assert undefined.split() == ["U", "__llvm_libc_mmix_jump_fail"]
+            text = pathlib.Path(str(stem) + ".s").read_text()
+            code, labels = parse(text)
+            assert (name in labels) == public
+            if public: assert labels[name] == labels["__llvm_libc_mmix_linux_" + name]
+            for flag in (0, 1, -1, -2147483648, 2147483647):
+                for reply, chain in ((0, 42), (0, 0), (-22, 42), (-14, 0),
+                                     (-38, 42), (1, 42)):
+                    run(code, labels, name, flag, reply, chain)
+            # A wrong local slot must fail the semantic check.
+            broken = [(op, list(a)) for op, a in code]
+            index = next(i for i, (op, a) in enumerate(broken)
+                         if op == "STOU" and a[0] == "r30")
+            broken[index][1][2] = "232"
+            try:
+                run(broken, labels, name, 1, 0, 42)
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError("checker accepted a corrupt local snapshot")
+    ir = root / ("consumer" + opt + ".ll")
+    subprocess.run([*base, "-O" + opt, "-emit-llvm", str(root / "consumer.cpp"),
+                    "-o", str(ir)], check=True)
+    text = ir.read_text()
+    for name in ("setjmp", "sigsetjmp"):
+        assert "@__llvm_libc_mmix_linux_" + name in text
+    assert "returns_twice" in text
+    subprocess.run([*base, "-O" + opt, "-emit-obj",
+                    str(root / "consumer.cpp"),
+                    "-o", str(root / ("consumer" + opt + ".o"))], check=True)
+    undefined = subprocess.check_output(
+        ["llvm-nm", "--undefined-only", str(root / ("consumer" + opt + ".o"))],
+        text=True)
+    assert sorted(undefined.split()) == sorted(
+        ["U", "__llvm_libc_mmix_linux_setjmp",
+         "U", "__llvm_libc_mmix_linux_sigsetjmp"])
