@@ -35,7 +35,7 @@ LIBC_INLINE ErrorOr<int> raise(int sig) {
         auto restore_result =
             linux_syscalls::rt_sigprocmask(SIG_SETMASK, &old_set, nullptr);
         if (!restore_result.has_value())
-          status = restore_result.error();
+          status = Error(restore_result.error());
       }
     }
   };
