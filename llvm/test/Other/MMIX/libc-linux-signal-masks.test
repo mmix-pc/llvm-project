@@ -1,0 +1,129 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=mask_test",
+          "-I", str(root), "-I", str(libc)]
+for opt in ("0", "2"):
+    subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+                    "-mrelocation-model", "static", "-internal-isystem",
+                    resource + "/include", *common, "-O" + opt, "-emit-obj",
+                    str(root / "semantics.cpp"),
+                    "-o", str(root / ("target-O" + opt + ".o"))], check=True)
+    if len(sys.argv) == 4:
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+                        str(root / "native-boundary.h"),
+                        str(root / "semantics.cpp"), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+#--- native-boundary.h
+// Execute the actual providers, intercepting only the MMIX syscall boundary.
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+#--- sys/syscall.h
+#define SYS_rt_sigprocmask 135
+
+#--- linux/errno.h
+#define EINVAL 22
+#define EFAULT 14
+#define ENOSYS 38
+
+#--- semantics.cpp
+#include "src/signal/linux/mmix/sigemptyset.cpp"
+#include "src/signal/linux/mmix/sigfillset.cpp"
+#include "src/signal/linux/mmix/sigaddset.cpp"
+#include "src/signal/linux/mmix/sigdelset.cpp"
+#include "src/signal/linux/mmix/sigprocmask.cpp"
+#include "src/errno/libc_errno.cpp"
+
+using namespace mask_test;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+static unsigned long number;
+static long args[6], reply;
+static unsigned calls;
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                        long c, long d, long e, long f) {
+  number = n;
+  args[0] = a; args[1] = b; args[2] = c;
+  args[3] = d; args[4] = e; args[5] = f;
+  ++calls;
+  if (!reply && c)
+    reinterpret_cast<sigset_t *>(c)->__signals[0] = 0x8000000000000001UL;
+  return reply;
+}
+
+int main() {
+  // Adapted from the upstream sigaddset/sigdelset/sigfillset invalid-input cases.
+  sigset_t set{};
+  libc_errno = 77;
+  require(sigemptyset(&set) == 0 && set.__signals[0] == 0);
+  require(sigfillset(&set) == 0 && set.__signals[0] == ~0UL);
+  require(int(libc_errno) == 77);
+  for (int signal = 1; signal <= 64; ++signal) {
+    require(sigemptyset(&set) == 0);
+    require(sigaddset(&set, signal) == 0);
+    require(set.__signals[0] == (1UL << (signal - 1)));
+    require(sigaddset(&set, signal) == 0);
+    require(sigdelset(&set, signal) == 0 && set.__signals[0] == 0);
+    require(sigdelset(&set, signal) == 0);
+  }
+  const int invalid[] = {-2147483647 - 1, -1, 0, 65, 2147483647};
+  for (int signal : invalid) {
+    set.__signals[0] = 0x55;
+    libc_errno = 0;
+    require(sigaddset(&set, signal) == -1 && int(libc_errno) == EINVAL);
+    require(set.__signals[0] == 0x55);
+    libc_errno = 0;
+    require(sigdelset(&set, signal) == -1 && int(libc_errno) == EINVAL);
+    require(set.__signals[0] == 0x55);
+  }
+  require(sigemptyset(nullptr) == -1 && int(libc_errno) == EINVAL);
+  require(sigfillset(nullptr) == -1 && int(libc_errno) == EINVAL);
+  require(sigaddset(nullptr, 1) == -1 && int(libc_errno) == EINVAL);
+  require(sigdelset(nullptr, 64) == -1 && int(libc_errno) == EINVAL);
+  const int modes[] = {SIG_BLOCK, SIG_UNBLOCK, SIG_SETMASK};
+  for (int how : modes) {
+    for (int combination = 0; combination < 4; ++combination) {
+      sigset_t old{};
+      const sigset_t *input = combination & 1 ? &set : nullptr;
+      sigset_t *output = combination & 2 ? &old : nullptr;
+      libc_errno = 77;
+      require(sigprocmask(how, input, output) == 0);
+      require(int(libc_errno) == 77);
+      require(number == 135 && args[0] == how);
+      require(args[1] == reinterpret_cast<long>(input));
+      require(args[2] == reinterpret_cast<long>(output));
+      require(args[3] == 8 && args[4] == 0 && args[5] == 0);
+      if (output) require(old.__signals[0] == 0x8000000000000001UL);
+    }
+  }
+  // Invalid how is ignored by Linux for a query; do not reject it locally.
+  require(sigprocmask(-4, nullptr, nullptr) == 0 && args[0] == -4);
+  const int errors[] = {EINVAL, EFAULT, ENOSYS};
+  for (int error : errors) {
+    reply = -error;
+    auto before = calls;
+    libc_errno = 0;
+    auto *invalid_ptr = reinterpret_cast<sigset_t *>(-1L);
+    require(sigprocmask(17, invalid_ptr, nullptr) == -1);
+    require(int(libc_errno) == error && calls == before + 1);
+    require(args[0] == 17 && args[1] == -1 && args[3] == 8);
+    require(sigprocmask(-4, nullptr, invalid_ptr) == -1);
+    require(int(libc_errno) == error && args[2] == -1);
+  }
+  return 0;
+}

@@ -1,5 +1,10 @@
+set(signal_set_source_dir "")
+set(signal_set_deps .signal_utils)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   add_subdirectory(mmix)
+  # Keep mask operations independent of unprovided handler/vDSO machinery.
+  set(signal_set_source_dir "mmix/")
+  set(signal_set_deps libc.hdr.signal_macros)
 endif()
 
 add_header_library(
@@ -90,11 +95,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   sigprocmask
   SRCS
-    sigprocmask.cpp
+    ${signal_set_source_dir}sigprocmask.cpp
   HDRS
     ../sigprocmask.h
   DEPENDS
-    .signal_utils
+    ${signal_set_deps}
     libc.hdr.types.sigset_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
     libc.src.errno.errno
@@ -116,11 +121,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   sigemptyset
   SRCS
-    sigemptyset.cpp
+    ${signal_set_source_dir}sigemptyset.cpp
   HDRS
     ../sigemptyset.h
   DEPENDS
-    .signal_utils
+    ${signal_set_deps}
     libc.hdr.types.sigset_t
     libc.src.errno.errno
 )
@@ -128,11 +133,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   sigaddset
   SRCS
-    sigaddset.cpp
+    ${signal_set_source_dir}sigaddset.cpp
   HDRS
     ../sigaddset.h
   DEPENDS
-    .signal_utils
+    ${signal_set_deps}
     libc.hdr.types.sigset_t
     libc.src.errno.errno
 )
@@ -151,11 +156,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   sigfillset
   SRCS
-    sigfillset.cpp
+    ${signal_set_source_dir}sigfillset.cpp
   HDRS
     ../sigfillset.h
   DEPENDS
-    .signal_utils
+    ${signal_set_deps}
     libc.hdr.types.sigset_t
     libc.src.errno.errno
 )
@@ -163,11 +168,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   sigdelset
   SRCS
-    sigdelset.cpp
+    ${signal_set_source_dir}sigdelset.cpp
   HDRS
     ../sigdelset.h
   DEPENDS
-    .signal_utils
+    ${signal_set_deps}
     libc.hdr.types.sigset_t
     libc.src.errno.errno
 )
