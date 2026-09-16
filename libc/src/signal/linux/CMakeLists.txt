@@ -1,3 +1,7 @@
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  add_subdirectory(mmix)
+endif()
+
 add_header_library(
   signal_utils
   HDRS
