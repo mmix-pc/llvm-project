@@ -5,7 +5,10 @@
 
 #--- CMakeLists.txt
 cmake_minimum_required(VERSION 3.20)
-include(${LIBC_SOURCE}/cmake/caches/mmix-linux-c-runtime.cmake)
+if(NOT PROFILE)
+  set(PROFILE mmix-linux-c-runtime)
+endif()
+include(${LIBC_SOURCE}/cmake/caches/${PROFILE}.cmake)
 project(CRuntimeConfig NONE)
 set(LIBC_TARGET_ARCHITECTURE mmix)
 set(LIBC_TARGET_OS linux)
@@ -22,7 +25,14 @@ set_target_properties(libc.startup.linux.mmix.crt1 PROPERTIES
 foreach(target libc-startup libc-headers mmix_libc_allocation)
   add_custom_target(${target})
 endforeach()
+foreach(target libc.src.signal.linux.mmix.uapi_checks
+               libc.src.signal.linux.mmix.signal_trampoline
+               libc.src.setjmp.mmix.jump_restore libc.src.setjmp.mmix.jump_fail)
+  add_library(${target} OBJECT IMPORTED)
+  set_target_properties(${target} PROPERTIES IMPORTED_OBJECTS ${CMAKE_BINARY_DIR}/${target}.o)
+endforeach()
 include(${LIBC_SOURCE}/config/linux/mmix/CRuntime.cmake)
+include(${LIBC_SOURCE}/config/linux/mmix/SignalRuntime.cmake)
 
 #--- check-manifest.cmake
 include(${MANIFEST})

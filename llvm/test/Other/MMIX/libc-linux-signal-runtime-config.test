@@ -1,0 +1,68 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %S/libc-linux-c-runtime-config.test %t
+# RUN: split-file %s %t
+# RUN: %python %t/check-signal-profile.py %S/../../../../libc %t
+
+#--- check-signal-profile.py
+import pathlib
+import runpy
+import subprocess
+import sys
+
+# Reuse architecture/resource admission negatives and prove the C-only default.
+source, root = (pathlib.Path(arg).resolve() for arg in sys.argv[1:])
+base_test = runpy.run_path(str(root / "check.py"))
+assert not (root / "0/mmix-signal-runtime/Inputs.cmake").exists()
+headers = root / "sysroot/usr/include"
+for name in ("rstack", "sigcontext", "ucontext", "ptrace"):
+    (headers / f"asm/{name}.h").touch()
+base = base_test["base"] + ["-DPROFILE=mmix-linux-signal-runtime"]
+cases = [([], None), (["-DLIBC_MMIX_BUILD_SIGNAL_RUNTIME=OFF"], None)]
+for component in ("C_RUNTIME", "SIGNAL_MASKS", "JUMP_SAVE", "FORK", "SPAWN"):
+    cases.append(([f"-DLIBC_MMIX_BUILD_{component}=OFF"], "requires " + component))
+for option in ("CMAKE_INTERPROCEDURAL_OPTIMIZATION=ON",
+               "CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE=ON",
+               "CMAKE_POSITION_INDEPENDENT_CODE=ON", "BUILD_SHARED_LIBS=ON",
+               "LLVM_USE_SANITIZER=Address"):
+    cases.append((["-D" + option], "requires static non-LTO uninstrumented producers"))
+for flag in ("-flto=thin", "-fPIC", "-fsanitize=address", "-finstrument-functions",
+             "-fprofile-instr-generate", "-mllvm -some-option"):
+    cases.append((["-DCMAKE_CXX_FLAGS=" + flag], "rejects unreviewed producer flags"))
+cases.append((["-DTARGET_LIBC_ENTRYPOINTS=libc.src.signal.signal;libc.src.signal.signal"],
+              "rejects duplicate selected entrypoints"))
+for i, (options, error) in enumerate(cases):
+    build = root / f"signal-{i}"
+    result = subprocess.run(base + ["-B", str(build)] + options,
+                            capture_output=True, text=True)
+    if error:
+        assert result.returncode and error in " ".join(result.stderr.split()), result.stdout + result.stderr
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        manifest = build / "mmix-signal-runtime/Inputs.cmake"
+        if i == 1:
+            assert not manifest.exists()
+            continue
+        content = manifest.read_text()
+        for value in ("mmix-c-runtime/Inputs.cmake", "two-entry-restorer",
+                      "requires-source-and-object-review", "not-qualified",
+                      "mmix-linux-static-single-thread", "kernel-owned-sync-query-jump"):
+            assert value in content
+        subprocess.run(["cmake", "-DMANIFEST=" + str(manifest),
+                        "-DEXPECTED_EXCLUDED=pthread;TLS;dynamic-linking",
+                        "-P", str(root / "check-manifest.cmake")], check=True)
+
+for name in ("rstack", "sigcontext", "ucontext", "ptrace"):
+    header = headers / f"asm/{name}.h"
+    for escape in (False, True):
+        header.unlink()
+        if escape:
+            foreign = root / "foreign.h"
+            foreign.touch()
+            header.symlink_to(foreign)
+        result = subprocess.run(base + ["-B", str(root / f"bad-{name}-{escape}")],
+                                capture_output=True, text=True)
+        assert result.returncode and f"requires in-sysroot asm/{name}.h" in result.stderr
+        if escape:
+            header.unlink()
+        header.touch()

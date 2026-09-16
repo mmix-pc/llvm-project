@@ -1,4 +1,14 @@
 add_object_library(
+  uapi_checks
+  SRCS uapi_checks.cpp
+  DEPENDS
+    libc.include.signal
+    libc.include.setjmp
+    libc.include.ucontext
+    libc.include.sys_syscall
+)
+
+add_object_library(
   signal_trampoline
   SRCS signal_trampoline.S
   HDRS signal_trampoline.h

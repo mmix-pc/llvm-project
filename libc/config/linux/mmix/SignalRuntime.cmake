@@ -1,0 +1,57 @@
+option(LIBC_MMIX_BUILD_SIGNAL_RUNTIME "Compose Linux signal and process preparation inputs" OFF)
+if(NOT LIBC_MMIX_BUILD_SIGNAL_RUNTIME)
+  return()
+endif()
+foreach(component C_RUNTIME SIGNAL_MASKS JUMP_SAVE FORK SPAWN)
+  if(NOT LIBC_MMIX_BUILD_${component})
+    message(FATAL_ERROR "MMIX signal runtime requires ${component}")
+  endif()
+endforeach()
+if(NOT TARGET mmix_libc_c_runtime)
+  message(FATAL_ERROR "MMIX signal runtime requires the Linux C runtime profile")
+endif()
+
+# Do not silently compose foreign headers or instrumentation outside the reviewed
+# static producer set. Layout checks below are compiled against the real UAPI.
+foreach(header asm/rstack.h asm/sigcontext.h asm/ucontext.h asm/ptrace.h)
+  get_filename_component(root "${CMAKE_SYSROOT}" REALPATH)
+  get_filename_component(path "${CMAKE_SYSROOT}${LIBC_KERNEL_HEADERS}/${header}" REALPATH)
+  string(FIND "${path}" "${root}/" inside)
+  if(NOT inside EQUAL 0 OR NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+    message(FATAL_ERROR "MMIX signal runtime requires in-sysroot ${header}")
+  endif()
+endforeach()
+if(CMAKE_INTERPROCEDURAL_OPTIMIZATION OR CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE OR
+   CMAKE_POSITION_INDEPENDENT_CODE OR BUILD_SHARED_LIBS OR LLVM_USE_SANITIZER)
+  message(FATAL_ERROR "MMIX signal runtime requires static non-LTO uninstrumented producers")
+endif()
+foreach(flags CMAKE_C_FLAGS CMAKE_CXX_FLAGS CMAKE_ASM_FLAGS
+              CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE CMAKE_ASM_FLAGS_RELEASE
+              LIBC_COMPILE_OPTIONS_DEFAULT)
+  if("${${flags}}" MATCHES "-flto|-f[Pp][Ii][CcEe]|-fsanitize|-finstrument-functions|-fprofile|-mllvm")
+    message(FATAL_ERROR "MMIX signal runtime rejects unreviewed producer flags in ${flags}")
+  endif()
+endforeach()
+set(entries ${TARGET_LIBC_ENTRYPOINTS})
+list(LENGTH entries count)
+list(REMOVE_DUPLICATES entries)
+list(LENGTH entries unique_count)
+if(NOT count EQUAL unique_count)
+  message(FATAL_ERROR "MMIX signal runtime rejects duplicate selected entrypoints")
+endif()
+
+add_custom_target(mmix_libc_signal_runtime
+  DEPENDS mmix_libc_c_runtime libc.src.signal.linux.mmix.uapi_checks)
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-signal-runtime/Inputs.cmake" CONTENT
+"include(\"${CMAKE_BINARY_DIR}/mmix-c-runtime/Inputs.cmake\")
+set(MMIX_SIGNAL_RUNTIME_TRAMPOLINE \"$<TARGET_OBJECTS:libc.src.signal.linux.mmix.signal_trampoline>\")
+set(MMIX_SIGNAL_RUNTIME_RESTORE \"$<TARGET_OBJECTS:libc.src.setjmp.mmix.jump_restore>\")
+set(MMIX_SIGNAL_RUNTIME_TERMINAL \"$<TARGET_OBJECTS:libc.src.setjmp.mmix.jump_fail>\")
+set(MMIX_SIGNAL_RUNTIME_UAPI_CHECKS \"$<TARGET_OBJECTS:libc.src.signal.linux.mmix.uapi_checks>\")
+set(MMIX_SIGNAL_RUNTIME_PRODUCER_POLICY \"mmix-linux-static-single-thread\")
+set(MMIX_SIGNAL_RUNTIME_DOMAIN_POLICY \"kernel-owned-sync-query-jump\")
+set(MMIX_SIGNAL_RUNTIME_REGISTRATION \"two-entry-restorer\")
+# A successful build does not establish external object or kernel admission.
+set(MMIX_SIGNAL_RUNTIME_ADMISSION \"requires-source-and-object-review\")
+set(MMIX_SIGNAL_RUNTIME_EXECUTION \"not-qualified\")
+")
