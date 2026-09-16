@@ -136,10 +136,16 @@ add_header(
     unistd-macros.h
 )
 
+set(signal_macro_deps)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  list(APPEND signal_macro_deps libc.include.llvm-libc-macros.mmix.linux_signal_macros)
+endif()
 add_header(
   signal_macros
   HDR
     signal-macros.h
+  DEPENDS
+    ${signal_macro_deps}
 )
 
 add_header(

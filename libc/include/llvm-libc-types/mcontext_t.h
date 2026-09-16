@@ -11,6 +11,8 @@
 
 #if defined(__x86_64__)
 #include "x86_64/mcontext_t.h"
+#elif defined(__mmix__) && defined(__linux__)
+#include "mmix/mcontext_t.h"
 #else
 #error "mcontext_t not available for your target architecture."
 #endif
