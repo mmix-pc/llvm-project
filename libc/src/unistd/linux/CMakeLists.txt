@@ -140,10 +140,16 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+set(fork_source fork.cpp)
+set(fork_extra_deps "")
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(fork_source mmix/fork.cpp)
+  set(fork_extra_deps libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask)
+endif()
 add_entrypoint_object(
   fork
   SRCS
-    fork.cpp
+    ${fork_source}
   HDRS
     ../fork.h
   DEPENDS
@@ -157,6 +163,7 @@ add_entrypoint_object(
     libc.src.__support.threads.thread
     libc.src.errno.errno
     libc.src.__support.threads.identifier
+    ${fork_extra_deps}
 )
 
 add_entrypoint_object(

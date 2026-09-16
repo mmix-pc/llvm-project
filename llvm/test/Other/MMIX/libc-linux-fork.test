@@ -1,0 +1,194 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %S/libc-linux-sigaction.test %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- native-boundary.h
+// Select MMIX library helpers, but execute only host code and fake syscalls.
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+#--- linux/param.h
+#define EXEC_PAGESIZE 4096
+#--- sys/syscall.h
+// Independently checked against exported MMIX Linux UAPI.
+#define SYS_write 64
+#define SYS_exit 93
+#define SYS_exit_group 94
+#define SYS_rt_sigprocmask 135
+#define SYS_gettid 178
+#define SYS_clone 220
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=fork_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
+          "-DLIBC_ERRNO_MODE=3", "-I", str(root), "-I", str(libc)]
+target = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
+          "-mrelocation-model", "static", "-internal-isystem", resource + "/include"]
+for opt in ("0", "2"):
+    for source in (libc / "src/unistd/linux/mmix/fork.cpp", root / "semantics.cpp"):
+        obj = root / (source.stem + opt + ".o")
+        subprocess.run([*target, *common, "-O" + opt, "-emit-obj", str(source),
+                        "-o", str(obj)], check=True)
+        sections = subprocess.check_output(["llvm-readobj", "--sections", str(obj)], text=True)
+        assert "SHF_TLS" not in sections
+        if source.stem == "fork":
+            names = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+            assert "__llvm_libc_mmix_syscall" in names
+            assert "invoke_parent_callbacks" in names and "invoke_child_callbacks" in names
+            assert "vdso" not in names and "clone3" not in names
+    if len(sys.argv) == 4:
+        exe = root / ("native" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+                        str(root / "native-boundary.h"), str(root / "semantics.cpp"),
+                        "-o", str(exe)], check=True)
+        for mode in range(13):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=30)
+
+# Verify opt-in prerequisites without configuring an unrelated runtime.
+selection = root / "selection.cmake"
+selection.write_text('include("' + str(libc.resolve() / "config/linux/mmix/Fork.cmake") + '")\n'
+                     'file(WRITE "' + str(root.resolve() / "selected.txt") + '" "${TARGET_LIBC_ENTRYPOINTS}")\n')
+variables = {"LIBC_MMIX_BUILD_FORK": "ON", "LIBC_MMIX_BUILD_SIGNAL_MASKS": "ON",
+             "LIBC_MMIX_BUILD_PROCESS_BASE": "ON", "LIBC_MMIX_BUILD_RUNTIME_STATE": "ON",
+             "LIBC_CONF_THREAD_MODE": "LIBC_THREAD_MODE_SINGLE"}
+for missing in [None, *variables]:
+    options = dict(variables)
+    if missing:
+        options[missing] = "OFF"
+    result = subprocess.run(["cmake", *[f"-D{k}={v}" for k, v in options.items()],
+                             "-P", str(selection)], text=True, capture_output=True)
+    if missing not in (None, "LIBC_MMIX_BUILD_FORK"):
+        assert result.returncode and "requires signal, process" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert (root / "selected.txt").read_text() == (
+            "libc.src.unistd.fork" if missing is None else "")
+
+#--- semantics.cpp
+#include "src/unistd/linux/mmix/fork.cpp"
+#include "src/__support/threads/thread.cpp"
+#include "src/__support/threads/fork_callbacks.cpp"
+#include "src/__support/threads/linux/mmix/main_thread.cpp"
+#include "src/__support/OSUtil/linux/exit.cpp"
+
+extern "C" [[noreturn]] void _Exit(int);
+using namespace fork_test;
+namespace fork_test {
+static int error_value;
+Errno libc_errno;
+void Errno::operator=(int value) { error_value = value; }
+Errno::operator int() { return error_value; }
+}
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+static int mode, prepares, parents, children, blocks, restores, clones, terminals;
+static bool initialized;
+static constexpr unsigned long INITIAL_MASK = 0x120UL;
+static unsigned long mask = INITIAL_MASK;
+static ThreadAttributes *original;
+static ThreadAtExitCallbackMgr *manager;
+static long clone_result() {
+  if (mode == 1 || mode == 7 || (mode >= 9 && mode <= 11)) return 0;
+  if (mode == 2 || mode == 8) return -11;
+  if (mode == 3) return -12;
+  if (mode == 4) return -38;
+  return 501;
+}
+static void prepare_callback() {
+  require(current_thread().attrib == original && original->tid == 41);
+  require(mask == INITIAL_MASK && !prepares && !parents && !children);
+  ++prepares;
+  libc_errno = 88;
+}
+static void parent_callback() {
+  require(original->tid == 41 && mask == INITIAL_MASK && prepares == 1 && !children);
+  ++parents;
+  libc_errno = 99;
+}
+static void child_callback() {
+  require(original->tid == 601 && mask == INITIAL_MASK && prepares == 1 && !parents);
+  require(original->atexit_callback_mgr == manager && current_thread().attrib == original);
+  ++children;
+  libc_errno = 100;
+}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
+                                        long c, long d, long e, long f) {
+  require(!e && !f);
+  if (nr == SYS_gettid) {
+    require(!a && !b && !c && !d);
+    if (!initialized) return 41;
+    require(clones == 1 && clone_result() == 0 && !restores);
+    require(original->tid == 0 && mask == ~0UL);
+    if (mode == 9) return -38;
+    if (mode == 10) return 0;
+    if (mode == 11) return 2147483648L;
+    return 601;
+  }
+  require(initialized && current_thread().attrib == original);
+  if (nr == SYS_rt_sigprocmask) {
+    require(b && d == 8);
+    auto bits = reinterpret_cast<const sigset_t *>(b)->__signals[0];
+    if (a == SIG_BLOCK) {
+      require(!blocks++ && !clones && prepares == 1 && c && bits == ~0UL);
+      if (mode == 5) return -22;
+      reinterpret_cast<sigset_t *>(c)->__signals[0] = mask;
+      mask = ~0UL;
+    } else {
+      require(a == SIG_SETMASK && !c && !restores++ && clones == 1);
+      require(bits == INITIAL_MASK && !parents && !children);
+      require(original->tid == (clone_result() == 0 ? 601 : 41));
+      if (mode >= 6 && mode <= 8) return -22;
+      mask = bits;
+    }
+    return 0;
+  }
+  if (nr == SYS_clone) {
+    require(a == SIGCHLD && !b && !c && !d && !clones++);
+    require(mask == ~0UL && original->tid == 0 && !parents && !children);
+    return clone_result();
+  }
+  require((mode >= 6 && mode <= 11) && !parents && !children);
+  require(nr == static_cast<unsigned long>(terminals == 1 ? SYS_exit : SYS_exit_group));
+  require(a == 127 && !b && !c && !d);
+  if (++terminals == 3) _Exit(0);
+  return -38;
+}
+int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = argv[1][0] - '0';
+  if (argv[1][1]) mode = 10 * mode + argv[1][1] - '0';
+  if (mode == 12) {
+    require(fork_test::fork() == -1 && int(libc_errno) == EINVAL);
+    require(!prepares && !blocks && !clones);
+    return 0;
+  }
+  require(internal::initialize_main_thread());
+  initialized = true;
+  original = current_thread().attrib;
+  manager = original->atexit_callback_mgr;
+  require(register_atfork_callbacks(prepare_callback, parent_callback, child_callback));
+  libc_errno = 77;
+  long result = fork_test::fork();
+  require(mode < 6 && prepares == 1 && restores == (mode == 5 ? 0 : 1));
+  require(clones == (mode == 5 ? 0 : 1));
+  if (mode == 1) {
+    require(result == 0 && children == 1 && !parents && int(libc_errno) == 100);
+  } else {
+    require(parents == 1 && !children && original->tid == 41);
+    require(result == (mode == 0 ? 501 : -1));
+    int error = mode == 0 ? 99 : mode == 5 ? 22 : -clone_result();
+    require(int(libc_errno) == error);
+  }
+  return 0;
+}

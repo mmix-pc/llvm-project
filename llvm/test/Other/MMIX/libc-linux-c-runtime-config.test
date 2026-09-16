@@ -24,6 +24,12 @@ foreach(target libc-startup libc-headers mmix_libc_allocation)
 endforeach()
 include(${LIBC_SOURCE}/config/linux/mmix/CRuntime.cmake)
 
+#--- check-manifest.cmake
+include(${MANIFEST})
+if(NOT MMIX_C_RUNTIME_EXCLUDED STREQUAL EXPECTED_EXCLUDED)
+  message(FATAL_ERROR "Excluded providers do not match selection: ${MMIX_C_RUNTIME_EXCLUDED}")
+endif()
+
 #--- check.py
 import pathlib
 import shutil
@@ -58,7 +64,9 @@ base = ["cmake", "-S", str(root), "-DLIBC_SOURCE=" + str(source),
         "-DLIBC_MMIX_COMPILER_RT_BUILTINS=" + str(resources / "builtins"),
         "-DLIBC_MMIX_COMPILER_RT_CRTBEGIN=" + str(resources / "begin"),
         "-DLIBC_MMIX_COMPILER_RT_CRTEND=" + str(resources / "end")]
-cases = [([], None)]
+cases = [([], None),
+         (["-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON"], None),
+         (["-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON", "-DLIBC_MMIX_BUILD_FORK=ON"], None)]
 for component in ("CORE", "DESCRIPTORS", "STDIO", "FILESYSTEM", "VM", "TIME",
                   "PROCESS_BASE", "RUNTIME_STATE", "ALLOCATION"):
     cases.append(([f"-DLIBC_MMIX_BUILD_{component}=OFF"], "requires " + component))
@@ -99,3 +107,11 @@ for index, (options, error) in enumerate(cases):
         for key in ("LIBC", "STATE", "CRT1", "BUILTINS", "CRTBEGIN", "CRTEND",
                     "HEADERS", "ENTRYPOINTS", "SYSROOT", "EXCLUDED"):
             assert "set(MMIX_C_RUNTIME_" + key + " " in manifest, key
+        excluded = ["fork", "spawn", "signals", "pthread", "TLS", "dynamic-linking"]
+        if "-DLIBC_MMIX_BUILD_FORK=ON" in options:
+            excluded.remove("fork")
+        if "-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON" in options:
+            excluded.remove("signals")
+        subprocess.run(["cmake", "-DMANIFEST=" + str(build / "mmix-c-runtime/Inputs.cmake"),
+                        "-DEXPECTED_EXCLUDED=" + ";".join(excluded),
+                        "-P", str(root / "check-manifest.cmake")], check=True)

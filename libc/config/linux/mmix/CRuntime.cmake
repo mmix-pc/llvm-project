@@ -77,6 +77,15 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${runtime_files})
 add_custom_target(mmix_libc_c_runtime
   DEPENDS libc libc-startup libc-headers mmix_libc_allocation
     ${runtime_files})
+# Describe provider selection, not runtime qualification or execution evidence.
+# FIXME: Replace this transitional manual list with complete provider accounting.
+set(mmix_runtime_excluded "fork;spawn;signals;pthread;TLS;dynamic-linking")
+if(LIBC_MMIX_BUILD_FORK)
+  list(REMOVE_ITEM mmix_runtime_excluded fork)
+endif()
+if(LIBC_MMIX_BUILD_SIGNAL_MASKS)
+  list(REMOVE_ITEM mmix_runtime_excluded signals)
+endif()
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-c-runtime/Inputs.cmake" CONTENT
 "set(MMIX_C_RUNTIME_LIBC \"$<TARGET_FILE:libc>\")
 set(MMIX_C_RUNTIME_STATE \"$<TARGET_FILE:mmix_libc_state>\")
@@ -95,5 +104,5 @@ set(MMIX_C_RUNTIME_NAMESPACE \"${LIBC_NAMESPACE}\")
 set(MMIX_C_RUNTIME_HEADER_DESTINATION \"usr/include\")
 set(MMIX_C_RUNTIME_LIBRARY_DESTINATION \"usr/lib\")
 set(MMIX_C_RUNTIME_RESOURCE_DESTINATION \"lib/mmix-unknown-linux\")
-set(MMIX_C_RUNTIME_EXCLUDED \"fork;spawn;signals;pthread;TLS;dynamic-linking\")
+set(MMIX_C_RUNTIME_EXCLUDED \"${mmix_runtime_excluded}\")
 ")
