@@ -1,0 +1,147 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../.. %t
+
+# Synthetic providers exercise configuration admission, not runtime linking.
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libcxx/cmake/caches/MMIXLinuxRuntime.cmake)
+project(Admission NONE)
+set(CMAKE_CROSSCOMPILING TRUE)
+set(CMAKE_C_COMPILER "${TOOLS}/clang")
+set(CMAKE_CXX_COMPILER "${TOOLS}/clang++")
+set(CMAKE_ASM_COMPILER "${TOOLS}/clang")
+set(CMAKE_SYSROOT "${INPUT}/sysroot")
+set(CMAKE_C_FLAGS "-nostdinc")
+set(CMAKE_CXX_FLAGS "-nostdinc")
+set(LIBCXX_MMIX_LINUX_LIBC_BUILD "${INPUT}/libc")
+set(LIBCXX_MMIX_LINUX_COMPILER_RT_BUILD "${INPUT}/rt")
+if(OPTION)
+  set(${OPTION} "${VALUE}")
+endif()
+include(${SOURCE}/libcxx/cmake/Modules/MMIX/LinuxRuntime.cmake)
+if(NOT RUNTIMES_USE_LIBC STREQUAL "llvm-libc" OR
+   NOT LIBCXX_MMIX_LINUX_STATE_DIR STREQUAL "${INPUT}/libc/mmix-state")
+  message(FATAL_ERROR "Wrong runtime selection")
+endif()
+
+#--- check.py
+import pathlib
+import shutil
+import subprocess
+import sys
+
+source, root = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+tools = pathlib.Path(shutil.which("clang")).parent
+inputs = root / "inputs"
+libc, rt = inputs / "libc", inputs / "rt"
+
+def write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+def cmake(path, values):
+    write(path, "".join('set(' + k + ' "' + str(v) + '")\n' for k, v in values.items()))
+
+obj = inputs / "object.o"
+obj.parent.mkdir(parents=True)
+subprocess.run([str(tools / "llvm-mc"), "-triple=mmix", "-filetype=obj", "-o", str(obj)],
+               input="SWYM 0,0,0\n", text=True, check=True)
+fields = {}
+for kind in ("LIBC", "STATE", "CRT1", "BUILTINS", "CRTBEGIN", "CRTEND"):
+    owner = libc if kind in ("LIBC", "STATE", "CRT1") else rt
+    path = owner / (kind + (".a" if kind in ("LIBC", "STATE", "BUILTINS") else ".o"))
+    owner.mkdir(exist_ok=True)
+    if path.suffix == ".a":
+        subprocess.run([str(tools / "llvm-ar"), "rcs", str(path), str(obj)], check=True)
+    else:
+        shutil.copyfile(obj, path)
+    fields["MMIX_C_RUNTIME_" + kind] = path
+fields.update(MMIX_C_RUNTIME_SYSROOT=inputs / "sysroot",
+              MMIX_C_RUNTIME_COMPILER=tools / "clang++",
+              MMIX_C_RUNTIME_SOURCE=source / "libc",
+              MMIX_C_RUNTIME_HEADERS=libc / "include",
+              MMIX_C_RUNTIME_KERNEL_HEADERS="/usr/include")
+manifest = libc / "mmix-c-runtime/Inputs.cmake"
+cmake(manifest, fields)
+write(libc / "mmix-state/LibcStateConfig.cmake", "# synthetic state package\n")
+write(libc / "mmix-signal-runtime/Inputs.cmake",
+      'include("' + str(manifest) + '")\n'
+      'set(MMIX_SIGNAL_RUNTIME_PRODUCER_POLICY "mmix-linux-static-single-thread")\n'
+      'set(MMIX_SIGNAL_RUNTIME_DOMAIN_POLICY "kernel-owned-sync-query-jump")\n')
+rt_cache = rt / "CMakeCache.txt"
+rt_contents = ("CMAKE_C_COMPILER_TARGET:STRING=mmix-unknown-linux\n"
+               "CMAKE_CXX_COMPILER_TARGET:STRING=mmix-unknown-linux\n"
+               "CMAKE_C_COMPILER:FILEPATH=" + str(tools / "clang") + "\n")
+write(rt_cache, rt_contents)
+for header in ("errno.h", "stdlib.h", "stdio.h", "string.h", "time.h", "signal.h", "sys/syscall.h"):
+    write(libc / "include" / header, "#define __LLVM_LIBC__ 1\n")
+for header in ("asm/unistd.h", "asm/rstack.h", "asm/sigcontext.h"):
+    write(inputs / "sysroot/usr/include" / header, "/* synthetic UAPI */\n")
+
+counter = 0
+def configure(diagnostic=None, option=None, value=None):
+    global counter
+    build = root / ("config-" + str(counter))
+    counter += 1
+    args = ["cmake", "-S", str(root), "-B", str(build), "-DSOURCE=" + str(source),
+            "-DTOOLS=" + str(tools), "-DINPUT=" + str(inputs)]
+    if option:
+        args += ["-DOPTION=" + option, "-DVALUE=" + value]
+    result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if diagnostic:
+        assert result.returncode and diagnostic in " ".join(result.stdout.split()), result.stdout
+    else:
+        assert not result.returncode, result.stdout
+        assert (build / "mmix-linux-runtime/Inputs.cmake").is_file()
+
+configure()
+for option, value, diagnostic in (
+    ("CMAKE_SYSTEM_NAME", "Generic", "requires cross Release"),
+    ("CMAKE_CXX_COMPILER_TARGET", "mmix-unknown-unknown", "matching Linux compiler targets"),
+    ("CMAKE_FIND_ROOT_PATH_MODE_LIBRARY", "BOTH", "sysroot-only LIBRARY"),
+    ("LIBCXX_ENABLE_EXCEPTIONS", "OFF", "LIBCXX_ENABLE_EXCEPTIONS=ON"),
+    ("LIBCXX_ENABLE_RTTI", "OFF", "LIBCXX_ENABLE_RTTI=ON"),
+    ("LIBCXX_ENABLE_MONOTONIC_CLOCK", "OFF", "LIBCXX_ENABLE_MONOTONIC_CLOCK=ON"),
+    ("LIBCXXABI_ENABLE_THREADS", "ON", "LIBCXXABI_ENABLE_THREADS=OFF"),
+    ("CMAKE_CXX_FLAGS", "-fno-exceptions", "conflicting producer flags"),
+    ("CMAKE_C_FLAGS_RELEASE", "-flto", "conflicting producer flags"),
+    ("LIBUNWIND_IS_BAREMETAL", "ON", "LIBUNWIND_IS_BAREMETAL=OFF"),
+    ("LIBCXX_INSTALL_LIBRARY", "ON", "rejects LIBCXX_INSTALL_LIBRARY"),
+    ("LIBCXX_MMIX_LINUX_STATE_DIR", "elsewhere", "conflicting state packages"),
+    ("RUNTIMES_USE_LIBC", "newlib", "conflicts with the MMIX compiler C provider"),
+):
+    configure(diagnostic, option, value)
+for key in ("MMIX_C_RUNTIME_LIBC", "MMIX_C_RUNTIME_STATE", "MMIX_C_RUNTIME_CRT1",
+            "MMIX_C_RUNTIME_BUILTINS", "MMIX_C_RUNTIME_CRTBEGIN", "MMIX_C_RUNTIME_CRTEND"):
+    changed = dict(fields, **{key: inputs / "missing"})
+    cmake(manifest, changed)
+    configure("existing absolute input")
+cmake(manifest, dict(fields, MMIX_C_RUNTIME_SYSROOT=root))
+configure("matching source, compiler and sysroot")
+cmake(manifest, dict(fields, MMIX_C_RUNTIME_COMPILER=tools / "llvm-mc"))
+configure("matching source, compiler and sysroot")
+cmake(manifest, fields)
+write(rt_cache, rt_contents.replace("mmix-unknown-linux", "mmix-unknown-unknown"))
+configure("matching Linux compiler-rt")
+write(rt_cache, rt_contents)
+link = libc / "escaped.o"
+link.symlink_to(obj)
+cmake(manifest, dict(fields, MMIX_C_RUNTIME_CRT1=link))
+configure("escapes its provider root")
+cmake(manifest, fields)
+header = libc / "include/signal.h"
+header.unlink()
+configure("existing absolute input")
+write(header, "#define __LLVM_LIBC__ 1\n")
+foreign = libc / "foreign.o"
+foreign.write_bytes(b"not an ELF object")
+cmake(manifest, dict(fields, MMIX_C_RUNTIME_CRT1=foreign))
+configure("Cannot inspect MMIX Linux C++ CRT1 input")
+foreign_bytes = bytearray(obj.read_bytes())
+foreign_bytes[18:20] = (62).to_bytes(2, "big")  # EM_X86_64, not EM_MMIX.
+foreign.write_bytes(foreign_bytes)
+configure("requires MMIX ELF inputs: CRT1")
+cmake(manifest, fields)
+configure()
