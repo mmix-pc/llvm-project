@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include <mmix/UnwindConfig.h>
+#if defined(__linux__)
+#include <asm/unistd.h>
+#endif
 
 .cfi_sections .debug_frame
 .p2align 2
@@ -28,8 +31,13 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_mmix_jumpto)
   GET r2, rG
   CMPU r2, r1, r2
   BNZ r2, .Lmmix_restore_invalid
+#if defined(__linux__)
+  CMPU r2, r1, 230
+  BNZ r2, .Lmmix_restore_invalid
+#else
   CMPU r2, r1, 231
   BP r2, .Lmmix_restore_invalid
+#endif
   LDOU r2, r0, (MMIX_UNWIND_RL_OFFSET - MMIX_UNWIND_RD_OFFSET)
   CMPU r2, r2, r1
   BP r2, .Lmmix_restore_invalid
@@ -88,7 +96,14 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_mmix_jumpto)
   .endr
   INCL r255, 256
   .irp reg, 224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,251,252,253,254
+#if defined(__linux__)
+    // Preserve the current thread pointer, not the captured thread identity.
+    .if \reg != 230
+#endif
     LDOU r\reg, r255, ((\reg - 224) * 8)
+#if defined(__linux__)
+    .endif
+#endif
   .endr
   INCL r255, 256
   LDOU r250, r255, (MMIX_UNWIND_RD_OFFSET - MMIX_UNWIND_RD_OFFSET)
@@ -107,7 +122,21 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_mmix_jumpto)
   LDOU r250, r255, (MMIX_UNWIND_IP_OFFSET - MMIX_UNWIND_RD_OFFSET)
   GO r255, r250, 0
 .Lmmix_restore_invalid:
+#if defined(__linux__)
+  // A partial POP search cannot safely call C, raise a signal, or use the stack.
+  SETL r231, 127
+  SETL r232, 0
+  SETL r233, 0
+  SETL r234, 0
+  SETL r235, 0
+  SETL r236, 0
+  SETL r237, __NR_exit_group
+  TRAP 1, 0, 0
+.Lmmix_restore_exit_returned:
+  JMP .Lmmix_restore_exit_returned
+#else
   TRAP 255, 0, 0
   JMPB .Lmmix_restore_invalid
+#endif
 .cfi_endproc
 .size __libunwind_Registers_mmix_jumpto, .-__libunwind_Registers_mmix_jumpto

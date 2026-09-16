@@ -1,0 +1,81 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libunwind %t
+
+#--- asm/unistd.h
+// Compared separately against the exported MMIX Linux UAPI.
+#define __NR_mmix_rstack_sync 244
+#define __NR_exit_group 94
+
+#--- check.py
+import pathlib
+import re
+import subprocess
+import sys
+
+source, root = map(pathlib.Path, sys.argv[1:])
+def run(*args):
+    return subprocess.check_output(list(map(str, args)), text=True)
+
+def instructions(obj):
+    text = run("llvm-objdump", "-d", "--no-show-raw-insn", obj)
+    result = []
+    for line in text.splitlines():
+        match = re.match(r"\s*([0-9a-f]+):\s+([A-Z]+)\s+(.*)", line)
+        if match:
+            result.append((int(match[1], 16), match[2],
+                           [a.strip() for a in match[3].split(",")]))
+    return result
+
+for opt in ("0", "2"):
+    objects = {}
+    for mode in ("Save", "Restore"):
+        obj = root / (mode + opt + ".o")
+        run("clang", "--target=mmix-unknown-linux", "-nostdinc", "-I", root,
+            "-I", source / "include", "-O" + opt, "-c",
+            source / ("src/UnwindRegisters" + mode + ".S"), "-o", obj)
+        assert not run("llvm-nm", "-u", obj).strip()
+        code = instructions(obj)
+        assert code
+        for _, op, args in code:
+            assert op not in ("SAVE", "UNSAVE", "RESUME", "PUSHJ", "PUSHJB", "PUSHGO")
+            if op == "PUT":
+                assert args[0] in ("rJ", "rD", "rE", "rH", "rR", "rL")
+            if op == "POP":
+                assert args == ["0x0", "0x0"]
+        objects[mode] = code
+    save = objects["Save"]
+    assert save[4][1:] == ("CMPU", ["r0", "r0", "0xe6"])
+    assert save[5][1] == "BNZ"
+    trap = next(i for i, (_, op, _) in enumerate(save) if op == "TRAP")
+    assert save[trap - 1][1:] == ("SETL", ["r237", "0xf4"])
+    assert save[trap][1:] == ("TRAP", ["0x1", "0x0", "0x0"])
+    pc, op, args = save[trap + 1]
+    assert op == "BNZ" and args[0] == "r231"
+    error = next(i for i, insn in enumerate(save)
+                 if insn[0] == pc + 4 * int(args[1], 0))
+    assert [(op, args) for _, op, args in save[error:]] == [
+        ("SETL", ["r231", "0x198c"]), ("NEG", ["r231", "0x0", "r231"]),
+        ("POP", ["0x0", "0x0"]), ("SETL", ["r231", "0x1993"]),
+        ("NEG", ["r231", "0x0", "r231"]), ("POP", ["0x0", "0x0"])]
+    pop = next(i for i, (_, op, _) in enumerate(save) if op == "POP")
+    assert trap < pop < error
+    stores = [args for _, op, args in save if op == "STOU"]
+    assert len(stores) == 266
+    for reg, off in ((237, "0x68"), (251, "0xd8"), (252, "0xe0"), (255, "0xf8")):
+        assert [f"r{reg}", "r0", off] in stores
+    assert ["r237", "r251", "0x68"] not in stores
+    restore = objects["Restore"]
+    assert any(op == "CMPU" and args == ["r2", "r1", "0xe6"]
+               and restore[i+1][1] == "BNZ"
+               for i, (_, op, args) in enumerate(restore[:-1]))
+    assert not any(op == "LDOU" and args[0] == "r230" for _, op, args in restore)
+    locals_loaded = {int(args[0][1:]) for _, op, args in restore
+                     if op == "LDOU" and args[1] == "r255" and int(args[0][1:]) < 230}
+    assert locals_loaded == set(range(230))
+    assert any(op == "PUT" and args == ["rL", "r250"] for _, op, args in restore)
+    tail = [(op, args) for _, op, args in restore[-9:]]
+    assert tail == [("SETL", ["r231", "0x7f"])] + [
+        ("SETL", [f"r{reg}", "0x0"]) for reg in range(232, 237)] + [
+        ("SETL", ["r237", "0x5e"]), ("TRAP", ["0x1", "0x0", "0x0"]),
+        ("JMP", ["0x0"])]
