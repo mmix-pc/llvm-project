@@ -1,10 +1,14 @@
 set(signal_set_source_dir "")
 set(signal_set_deps .signal_utils)
+set(signal_action_source sigaction.cpp)
+set(signal_action_deps .__restore .signal_utils)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   add_subdirectory(mmix)
   # Keep mask operations independent of unprovided handler/vDSO machinery.
   set(signal_set_source_dir "mmix/")
   set(signal_set_deps libc.hdr.signal_macros)
+  set(signal_action_source mmix/sigaction.cpp)
+  set(signal_action_deps .mmix.rt_sigaction .mmix.signal_trampoline)
 endif()
 
 add_header_library(
@@ -69,12 +73,13 @@ endif()
 add_entrypoint_object(
   sigaction
   SRCS
-    sigaction.cpp
+    ${signal_action_source}
   HDRS
     ../sigaction.h
   DEPENDS
-    .__restore
-    .signal_utils
+    ${signal_action_deps}
+    libc.hdr.errno_macros
+    libc.hdr.signal_macros
     libc.src.errno.errno
 )
 

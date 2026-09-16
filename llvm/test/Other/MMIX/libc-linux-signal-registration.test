@@ -1,0 +1,139 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %S/libc-linux-sigaction.test %t
+# RUN: split-file %s %t
+# RUN: %python %t/policy.py %S/../../../../libc %t
+
+#--- policy.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=policy_test", "-DLIBC_ERRNO_MODE=3",
+          "-I", str(root), "-I", str(libc)]
+target = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
+          "-mrelocation-model", "static", "-internal-isystem", resource + "/include"]
+for opt in ("0", "2"):
+    for source in (root / "policy.cpp", libc / "src/signal/linux/mmix/sigaction.cpp",
+                   libc / "src/signal/linux/signal.cpp"):
+        obj = root / (source.stem + opt + ".o")
+        subprocess.run([*target, *common, "-O" + opt, "-emit-obj", str(source),
+                        "-o", str(obj)], check=True)
+        if source.stem == "sigaction":
+            undefined = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+            assert "__llvm_libc_mmix_signal_trampoline" in undefined
+            assert "__llvm_libc_mmix_syscall" in undefined
+            assert "vdso" not in undefined and "__restore_rt" not in undefined
+    if len(sys.argv) == 4:
+        exe = root / ("policy-native" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt,
+                        "-include", str(root / "native-boundary.h"),
+                        str(root / "policy.cpp"), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+#--- policy.cpp
+#include "src/signal/linux/mmix/sigaction.cpp"
+#include "src/signal/linux/signal.cpp"
+
+using namespace policy_test;
+static int error_value;
+namespace policy_test {
+Errno libc_errno;
+void Errno::operator=(int value) { error_value = value; }
+Errno::operator int() { return error_value; }
+}
+extern "C" void __llvm_libc_mmix_signal_trampoline() { __builtin_trap(); }
+static void handler(int) {}
+static void handler3(int, siginfo_t *, void *) {}
+static void custom_restorer() {}
+static void require(bool value) { if (!value) __builtin_trap(); }
+static int calls;
+static long reply;
+static mmix::KernelSigaction sent{}, returned{};
+static long inputs[6];
+extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
+                                        long c, long d, long e, long f) {
+  require(number == SYS_rt_sigaction);
+  ++calls;
+  inputs[0]=a; inputs[1]=b; inputs[2]=c; inputs[3]=d; inputs[4]=e; inputs[5]=f;
+  if (b) sent = *reinterpret_cast<mmix::KernelSigaction *>(b);
+  if (c) *reinterpret_cast<mmix::KernelSigaction *>(c) = returned;
+  return reply;
+}
+int main() {
+  const bool choices[] = {false, true};
+  for (bool info : choices) {
+    for (bool custom : choices) {
+      struct sigaction action{};
+      if (info) action.sa_sigaction = handler3;
+      else action.sa_handler = handler;
+      action.sa_flags = SA_RESETHAND | (info ? SA_SIGINFO : 0) |
+                        (custom ? SA_RESTORER : 0);
+      action.sa_restorer = custom_restorer;
+      action.sa_mask.__signals[0] = 0x8000000000000101UL;
+      auto before = mmix::to_kernel_sigaction(action);
+      returned = before;
+      for (int combination = 0; combination != 4; ++combination) {
+        struct sigaction old{};
+        reply = 0;
+        libc_errno = 77;
+        require(policy_test::sigaction(SIGUSR1, combination & 1 ? &action : nullptr,
+                                        combination & 2 ? &old : nullptr) == 0);
+        require(int(libc_errno) == 77);
+        require(inputs[0] == SIGUSR1 && inputs[3] == 8 && !inputs[4] && !inputs[5]);
+        require(bool(inputs[1]) == bool(combination & 1));
+        require(bool(inputs[2]) == bool(combination & 2));
+        if (combination & 1) {
+          require(sent.sa_flags == (before.sa_flags | SA_RESTORER));
+          require(sent.sa_mask == before.sa_mask);
+          require(sent.sa_restorer == (custom ? custom_restorer :
+                                      __llvm_libc_mmix_signal_trampoline));
+          if (info) require(sent.sa_sigaction == handler3);
+          else require(sent.sa_handler == handler);
+        }
+        if (combination & 2) {
+          require(old.sa_flags == action.sa_flags && old.sa_restorer == custom_restorer);
+          require(old.sa_mask.__signals[0] == action.sa_mask.__signals[0]);
+          if (info) require(old.sa_sigaction == handler3);
+          else require(old.sa_handler == handler);
+        }
+        require(action.sa_restorer == custom_restorer);
+        require(static_cast<unsigned int>(action.sa_flags) == before.sa_flags);
+      }
+      const int errors[] = {22, 14, 38};
+      for (int error : errors) {
+        struct sigaction old{};
+        old.sa_handler = SIG_IGN;
+        old.sa_mask.__signals[0] = 7;
+        reply = -error;
+        require(policy_test::sigaction(SIGUSR1, &action, &old) == -1);
+        require(int(libc_errno) == error);
+        require(old.sa_handler == SIG_IGN && old.sa_mask.__signals[0] == 7);
+        require(!old.sa_flags && !old.sa_restorer);
+      }
+    }
+  }
+  const int invalid[] = {-1, 0, NSIG, 1000};
+  for (int number : invalid) {
+    int before = calls;
+    require(policy_test::sigaction(number, nullptr, nullptr) == -1);
+    require(int(libc_errno) == EINVAL && calls == before);
+  }
+  void (*handlers[])(int) = {SIG_DFL, SIG_IGN, handler};
+  returned = {};
+  returned.sa_handler = handler;
+  reply = 0;
+  for (auto value : handlers) {
+    require(policy_test::signal(SIGUSR1, value) == handler);
+    require(sent.sa_handler == value && sent.sa_mask == 0);
+    require(sent.sa_flags == (SA_RESTART | SA_RESTORER));
+    require(sent.sa_restorer == __llvm_libc_mmix_signal_trampoline);
+  }
+  int before = calls;
+  reply = -EINVAL;
+  require(policy_test::signal(SIGKILL, handler) == SIG_ERR);
+  require(int(libc_errno) == EINVAL && calls == before + 1);
+  return 0;
+}
