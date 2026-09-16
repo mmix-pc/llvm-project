@@ -30,7 +30,8 @@ base = ["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++17",
 def run(args):
     return subprocess.check_output(list(map(str, args)), text=True)
 
-def simulate(code, start, saved, parents, result, mixed=0):
+def simulate(code, start, saved, parents, result, mixed=0, interrupt=None,
+             boundaries=None):
     # Execute the actual decoded landing instructions. POP coherence and
     # preparation are kernel assumptions, not established by this model.
     registers = {f"r{i}": 0x90000 + i for i in range(256)}
@@ -43,10 +44,24 @@ def simulate(code, start, saved, parents, result, mixed=0):
     memory = dict(zip((buf + i * 8 for i in range(35)),
                       [fp, pc, sp, saved] + locals))
     special = {"rO": start, "rL": mixed, "rJ": 0}
+    ambient = dict(special, rG=230, rA=0x12, rD=0x13, rE=0x14, rH=0x15, rR=0x16)
+    special.update(ambient)
+    loaded = set()
     ip = pops = 0
     def value(a):
         return registers[a] if a in registers else int(a, 0)
-    for _ in range(500):
+    for step in range(500):
+        if boundaries is not None:
+            boundaries.append(step)
+        if interrupt is not None and step == interrupt[0]:
+            # Conditional kernel contract: normal return reinstates exact
+            # state; nonlocal leave abandons this continuation altogether.
+            if interrupt[1] == "leave":
+                return "abandoned", pops
+            snapshot = (registers.copy(), special.copy(), ip)
+            registers.update({f"r{i}": 0xBAD for i in range(31)})
+            special.update(rO=0x9000, rL=0)
+            registers, special, ip = snapshot
         op, a = code[ip]
         current = ip
         ip += 1
@@ -61,6 +76,9 @@ def simulate(code, start, saved, parents, result, mixed=0):
             # cannot silently pass this model.
             if int(a[0][1:]) < 31:
                 assert special["rO"] == saved
+                loaded.add(a[0])
+            if a[0] in ("r253", "r254"):
+                assert special["rO"] == saved and len(loaded) == 31
             registers[a[0]] = memory[value(a[1]) + value(a[2])]
         elif op == "GET":
             registers[a[0]] = special[a[1]]
@@ -68,6 +86,8 @@ def simulate(code, start, saved, parents, result, mixed=0):
             registers[a[0]] = current + value(a[1])
         elif op == "PUT":
             assert a[0] in ("rJ", "rL")
+            if a[0] == "rL":
+                assert len(loaded) == 31 and special["rO"] == saved
             special[a[0]] = value(a[1])
         elif op in ("BNZ", "BZ", "BN", "BNN"):
             v = value(a[0])
@@ -91,6 +111,8 @@ def simulate(code, start, saved, parents, result, mixed=0):
             assert registers["r231"] == result and special["rL"] == 31
             assert registers["r253"] == fp and registers["r254"] == sp
             assert registers["r230"] == original_tp
+            assert all(special[key] == ambient[key] for key in
+                       ("rG", "rA", "rD", "rE", "rH", "rR"))
             assert [registers[f"r{i}"] for i in range(31)] == locals
             return True, pops
         else:
@@ -110,7 +132,6 @@ for opt in ("0", "2"):
     for line in text.splitlines():
         match = re.match(r"\s*[0-9a-f]+:\s+(?:[0-9a-f]{2}\s+){4}\s*([A-Z]+)\s+(.*)", line)
         if match: code.append((match[1], [a.strip() for a in match[2].split(",")]))
-    assert len(code) == 55
     assert run(["llvm-nm", "-u", landing]).split() == ["U", "__llvm_libc_mmix_jump_fail"]
     relocs = run(["llvm-readobj", "-r", landing])
     assert "R_MMIX_ADDR27" in relocs and "__llvm_libc_mmix_jump_fail" in relocs
@@ -124,16 +145,49 @@ for opt in ("0", "2"):
                             (0x1000, {0x1400: 0x1400}),
                             (0x1000, {0x1400: 0x1800})):
         assert not simulate(code, 0x1400, saved, parents, 1)[0]
-    # A corrupted local restore must be detected independently of spelling.
-    broken = [(op, list(a)) for op, a in code]
-    index = next(i for i, (op, a) in enumerate(broken) if op == "LDOU" and a[0] == "r30")
-    broken[index][1][2] = "0xe8"
+    # Interrupt every executed boundary, including both POPs and each partial
+    # local installation. This assumes coherent kernel return/abandon, rather
+    # than emulating the provider's private partial-instruction state.
+    boundaries = []
+    assert simulate(code, 0x1400, 0x1000,
+                    {0x1400: 0x1200, 0x1200: 0x1000}, -1,
+                    boundaries=boundaries) == (True, 2)
+    for boundary in boundaries:
+        for mode in ("return", "leave"):
+            result = simulate(code, 0x1400, 0x1000,
+                              {0x1400: 0x1200, 0x1200: 0x1000}, -1,
+                              interrupt=(boundary, mode))
+            assert result[0] == (True if mode == "return" else "abandoned")
+    # Same-length mutations preserve branch displacements. Validate semantics,
+    # not a fixed instruction count or the spelling of assembly labels.
+    local = next(i for i, (op, a) in enumerate(code) if op == "LDOU" and a[0] == "r30")
+    fp = next(i for i, (op, a) in enumerate(code) if op == "LDOU" and a[0] == "r253")
+    sp = next(i for i, (op, a) in enumerate(code) if op == "LDOU" and a[0] == "r254")
+    mutations = [(local, ("LDOU", ["r30", "r252", "0xe8"])),
+                 (local, ("LDOU", ["r30", "r254", "0x0"])),
+                 (fp, ("LDOU", ["r230", "r251", "0x0"])),
+                 (sp, ("LDOU", ["r254", "r251", "0x0"])),
+                 (local, ("PUT", ["rG", "r255"])),
+                 (0, ("SAVE", ["r255"]))]
+    for index, replacement in mutations:
+        broken = list(code)
+        broken[index] = replacement
+        try:
+            simulate(broken, 0x1000, 0x1000, {}, 1)
+        except (AssertionError, KeyError):
+            pass
+        else:
+            raise AssertionError("unsafe restoration accepted")
+    # Moving SP installation before traversal must fail even if the final
+    # register values would otherwise be correct.
+    broken = list(code)
+    broken.insert(2, ("LDOU", ["r254", "r251", "0x10"]))
     try:
-        simulate(broken, 0x1000, 0x1000, {}, 1)
+        simulate(broken, 0x1400, 0x1000, {0x1400: 0x1000}, 1)
     except AssertionError:
         pass
     else:
-        raise AssertionError("corrupt local restoration accepted")
+        raise AssertionError("early software-stack installation accepted")
     for name in ("restore", "longjmp", "siglongjmp"):
         obj = root / (name + opt + ".o")
         run([*base, "-O" + opt, "-DLIBC_COPT_PUBLIC_PACKAGING", "-emit-obj",

@@ -22,6 +22,19 @@ import sys
 libc, root = map(pathlib.Path, sys.argv[1:])
 source = libc / "src/setjmp/mmix/linux"
 resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+def validate_terminal(instructions):
+    # The terminal path has no stack, memory, local-register or call effects.
+    assert [op for _, op, _ in instructions] == ["SETL"] * 7 + ["TRAP", "JMP"]
+    regs = {}
+    for _, _, (reg, val) in instructions[:7]:
+        assert reg not in regs
+        regs[reg] = int(val, 0)
+    assert regs == {"r231": 127, "r232": 0, "r233": 0, "r234": 0,
+                    "r235": 0, "r236": 0, "r237": 94}
+    assert [int(x, 0) for x in instructions[7][2]] == [1, 0, 0]
+    assert instructions[8][2] == ["0x0"]
+    return regs
+
 for opt in ("0", "2"):
     obj = root / ("failure" + opt + ".o")
     subprocess.run(["clang", "--target=mmix-unknown-linux", "-nostdinc",
@@ -37,17 +50,28 @@ for opt in ("0", "2"):
         if match:
             instructions.append((int(match[1], 16), match[2],
                                  [x.strip() for x in match[3].split(",")]))
-    assert len(instructions) == 9
-    assert [pc for pc, _, _ in instructions] == list(range(0, 36, 4))
-    # No local register, SP, FP or TP access, loads/stores, calls or POP.
-    assert [op for _, op, _ in instructions] == ["SETL"] * 7 + ["TRAP", "JMP"]
-    regs = {}
-    for _, _, (reg, val) in instructions[:7]:
-        assert reg not in regs
-        regs[reg] = int(val, 0)
-    assert regs == {"r231": 127, "r232": 0, "r233": 0, "r234": 0,
-                    "r235": 0, "r236": 0, "r237": 94}
-    assert [int(x, 0) for x in instructions[7][2]] == [1, 0, 0]
+    regs = validate_terminal(instructions)
+    for op, args in (("PUSHJ", ["r31", "0x0"]), ("SAVE", ["r255"]),
+                     ("POP", ["0x0", "0x0"]), ("LDOU", ["r231", "r254", "0x0"]),
+                     ("SETL", ["r0", "0x7f"]), ("SETL", ["r230", "0x7f"]),
+                     ("SETL", ["r254", "0x7f"])):
+        broken = [(instructions[0][0], op, args), *instructions[1:]]
+        try:
+            validate_terminal(broken)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("unsafe failure path accepted")
+    # A returning exit must neither retry a service nor enter ordinary recovery.
+    for op, args in (("JMPB", ["-0x1"]), ("JMP", ["0x1"]),
+                     ("TRAP", ["0x1", "0x0", "0x0"])):
+        broken = [*instructions[:-1], (instructions[-1][0], op, args)]
+        try:
+            validate_terminal(broken)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("terminal escape accepted")
     # Any impossible syscall return remains at the backedge. In particular it
     # cannot retry query/jump/exit, call abort or report a setjmp success.
     for result in (0, -1, -38, 1):
