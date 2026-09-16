@@ -1,0 +1,119 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %S/libc-linux-sigaction.test %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- sys/syscall.h
+// Independently checked against the exported Linux UAPI.
+#define SYS_sigaltstack 132
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=altstack_test", "-DLIBC_ERRNO_MODE=3",
+          "-I", str(root), "-I", str(libc)]
+target = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
+          "-mrelocation-model", "static", "-internal-isystem", resource + "/include"]
+for opt in ("0", "2"):
+    for source in (root / "semantics.cpp", libc / "src/signal/linux/sigaltstack.cpp"):
+        obj = root / (source.stem + opt + ".o")
+        subprocess.run([*target, *common, "-O" + opt, "-emit-obj", str(source),
+                        "-o", str(obj)], check=True)
+        if source.stem == "sigaltstack":
+            names = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+            assert "__llvm_libc_mmix_syscall" in names
+            assert "vdso" not in names and "__restore" not in names
+    if len(sys.argv) == 4:
+        exe = root / ("native" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+                        str(root / "native-altstack-boundary.h"), str(root / "semantics.cpp"),
+                        "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+#--- native-altstack-boundary.h
+#include "native-boundary.h"
+#include "hdr/signal_macros.h"
+// Keep the host compiler ABI while selecting the actual MMIX stack constants.
+#undef MINSIGSTKSZ
+#undef SIGSTKSZ
+#include "include/llvm-libc-macros/mmix/linux-signal-macros.h"
+
+#--- semantics.cpp
+#include "src/signal/linux/sigaltstack.cpp"
+#include "hdr/signal_macros.h"
+
+using namespace altstack_test;
+namespace altstack_test {
+static int error_value;
+Errno libc_errno;
+void Errno::operator=(int value) { error_value = value; }
+Errno::operator int() { return error_value; }
+}
+static_assert(sizeof(stack_t) == 24 && alignof(stack_t) == 8);
+static_assert(__builtin_offsetof(stack_t, ss_sp) == 0);
+static_assert(__builtin_offsetof(stack_t, ss_flags) == 8);
+static_assert(__builtin_offsetof(stack_t, ss_size) == 16);
+static_assert(SS_AUTODISARM == 0x80000000U);
+static_assert(MINSIGSTKSZ == 32768 && SIGSTKSZ == 65536);
+static void require(bool value) { if (!value) __builtin_trap(); }
+static long reply, calls;
+static const stack_t *expected_input;
+static stack_t *expected_output;
+static stack_t returned{};
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
+                                        long c, long d, long e, long f) {
+  ++calls;
+  require(nr == SYS_sigaltstack && !c && !d && !e && !f);
+  require(a == reinterpret_cast<long>(expected_input));
+  require(b == reinterpret_cast<long>(expected_output));
+  if (!reply && expected_output)
+    *expected_output = returned;
+  return reply;
+}
+int main() {
+  char storage[8]; // The transport double never asks Linux to install this stack.
+  stack_t stack{}, old{};
+  stack.ss_sp = storage;
+  returned.ss_sp = storage + 1;
+  returned.ss_size = SIGSTKSZ;
+  returned.ss_flags = static_cast<int>(SS_AUTODISARM);
+  const unsigned flags[] = {0, SS_DISABLE, SS_ONSTACK, SS_AUTODISARM,
+                           SS_DISABLE | SS_AUTODISARM, 0xffffffffU};
+  const size_t sizes[] = {0, MINSIGSTKSZ - 1, MINSIGSTKSZ, SIGSTKSZ};
+  for (auto flag : flags) {
+    for (auto size : sizes) {
+      stack.ss_flags = static_cast<int>(flag);
+      stack.ss_size = size;
+      for (int mode = 0; mode != 4; ++mode) {
+        expected_input = mode & 1 ? &stack : nullptr;
+        expected_output = mode & 2 ? &old : nullptr;
+        reply = 0;
+        libc_errno = 77;
+        auto before = calls;
+        require(altstack_test::sigaltstack(expected_input, expected_output) == 0);
+        require(calls == before + 1 && int(libc_errno) == 77);
+        require(stack.ss_sp == storage && stack.ss_size == size);
+        require(static_cast<unsigned>(stack.ss_flags) == flag);
+        if (expected_output)
+          require(old.ss_sp == returned.ss_sp && old.ss_size == returned.ss_size &&
+                  old.ss_flags == returned.ss_flags);
+      }
+    }
+  }
+  // Errors and invalid pointers belong to the kernel, not client prevalidation.
+  const int errors[] = {1, 12, 14, 22, 38};
+  for (auto error : errors) {
+    expected_input = reinterpret_cast<const stack_t *>(1);
+    expected_output = reinterpret_cast<stack_t *>(3);
+    reply = -error;
+    auto before = calls;
+    require(altstack_test::sigaltstack(expected_input, expected_output) == -1);
+    require(calls == before + 1 && int(libc_errno) == error);
+  }
+  return 0;
+}
