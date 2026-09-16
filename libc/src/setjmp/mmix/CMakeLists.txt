@@ -17,7 +17,24 @@ if(LIBC_TARGET_OS STREQUAL "linux")
         libc.src.__support.macros.macro_utils
     )
   endforeach()
-  # Linux restore needs kernel preparation; never use the Generic longjmp.
+  add_object_library(
+    jump_restore
+    SRCS linux/restore.cpp linux/landing.S
+    HDRS linux/restore.h
+    DEPENDS
+      .jump_fail
+      libc.hdr.types.jmp_buf
+      libc.include.sys_syscall
+      libc.src.__support.OSUtil.linux.linux_util
+  )
+  foreach(entry longjmp siglongjmp)
+    add_entrypoint_object(
+      ${entry}
+      SRCS linux/${entry}.cpp
+      HDRS ../${entry}.h
+      DEPENDS .jump_restore libc.src.__support.common
+    )
+  endforeach()
   return()
 endif()
 

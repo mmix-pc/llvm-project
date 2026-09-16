@@ -1,10 +1,12 @@
-option(LIBC_MMIX_BUILD_JUMP_SAVE "Build Linux setjmp save-side preparation" OFF)
+option(LIBC_MMIX_BUILD_JUMP_SAVE "Build Linux nonlocal-transfer preparation" OFF)
 if(NOT LIBC_MMIX_BUILD_JUMP_SAVE)
   return()
 endif()
 
-# Save-side preparation includes terminal failure, but not restore providers.
+# Restore providers require the kernel's nonreturning preparation service.
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.setjmp.setjmp
   libc.src.setjmp.sigsetjmp
+  libc.src.setjmp.longjmp
+  libc.src.setjmp.siglongjmp
 )

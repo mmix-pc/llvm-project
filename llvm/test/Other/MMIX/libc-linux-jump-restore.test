@@ -1,0 +1,162 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- asm/unistd.h
+#define __NR_mmix_rstack_jump 246
+#define __NR_exit_group 94
+
+#--- asm/rstack.h
+// The real runtime build independently checks the exported Linux UAPI.
+#define MMIX_RSTACK_JUMP_SETMASK 1
+struct mmix_rstack_jump {
+  unsigned long chain_id, landing, environment, result, flags, sigmask;
+};
+
+#--- check.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+source = libc / "src/setjmp/mmix/linux"
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+base = ["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++17",
+        "-mrelocation-model", "static", "-ffreestanding", "-DLIBC_FULL_BUILD",
+        "-DLIBC_NAMESPACE=restore_test", "-internal-isystem", resource + "/include",
+        "-I", str(root), "-I", str(libc)]
+
+def run(args):
+    return subprocess.check_output(list(map(str, args)), text=True)
+
+def simulate(code, start, saved, parents, result, mixed=0):
+    # Execute the actual decoded landing instructions. POP coherence and
+    # preparation are kernel assumptions, not established by this model.
+    registers = {f"r{i}": 0x90000 + i for i in range(256)}
+    buf, pc, fp, sp = 0x4000, 0x8000, 0xA000, 0xB000
+    registers.update(r231=buf, r232=result)
+    original_tp = registers["r230"]
+    locals = [0x10000 + i * 17 for i in range(31)]
+    for i in range(mixed):
+        registers[f"r{i}"] = locals[i]
+    memory = dict(zip((buf + i * 8 for i in range(35)),
+                      [fp, pc, sp, saved] + locals))
+    special = {"rO": start, "rL": mixed, "rJ": 0}
+    ip = pops = 0
+    def value(a):
+        return registers[a] if a in registers else int(a, 0)
+    for _ in range(500):
+        op, a = code[ip]
+        current = ip
+        ip += 1
+        if op in ("OR", "AND", "ADDU", "CMPU", "SETL"):
+            x = value(a[1])
+            y = value(a[2]) if len(a) == 3 else 0
+            registers[a[0]] = {"OR": lambda: x | y, "AND": lambda: x & y,
+                "ADDU": lambda: x + y, "CMPU": lambda: (x > y) - (x < y),
+                "SETL": lambda: x}[op]()
+        elif op == "LDOU":
+            # A load outside the saved environment, including the old SP,
+            # cannot silently pass this model.
+            if int(a[0][1:]) < 31:
+                assert special["rO"] == saved
+            registers[a[0]] = memory[value(a[1]) + value(a[2])]
+        elif op == "GET":
+            registers[a[0]] = special[a[1]]
+        elif op == "GETA":
+            registers[a[0]] = current + value(a[1])
+        elif op == "PUT":
+            assert a[0] in ("rJ", "rL")
+            special[a[0]] = value(a[1])
+        elif op in ("BNZ", "BZ", "BN", "BNN"):
+            v = value(a[0])
+            taken = {"BNZ": v != 0, "BZ": v == 0,
+                     "BN": v < 0, "BNN": v >= 0}[op]
+            if taken: ip = current + value(a[1])
+        elif op == "JMPB":
+            ip = current + value(a[0])
+        elif op == "POP":
+            assert a == ["0x0", "0x0"]
+            special["rO"] = parents[special["rO"]]
+            # Deliberately destroy the intermediate local values.
+            for i in range(31): registers[f"r{i}"] = 0xF000 + pops + i
+            pops += 1
+            ip = special["rJ"]
+        elif op == "JMP":
+            # The object's sole relocation binds this instruction to failure.
+            return False, pops
+        elif op == "GO":
+            assert value(a[1]) + value(a[2]) == pc
+            assert registers["r231"] == result and special["rL"] == 31
+            assert registers["r253"] == fp and registers["r254"] == sp
+            assert registers["r230"] == original_tp
+            assert [registers[f"r{i}"] for i in range(31)] == locals
+            return True, pops
+        else:
+            raise AssertionError(op)
+    raise AssertionError("landing did not terminate")
+
+for opt in ("0", "2"):
+    objects = []
+    for name in ("landing", "jump_fail"):
+        obj = root / (name + opt + ".o")
+        run(["clang", "--target=mmix-unknown-linux", "-I", root,
+             "-O" + opt, "-c", source / (name + ".S"), "-o", obj])
+        objects.append(obj)
+    landing = objects[0]
+    text = run(["llvm-objdump", "-d", landing])
+    code = []
+    for line in text.splitlines():
+        match = re.match(r"\s*[0-9a-f]+:\s+(?:[0-9a-f]{2}\s+){4}\s*([A-Z]+)\s+(.*)", line)
+        if match: code.append((match[1], [a.strip() for a in match[2].split(",")]))
+    assert len(code) == 55
+    assert run(["llvm-nm", "-u", landing]).split() == ["U", "__llvm_libc_mmix_jump_fail"]
+    relocs = run(["llvm-readobj", "-r", landing])
+    assert "R_MMIX_ADDR27" in relocs and "__llvm_libc_mmix_jump_fail" in relocs
+    for mixed in range(32):
+        for result in (1, -1, 2147483647, -2147483648):
+            assert simulate(code, 0x1000, 0x1000, {}, result, mixed) == (True, 0)
+            assert simulate(code, 0x1400, 0x1000,
+                            {0x1400: 0x1200, 0x1200: 0x1000}, result, mixed) == (True, 2)
+    for saved, parents in ((0x1001, {}), (0x1800, {}),
+                            (0x1000, {0x1400: 0x800}),
+                            (0x1000, {0x1400: 0x1400}),
+                            (0x1000, {0x1400: 0x1800})):
+        assert not simulate(code, 0x1400, saved, parents, 1)[0]
+    # A corrupted local restore must be detected independently of spelling.
+    broken = [(op, list(a)) for op, a in code]
+    index = next(i for i, (op, a) in enumerate(broken) if op == "LDOU" and a[0] == "r30")
+    broken[index][1][2] = "0xe8"
+    try:
+        simulate(broken, 0x1000, 0x1000, {}, 1)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("corrupt local restoration accepted")
+    for name in ("restore", "longjmp", "siglongjmp"):
+        obj = root / (name + opt + ".o")
+        run([*base, "-O" + opt, "-DLIBC_COPT_PUBLIC_PACKAGING", "-emit-obj",
+             source / (name + ".cpp"), "-o", obj])
+        objects.append(obj)
+        ir = run([*base, "-O" + opt, "-emit-llvm", source / (name + ".cpp"), "-o", "-"])
+        if name == "restore":
+            assert "@__llvm_libc_mmix_jump_landing" in ir
+            assert "@__llvm_libc_mmix_jump_fail" in ir
+            assert "@__llvm_libc_mmix_syscall" in ir
+        else:
+            flag = "true" if name == "siglongjmp" else "false"
+            assert re.search(r"call.*restore_jump.*i1 [^,\n]*\b" + flag + r"\)", ir)
+    syscall = root / ("syscall" + opt + ".o")
+    run(["clang", "--target=mmix-unknown-linux", "-c",
+         libc / "src/__support/OSUtil/linux/mmix/syscall.S", "-o", syscall])
+    objects.append(syscall)
+    elf = root / ("restore" + opt + ".elf")
+    run(["ld.lld", "-m", "elf64mmix_linux", "-e", "longjmp", *objects, "-o", elf])
+    assert not run(["llvm-nm", "-u", elf]).strip()
+    for name in ("longjmp", "siglongjmp", "__llvm_libc_mmix_jump_landing"):
+        assert name in run(["llvm-nm", elf])
+    missing = subprocess.run(["ld.lld", "-m", "elf64mmix_linux", "-e", "longjmp",
+                              *map(str, objects[1:]), "-o", str(elf) + ".missing"],
+                             capture_output=True, text=True)
+    assert missing.returncode and "__llvm_libc_mmix_jump_landing" in missing.stderr
