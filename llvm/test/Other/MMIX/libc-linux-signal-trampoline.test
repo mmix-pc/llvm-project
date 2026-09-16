@@ -1,0 +1,114 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- asm/unistd.h
+#define __NR_rt_sigreturn 139
+#define __NR_exit_group 94
+
+#--- consumer.cpp
+#include "src/signal/linux/mmix/signal_trampoline.h"
+void (*restorer)() = __llvm_libc_mmix_signal_trampoline;
+
+#--- check.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, out = map(pathlib.Path, sys.argv[1:3])
+# An optional real UAPI directory supports independent runtime validation.
+uapi = pathlib.Path(sys.argv[3]) if len(sys.argv) == 4 else out
+source = libc / "src/signal/linux/mmix/signal_trampoline.S"
+base = ["clang", "--target=mmix-unknown-linux", "-I", str(uapi)]
+entry = "__llvm_libc_mmix_signal_trampoline"
+ret = "__llvm_libc_mmix_signal_return"
+fail = "__llvm_libc_mmix_jump_fail"
+
+def run(command):
+    return subprocess.check_output(list(map(str, command)), text=True)
+
+def symbols(path):
+    return {line.split()[-1]: int(line.split()[0], 16)
+            for line in run(["llvm-nm", "--defined-only", path]).splitlines()
+            if len(line.split()) == 3}
+
+def instructions(path):
+    result = []
+    for line in run(["llvm-objdump", "-d", path]).splitlines():
+        match = re.match(r"\s*([0-9a-f]+):\s+(?:[0-9a-f]{2}\s+){4}\s*([A-Z]+)\s+(.*)", line)
+        if match:
+            result.append((int(match[1], 16), match[2],
+                           [a.strip() for a in match[3].split(",")]))
+    return result
+
+def check(obj):
+    names = symbols(obj)
+    assert names[ret] == names[entry] + 4
+    code = instructions(obj)
+    # Four exact instructions exclude a compiler frame, instrumentation, PUSH,
+    # extra POP, backing operations, public-context loads or TP/SP mutation.
+    assert [(op, args) for _, op, args in code] == [
+        ("GO", ["r255", "r234", "0x0"]),
+        ("SETL", ["r237", "0x8b"]),
+        ("TRAP", ["0x1", "0x0", "0x0"]),
+        ("JMP", ["0x0"])]
+    assert run(["llvm-nm", "-u", obj]).split() == ["U", fail]
+    info = run(["llvm-readobj", "--symbols", "--relocations", "--sections", obj])
+    assert "R_MMIX_ADDR27 " + fail in info
+    assert info.count("STV_HIDDEN") >= 3
+    assert ".eh_frame" not in info and ".init_array" not in info
+    return code
+
+for opt in ("0", "2"):
+    obj = out / ("trampoline" + opt + ".o")
+    run([*base, "-O" + opt, "-fstack-protector-all", "-finstrument-functions",
+         "-c", source, "-o", obj])
+    code = check(obj)
+    terminal = out / ("fail" + opt + ".o")
+    run([*base, "-c", libc / "src/setjmp/mmix/linux/jump_fail.S", "-o", terminal])
+    consumer = out / ("consumer" + opt + ".o")
+    run([*base, "-O" + opt, "-ffreestanding", "-I", libc, "-c",
+         out / "consumer.cpp", "-o", consumer])
+    elf = out / ("trampoline" + opt + ".elf")
+    link = ["ld.lld", "-m", "elf64mmix_linux", "-e", entry, obj, consumer]
+    missing = subprocess.run(list(map(str, [*link, "-o", str(elf) + ".missing"])),
+                             capture_output=True, text=True)
+    assert missing.returncode and fail in missing.stderr
+    run([*link, terminal, "-o", elf])
+    assert not run(["llvm-nm", "-u", elf]).strip()
+    names = symbols(elf)
+    assert names[ret] == names[entry] + 4
+    linked = instructions(elf)
+    jump = next((address, args) for address, op, args in linked
+                if address == names[ret] + 8 and op in ("JMP", "JMPB"))
+    assert jump[0] + int(jump[1][0], 0) * 4 == names[fail]
+    # Handler/kernel transitions below are explicit ABI assumptions, not Linux
+    # execution: the handler consumes the seeded zero hole and restores SP=F.
+    for frame in (0x8000, 0x100000):
+        for signal in (1, 64):
+            regs = {f"r{i}": 1000 + i for i in range(256)}
+            regs.update(r231=signal, r232=frame, r233=frame+128,
+                        r234=0x200000, r254=frame)
+            original = regs.copy()
+            rj = names[ret]
+            _, op, a = code[0]
+            pc = regs[a[1]] + int(a[2], 0)
+            regs[a[0]] = names[entry] + 4
+            assert pc == 0x200000 and rj == names[ret]
+            assert all(regs[f"r{i}"] == original[f"r{i}"] for i in range(255))
+            # A conforming handler may clobber all argument globals; the frame
+            # locator must come only from its restored software SP.
+            for i in range(231, 253): regs[f"r{i}"] = 0xBAD
+            pc = rj
+            _, op, a = code[1]
+            regs[a[0]] = int(a[1], 0)
+            assert pc == names[ret] and regs["r237"] == 139
+            assert regs["r254"] == frame and regs["r230"] == original["r230"]
+    assert len(instructions(terminal)) == 9
+
+# Generic must never acquire a Linux trampoline by accidental selection.
+wrong = subprocess.run(["clang", "--target=mmix-unknown-unknown", "-I", str(uapi),
+                        "-c", str(source), "-o", str(out / "generic.o")],
+                       capture_output=True, text=True)
+assert wrong.returncode and "requires MMIX Linux" in wrong.stderr

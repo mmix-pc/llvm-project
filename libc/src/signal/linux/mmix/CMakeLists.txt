@@ -1,3 +1,12 @@
+add_object_library(
+  signal_trampoline
+  SRCS signal_trampoline.S
+  HDRS signal_trampoline.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.setjmp.mmix.jump_fail
+)
+
 add_header_library(
   kernel_sigaction
   HDRS
