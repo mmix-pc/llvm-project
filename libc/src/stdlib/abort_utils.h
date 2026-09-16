@@ -14,7 +14,13 @@
 #if defined(LIBC_TARGET_ARCH_IS_GPU)
 #include "src/stdlib/gpu/abort_utils.h"
 #elif defined(__linux__)
+// FIXME: Remove this transitional MMIX adapter once shared Linux signal
+// restorer selection and synchronization support MMIX.
+#if defined(LIBC_TARGET_ARCH_IS_MMIX)
+#include "src/stdlib/linux/mmix/abort_utils.h"
+#else
 #include "src/stdlib/linux/abort_utils.h"
+#endif
 #elif defined(__ELF__)
 // TODO:ELF detection logic is borrowed from io.h (as we are still missing
 // LIBC_TARGET_OS_IS_BAREMETAL).

@@ -1,3 +1,12 @@
+add_header_library(
+  abort_utils
+  HDRS abort_utils.h
+  DEPENDS
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.OSUtil.linux.syscall_wrappers.raise
+    libc.src.signal.linux.mmix.rt_sigaction
+)
+
 add_object_library(
   allocator
   SRCS allocator.cpp

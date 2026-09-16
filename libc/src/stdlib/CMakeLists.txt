@@ -840,6 +840,8 @@ add_entrypoint_object(
 set(abort_utils_dep .${LIBC_TARGET_OS}.abort_utils)
 if(LIBC_TARGET_OS_IS_BAREMETAL AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
   set(abort_utils_dep .baremetal.mmix.abort_utils)
+elseif(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  set(abort_utils_dep .linux.mmix.abort_utils)
 endif()
 add_header_library(
   abort_utils
