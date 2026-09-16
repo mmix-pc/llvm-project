@@ -1,5 +1,19 @@
 add_custom_target(libc_signal_unittests)
 
+if(LIBC_TARGET_OS STREQUAL "linux")
+  add_libc_test(
+    signal_initialization_test
+    SUITE libc_signal_unittests
+    SRCS signal_initialization_test.cpp
+    COMPILE_OPTIONS
+      -ftrivial-auto-var-init=pattern
+    DEPENDS
+      libc.hdr.signal_macros
+      libc.hdr.types.struct_sigaction
+      libc.src.__support.common
+  )
+endif()
+
 add_libc_test(
   raise_test
   SUITE
