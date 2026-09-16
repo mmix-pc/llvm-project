@@ -2,6 +2,17 @@ add_custom_target(libc_signal_unittests)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
   add_libc_test(
+    sigaltstack_registration_test
+    SUITE libc_signal_unittests
+    SRCS sigaltstack_registration_test.cpp
+    DEPENDS
+      libc.hdr.signal_macros
+      libc.src.signal.sigaltstack
+      libc.src.errno.errno
+      libc.test.UnitTest.ErrnoCheckingTest
+  )
+
+  add_libc_test(
     signal_initialization_test
     SUITE libc_signal_unittests
     SRCS signal_initialization_test.cpp

@@ -72,7 +72,7 @@ TEST_F(LlvmLibcSigaltstackTest, SigaltstackInvalidStack) {
   stack_t ss;
   ss.ss_sp = alt_stack;
   ss.ss_size = 0;
-  ss.ss_flags = SS_ONSTACK;
+  ss.ss_flags = SS_ONSTACK | SS_DISABLE;
   ASSERT_THAT(LIBC_NAMESPACE::sigaltstack(&ss, nullptr), Fails(EINVAL));
 
   ss.ss_flags = 0;
