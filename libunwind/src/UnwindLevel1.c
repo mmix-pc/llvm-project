@@ -109,7 +109,8 @@ static _Unwind_Personality_Fn get_handler_function(unw_proc_info_t *frameInfo) {
 
 static _Unwind_Reason_Code
 unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *exception_object) {
-  __unw_init_local(cursor, uc);
+  if (__unw_init_local(cursor, uc) != UNW_ESUCCESS)
+    return _URC_FATAL_PHASE1_ERROR;
 
   // Walk each frame looking for a place to stop.
   while (true) {
@@ -210,7 +211,8 @@ _LIBUNWIND_TRACE_NO_INLINE
 static _Unwind_Reason_Code
 unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor,
               _Unwind_Exception *exception_object) {
-  __unw_init_local(cursor, uc);
+  if (__unw_init_local(cursor, uc) != UNW_ESUCCESS)
+    return _URC_FATAL_PHASE2_ERROR;
 
   _LIBUNWIND_TRACE_UNWINDING("unwind_phase2(ex_obj=%p)",
                              (void *)exception_object);
@@ -357,7 +359,8 @@ static _Unwind_Reason_Code
 unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                      _Unwind_Exception *exception_object, _Unwind_Stop_Fn stop,
                      void *stop_parameter) {
-  __unw_init_local(cursor, uc);
+  if (__unw_init_local(cursor, uc) != UNW_ESUCCESS)
+    return _URC_FATAL_PHASE2_ERROR;
 
   // uc is initialized by __unw_getcontext in the parent frame. The first stack
   // frame walked is unwind_phase2_forced.
@@ -468,7 +471,8 @@ _Unwind_RaiseException(_Unwind_Exception *exception_object) {
                        (void *)exception_object);
   unw_context_t uc;
   unw_cursor_t cursor;
-  __unw_getcontext(&uc);
+  if (__unw_getcontext(&uc) != UNW_ESUCCESS)
+    return _URC_FATAL_PHASE1_ERROR;
 
   // Mark that this is a non-forced unwind, so _Unwind_Resume()
   // can do the right thing.
@@ -502,7 +506,8 @@ _Unwind_Resume(_Unwind_Exception *exception_object) {
   _LIBUNWIND_TRACE_API("_Unwind_Resume(ex_obj=%p)", (void *)exception_object);
   unw_context_t uc;
   unw_cursor_t cursor;
-  __unw_getcontext(&uc);
+  if (__unw_getcontext(&uc) != UNW_ESUCCESS)
+    _LIBUNWIND_ABORT("_Unwind_Resume() could not capture context");
 
   if (exception_object->private_1 != 0)
     unwind_phase2_forced(&uc, &cursor, exception_object,
@@ -527,7 +532,8 @@ _Unwind_ForcedUnwind(_Unwind_Exception *exception_object,
                        (void *)exception_object, (void *)(uintptr_t)stop);
   unw_context_t uc;
   unw_cursor_t cursor;
-  __unw_getcontext(&uc);
+  if (__unw_getcontext(&uc) != UNW_ESUCCESS)
+    return _URC_FATAL_PHASE2_ERROR;
 
   // Mark that this is a forced unwind, so _Unwind_Resume() can do
   // the right thing.

@@ -117,9 +117,10 @@ _LIBUNWIND_EXPORT void *_Unwind_FindEnclosingFunction(void *pc) {
   unw_cursor_t cursor;
   unw_context_t uc;
   unw_proc_info_t info;
-  __unw_getcontext(&uc);
-  __unw_init_local(&cursor, &uc);
-  __unw_set_reg(&cursor, UNW_REG_IP, (unw_word_t)(intptr_t)pc);
+  if (__unw_getcontext(&uc) != UNW_ESUCCESS ||
+      __unw_init_local(&cursor, &uc) != UNW_ESUCCESS ||
+      __unw_set_reg(&cursor, UNW_REG_IP, (unw_word_t)(intptr_t)pc) != UNW_ESUCCESS)
+    return NULL;
   if (__unw_get_proc_info(&cursor, &info) == UNW_ESUCCESS)
     return (void *)(intptr_t) info.start_ip;
   else
@@ -133,8 +134,9 @@ _LIBUNWIND_EXPORT _Unwind_Reason_Code
 _Unwind_Backtrace(_Unwind_Trace_Fn callback, void *ref) {
   unw_cursor_t cursor;
   unw_context_t uc;
-  __unw_getcontext(&uc);
-  __unw_init_local(&cursor, &uc);
+  if (__unw_getcontext(&uc) != UNW_ESUCCESS ||
+      __unw_init_local(&cursor, &uc) != UNW_ESUCCESS)
+    return _URC_FATAL_PHASE1_ERROR;
 
   _LIBUNWIND_TRACE_API("_Unwind_Backtrace(callback=%p)",
                        (void *)(uintptr_t)callback);
@@ -216,10 +218,14 @@ _LIBUNWIND_EXPORT const void *_Unwind_Find_FDE(const void *pc,
   unw_cursor_t cursor;
   unw_context_t uc;
   unw_proc_info_t info;
-  __unw_getcontext(&uc);
-  __unw_init_local(&cursor, &uc);
-  __unw_set_reg(&cursor, UNW_REG_IP, (unw_word_t)(intptr_t)pc);
-  __unw_get_proc_info(&cursor, &info);
+  bases->tbase = 0;
+  bases->dbase = 0;
+  bases->func = 0;
+  if (__unw_getcontext(&uc) != UNW_ESUCCESS ||
+      __unw_init_local(&cursor, &uc) != UNW_ESUCCESS ||
+      __unw_set_reg(&cursor, UNW_REG_IP, (unw_word_t)(intptr_t)pc) != UNW_ESUCCESS ||
+      __unw_get_proc_info(&cursor, &info) != UNW_ESUCCESS)
+    return NULL;
   bases->tbase = (uintptr_t)info.extra;
   bases->dbase = 0; // dbase not used on Mac OS X
   bases->func = (uintptr_t)info.start_ip;
