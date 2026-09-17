@@ -31,13 +31,15 @@ if(LIBC_MMIX_BUILD_STDIO)
 endif()
 if(LIBC_MMIX_BUILD_FILESYSTEM)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.sys_stat libc.include.dirent
-    libc.include.stdio)
+    libc.include.stdio libc.include.sys_vfs libc.include.sys_statfs)
 endif()
 if(LIBC_MMIX_BUILD_TIME)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.time libc.include.sys_time)
 endif()
 if(LIBC_MMIX_BUILD_PROCESS_BASE)
-  list(APPEND TARGET_PUBLIC_HEADERS libc.include.sys_resource libc.include.sys_wait)
+  # LLVM's common Unix headers include dlfcn.h without using loader services.
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.sys_resource libc.include.sys_wait
+    libc.include.dlfcn libc.include.sysexits)
 endif()
 if(LIBC_MMIX_BUILD_SPAWN)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.spawn)

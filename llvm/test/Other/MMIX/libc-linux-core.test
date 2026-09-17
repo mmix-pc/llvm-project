@@ -68,7 +68,7 @@ selection = root / "core.txt"
 run("cmake", "-DLIBC_SOURCE=" + str(libc), "-DOUTPUT=" + str(selection),
     "-P", root / "selection.cmake")
 entries = selection.read_text().splitlines()
-assert len(entries) == len(set(entries)) == 65, entries
+assert len(entries) == len(set(entries)) == 67, entries
 # Keep the original memory providers, including compiler-emitted memmove in
 # generic qsort's fixed-size swap. Do not replace it with a test helper.
 entries += ["string/" + name for name in ("memcpy", "memmove", "memset", "memcmp", "strlen")]
@@ -88,7 +88,10 @@ tests = ["string/strrchr", "string/strcmp", "string/strncmp", "string/stpcpy",
 for opt in ("0", "2"):
     out = root / ("O" + opt)
     out.mkdir(exist_ok=True)
-    objects = []
+    random_state = out / "rand-state.o"
+    run(*base, "-O" + opt, "-emit-obj", "-o", random_state,
+        libc / "src/stdlib/rand_util.cpp")
+    objects = [random_state]
     for entry in entries:
         obj = out / (entry.replace("/", "-") + ".o")
         run(*base, "-O" + opt, "-emit-obj", "-o", obj, libc / "src" / (entry + ".cpp"))

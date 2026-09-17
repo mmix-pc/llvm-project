@@ -14,6 +14,8 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.signal.sigaltstack
   libc.src.signal.kill
   libc.src.signal.raise
+  libc.src.unistd.alarm
+  libc.src.string.strsignal
   libc.src.stdlib.abort
   libc.src.assert.__assert_fail
 )

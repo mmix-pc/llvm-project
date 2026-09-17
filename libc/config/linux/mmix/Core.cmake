@@ -52,6 +52,8 @@ set(MMIX_CORE_ENTRYPOINTS
   libc.src.stdlib.strtold
   libc.src.stdlib.bsearch
   libc.src.stdlib.qsort
+  libc.src.stdlib.rand
+  libc.src.stdlib.srand
   libc.src.inttypes.imaxabs
   libc.src.inttypes.imaxdiv
   libc.src.inttypes.strtoimax

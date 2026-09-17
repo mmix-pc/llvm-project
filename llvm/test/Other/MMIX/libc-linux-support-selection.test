@@ -1,0 +1,41 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(config ${LIBC_SOURCE}/config/linux/mmix)
+foreach(family Core Process Signals Filesystem)
+  include(${config}/${family}.cmake)
+endforeach()
+if(TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "optional interfaces leaked into the foundation profile")
+endif()
+set(LIBC_MMIX_BUILD_CORE ON CACHE BOOL "" FORCE)
+set(LIBC_MMIX_BUILD_PROCESS_BASE ON CACHE BOOL "" FORCE)
+set(LIBC_MMIX_BUILD_SIGNAL_MASKS ON CACHE BOOL "" FORCE)
+set(LIBC_MMIX_BUILD_FILESYSTEM ON CACHE BOOL "" FORCE)
+foreach(family Core Process Signals Filesystem)
+  include(${config}/${family}.cmake)
+endforeach()
+foreach(entry libc.src.stdlib.rand libc.src.stdlib.srand libc.src.string.strsignal
+              libc.src.sys.wait.wait libc.src.unistd.alarm
+              libc.src.sys.statfs.statfs
+              libc.src.sys.statfs.fstatfs libc.src.unistd.getuid
+              libc.src.unistd.fchown libc.src.unistd.usleep
+              libc.src.sys.mman.msync libc.src.sys.mman.posix_madvise)
+  if(NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing LLVM Support dependency: ${entry}")
+  endif()
+endforeach()
+include(${config}/headers.txt)
+foreach(header dlfcn sys_vfs sys_statfs sysexits)
+  if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
+    message(FATAL_ERROR "missing common Unix include: ${header}")
+  endif()
+endforeach()
+foreach(entry IN LISTS TARGET_LIBC_ENTRYPOINTS)
+  if(entry MATCHES "^libc.src.dlfcn.")
+    message(FATAL_ERROR "header admission enabled dynamic loading")
+  endif()
+endforeach()

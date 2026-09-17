@@ -19,5 +19,6 @@ set(MMIX_PROCESS_ENTRYPOINTS
   libc.src.sys.resource.getrusage
   libc.src.sys.wait.waitpid
   libc.src.sys.wait.wait4
+  libc.src.sys.wait.wait
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_PROCESS_ENTRYPOINTS})
