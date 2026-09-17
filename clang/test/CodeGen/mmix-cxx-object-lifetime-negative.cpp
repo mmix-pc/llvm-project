@@ -2,6 +2,9 @@
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -std=c++17 \
 // RUN:   -mrelocation-model static -emit-llvm -o /dev/null %s 2>&1 \
 // RUN:   | FileCheck %s
+// RUN: not %clang_cc1 -triple mmix-unknown-linux -std=c++17 \
+// RUN:   -mrelocation-model static -emit-llvm -o /dev/null %s 2>&1 \
+// RUN:   | FileCheck %s
 using size_t = decltype(sizeof(0));
 
 struct Arena {

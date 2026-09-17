@@ -122,7 +122,8 @@ static bool diagnoseUnsupportedMMIXCXXFeature(CodeGenModule &CGM,
   return true;
 }
 
-static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E) {
+static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E,
+                                    bool AllowAlignedAllocation) {
   const FunctionDecl *OperatorNew = E.getOperatorNew();
   if (!OperatorNew)
     return false;
@@ -149,11 +150,13 @@ static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E) {
             StorageType->getPointeeType(), E.getAllocatedType()))
       return true;
   }
-  return E.getNumPlacementArgs() == 0 && !E.passAlignment() &&
+  return E.getNumPlacementArgs() == 0 &&
+         (!E.passAlignment() || AllowAlignedAllocation) &&
          OperatorNew->isReplaceableGlobalAllocationFunction();
 }
 
-static bool isSupportedMMIXCXXDeleteExpr(const CXXDeleteExpr &E) {
+static bool isSupportedMMIXCXXDeleteExpr(const CXXDeleteExpr &E,
+                                       bool AllowAlignedAllocation) {
   const FunctionDecl *OperatorDelete = E.getOperatorDelete();
   if (!OperatorDelete)
     return false;
@@ -161,7 +164,7 @@ static bool isSupportedMMIXCXXDeleteExpr(const CXXDeleteExpr &E) {
   bool IsNothrow = false;
   return OperatorDelete->isReplaceableGlobalAllocationFunction(&AlignmentParam,
                                                                &IsNothrow) &&
-         !AlignmentParam && !IsNothrow;
+         (!AlignmentParam || AllowAlignedAllocation) && !IsNothrow;
 }
 
 static bool isMMIXNativeAtomicStorageType(const ASTContext &Context,
@@ -393,14 +396,15 @@ public:
   }
 
   bool VisitCXXNewExpr(CXXNewExpr *E) {
-    if (isSupportedMMIXCXXNewExpr(*E))
+    // The Linux runtime supplies the aligned replaceable allocation operators.
+    if (isSupportedMMIXCXXNewExpr(*E, CGM.getTarget().getTriple().isOSLinux()))
       return true;
     return !diagnoseUnsupportedMMIXCXXFeature(CGM, E->getExprLoc(),
                                               MMIXCXXFeature::AllocationForm);
   }
 
   bool VisitCXXDeleteExpr(CXXDeleteExpr *E) {
-    if (isSupportedMMIXCXXDeleteExpr(*E))
+    if (isSupportedMMIXCXXDeleteExpr(*E, CGM.getTarget().getTriple().isOSLinux()))
       return true;
     return !diagnoseUnsupportedMMIXCXXFeature(CGM, E->getExprLoc(),
                                               MMIXCXXFeature::DeallocationForm);
