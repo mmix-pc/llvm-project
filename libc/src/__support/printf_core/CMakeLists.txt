@@ -119,6 +119,18 @@ add_header_library(
 )
 
 add_header_library(
+  wide_writer
+  HDRS
+    wide_writer.h
+  DEPENDS
+    .core_structs
+    libc.hdr.types.wchar_t
+    libc.src.__support.CPP.limits
+    libc.src.__support.CPP.string_view
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   converter
   HDRS
     converter.h

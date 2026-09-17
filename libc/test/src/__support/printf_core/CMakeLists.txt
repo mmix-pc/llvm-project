@@ -24,6 +24,17 @@ add_libc_test(
     libc.src.__support.CPP.string_view
 )
 
+add_libc_test(
+  wide_writer_test
+  SUITE
+    libc-support-tests
+  SRCS
+    wide_writer_test.cpp
+  DEPENDS
+    libc.src.__support.printf_core.wide_writer
+    libc.src.__support.CPP.limits
+)
+
 foreach(mode IN ITEMS default no_index small_index)
   set(parser_options "")
   if(mode STREQUAL "no_index")
