@@ -1840,11 +1840,14 @@ validateMMIXVariadicCallOperands(const TargetLowering::CallLoweringInfo &CLI,
   for (unsigned I = CLI.NumFixedArgs; I != CLI.Args.size(); ++I) {
     const TargetLowering::ArgListEntry &Arg = CLI.Args[I];
     Type *Ty = Arg.OrigTy;
-    if (Ty->isIntegerTy() && Ty->getIntegerBitWidth() < 32 && !Arg.IsNoExt)
+    // Scoped C++ enums can retain their narrow underlying type at ellipsis
+    // calls. Explicit extension gives them the same full-octa ABI slot.
+    if (Ty->isIntegerTy() && Ty->getIntegerBitWidth() < 32 && !Arg.IsNoExt &&
+        Arg.IsSExt == Arg.IsZExt)
       reportFatalUsageError(
-          Twine(
-              "MMIX requires variadic integer call arguments narrower than ") +
-          "i32 to be promoted in function '" + FunctionName + "'");
+          Twine("MMIX requires variadic integer call arguments narrower than ") +
+          "i32 to carry exactly one of signext or zeroext in function '" +
+          FunctionName + "'");
     if (Ty->isFloatTy())
       reportFatalUsageError(
           Twine("MMIX requires variadic float call arguments to be promoted ") +
