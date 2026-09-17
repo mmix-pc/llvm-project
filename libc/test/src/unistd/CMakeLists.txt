@@ -815,6 +815,22 @@ add_libc_test(
 )
 
 if(LIBC_TARGET_OS_IS_LINUX)
+  # Compile the real search implementation against controlled exec, environment,
+  # and allocation boundaries, without replacing the process running the tests.
+  add_libc_test(
+    execvp_test
+    SUITE
+      libc_unistd_unittests
+    SRCS
+      execvp_test.cpp
+      ${LIBC_SOURCE_DIR}/src/unistd/linux/execvp.cpp
+    DEPENDS
+      libc.src.__support.CPP.stringstream
+      libc.src.__support.common
+      libc.src.__support.libc_errno
+      libc.src.errno.errno
+  )
+
   set(sysconf_test_modes full)
   if(NOT LLVM_LIBC_FULL_BUILD)
     list(PREPEND sysconf_test_modes overlay)

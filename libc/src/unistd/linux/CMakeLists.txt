@@ -218,6 +218,23 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  execvp
+  SRCS
+    execvp.cpp
+  HDRS
+    ../execvp.h
+  DEPENDS
+    libc.src.__support.CPP.stringstream
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+    libc.src.stdlib.malloc
+    libc.src.stdlib.free
+    libc.src.stdlib.getenv
+    libc.src.unistd.environ
+    libc.src.unistd.execve
+)
+
+add_entrypoint_object(
   fsync
   SRCS
     fsync.cpp

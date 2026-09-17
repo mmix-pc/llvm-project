@@ -155,6 +155,13 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  execvp
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.execvp
+)
+
+add_entrypoint_object(
   fsync
   ALIAS
   DEPENDS
