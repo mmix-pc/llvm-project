@@ -1,0 +1,35 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/check.cmake
+# RUN: not cmake -DLIBC_SOURCE=%S/../../../../libc -DLIBC_CONF_PRINTF_DISABLE_FLOAT=ON -P %t/check.cmake 2>&1 | FileCheck %s
+# RUN: not cmake -DLIBC_SOURCE=%S/../../../../libc -DLIBC_CONF_PRINTF_DISABLE_WIDE=ON -P %t/check.cmake 2>&1 | FileCheck %s
+# RUN: not cmake -DLIBC_SOURCE=%S/../../../../libc -DLIBC_CONF_PRINTF_DISABLE_WRITE_INT=ON -P %t/check.cmake 2>&1 | FileCheck %s
+# CHECK: MMIX wide formatting requires printf
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+if(libc.src.wchar.swprintf IN_LIST TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "wide providers changed the foundation profile")
+endif()
+set(LIBC_MMIX_BUILD_WIDE ON CACHE BOOL "" FORCE)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+foreach(name swprintf btowc wctob wcscat wcschr wcscmp wcscpy wcscspn wcslen
+             wcsncat wcsncmp wcsncpy wcspbrk wcsrchr wcsspn wcsstr wcstok
+             wcstof wcstod wcstold wcstol wcstoll wcstoul wcstoull
+             wmemchr wmemcmp wmemcpy wmemmove wmemset)
+  if(NOT "libc.src.wchar.${name}" IN_LIST TARGET_LLVMLIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing wide provider ${name}")
+  endif()
+endforeach()
+foreach(name fwprintf wprintf swscanf vswprintf wcsftime)
+  if("libc.src.wchar.${name}" IN_LIST TARGET_LLVMLIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "unqualified wide provider ${name}")
+  endif()
+endforeach()
+foreach(header wchar wctype)
+  if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
+    message(FATAL_ERROR "missing wide header ${header}")
+  endif()
+endforeach()

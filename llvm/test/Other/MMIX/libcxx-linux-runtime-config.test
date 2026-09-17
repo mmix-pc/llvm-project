@@ -63,6 +63,9 @@ fields.update(MMIX_C_RUNTIME_SYSROOT=inputs / "sysroot",
               MMIX_C_RUNTIME_SOURCE=source / "libc",
               MMIX_C_RUNTIME_HEADERS=libc / "include",
               MMIX_C_RUNTIME_KERNEL_HEADERS="/usr/include")
+fields["MMIX_C_RUNTIME_ENTRYPOINTS"] = ";".join("libc.src.wchar." + name for name in
+    ("swprintf", "wcslen", "wmemcmp", "wmemcpy", "wmemmove", "wmemset", "wmemchr",
+     "wcstol", "wcstoll", "wcstoul", "wcstoull", "wcstof", "wcstod", "wcstold"))
 manifest = libc / "mmix-c-runtime/Inputs.cmake"
 cmake(manifest, fields)
 write(libc / "mmix-state/LibcStateConfig.cmake", "# synthetic state package\n")
@@ -75,7 +78,7 @@ rt_contents = ("CMAKE_C_COMPILER_TARGET:STRING=mmix-unknown-linux\n"
                "CMAKE_CXX_COMPILER_TARGET:STRING=mmix-unknown-linux\n"
                "CMAKE_C_COMPILER:FILEPATH=" + str(tools / "clang") + "\n")
 write(rt_cache, rt_contents)
-for header in ("errno.h", "stdlib.h", "stdio.h", "string.h", "time.h", "signal.h", "sys/syscall.h"):
+for header in ("errno.h", "stdlib.h", "stdio.h", "string.h", "wchar.h", "wctype.h", "time.h", "signal.h", "sys/syscall.h"):
     write(libc / "include" / header, "#define __LLVM_LIBC__ 1\n")
 for header in ("asm/unistd.h", "asm/rstack.h", "asm/sigcontext.h"):
     write(inputs / "sysroot/usr/include" / header, "/* synthetic UAPI */\n")
@@ -103,6 +106,7 @@ for option, value, diagnostic in (
     ("CMAKE_FIND_ROOT_PATH_MODE_LIBRARY", "BOTH", "sysroot-only LIBRARY"),
     ("LIBCXX_ENABLE_EXCEPTIONS", "OFF", "LIBCXX_ENABLE_EXCEPTIONS=ON"),
     ("LIBCXX_ENABLE_RTTI", "OFF", "LIBCXX_ENABLE_RTTI=ON"),
+    ("LIBCXX_ENABLE_WIDE_CHARACTERS", "OFF", "LIBCXX_ENABLE_WIDE_CHARACTERS=ON"),
     ("LIBCXX_ENABLE_MONOTONIC_CLOCK", "OFF", "LIBCXX_ENABLE_MONOTONIC_CLOCK=ON"),
     ("LIBCXXABI_ENABLE_THREADS", "ON", "LIBCXXABI_ENABLE_THREADS=OFF"),
     ("CMAKE_CXX_FLAGS", "-fno-exceptions", "conflicting producer flags"),
@@ -145,5 +149,8 @@ foreign_bytes = bytearray(obj.read_bytes())
 foreign_bytes[18:20] = (62).to_bytes(2, "big")  # EM_X86_64, not EM_MMIX.
 foreign.write_bytes(foreign_bytes)
 configure("requires MMIX ELF inputs: CRT1")
+cmake(manifest, fields)
+cmake(manifest, dict(fields, MMIX_C_RUNTIME_ENTRYPOINTS=""))
+configure("requires wide libc provider swprintf")
 cmake(manifest, fields)
 configure()

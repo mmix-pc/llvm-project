@@ -19,7 +19,7 @@ set(TARGET_LIBC_ENTRYPOINTS
 )
 
 include(${CMAKE_CURRENT_LIST_DIR}/Core.cmake)
-foreach(family Descriptors Stdio Filesystem VM Time Process Signals JumpSave Fork Spawn)
+foreach(family Descriptors Stdio Wide Filesystem VM Time Process Signals JumpSave Fork Spawn)
   include(${CMAKE_CURRENT_LIST_DIR}/${family}.cmake)
 endforeach()
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})

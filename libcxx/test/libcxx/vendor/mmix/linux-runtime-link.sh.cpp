@@ -42,6 +42,10 @@ struct alignas(64) Derived : Base {
 int main(int argc, char**) {
   std::vector<std::string> values(3, std::string(80, 'x'));
   values.push_back(std::to_string(argc));
+  std::wstring wide(80, L'x');
+  wide += std::to_wstring(argc);
+  wide += std::to_wstring(static_cast<double>(argc));
+  wide += std::to_wstring(static_cast<long double>(argc));
   std::map<int, std::string> ordered;
   ordered.emplace(argc, values.back());
   std::unordered_map<int, std::string> hashed;
@@ -81,6 +85,6 @@ int main(int argc, char**) {
     values.push_back(caught.what());
   }
 #endif
-  return apply(argc) + int(values.size()) + int(bool(optional)) +
+  return apply(argc) + int(values.size()) + int(wide.size()) + int(bool(optional)) +
          int(steady.time_since_epoch().count() == 0);
 }

@@ -24,7 +24,7 @@ if(NOT selected_runtimes STREQUAL "libcxx;libcxxabi;libunwind")
 endif()
 foreach(option LIBCXX_ENABLE_STATIC LIBCXX_ENABLE_EXCEPTIONS LIBCXX_ENABLE_RTTI
                LIBCXX_USE_COMPILER_RT LIBCXX_ENABLE_THREADS LIBCXX_HAS_EXTERNAL_THREAD_API
-               LIBCXX_ENABLE_MONOTONIC_CLOCK LIBCXXABI_ENABLE_STATIC
+               LIBCXX_ENABLE_MONOTONIC_CLOCK LIBCXX_ENABLE_WIDE_CHARACTERS LIBCXXABI_ENABLE_STATIC
                LIBCXXABI_ENABLE_EXCEPTIONS LIBCXXABI_ENABLE_RTTI
                LIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS LIBCXXABI_USE_COMPILER_RT
                LIBCXXABI_USE_LLVM_UNWINDER LIBUNWIND_ENABLE_STATIC
@@ -43,7 +43,7 @@ foreach(option LIBCXX_ENABLE_SHARED LIBCXXABI_ENABLE_SHARED LIBUNWIND_ENABLE_SHA
                LIBCXX_HAS_RT_LIB LIBCXX_HAS_ATOMIC_LIB
                LIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY LIBCXX_ABI_UNSTABLE
                LIBCXX_ENABLE_FILESYSTEM LIBCXX_ENABLE_LOCALIZATION LIBCXX_ENABLE_RANDOM_DEVICE
-               LIBCXX_ENABLE_TIME_ZONE_DATABASE LIBCXX_ENABLE_UNICODE LIBCXX_ENABLE_WIDE_CHARACTERS
+               LIBCXX_ENABLE_TIME_ZONE_DATABASE LIBCXX_ENABLE_UNICODE
                LIBCXX_INSTALL_MODULES LIBCXX_INCLUDE_BENCHMARKS
                LIBUNWIND_USE_FRAME_HEADER_CACHE LIBUNWIND_ENABLE_FRAME_APIS
                LIBCXXABI_BAREMETAL LIBUNWIND_IS_BAREMETAL
@@ -147,8 +147,14 @@ if(NOT MMIX_RT_CMAKE_C_COMPILER_TARGET STREQUAL "mmix-unknown-linux" OR
    NOT rt_compiler STREQUAL compiler)
   message(FATAL_ERROR "MMIX Linux C++ composition requires matching Linux compiler-rt")
 endif()
-foreach(header errno.h stdlib.h stdio.h string.h time.h signal.h sys/syscall.h)
+foreach(header errno.h stdlib.h stdio.h string.h wchar.h wctype.h time.h signal.h sys/syscall.h)
   mmix_runtime_file("${libc_build}" "${MMIX_C_RUNTIME_HEADERS}/${header}")
+endforeach()
+foreach(name swprintf wcslen wmemcmp wmemcpy wmemmove wmemset wmemchr
+             wcstol wcstoll wcstoul wcstoull wcstof wcstod wcstold)
+  if(NOT "libc.src.wchar.${name}" IN_LIST MMIX_C_RUNTIME_ENTRYPOINTS)
+    message(FATAL_ERROR "MMIX Linux C++ composition requires wide libc provider ${name}")
+  endif()
 endforeach()
 foreach(header asm/unistd.h asm/rstack.h asm/sigcontext.h)
   mmix_runtime_file("${CMAKE_SYSROOT}"
