@@ -20,6 +20,11 @@ types:
 enums: []
 objects: []
 functions:
+  - name: futimens
+    return_type: int
+    arguments:
+      - type: int
+      - type: const struct timespec *
   - name: umask
     return_type: mode_t
     arguments:

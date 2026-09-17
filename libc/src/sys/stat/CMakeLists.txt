@@ -2,6 +2,19 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  add_entrypoint_object(
+    futimens
+    SRCS linux/mmix/futimens.cpp
+    HDRS futimens.h
+    DEPENDS
+      libc.hdr.types.struct_timespec
+      libc.src.__support.OSUtil.linux.syscall_wrappers.utimensat
+      libc.src.__support.common
+      libc.src.__support.libc_errno
+  )
+endif()
+
 if(TARGET libc.src.sys.stat.${LIBC_TARGET_OS}.umask)
   add_entrypoint_object(
     umask

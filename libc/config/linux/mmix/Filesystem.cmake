@@ -11,6 +11,7 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.sys.stat.mkdir
   libc.src.sys.stat.chmod
   libc.src.sys.stat.fchmod
+  libc.src.sys.stat.futimens
   libc.src.sys.mman.msync
   libc.src.sys.mman.posix_madvise
   libc.src.unistd.usleep

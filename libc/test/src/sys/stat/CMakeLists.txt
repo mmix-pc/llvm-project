@@ -2,6 +2,24 @@ add_custom_target(libc_sys_stat_unittests)
 
 add_subdirectory(testdata)
 
+if(LIBC_TARGET_OS STREQUAL "linux")
+  add_libc_test(
+    mmix_futimens_test
+    SUITE libc_sys_stat_unittests
+    SRCS
+      linux/mmix/futimens_test.cpp
+      ${LIBC_SOURCE_DIR}/src/sys/stat/linux/mmix/futimens.cpp
+    DEPENDS
+      libc.src.__support.OSUtil.linux.syscall_wrappers.utimensat
+      libc.src.__support.common
+      libc.src.__support.libc_errno
+      libc.src.fcntl.open
+      libc.src.sys.stat.fstat
+      libc.src.unistd.close
+      libc.src.unistd.unlink
+  )
+endif()
+
 add_libc_test(
   umask_test
   SUITE
