@@ -200,6 +200,17 @@ add_header_library(
 )
 
 add_header_library(
+  wide_printf_main
+  HDRS
+    wide_printf_main.h
+  DEPENDS
+    .wide_converter
+    .parser
+    libc.src.__support.arg_list
+    libc.src.__support.error_or
+)
+
+add_header_library(
   vasprintf_internal
   HDRS
     vasprintf_internal.h

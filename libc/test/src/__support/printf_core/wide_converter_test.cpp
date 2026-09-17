@@ -9,7 +9,7 @@
 
 #include "src/__support/arg_list.h"
 #include "src/__support/printf_core/parser.h"
-#include "src/__support/printf_core/wide_converter.h"
+#include "src/__support/printf_core/wide_printf_main.h"
 #include "src/stdio/snprintf.h"
 #include "test/UnitTest/RoundingModeUtils.h"
 #include "test/UnitTest/Test.h"
@@ -22,23 +22,15 @@ using LIBC_NAMESPACE::internal::ArgList;
 
 namespace {
 
-// Exercise internal parsing/conversion, not the public swprintf placeholder.
+// Exercise the shared entry while preserving internal errors for converter tests.
 int format_to(wchar_t *buffer, size_t capacity, const wchar_t *format, ...) {
   va_list vlist;
   va_start(vlist, format);
   ArgList args(vlist);
   va_end(vlist);
-  Parser<ArgList, wchar_t> parser(format, args);
   WideWriter writer(buffer, capacity);
-  for (auto section = parser.get_next_section(); !section.raw_string.empty();
-       section = parser.get_next_section()) {
-    int result = convert_wide(&writer, section);
-    if (result != WRITE_OK)
-      return result;
-  }
-  return writer.get_error() == WRITE_OK
-             ? static_cast<int>(writer.get_chars_written())
-             : writer.get_error();
+  auto result = wide_printf_main(&writer, format, args);
+  return result.has_value() ? static_cast<int>(result.value()) : -result.error();
 }
 
 template <typename... Args>

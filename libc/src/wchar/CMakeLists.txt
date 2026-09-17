@@ -732,6 +732,8 @@ add_entrypoint_object(
   HDRS
     swprintf.h
   DEPENDS
+    libc.src.__support.printf_core.wide_printf_main
+    libc.src.__support.printf_core.error_mapper
     libc.hdr.types.size_t
     libc.hdr.types.wchar_t
     libc.hdr.errno_macros

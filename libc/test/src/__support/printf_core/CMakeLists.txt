@@ -66,7 +66,7 @@ add_libc_test(
   SRCS
     wide_converter_test.cpp
   DEPENDS
-    libc.src.__support.printf_core.wide_converter
+    libc.src.__support.printf_core.wide_printf_main
     libc.src.stdio.snprintf
     libc.src.__support.printf_core.parser
     libc.src.__support.arg_list
@@ -103,7 +103,7 @@ foreach(mode IN ITEMS modular modular_no_float modular_float320)
     COMPILE_OPTIONS
       ${converter_options}
     DEPENDS
-      libc.src.__support.printf_core.wide_converter
+      libc.src.__support.printf_core.wide_printf_main
       libc.src.stdio.snprintf
       libc.src.__support.printf_core.parser
       libc.src.__support.arg_list

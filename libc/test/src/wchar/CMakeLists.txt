@@ -726,6 +726,10 @@ add_libc_test(
   SRCS
     swprintf_test.cpp
   DEPENDS
+    libc.hdr.types.wint_t
+    libc.hdr.limits_macros
+    libc.src.__support.CPP.string_view
+    libc.src.__support.libc_errno
     libc.hdr.errno_macros
     libc.hdr.types.size_t
     libc.hdr.types.wchar_t
