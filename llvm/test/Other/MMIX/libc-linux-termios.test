@@ -1,0 +1,28 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/Termios.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "termios providers must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_TERMIOS ON)
+include(${SOURCE}/libc/config/linux/mmix/Termios.cmake)
+set(expected sentinel libc.src.termios.tcgetattr libc.src.termios.tcsetattr
+  libc.src.termios.cfgetispeed libc.src.termios.cfgetospeed
+  libc.src.termios.cfsetispeed libc.src.termios.cfsetospeed)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "${expected}")
+  message(FATAL_ERROR "unexpected termios provider surface")
+endif()
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT "libc.include.termios" IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "termios providers require their public header")
+endif()
+set(LIBC_MMIX_BUILD_TERMIOS OFF)
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if("libc.include.termios" IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "default header surface changed")
+endif()
