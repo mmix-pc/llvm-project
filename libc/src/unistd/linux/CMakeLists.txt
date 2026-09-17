@@ -834,6 +834,10 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/TerminalNames.cmake)
+endif()
+
 add_entrypoint_object(
   getentropy
   SRCS

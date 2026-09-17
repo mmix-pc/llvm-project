@@ -1,0 +1,24 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/JobControl.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "job control must remain opt-in")
+endif()
+set(LIBC_MMIX_BUILD_JOB_CONTROL ON)
+include(${SOURCE}/libc/config/linux/mmix/JobControl.cmake)
+set(expected sentinel)
+foreach(name getpgid getpgrp setpgid getsid setsid tcgetpgrp tcsetpgrp isatty ttyname ttyname_r)
+  list(APPEND expected libc.src.unistd.${name})
+endforeach()
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "${expected}")
+  message(FATAL_ERROR "unexpected session/terminal provider selection")
+endif()
+include(${SOURCE}/libc/config/linux/mmix/JobControl.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "${expected}")
+  message(FATAL_ERROR "existing providers must not be selected twice")
+endif()
