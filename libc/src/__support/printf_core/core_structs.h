@@ -66,10 +66,10 @@ enum FormatFlags : uint8_t {
   //  locale_digits = 0x40,  // I
 };
 
-struct FormatSection {
+template <typename CharT> struct BasicFormatSection {
   bool has_conv;
 
-  cpp::string_view raw_string;
+  cpp::basic_string_view<CharT> raw_string;
 
   // Format Specifier Values
   FormatFlags flags = FormatFlags(0);
@@ -85,7 +85,7 @@ struct FormatSection {
 
   // This operator is only used for testing and should be automatically
   // optimized out for release builds.
-  LIBC_INLINE bool operator==(const FormatSection &other) const {
+  LIBC_INLINE bool operator==(const BasicFormatSection &other) const {
     if (has_conv != other.has_conv)
       return false;
 
@@ -109,6 +109,8 @@ struct FormatSection {
     return true;
   }
 };
+
+using FormatSection = BasicFormatSection<char>;
 
 enum PrimaryType : uint8_t {
   Unknown = 0,

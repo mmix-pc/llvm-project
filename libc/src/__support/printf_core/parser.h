@@ -76,8 +76,8 @@ template <typename T> using int_type_of_v = typename int_type_of<T>::type;
   dst = cpp::bit_cast<int_type_of_v<arg_type>>(get_next_arg_value<arg_type>())
 #endif // LIBC_COPT_PRINTF_DISABLE_INDEX_MODE
 
-template <typename ArgProvider> class Parser {
-  const char *__restrict str;
+template <typename ArgProvider, typename CharT = char> class Parser {
+  const CharT *__restrict str;
 
   size_t cur_pos = 0;
   ArgProvider args_cur;
@@ -105,10 +105,10 @@ template <typename ArgProvider> class Parser {
 
 public:
 #ifndef LIBC_COPT_PRINTF_DISABLE_INDEX_MODE
-  LIBC_INLINE Parser(const char *__restrict new_str, ArgProvider &args)
+  LIBC_INLINE Parser(const CharT *__restrict new_str, ArgProvider &args)
       : str(new_str), args_cur(args), args_start(args) {}
 #else
-  LIBC_INLINE Parser(const char *__restrict new_str, ArgProvider &args)
+  LIBC_INLINE Parser(const CharT *__restrict new_str, ArgProvider &args)
       : str(new_str), args_cur(args) {}
 #endif // LIBC_COPT_PRINTF_DISABLE_INDEX_MODE
 
@@ -116,8 +116,8 @@ public:
   // specified format section. This can either be a raw format section with no
   // conversion, or a format section with a conversion that has all of its
   // variables stored in the format section.
-  LIBC_INLINE FormatSection get_next_section() {
-    FormatSection section;
+  LIBC_INLINE BasicFormatSection<CharT> get_next_section() {
+    BasicFormatSection<CharT> section;
     size_t starting_pos = cur_pos;
     if (str[cur_pos] == '%') {
       // format section
@@ -170,8 +170,9 @@ public:
 
       auto [lm, bw] = parse_length_modifier(&cur_pos);
       section.length_modifier = lm;
-      section.conv_name = str[cur_pos];
+      section.conv_name = static_cast<char>(str[cur_pos]);
       section.bit_width = bw;
+      // Classify the original character, not a narrowed wide specifier.
       switch (str[cur_pos]) {
       case ('%'):
         // Regardless of options, a % conversion is always safe. The standard
