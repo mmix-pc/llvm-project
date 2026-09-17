@@ -128,6 +128,18 @@ static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E, bool IsLinux) {
     return false;
   if (OperatorNew->isReservedGlobalPlacementOperator())
     return true;
+  // Linux Support uses named and arena allocators with reference/scalar args.
+  if (IsLinux && !E.isArray() && !E.passAlignment() &&
+      E.getNumPlacementArgs() && !OperatorNew->isVariadic()) {
+    bool Supported = true;
+    for (const ParmVarDecl *Param : OperatorNew->parameters()) {
+      QualType Type = Param->getType();
+      Supported &= Type->isReferenceType() || Type->isIntegerType() ||
+                   Type->isPointerType();
+    }
+    if (Supported)
+      return true;
+  }
   // Linux also supplies standard nothrow overloads for arrays and aligned objects.
   bool IsNothrow = false;
   if (IsLinux && E.getNumPlacementArgs() == 1 &&
@@ -160,16 +172,20 @@ static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E, bool IsLinux) {
          OperatorNew->isReplaceableGlobalAllocationFunction();
 }
 
-static bool isSupportedMMIXCXXDeleteExpr(const CXXDeleteExpr &E,
-                                       bool AllowAlignedAllocation) {
+static bool isSupportedMMIXCXXDeleteExpr(const CXXDeleteExpr &E, bool IsLinux) {
   const FunctionDecl *OperatorDelete = E.getOperatorDelete();
   if (!OperatorDelete)
     return false;
+  // Class-owned storage is released by its ordinary unsized deallocator.
+  if (IsLinux && !E.isArrayForm() &&
+      isa<CXXMethodDecl>(OperatorDelete) &&
+      OperatorDelete->getNumParams() == 1 && !OperatorDelete->isVariadic())
+    return true;
   UnsignedOrNone AlignmentParam = std::nullopt;
   bool IsNothrow = false;
   return OperatorDelete->isReplaceableGlobalAllocationFunction(&AlignmentParam,
                                                                &IsNothrow) &&
-         (!AlignmentParam || AllowAlignedAllocation) && !IsNothrow;
+         (!AlignmentParam || IsLinux) && !IsNothrow;
 }
 
 static bool isMMIXNativeAtomicStorageType(const ASTContext &Context,
