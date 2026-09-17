@@ -510,7 +510,7 @@ template <typename R>
 inline bool LocalAddressSpace::findUnwindSections(
     typename R::link_hardened_reg_arg_t targetAddr, UnwindInfoSections &info) {
 #if defined(_LIBUNWIND_MMIX_LINUX)
-  return findMMIXLinuxUnwindSections(targetAddr, info);
+  return findMMIXLinuxUnwindSections(*this, __ehdr_start, targetAddr, info);
 #elif defined(__APPLE__)
   dyld_unwind_sections dyldInfo;
   if (_dyld_find_unwind_sections((void *)targetAddr, &dyldInfo)) {

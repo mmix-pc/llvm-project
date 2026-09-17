@@ -1,0 +1,127 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# Linux header selection uses the host's ELF definitions only for native
+# semantic checks; actual MMIX archives use the selected Linux UAPI.
+# RUN: clang --target=x86_64-unknown-linux-gnu -std=c++17 -O1 -fno-exceptions -fno-rtti -D__mmix__ -DEM_MMIX=80 -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_HAS_NO_THREADS -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %t/check.cpp -o %t/check.bc
+# RUN: lli -force-interpreter=true %t/check.bc
+
+#--- check.cpp
+#include "AddressSpace.hpp"
+
+#define CHECK(C) do { if (!(C)) return __LINE__; } while (false)
+
+struct Image {
+  Elf64_Ehdr elf;
+  Elf64_Phdr phdr[3];
+  unsigned char index[20];
+  uint32_t frames[4];
+  char text[8];
+};
+
+int main() {
+  Image image = {};
+  auto &elf = image.elf;
+  elf.e_ident[EI_MAG0] = ELFMAG0;
+  elf.e_ident[EI_MAG1] = ELFMAG1;
+  elf.e_ident[EI_MAG2] = ELFMAG2;
+  elf.e_ident[EI_MAG3] = ELFMAG3;
+  elf.e_ident[EI_CLASS] = ELFCLASS64;
+  elf.e_ident[EI_DATA] = ELFDATA2MSB;
+  elf.e_ident[EI_VERSION] = EV_CURRENT;
+  elf.e_version = EV_CURRENT;
+  elf.e_type = ET_EXEC;
+  elf.e_machine = EM_MMIX;
+  elf.e_ehsize = sizeof(elf);
+  elf.e_phoff = sizeof(elf);
+  elf.e_phentsize = sizeof(Elf64_Phdr);
+  elf.e_phnum = 3;
+  uintptr_t base = reinterpret_cast<uintptr_t>(&image);
+  uintptr_t index = reinterpret_cast<uintptr_t>(image.index);
+  uintptr_t frames = reinterpret_cast<uintptr_t>(image.frames);
+  uintptr_t pc = reinterpret_cast<uintptr_t>(image.text);
+  auto &load = image.phdr[0];
+  load.p_type = PT_LOAD;
+  load.p_flags = PF_R;
+  load.p_vaddr = base;
+  load.p_filesz = load.p_memsz = sizeof(image);
+  auto &text = image.phdr[1];
+  text.p_type = PT_LOAD;
+  text.p_flags = PF_R | PF_X;
+  text.p_vaddr = pc;
+  text.p_filesz = text.p_memsz = sizeof(image.text);
+  auto &eh = image.phdr[2];
+  eh.p_type = PT_GNU_EH_FRAME;
+  eh.p_vaddr = index;
+  eh.p_filesz = eh.p_memsz = sizeof(image.index);
+  image.index[0] = 1;
+  image.index[1] = DW_EH_PE_pcrel | DW_EH_PE_sdata4;
+  image.index[2] = DW_EH_PE_udata4;
+  image.index[3] = DW_EH_PE_datarel | DW_EH_PE_sdata4;
+  int32_t delta = static_cast<int32_t>(frames - (index + 4));
+  uint32_t count = 1;
+  memcpy(image.index + 4, &delta, 4);
+  memcpy(image.index + 8, &count, 4);
+  libunwind::LocalAddressSpace addressSpace;
+  libunwind::UnwindInfoSections info;
+  auto find = [&]() {
+    return libunwind::findMMIXLinuxUnwindSections(addressSpace, elf, pc, info);
+  };
+  CHECK(find());
+  CHECK(info.dso_base == base && info.dwarf_section == frames);
+  CHECK(info.dwarf_section_length == base + sizeof(image) - frames);
+  CHECK(info.dwarf_index_section == index && info.dwarf_index_section_length == 20);
+  // Both ends of the executable file-backed range are exclusive as appropriate.
+  pc -= 1;
+  CHECK(!find());
+  pc += sizeof(image.text) + 1;
+  CHECK(!find());
+  pc -= sizeof(image.text);
+  text.p_flags = PF_R;
+  CHECK(!find());
+  text.p_flags |= PF_X;
+  elf.e_type = ET_DYN;
+  CHECK(!find());
+  elf.e_type = ET_EXEC;
+  elf.e_phnum = PN_XNUM;
+  CHECK(!find());
+  elf.e_phnum = 3;
+  elf.e_phoff = UINTPTR_MAX;
+  CHECK(!find());
+  elf.e_phoff = sizeof(elf);
+  load.p_filesz = sizeof(elf);
+  CHECK(!find());
+  load.p_filesz = sizeof(image);
+  const unsigned types[] = {PT_NULL, PT_DYNAMIC, PT_INTERP, PT_TLS};
+  for (unsigned type : types) {
+    eh.p_type = type;
+    CHECK(!find());
+  }
+  eh.p_type = PT_GNU_EH_FRAME;
+  eh.p_vaddr = UINTPTR_MAX - 8;
+  CHECK(!find());
+  eh.p_vaddr = index;
+  eh.p_filesz = 11;
+  CHECK(!find());
+  eh.p_filesz = 20;
+  image.index[0] = 2;
+  CHECK(!find());
+  image.index[0] = 1;
+  image.index[1] |= DW_EH_PE_indirect;
+  CHECK(!find());
+  image.index[1] &= ~DW_EH_PE_indirect;
+  count = 2;
+  memcpy(image.index + 8, &count, 4);
+  CHECK(!find());
+  count = 0;
+  memcpy(image.index + 8, &count, 4);
+  CHECK(!find());
+  count = 1;
+  memcpy(image.index + 8, &count, 4);
+  delta = 0x7fffffff;
+  memcpy(image.index + 4, &delta, 4);
+  CHECK(!find());
+  delta = static_cast<int32_t>(frames - (index + 4));
+  memcpy(image.index + 4, &delta, 4);
+  CHECK(find());
+  CHECK(!libunwind::mmixLinuxContains(UINTPTR_MAX - 8, 16, UINTPTR_MAX - 4, 4));
+}
