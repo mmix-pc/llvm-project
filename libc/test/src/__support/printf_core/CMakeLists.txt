@@ -60,6 +60,20 @@ foreach(mode IN ITEMS default no_index small_index)
 endforeach()
 
 add_libc_test(
+  wide_converter_test
+  SUITE
+    libc-support-tests
+  SRCS
+    wide_converter_test.cpp
+  DEPENDS
+    libc.src.__support.printf_core.wide_converter
+    libc.src.stdio.snprintf
+    libc.src.__support.printf_core.parser
+    libc.src.__support.arg_list
+    libc.test.UnitTest.FPTestHelpers
+)
+
+add_libc_test(
   converter_test
   SUITE
     libc-support-tests
@@ -70,3 +84,29 @@ add_libc_test(
     libc.src.__support.printf_core.writer
     libc.src.__support.printf_core.core_structs
 )
+
+# Exercise module instantiation independently of the platform's stdio policy.
+foreach(mode IN ITEMS modular modular_no_float modular_float320)
+  set(converter_options -DLIBC_COPT_PRINTF_MODULAR)
+  if(mode STREQUAL "modular_no_float")
+    list(APPEND converter_options -DLIBC_COPT_PRINTF_DISABLE_FLOAT)
+  elseif(mode STREQUAL "modular_float320")
+    list(APPEND converter_options -DLIBC_COPT_FLOAT_TO_STR_USE_FLOAT320)
+  endif()
+  add_libc_test(
+    wide_converter_${mode}_test
+    SUITE
+      libc-support-tests
+    SRCS
+      wide_converter_test.cpp
+      ${LIBC_SOURCE_DIR}/src/__support/printf_core/float_impl.cpp
+    COMPILE_OPTIONS
+      ${converter_options}
+    DEPENDS
+      libc.src.__support.printf_core.wide_converter
+      libc.src.stdio.snprintf
+      libc.src.__support.printf_core.parser
+      libc.src.__support.arg_list
+      libc.test.UnitTest.FPTestHelpers
+  )
+endforeach()

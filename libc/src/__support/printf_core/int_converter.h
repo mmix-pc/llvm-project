@@ -61,9 +61,9 @@ num_to_strview(uintmax_t num, cpp::span<char> bufref, char conv_name) {
 
 } // namespace details
 
-template <WriteMode write_mode>
-LIBC_INLINE int convert_int(Writer<write_mode> *writer,
-                            const FormatSection &to_conv) {
+template <typename WriterT, typename CharT>
+LIBC_INLINE int convert_int(WriterT *writer,
+                            const BasicFormatSection<CharT> &to_conv) {
   static constexpr size_t BITS_IN_BYTE = 8;
   static constexpr size_t BITS_IN_NUM = sizeof(uintmax_t) * BITS_IN_BYTE;
 

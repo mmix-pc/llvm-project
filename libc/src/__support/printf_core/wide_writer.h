@@ -91,6 +91,24 @@ public:
   LIBC_INLINE int get_error() const { return error; }
 };
 
+// Numeric converters produce ASCII, independently of the format character type.
+class WideNumericWriter {
+  WideWriter &writer;
+
+public:
+  LIBC_INLINE explicit WideNumericWriter(WideWriter &writer) : writer(writer) {}
+  LIBC_INLINE int write(cpp::string_view text) {
+    return writer.write_ascii(text);
+  }
+  LIBC_INLINE int write(char value, size_t length) {
+    return writer.write(static_cast<wchar_t>(value), length);
+  }
+  LIBC_INLINE int write(char value) { return write(value, 1); }
+  LIBC_INLINE size_t get_chars_written() const {
+    return writer.get_chars_written();
+  }
+};
+
 } // namespace printf_core
 } // namespace LIBC_NAMESPACE_DECL
 

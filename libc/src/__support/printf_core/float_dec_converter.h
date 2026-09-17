@@ -99,7 +99,7 @@ zero_after_digits(int32_t base_2_exp, int32_t digits_after_point, T mantissa,
   return has_trailing_zeros;
 }
 
-template <WriteMode write_mode> class PaddingWriter {
+template <typename WriterT> class PaddingWriter {
   bool left_justified = false;
   bool leading_zeroes = false;
   char sign_char = 0;
@@ -107,14 +107,15 @@ template <WriteMode write_mode> class PaddingWriter {
 
 public:
   LIBC_INLINE PaddingWriter() {}
-  LIBC_INLINE PaddingWriter(const FormatSection &to_conv, char init_sign_char)
+  template <typename CharT>
+  LIBC_INLINE PaddingWriter(const BasicFormatSection<CharT> &to_conv,
+                            char init_sign_char)
       : left_justified((to_conv.flags & FormatFlags::LEFT_JUSTIFIED) > 0),
         leading_zeroes((to_conv.flags & FormatFlags::LEADING_ZEROES) > 0),
         sign_char(init_sign_char),
         min_width(to_conv.min_width > 0 ? to_conv.min_width : 0) {}
 
-  LIBC_INLINE int write_left_padding(Writer<write_mode> *writer,
-                                     size_t total_digits) {
+  LIBC_INLINE int write_left_padding(WriterT *writer, size_t total_digits) {
     // The pattern is (spaces) (sign) (zeroes), but only one of spaces and
     // zeroes can be written, and only if the padding amount is positive.
     int padding_amount =
@@ -137,8 +138,7 @@ public:
     return 0;
   }
 
-  LIBC_INLINE int write_right_padding(Writer<write_mode> *writer,
-                                      size_t total_digits) {
+  LIBC_INLINE int write_right_padding(WriterT *writer, size_t total_digits) {
     // If and only if the conversion is left justified, there may be trailing
     // spaces.
     int padding_amount =
@@ -163,7 +163,7 @@ public:
   This FloatWriter class does the buffering and counting, and writes to the
   output when necessary.
 */
-template <WriteMode write_mode> class FloatWriter {
+template <typename WriterT> class FloatWriter {
   char block_buffer[BLOCK_SIZE]; // The buffer that holds a block.
   size_t buffered_digits = 0;    // The number of digits held in the buffer.
   bool has_written = false;      // True once any digits have been output.
@@ -172,8 +172,8 @@ template <WriteMode write_mode> class FloatWriter {
   size_t digits_before_decimal = 0; // The # of digits to write before the '.'
   size_t total_digits_written = 0;  // The # of digits that have been output.
   bool has_decimal_point;           // True if the number has a decimal point.
-  Writer<write_mode> *writer;       // Writes to the final output.
-  PaddingWriter<write_mode>
+  WriterT *writer;                  // Writes to the final output.
+  PaddingWriter<WriterT>
       padding_writer; // Handles prefixes/padding, uses total_digits.
 
   LIBC_INLINE int flush_buffer(bool round_up_max_blocks = false) {
@@ -255,9 +255,8 @@ template <WriteMode write_mode> class FloatWriter {
 #endif // LIBC_TYPES_LONG_DOUBLE_IS_DOUBLE_DOUBLE
 
 public:
-  LIBC_INLINE FloatWriter(Writer<write_mode> *init_writer,
-                          bool init_has_decimal_point,
-                          const PaddingWriter<write_mode> &init_padding_writer)
+  LIBC_INLINE FloatWriter(WriterT *init_writer, bool init_has_decimal_point,
+                          const PaddingWriter<WriterT> &init_padding_writer)
       : has_decimal_point(init_has_decimal_point), writer(init_writer),
         padding_writer(init_padding_writer) {}
 
@@ -479,26 +478,16 @@ public:
   }
 };
 
-// Class-template auto deduction helpers, add more if needed.
-FloatWriter(Writer<WriteMode::FILL_BUFF_AND_DROP_OVERFLOW>, bool,
-            const PaddingWriter<WriteMode::FILL_BUFF_AND_DROP_OVERFLOW>)
-    -> FloatWriter<WriteMode::FILL_BUFF_AND_DROP_OVERFLOW>;
-FloatWriter(Writer<WriteMode::RESIZE_AND_FILL_BUFF>, bool,
-            const PaddingWriter<WriteMode::RESIZE_AND_FILL_BUFF>)
-    -> FloatWriter<WriteMode::RESIZE_AND_FILL_BUFF>;
-FloatWriter(Writer<WriteMode::FLUSH_TO_STREAM>, bool,
-            const PaddingWriter<WriteMode::FLUSH_TO_STREAM>)
-    -> FloatWriter<WriteMode::FLUSH_TO_STREAM>;
-
 // This implementation is based on the Ryu Printf algorithm by Ulf Adams:
 // Ulf Adams. 2019. Ryū revisited: printf floating point conversion.
 // Proc. ACM Program. Lang. 3, OOPSLA, Article 169 (October 2019), 23 pages.
 // https://doi.org/10.1145/3360595
-template <typename T, WriteMode write_mode,
+template <typename T, typename WriterT, typename CharT,
           cpp::enable_if_t<cpp::is_floating_point_v<T>, int> = 0>
-LIBC_INLINE int convert_float_decimal_typed(Writer<write_mode> *writer,
-                                            const FormatSection &to_conv,
-                                            fputil::FPBits<T> float_bits) {
+LIBC_INLINE int
+convert_float_decimal_typed(WriterT *writer,
+                            const BasicFormatSection<CharT> &to_conv,
+                            fputil::FPBits<T> float_bits) {
   // signed because later we use -FRACTION_LEN
   constexpr int32_t FRACTION_LEN = fputil::FPBits<T>::FRACTION_LEN;
   int exponent = float_bits.get_explicit_exponent();
@@ -523,8 +512,8 @@ LIBC_INLINE int convert_float_decimal_typed(Writer<write_mode> *writer,
   // ignored.
   bool nonzero = false;
 
-  PaddingWriter<write_mode> padding_writer(to_conv, sign_char);
-  FloatWriter float_writer(writer, has_decimal_point, padding_writer);
+  PaddingWriter<WriterT> padding_writer(to_conv, sign_char);
+  FloatWriter<WriterT> float_writer(writer, has_decimal_point, padding_writer);
   FloatToString<T> float_converter(float_bits.get_val());
 
   const size_t positive_blocks = float_converter.get_positive_blocks();
@@ -604,11 +593,12 @@ LIBC_INLINE int convert_float_decimal_typed(Writer<write_mode> *writer,
   return WRITE_OK;
 }
 
-template <typename T, WriteMode write_mode,
+template <typename T, typename WriterT, typename CharT,
           cpp::enable_if_t<cpp::is_floating_point_v<T>, int> = 0>
-LIBC_INLINE int convert_float_dec_exp_typed(Writer<write_mode> *writer,
-                                            const FormatSection &to_conv,
-                                            fputil::FPBits<T> float_bits) {
+LIBC_INLINE int
+convert_float_dec_exp_typed(WriterT *writer,
+                            const BasicFormatSection<CharT> &to_conv,
+                            fputil::FPBits<T> float_bits) {
   // signed because later we use -FRACTION_LEN
   constexpr int32_t FRACTION_LEN = fputil::FPBits<T>::FRACTION_LEN;
   int exponent = float_bits.get_explicit_exponent();
@@ -628,8 +618,8 @@ LIBC_INLINE int convert_float_dec_exp_typed(Writer<write_mode> *writer,
   bool has_decimal_point =
       (precision > 0) || ((to_conv.flags & FormatFlags::ALTERNATE_FORM) != 0);
 
-  PaddingWriter<write_mode> padding_writer(to_conv, sign_char);
-  FloatWriter float_writer(writer, has_decimal_point, padding_writer);
+  PaddingWriter<WriterT> padding_writer(to_conv, sign_char);
+  FloatWriter<WriterT> float_writer(writer, has_decimal_point, padding_writer);
   FloatToString<T> float_converter(float_bits.get_val());
 
   size_t digits_written = 0;
@@ -765,11 +755,12 @@ LIBC_INLINE int convert_float_dec_exp_typed(Writer<write_mode> *writer,
   return WRITE_OK;
 }
 
-template <typename T, WriteMode write_mode,
+template <typename T, typename WriterT, typename CharT,
           cpp::enable_if_t<cpp::is_floating_point_v<T>, int> = 0>
-LIBC_INLINE int convert_float_dec_auto_typed(Writer<write_mode> *writer,
-                                             const FormatSection &to_conv,
-                                             fputil::FPBits<T> float_bits) {
+LIBC_INLINE int
+convert_float_dec_auto_typed(WriterT *writer,
+                             const BasicFormatSection<CharT> &to_conv,
+                             fputil::FPBits<T> float_bits) {
   // signed because later we use -FRACTION_LEN
   constexpr int32_t FRACTION_LEN = fputil::FPBits<T>::FRACTION_LEN;
   int exponent = float_bits.get_explicit_exponent();
@@ -817,7 +808,7 @@ LIBC_INLINE int convert_float_dec_auto_typed(Writer<write_mode> *writer,
     // In the case of 0.0, then it's always decimal format. If we don't have alt
     // form then the trailing zeroes are trimmed to make "0", else the precision
     // is 1 less than specified by the user.
-    FormatSection new_conv = to_conv;
+    auto new_conv = to_conv;
     if ((to_conv.flags & FormatFlags::ALTERNATE_FORM) != 0) {
       // This is a style F conversion, making the precision P - 1 - X, but since
       // this is for the number 0, X (the base 10 exponent) is always 0.
@@ -1071,7 +1062,7 @@ LIBC_INLINE int convert_float_dec_auto_typed(Writer<write_mode> *writer,
   // if P > X >= -4, the conversion is with style f (or F) and precision equals
   //  P - (X + 1).
   if (static_cast<int>(init_precision) > base_10_exp && base_10_exp >= -4) {
-    FormatSection new_conv = to_conv;
+    auto new_conv = to_conv;
     const int conv_precision = init_precision - (base_10_exp + 1);
 
     if ((to_conv.flags & FormatFlags::ALTERNATE_FORM) != 0) {
@@ -1112,7 +1103,7 @@ LIBC_INLINE int convert_float_dec_auto_typed(Writer<write_mode> *writer,
     // otherwise, the conversion is with style e (or E) and precision equals
     // P - 1
     const int conv_precision = init_precision - 1;
-    FormatSection new_conv = to_conv;
+    auto new_conv = to_conv;
     if ((to_conv.flags & FormatFlags::ALTERNATE_FORM) != 0) {
       new_conv.precision = conv_precision;
     } else {
@@ -1133,9 +1124,10 @@ LIBC_INLINE int convert_float_dec_auto_typed(Writer<write_mode> *writer,
 
 // TODO: unify the float converters to remove the duplicated checks for inf/nan.
 
-template <WriteMode write_mode>
-LIBC_INLINE int convert_float_decimal(Writer<write_mode> *writer,
-                                      const FormatSection &to_conv) {
+template <typename WriterT, typename CharT>
+LIBC_INLINE int
+convert_float_decimal(WriterT *writer,
+                      const BasicFormatSection<CharT> &to_conv) {
 #if defined(LIBC_INTERNAL_PRINTF_CONVERT_FLOAT128)
   if (to_conv.length_modifier == LengthModifier::Q) {
     fputil::FPBits<float128>::StorageType float_raw = to_conv.conv_val_raw;
@@ -1169,9 +1161,10 @@ LIBC_INLINE int convert_float_decimal(Writer<write_mode> *writer,
   return convert_inf_nan(writer, to_conv);
 }
 
-template <WriteMode write_mode>
-LIBC_INLINE int convert_float_dec_exp(Writer<write_mode> *writer,
-                                      const FormatSection &to_conv) {
+template <typename WriterT, typename CharT>
+LIBC_INLINE int
+convert_float_dec_exp(WriterT *writer,
+                      const BasicFormatSection<CharT> &to_conv) {
 #if defined(LIBC_INTERNAL_PRINTF_CONVERT_FLOAT128)
   if (to_conv.length_modifier == LengthModifier::Q) {
     fputil::FPBits<float128>::StorageType float_raw = to_conv.conv_val_raw;
@@ -1205,9 +1198,10 @@ LIBC_INLINE int convert_float_dec_exp(Writer<write_mode> *writer,
   return convert_inf_nan(writer, to_conv);
 }
 
-template <WriteMode write_mode>
-LIBC_INLINE int convert_float_dec_auto(Writer<write_mode> *writer,
-                                       const FormatSection &to_conv) {
+template <typename WriterT, typename CharT>
+LIBC_INLINE int
+convert_float_dec_auto(WriterT *writer,
+                       const BasicFormatSection<CharT> &to_conv) {
 #if defined(LIBC_INTERNAL_PRINTF_CONVERT_FLOAT128)
   if (to_conv.length_modifier == LengthModifier::Q) {
     fputil::FPBits<float128>::StorageType float_raw = to_conv.conv_val_raw;

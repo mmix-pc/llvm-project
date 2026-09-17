@@ -47,9 +47,10 @@ get_float_hex_exp_fp_bits_properties(AnyFloatStorageType float_raw) {
   };
 }
 
-template <WriteMode write_mode>
-LIBC_INLINE int convert_float_hex_exp(Writer<write_mode> *writer,
-                                      const FormatSection &to_conv) {
+template <typename WriterT, typename CharT>
+LIBC_INLINE int
+convert_float_hex_exp(WriterT *writer,
+                      const BasicFormatSection<CharT> &to_conv) {
 #if defined(LIBC_INTERNAL_PRINTF_CONVERT_FLOAT128)
   static constexpr uint32_t MAX_POSSIBLE_FRACTION_LEN =
       fputil::FPBits<float128>::FRACTION_LEN;

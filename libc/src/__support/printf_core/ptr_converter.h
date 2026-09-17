@@ -18,16 +18,16 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace printf_core {
 
-template <WriteMode write_mode>
-LIBC_INLINE int convert_pointer(Writer<write_mode> *writer,
-                                const FormatSection &to_conv) {
-  FormatSection new_conv = to_conv;
+template <typename WriterT, typename CharT>
+LIBC_INLINE int convert_pointer(WriterT *writer,
+                                const BasicFormatSection<CharT> &to_conv) {
+  auto new_conv = to_conv;
 
   if (to_conv.conv_val_ptr == nullptr) {
     constexpr char NULLPTR_STR[] = "(nullptr)";
     new_conv.conv_name = 's';
     new_conv.conv_val_ptr = const_cast<char *>(NULLPTR_STR);
-    return convert_string(writer, new_conv);
+    return char_writer(writer, new_conv);
   }
   new_conv.conv_name = 'x';
   new_conv.flags =

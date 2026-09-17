@@ -13,6 +13,7 @@
 #include "src/__support/printf_core/core_structs.h"
 #include "src/__support/printf_core/printf_config.h"
 #include "src/__support/printf_core/strerror_converter.h"
+#include "src/__support/printf_core/wide_writer.h"
 #include "src/__support/printf_core/writer.h"
 
 // This option allows for replacing all of the conversion functions with custom
@@ -29,34 +30,39 @@ namespace LIBC_NAMESPACE_DECL {
 namespace printf_core {
 
 #ifndef LIBC_COPT_PRINTF_DISABLE_FLOAT
-LIBC_PRINTF_MODULE((template <WriteMode write_mode>
-                    int convert_float(Writer<write_mode> *writer,
-                                      const FormatSection &to_conv)),
-                   {
-                     switch (to_conv.conv_name) {
-                     case 'f':
-                     case 'F':
-                       return convert_float_decimal(writer, to_conv);
-                     case 'e':
-                     case 'E':
-                       return convert_float_dec_exp(writer, to_conv);
-                     case 'a':
-                     case 'A':
-                       return convert_float_hex_exp(writer, to_conv);
-                     case 'g':
-                     case 'G':
-                       return convert_float_dec_auto(writer, to_conv);
-                     }
-                     __builtin_unreachable();
-                   })
+LIBC_PRINTF_MODULE(
+    (template <typename WriterT, typename CharT>
+     int convert_float(WriterT *writer,
+                       const BasicFormatSection<CharT> &to_conv)),
+    {
+      switch (to_conv.conv_name) {
+      case 'f':
+      case 'F':
+        return convert_float_decimal(writer, to_conv);
+      case 'e':
+      case 'E':
+        return convert_float_dec_exp(writer, to_conv);
+      case 'a':
+      case 'A':
+        return convert_float_hex_exp(writer, to_conv);
+      case 'g':
+      case 'G':
+        return convert_float_dec_auto(writer, to_conv);
+      }
+      __builtin_unreachable();
+    })
 #endif // not LIBC_COPT_PRINTF_DISABLE_FLOAT
 
-#ifdef LIBC_PRINTF_DEFINE_MODULES
+#if defined(LIBC_PRINTF_DEFINE_MODULES) &&                                     \
+    !defined(LIBC_COPT_PRINTF_DISABLE_FLOAT)
 #define HANDLE_WRITE_MODE(MODE)                                                \
-  template int convert_float<WriteMode::MODE>(                                 \
+  template int convert_float<Writer<WriteMode::MODE>, char>(                   \
       Writer<WriteMode::MODE> * writer, const FormatSection &to_conv);
 #include "src/__support/printf_core/write_modes.def"
 #undef HANDLE_WRITE_MODE
+template int
+convert_float<WideNumericWriter, wchar_t>(WideNumericWriter *,
+                                          const BasicFormatSection<wchar_t> &);
 #endif // LIBC_PRINTF_DEFINE_MODULES
 
 // convert will call a conversion function to convert the FormatSection into

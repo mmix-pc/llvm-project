@@ -150,6 +150,7 @@ add_header_library(
     .core_structs
     .printf_config
     .writer
+    .wide_writer
     libc.include.inttypes
     libc.hdr.limits_macros
     libc.src.string.string_utils
@@ -183,6 +184,16 @@ add_object_library(
     .core_structs
     libc.src.__support.arg_list
     libc.src.__support.error_or
+)
+
+add_header_library(
+  wide_converter
+  HDRS
+    wide_converter.h
+  DEPENDS
+    .converter
+    .wide_writer
+    .printf_main
 )
 
 add_header_library(
