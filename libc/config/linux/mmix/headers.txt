@@ -19,7 +19,8 @@ set(TARGET_PUBLIC_HEADERS
 )
 
 if(LIBC_MMIX_BUILD_CORE)
-  list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.inttypes)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.inttypes
+    libc.include.math)
 endif()
 
 if(LIBC_MMIX_BUILD_DESCRIPTORS)

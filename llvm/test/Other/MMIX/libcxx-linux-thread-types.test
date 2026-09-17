@@ -16,7 +16,14 @@ include(${SOURCE}/libcxx/cmake/caches/MMIXLinux.cmake)
 project(ThreadTypes NONE)
 set(RUNTIMES_USE_LIBC llvm-libc CACHE STRING "")
 set(LIBCXX_GENERATED_INCLUDE_TARGET_DIR ${OUT})
+set(required_sources chrono.cpp charconv.cpp ryu/d2s.cpp print.cpp valarray.cpp
+    filesystem/filesystem_clock.cpp filesystem/filesystem_error.cpp filesystem/path.cpp
+    mutex.cpp condition_variable.cpp thread.cpp future.cpp barrier.cpp)
+set(LIBCXX_SOURCES ${required_sources})
 include(${SOURCE}/libcxx/src/support/mmix/Sources.cmake)
+if(NOT LIBCXX_SOURCES STREQUAL required_sources)
+  message(FATAL_ERROR "Linux source families were filtered as bare-metal sources")
+endif()
 # Exercise the real config template with the selected cache's thread settings.
 set(_LIBCPP_ABI_VERSION 1)
 set(_LIBCPP_ABI_NAMESPACE __1)

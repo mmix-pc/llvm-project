@@ -23,7 +23,7 @@ sources = ["fcntl/linux/fcntl.cpp", "unistd/linux/sysconf.cpp",
            "sys/wait/linux/waitpid.cpp", "sys/wait/linux/wait.cpp", "errno/libc_errno.cpp",
            "unistd/linux/pread.cpp", "unistd/linux/pwrite.cpp", "unistd/linux/lseek.cpp",
            "sys/mman/linux/mmap.cpp", "sys/mman/linux/munmap.cpp", "sys/mman/linux/mprotect.cpp",
-           "sys/stat/linux/umask.cpp", "stdio/linux/remove.cpp"]
+           "sys/stat/linux/umask.cpp", "stdio/linux/remove.cpp", "unistd/linux/isatty.cpp"]
 common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
           "-DLIBC_NAMESPACE=service_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
           "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED", "-I", str(headers),
@@ -77,6 +77,10 @@ if len(sys.argv) == 4:
 #define SYS_futex 98
 #define SYS_umask 166
 #define SYS_unlinkat 35
+#define SYS_ioctl 29
+#--- asm/ioctls.h
+#define TIOCGETD 0x5424
+#--- linux/sockios.h
 #--- linux/futex.h
 #define FUTEX_WAIT_BITSET 9
 #define FUTEX_WAIT_BITSET_PRIVATE 137
@@ -132,6 +136,8 @@ struct sysinfo {
 #include "src/sys/wait/waitpid.h"
 #include "src/sys/stat/umask.h"
 #include "src/stdio/remove.h"
+#include "src/unistd/isatty.h"
+#include "hdr/sys_ioctl_macros.h"
 #include "src/__support/time/clock_gettime.h"
 #include "src/__support/OSUtil/linux/auxv.h"
 #include "src/__support/libc_errno.h"
@@ -261,5 +267,14 @@ int main() {
   require(number == SYS_wait4 && arguments[0] == -1 && arguments[3] == 0);
   reply = -ECHILD;
   require(service_test::wait4(42, &status, 0, nullptr) == -1 && libc_errno == ECHILD);
+  reply = 0;
+  libc_errno = EDOM;
+  require(service_test::isatty(4) == 1 && libc_errno == EDOM);
+  require(number == SYS_ioctl && arguments[0] == 4 && arguments[1] == TIOCGETD &&
+          arguments[2] != 0);
+  reply = -ENOTTY;
+  require(service_test::isatty(4) == 0 && libc_errno == ENOTTY);
+  reply = -EBADF;
+  require(service_test::isatty(-1) == 0 && libc_errno == EBADF);
   return 0;
 }

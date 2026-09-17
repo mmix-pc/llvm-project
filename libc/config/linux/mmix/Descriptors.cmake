@@ -20,5 +20,6 @@ set(MMIX_DESCRIPTORS_ENTRYPOINTS
   libc.src.unistd.pipe
   libc.src.unistd.pipe2
   libc.src.unistd.fsync
+  libc.src.unistd.isatty
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_DESCRIPTORS_ENTRYPOINTS})
