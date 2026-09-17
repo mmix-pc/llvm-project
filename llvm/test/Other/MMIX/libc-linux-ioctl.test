@@ -1,0 +1,25 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/Ioctl.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "ioctl must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_IOCTL ON)
+include(${SOURCE}/libc/config/linux/mmix/Ioctl.cmake)
+if(NOT "libc.src.sys.ioctl.ioctl" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "ioctl provider was not selected")
+endif()
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT "libc.include.sys_ioctl" IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "ioctl provider requires its public header")
+endif()
+set(LIBC_MMIX_BUILD_IOCTL OFF)
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if("libc.include.sys_ioctl" IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "default header surface changed")
+endif()
