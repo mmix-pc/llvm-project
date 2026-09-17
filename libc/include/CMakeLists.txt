@@ -3,6 +3,10 @@ set(LIBC_INCLUDE_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 include(LLVMLibCHeaderRules)
 
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX AND LIBC_TARGET_OS_IS_LINUX)
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/HeaderDeclarations.cmake)
+endif()
+
 # The GPU build wants to install files in the compiler's resource directory.
 if(LIBC_TARGET_OS_IS_GPU)
   include(GetClangResourceDir)
@@ -1267,6 +1271,10 @@ add_header_macro(
     .llvm-libc-types.EFI_STATUS
     .llvm-libc-types.EFI_SYSTEM_TABLE
 )
+
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX AND LIBC_TARGET_OS_IS_LINUX)
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/UnixHeaders.cmake)
+endif()
 
 if(NOT LLVM_LIBC_FULL_BUILD)
   # We don't install headers in non-fullbuild mode.
