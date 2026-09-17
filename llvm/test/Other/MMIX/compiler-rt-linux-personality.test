@@ -1,0 +1,18 @@
+# REQUIRES: mmix-registered-target
+# RUN: clang --target=mmix-unknown-linux -ffreestanding -O0 -S -emit-llvm %S/../../../../compiler-rt/lib/builtins/gcc_personality_v0.c -o - | FileCheck %s
+# RUN: clang --target=mmix-unknown-linux -ffreestanding -O0 -c %S/../../../../compiler-rt/lib/builtins/gcc_personality_v0.c -o %t.o
+# RUN: clang --target=mmix-unknown-linux -ffreestanding -O2 -c %S/../../../../compiler-rt/lib/builtins/gcc_personality_v0.c -o %t.opt.o
+# RUN: llvm-nm --defined-only %t.o | FileCheck %s --check-prefix=DEF
+# RUN: llvm-nm -u %t.o | FileCheck %s --check-prefix=REF
+# RUN: not cmake -DCMAKE_C_COMPILER_TARGET=mmix-unknown-linux -DHAVE_UNWIND_H=OFF -P %S/../../../../compiler-rt/lib/builtins/mmix/builtins.cmake 2>&1 | FileCheck %s --check-prefix=HEADER
+# CHECK: define {{.*}} @__gcc_personality_v0
+# CHECK: call void @_Unwind_SetGR(ptr {{.*}}, i32 {{.*}}7,
+# CHECK: call void @_Unwind_SetGR(ptr {{.*}}, i32 {{.*}}8,
+# DEF: T __gcc_personality_v0
+# REF-DAG: U _Unwind_GetIP
+# REF-DAG: U _Unwind_GetLanguageSpecificData
+# REF-DAG: U _Unwind_GetRegionStart
+# REF-DAG: U _Unwind_SetGR
+# REF-DAG: U _Unwind_SetIP
+# REF-DAG: U __compilerrt_abort_impl
+# HEADER: MMIX Linux builtins require the compiler unwind.h

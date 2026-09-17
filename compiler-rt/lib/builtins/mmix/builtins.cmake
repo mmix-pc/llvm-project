@@ -22,6 +22,15 @@ set(mmix_SOURCES
   udivti3.c
   umodti3.c)
 
+# The Linux C cleanup personality shares the DWARF unwinder with C++.
+# The build system may be Generic even when the compiler targets Linux.
+if(CMAKE_C_COMPILER_TARGET MATCHES "^mmix-unknown-linux(-unknown)?$")
+  if(NOT HAVE_UNWIND_H)
+    message(FATAL_ERROR "MMIX Linux builtins require the compiler unwind.h")
+  endif()
+  list(APPEND mmix_SOURCES gcc_personality_v0.c int_util.c)
+endif()
+
 set(mmix_ATOMIC_SOURCES
   mmix/atomic.c)
 
