@@ -52,7 +52,11 @@ char *getFuncNameFromTBTable(uintptr_t pc, uint16_t &NameLen,
 }
 #endif
 
-#ifdef __APPLE__
+#if defined(_LIBUNWIND_MMIX_LINUX)
+
+#include "mmix/Linux.h"
+
+#elif defined(__APPLE__)
 
   struct dyld_unwind_sections
   {
@@ -505,7 +509,9 @@ static int findUnwindSectionsByPhdr(struct dl_phdr_info *pinfo,
 template <typename R>
 inline bool LocalAddressSpace::findUnwindSections(
     typename R::link_hardened_reg_arg_t targetAddr, UnwindInfoSections &info) {
-#ifdef __APPLE__
+#if defined(_LIBUNWIND_MMIX_LINUX)
+  return findMMIXLinuxUnwindSections(targetAddr, info);
+#elif defined(__APPLE__)
   dyld_unwind_sections dyldInfo;
   if (_dyld_find_unwind_sections((void *)targetAddr, &dyldInfo)) {
     info.dso_base                      = (uintptr_t)dyldInfo.mh;

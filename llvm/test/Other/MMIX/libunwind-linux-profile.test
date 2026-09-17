@@ -1,0 +1,41 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_HAS_NO_THREADS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=THREAD
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_HAS_NO_THREADS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=THREAD
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_HAS_NO_THREADS -D_LIBUNWIND_IS_BAREMETAL -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=FRAME
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_HAS_NO_THREADS -D_LIBUNWIND_SUPPORT_FRAME_APIS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=FRAME
+# RUN: clang --target=mmix-unknown-unknown -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_IS_BAREMETAL -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/cache.cmake
+# THREAD: MMIX Linux libunwind requires native single-thread configuration
+# FRAME: MMIX Linux libunwind requires static Linux frame discovery
+
+# Stub C declarations isolate platform selection; real archive builds use libc.
+#--- assert.h
+#--- stdio.h
+#--- stdlib.h
+#--- config.c
+#include <stdbool.h>
+#include "config.h"
+#if !defined(_LIBUNWIND_BUILD_ZERO_COST_APIS) || !defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND) || !defined(_LIBUNWIND_SUPPORT_DWARF_INDEX)
+#error Missing native DWARF interface
+#endif
+#if defined(_LIBUNWIND_BUILD_SJLJ_APIS) || defined(_LIBUNWIND_USE_DL_ITERATE_PHDR)
+#error Unexpected exception or loader dependency
+#endif
+#ifdef __linux__
+#if !defined(_LIBUNWIND_MMIX_LINUX) || _LIBUNWIND_USE_DLADDR
+#error Wrong Linux lookup policy
+#endif
+#else
+#ifdef _LIBUNWIND_MMIX_LINUX
+#error Linux policy leaked into Generic
+#endif
+#endif
+
+#--- cache.cmake
+include("${SOURCE}/libcxx/cmake/caches/MMIXLinuxRuntime.cmake")
+if(NOT LIBUNWIND_REMEMBER_HEAP_ALLOC OR LIBUNWIND_ENABLE_FRAME_APIS OR
+   LIBUNWIND_IS_BAREMETAL OR LIBUNWIND_ENABLE_THREADS OR LIBUNWIND_ENABLE_SHARED)
+  message(FATAL_ERROR "Wrong Linux native unwinder profile")
+endif()

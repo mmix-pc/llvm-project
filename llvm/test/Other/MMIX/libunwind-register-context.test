@@ -7,14 +7,15 @@
 # RUN: clang --target=mmix -ffreestanding -std=c++17 -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/layout.cpp
 # Pure storage/access tests run through the host-endian interpreter, not MMIX
 # execution. Native capture, restore and register-window traversal are separate.
-# RUN: clang --target=x86_64-unknown-linux-gnu -std=c++17 -O1 -fno-exceptions -fno-rtti -D__mmix__ -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_IS_BAREMETAL -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %t/access.cpp -o %t/access.bc
+# Remove the host OS macro so this models Generic MMIX, not MMIX Linux policy.
+# RUN: clang --target=x86_64-unknown-linux-gnu -U__linux__ -std=c++17 -O1 -fno-exceptions -fno-rtti -D__mmix__ -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_IS_BAREMETAL -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %t/access.cpp -o %t/access.bc
 # RUN: lli -force-interpreter=true %t/access.bc
-# RUN: clang --target=x86_64-unknown-linux-gnu -std=c++17 -O1 -fno-exceptions -fno-rtti -D__mmix__ -D_LIBUNWIND_IS_BAREMETAL -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %t/access.cpp -o %t/access-public.bc
+# RUN: clang --target=x86_64-unknown-linux-gnu -U__linux__ -std=c++17 -O1 -fno-exceptions -fno-rtti -D__mmix__ -D_LIBUNWIND_IS_BAREMETAL -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %t/access.cpp -o %t/access-public.bc
 # RUN: lli -force-interpreter=true %t/access-public.bc
 # Instantiate the shared cursor with the MMIX register class without linking
 # the native capture and restore entrypoints.
-# RUN: clang --target=x86_64-unknown-linux-gnu -std=c++17 -fno-exceptions -fno-rtti -D__mmix__ -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_IS_BAREMETAL -D_LIBUNWIND_HAS_NO_THREADS -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %S/../../../../libunwind/src/libunwind.cpp -o %t/cursor.bc
-# RUN: clang --target=x86_64-unknown-linux-gnu -std=c++17 -fno-exceptions -fno-rtti -D__mmix__ -D_LIBUNWIND_IS_BAREMETAL -D_LIBUNWIND_HAS_NO_THREADS -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %S/../../../../libunwind/src/libunwind.cpp -o %t/cursor-public.bc
+# RUN: clang --target=x86_64-unknown-linux-gnu -U__linux__ -std=c++17 -fno-exceptions -fno-rtti -D__mmix__ -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_IS_BAREMETAL -D_LIBUNWIND_HAS_NO_THREADS -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %S/../../../../libunwind/src/libunwind.cpp -o %t/cursor.bc
+# RUN: clang --target=x86_64-unknown-linux-gnu -U__linux__ -std=c++17 -fno-exceptions -fno-rtti -D__mmix__ -D_LIBUNWIND_IS_BAREMETAL -D_LIBUNWIND_HAS_NO_THREADS -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %S/../../../../libunwind/src/libunwind.cpp -o %t/cursor-public.bc
 
 #--- layout.cpp
 #include <libunwind.h>

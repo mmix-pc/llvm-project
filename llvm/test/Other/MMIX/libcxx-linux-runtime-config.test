@@ -108,6 +108,8 @@ for option, value, diagnostic in (
     ("CMAKE_CXX_FLAGS", "-fno-exceptions", "conflicting producer flags"),
     ("CMAKE_C_FLAGS_RELEASE", "-flto", "conflicting producer flags"),
     ("LIBUNWIND_IS_BAREMETAL", "ON", "LIBUNWIND_IS_BAREMETAL=OFF"),
+    ("LIBUNWIND_REMEMBER_HEAP_ALLOC", "OFF", "LIBUNWIND_REMEMBER_HEAP_ALLOC=ON"),
+    ("LIBUNWIND_ENABLE_FRAME_APIS", "ON", "LIBUNWIND_ENABLE_FRAME_APIS=OFF"),
     ("LIBCXX_INSTALL_LIBRARY", "ON", "rejects LIBCXX_INSTALL_LIBRARY"),
     ("LIBCXX_MMIX_LINUX_STATE_DIR", "elsewhere", "conflicting state packages"),
     ("RUNTIMES_USE_LIBC", "newlib", "conflicts with the MMIX compiler C provider"),
