@@ -1,0 +1,16 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/ExecSearch.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "execvp must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_EXEC_SEARCH ON)
+include(${SOURCE}/libc/config/linux/mmix/ExecSearch.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel;libc.src.unistd.execvp")
+  message(FATAL_ERROR "unexpected path-search provider selection")
+endif()
