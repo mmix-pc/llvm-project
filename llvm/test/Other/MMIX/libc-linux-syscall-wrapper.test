@@ -1,0 +1,67 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-service-adapters.test %t/services
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import runpy
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+native = sys.argv[3] if len(sys.argv) > 3 else None
+services = root / "services"
+sys.argv = [str(services / "run.py"), str(libc), str(services)]
+ctx = runpy.run_path(sys.argv[0])
+source = libc / "src/unistd/linux/syscall.cpp"
+for opt in ("0", "2"):
+    obj = root / ("syscall-O" + opt + ".o")
+    subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+        "-mrelocation-model", "static", "-internal-isystem", ctx["resource"] + "/include",
+        *ctx["common"], "-O" + opt, "-emit-obj", "-o", str(obj), str(source)], check=True)
+    refs = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+    assert "__llvm_libc_mmix_syscall" in refs and "errno" in refs, refs
+    if native:
+        exe = root / ("native-O" + opt)
+        subprocess.run([native, *ctx["common"], "-O" + opt, "-include",
+            str(services / "native-boundary.h"), str(source),
+            str(libc / "src/errno/libc_errno.cpp"), str(root / "semantics.cpp"),
+            "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+#--- semantics.cpp
+#include "src/unistd/syscall.h"
+#include "src/__support/libc_errno.h"
+using namespace service_test;
+static long reply;
+static unsigned long number, calls;
+static long arguments[6];
+static void require(bool value) { if (!value) __builtin_trap(); }
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c,
+                                         long d, long e, long f) {
+  number = n;
+  ++calls;
+  arguments[0] = a; arguments[1] = b; arguments[2] = c;
+  arguments[3] = d; arguments[4] = e; arguments[5] = f;
+  return reply;
+}
+int main() {
+  libc_errno = 123;
+  const long replies[] = {0, 42, 0x7fffffffffffffffL, -4096L};
+  for (long value : replies) {
+    reply = value;
+    require(service_test::__llvm_libc_syscall(999, -1, 2, -3, 4, -5, 6) == value);
+    require(number == 999 && libc_errno == 123);
+    require(arguments[0] == -1 && arguments[1] == 2 && arguments[2] == -3 &&
+            arguments[3] == 4 && arguments[4] == -5 && arguments[5] == 6);
+  }
+  const long errors[] = {-1, -38, -4095};
+  for (long value : errors) {
+    reply = value;
+    require(service_test::__llvm_libc_syscall(999, 0, 0, 0, 0, 0, 0) == -1);
+    require(libc_errno == -value);
+  }
+  require(calls == 7);
+  return 0;
+}

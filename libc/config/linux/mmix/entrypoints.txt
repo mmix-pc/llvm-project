@@ -7,6 +7,7 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.string.memcmp
     libc.src.string.strlen
     libc.src.unistd.getpid
+    libc.src.unistd.__llvm_libc_syscall
     libc.src.unistd._exit
     libc.src.stdlib._Exit
     libc.src.stdlib.malloc
