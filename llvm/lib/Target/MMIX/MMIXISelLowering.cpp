@@ -2372,10 +2372,14 @@ SDValue MMIXTargetLowering::LowerFormalArguments(
       reportFatalUsageError(
           Twine("MMIX exception handling requires the DWARF model in ") +
           "function '" + F.getName() + "'");
-    if (classifyEHPersonality(F.getPersonalityFn()) != EHPersonality::GNU_CXX)
+    EHPersonality Personality = classifyEHPersonality(F.getPersonalityFn());
+    bool IsLinux = getTargetMachine().getTargetTriple().isOSLinux();
+    if (Personality != EHPersonality::GNU_CXX &&
+        !(IsLinux && Personality == EHPersonality::GNU_C))
       reportFatalUsageError(
-          Twine("MMIX supports only the GNU C++ DWARF personality in function '") +
-          F.getName() + "'");
+          Twine(IsLinux ? "MMIX Linux supports only GNU C/C++ DWARF personalities"
+                        : "MMIX supports only the GNU C++ DWARF personality") +
+          " in function '" + F.getName() + "'");
   }
   if (!isSupportedMMIXCallingConv(CallConv))
     reportFatalUsageError(

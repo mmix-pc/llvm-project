@@ -25,6 +25,8 @@ public:
   // Native Linux system and environment search is not implemented yet.
   bool isCrossCompiling() const override { return true; }
   bool SupportsProfiling() const override { return false; }
+  llvm::ExceptionHandling
+  GetExceptionModel(const llvm::opt::ArgList &) const override;
   const char *getDefaultLinker() const override { return "ld.lld"; }
   RuntimeLibType GetDefaultRuntimeLibType() const override {
     return RLT_CompilerRT;

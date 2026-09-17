@@ -24,6 +24,11 @@ using namespace clang::driver;
 using namespace clang::driver::toolchains;
 using namespace llvm::opt;
 
+llvm::ExceptionHandling
+MMIXLinuxToolChain::GetExceptionModel(const ArgList &) const {
+  return llvm::ExceptionHandling::DwarfCFI;
+}
+
 namespace {
 bool diagnoseMissing(const ToolChain &TC, StringRef Path, bool Directory) {
   auto Status = TC.getVFS().status(Path);
