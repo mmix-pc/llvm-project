@@ -23,6 +23,16 @@
 using LlvmLibcSysIoctlTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 using LIBC_NAMESPACE::testing::ErrnoSetterMatcher::Succeeds;
 
+TEST_F(LlvmLibcSysIoctlTest, InvalidDescriptorArgumentForms) {
+  ASSERT_EQ(LIBC_NAMESPACE::ioctl(-1, FIOCLEX), -1);
+  ASSERT_ERRNO_EQ(EBADF);
+  ASSERT_EQ(LIBC_NAMESPACE::ioctl(-1, TIOCSCTTY, 0), -1);
+  ASSERT_ERRNO_EQ(EBADF);
+  int value = 0;
+  ASSERT_EQ(LIBC_NAMESPACE::ioctl(-1, FIONREAD, &value), -1);
+  ASSERT_ERRNO_EQ(EBADF);
+}
+
 TEST_F(LlvmLibcSysIoctlTest, InvalidCommandAndFIONREAD) {
   // Setup the test file
   constexpr const char *TEST_FILE_NAME = "ioctl.test";

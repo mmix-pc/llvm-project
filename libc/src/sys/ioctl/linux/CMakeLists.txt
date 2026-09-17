@@ -5,6 +5,7 @@ add_entrypoint_object(
   HDRS
     ../ioctl.h
   DEPENDS
+    libc.hdr.sys_ioctl_macros
     libc.include.sys_ioctl
     libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
     libc.src.errno.errno
