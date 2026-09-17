@@ -20,6 +20,7 @@ foreach(family Core Process Signals Filesystem)
 endforeach()
 foreach(entry libc.src.stdlib.rand libc.src.stdlib.srand libc.src.string.strsignal
               libc.src.sys.wait.wait libc.src.unistd.alarm
+              libc.src.pwd.getpwnam_r libc.src.pwd.getpwuid_r
               libc.src.sys.stat.futimens libc.src.sys.statfs.statfs
               libc.src.sys.statfs.fstatfs libc.src.unistd.getuid
               libc.src.unistd.fchown libc.src.unistd.usleep
@@ -29,7 +30,7 @@ foreach(entry libc.src.stdlib.rand libc.src.stdlib.srand libc.src.string.strsign
   endif()
 endforeach()
 include(${config}/headers.txt)
-foreach(header dlfcn sys_vfs sys_statfs sysexits)
+foreach(header dlfcn pwd sys_vfs sys_statfs sysexits)
   if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
     message(FATAL_ERROR "missing common Unix include: ${header}")
   endif()

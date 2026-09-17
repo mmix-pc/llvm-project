@@ -40,5 +40,7 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.sys.statfs.statfs
   libc.src.sys.statfs.fstatfs
   libc.src.unistd.getuid
+  libc.src.pwd.getpwnam_r
+  libc.src.pwd.getpwuid_r
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_FILESYSTEM_ENTRYPOINTS})

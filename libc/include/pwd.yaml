@@ -9,6 +9,26 @@ types:
 enums: []
 objects: []
 functions:
+  - name: getpwnam_r
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: const char *__restrict
+      - type: struct passwd *__restrict
+      - type: char *__restrict
+      - type: size_t
+      - type: struct passwd **__restrict
+  - name: getpwuid_r
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: uid_t
+      - type: struct passwd *__restrict
+      - type: char *__restrict
+      - type: size_t
+      - type: struct passwd **__restrict
   - name: getpwent
     standards:
       - posix

@@ -2,6 +2,10 @@ if(NOT TARGET libc.src.__support.File.file OR NOT TARGET libc.src.__support.File
   return()
 endif()
 
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${CMAKE_CURRENT_SOURCE_DIR}/linux/mmix/Lookup.cmake)
+endif()
+
 add_entrypoint_object(
   getpwent
   SRCS

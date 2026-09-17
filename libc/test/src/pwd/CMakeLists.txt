@@ -5,6 +5,18 @@ if(NOT TARGET libc.src.pwd.pwd_utils)
 endif()
 
 add_libc_test(
+  mmix_lookup_test
+  SUITE libc_pwd_unittests
+  SRCS linux/mmix/lookup_test.cpp
+  DEPENDS
+    libc.src.__support.File.file
+    libc.src.__support.File.platform_file
+    libc.src.__support.libc_errno
+    libc.src.pwd.pwd_utils
+    libc.src.stdio.remove
+)
+
+add_libc_test(
   field_tokenizer_test
   SUITE
     libc_pwd_unittests
