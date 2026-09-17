@@ -1,17 +1,26 @@
-add_header_library(
-  fenv_impl
-  HDRS
-    FEnvImpl.h
-  DEPENDS
-    libc.hdr.types.fenv_t
-    libc.hdr.fenv_macros
-    libc.hdr.math_macros
-    libc.hdr.stdint_proxy
-    libc.src.__support.CPP.bit
-    libc.src.__support.CPP.type_traits
-    libc.src.__support.macros.attributes
-    libc.src.errno.errno
-)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS STREQUAL "linux")
+  add_subdirectory(mmix)
+  add_object_library(
+    fenv_impl
+    ALIAS .mmix.fenv_register
+    DEPENDS .mmix.fenv_register
+  )
+else()
+  add_header_library(
+    fenv_impl
+    HDRS
+      FEnvImpl.h
+    DEPENDS
+      libc.hdr.types.fenv_t
+      libc.hdr.fenv_macros
+      libc.hdr.math_macros
+      libc.hdr.stdint_proxy
+      libc.src.__support.CPP.bit
+      libc.src.__support.CPP.type_traits
+      libc.src.__support.macros.attributes
+      libc.src.errno.errno
+  )
+endif()
 
 add_header_library(
   rounding_mode

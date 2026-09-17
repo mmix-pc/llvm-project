@@ -22,6 +22,9 @@ if(LIBC_MMIX_BUILD_CORE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.inttypes
     libc.include.math)
 endif()
+if(LIBC_MMIX_BUILD_MATH)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.math libc.include.fenv)
+endif()
 
 if(LIBC_MMIX_BUILD_DESCRIPTORS)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.fcntl)

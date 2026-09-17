@@ -1,0 +1,59 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/selection.cmake
+# RUN: clang --target=mmix-unknown-linux -std=c++17 -ffreestanding -DLIBC_FULL_BUILD -I%S/../../../../libc -O0 -c %t/fenv.cpp -o %t.o
+# RUN: clang --target=mmix-unknown-linux -std=c++17 -ffreestanding -DLIBC_FULL_BUILD -I%S/../../../../libc -O2 -c %t/fenv.cpp -o %t.o2
+# RUN: clang --target=mmix-unknown-linux -c %S/../../../../libc/src/__support/FPUtil/mmix/fenv_register.cpp -o %t.writer
+# RUN: llvm-objdump -d %t.writer | FileCheck %s
+# CHECK: <__llvm_libc_mmix_set_fenv>:
+# CHECK-NEXT: PUT rA, r231
+# CHECK-NEXT: POP 0x0, 0x0
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+if(libc.src.fenv.fegetround IN_LIST TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "math changed the foundation selection")
+endif()
+set(LIBC_MMIX_BUILD_MATH ON CACHE BOOL "" FORCE)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+foreach(name feclearexcept fetestexcept fegetexceptflag fesetexceptflag
+             feraiseexcept fegetround fesetround fegetenv fesetenv feholdexcept feupdateenv)
+  if(NOT "libc.src.fenv.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing fenv provider ${name}")
+  endif()
+endforeach()
+foreach(name sqrt log10)
+  if(NOT "libc.src.math.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing math provider ${name}")
+  endif()
+endforeach()
+if(NOT libc.include.fenv IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing fenv declarations")
+endif()
+
+#--- fenv.cpp
+#include "src/__support/FPUtil/mmix/FEnvImpl.h"
+using namespace LIBC_NAMESPACE::fputil;
+static_assert(FEnv::to_bits(FE_INVALID) == 16);
+static_assert(FEnv::to_bits(FE_DIVBYZERO) == 2);
+static_assert(FEnv::to_bits(FE_OVERFLOW) == 8);
+static_assert(FEnv::to_bits(FE_UNDERFLOW) == 4);
+static_assert(FEnv::to_bits(FE_INEXACT) == 1);
+static_assert(FEnv::to_flags(0x1f) ==
+              (FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW | FE_INEXACT));
+static_assert((FEnv::ENV_MASK & 0xe0e0) == 0);
+int environment(int mask, int round, fenv_t *env) {
+  get_env(env);
+  clear_except(mask);
+  set_except(mask);
+  raise_except(mask);
+  disable_except(mask);
+  enable_except(mask);
+  set_round(round);
+  int result = test_except(mask) | get_except() | get_round();
+  set_env(env);
+  set_env(FE_DFL_ENV);
+  return result;
+}
