@@ -25,6 +25,7 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.unistd.ftruncate
   libc.src.unistd.truncate
   libc.src.stdio.rename
+  libc.src.stdio.remove
   libc.src.stdlib.realpath
   libc.src.dirent.opendir
   libc.src.dirent.fdopendir

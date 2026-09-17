@@ -23,7 +23,7 @@ sources = ["fcntl/linux/fcntl.cpp", "unistd/linux/sysconf.cpp",
            "sys/wait/linux/waitpid.cpp", "sys/wait/linux/wait.cpp", "errno/libc_errno.cpp",
            "unistd/linux/pread.cpp", "unistd/linux/pwrite.cpp", "unistd/linux/lseek.cpp",
            "sys/mman/linux/mmap.cpp", "sys/mman/linux/munmap.cpp", "sys/mman/linux/mprotect.cpp",
-           "sys/stat/linux/umask.cpp"]
+           "sys/stat/linux/umask.cpp", "stdio/linux/remove.cpp"]
 common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
           "-DLIBC_NAMESPACE=service_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
           "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED", "-I", str(headers),
@@ -76,6 +76,7 @@ if len(sys.argv) == 4:
 #define SYS_prlimit64 261
 #define SYS_futex 98
 #define SYS_umask 166
+#define SYS_unlinkat 35
 #--- linux/futex.h
 #define FUTEX_WAIT_BITSET 9
 #define FUTEX_WAIT_BITSET_PRIVATE 137
@@ -100,6 +101,7 @@ if len(sys.argv) == 4:
 #define ETIMEDOUT 110
 #define EOVERFLOW 75
 #define ENOSYS 38
+#define ENOTEMPTY 39
 #--- linux/param.h
 #define EXEC_PAGESIZE 8192
 #--- linux/sysinfo.h
@@ -129,6 +131,7 @@ struct sysinfo {
 #include "src/sys/wait/wait4.h"
 #include "src/sys/wait/waitpid.h"
 #include "src/sys/stat/umask.h"
+#include "src/stdio/remove.h"
 #include "src/__support/time/clock_gettime.h"
 #include "src/__support/OSUtil/linux/auxv.h"
 #include "src/__support/libc_errno.h"
@@ -143,6 +146,7 @@ using namespace service_test;
 static_assert(_POSIX_THREADS == -1L);
 static unsigned long number, calls;
 static long arguments[6], reply;
+static bool directory_retry;
 static unsigned long stack_limit;
 static void require(bool condition) { if (!condition) __builtin_trap(); }
 extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c,
@@ -151,6 +155,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c
   ++calls;
   arguments[0] = a; arguments[1] = b; arguments[2] = c;
   arguments[3] = d; arguments[4] = e; arguments[5] = f;
+  if (n == SYS_unlinkat && directory_retry && c == 0) return -EISDIR;
   if (n == SYS_fcntl && b == -1) return -EINVAL;
   if (reply < 0) return reply;
   if (n == SYS_prlimit64) {
@@ -167,6 +172,22 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c
 }
 
 int main() {
+  const char *path = "entry";
+  reply = 0;
+  libc_errno = EDOM;
+  require(service_test::remove(path) == 0 && libc_errno == EDOM && calls == 1);
+  require(number == SYS_unlinkat && arguments[0] == AT_FDCWD &&
+          arguments[1] == reinterpret_cast<long>(path) && arguments[2] == 0);
+  directory_retry = true;
+  require(service_test::remove(path) == 0 && libc_errno == EDOM && calls == 3);
+  require(arguments[0] == AT_FDCWD && arguments[1] == reinterpret_cast<long>(path) &&
+          arguments[2] == AT_REMOVEDIR);
+  reply = -ENOTEMPTY;
+  require(service_test::remove(path) == -1 && libc_errno == ENOTEMPTY && calls == 5);
+  directory_retry = false;
+  reply = -ENOENT;
+  require(service_test::remove(path) == -1 && libc_errno == ENOENT && calls == 6);
+  require(arguments[2] == 0);
   reply = 0022;
   libc_errno = EDOM;
   require(service_test::umask(0077) == 0022 && libc_errno == EDOM);
