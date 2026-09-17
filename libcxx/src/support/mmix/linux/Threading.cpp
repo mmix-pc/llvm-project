@@ -20,9 +20,10 @@
 #include "src/__support/threads/CndVar.h"
 #include "src/__support/threads/identifier.h"
 #include <errno.h>
+#include <sys/syscall.h>
 
 #ifdef LIBC_COPT_TIMEOUT_ENSURE_MONOTONICITY
-#  error "The MMIX libc++ primitive bridge supports untimed synchronization"
+#  error "The MMIX libc++ bridge preserves absolute realtime deadlines"
 #endif
 
 namespace {
@@ -88,5 +89,28 @@ int __llvm_libc_mmix_cxx_condvar_wait(cnd_t* cond, mtx_t* mutex) {
 int __llvm_libc_mmix_cxx_condvar_destroy(cnd_t* cond) {
   asCondvar(cond)->reset();
   return 0;
+}
+int __llvm_libc_mmix_cxx_condvar_timedwait(cnd_t* cond, mtx_t* mutex, const timespec* time) {
+  auto timeout = CndVar::Timeout::from_timespec(*time, true);
+  if (!timeout) {
+    if (timeout.error() == CndVar::Timeout::Error::Invalid)
+      return EINVAL;
+    // Expired deadlines still release and reacquire the mutex.
+    timeout = CndVar::Timeout::from_timespec({0, 0}, true);
+  }
+  switch (asCondvar(cond)->wait(asMutex(mutex), *timeout)) {
+  case CndVarResult::Success:
+    return 0;
+  case CndVarResult::MutexError:
+    return EINVAL;
+  case CndVarResult::Timeout:
+    return ETIMEDOUT;
+  }
+  __builtin_unreachable();
+}
+void __llvm_libc_mmix_cxx_yield() { LIBC_NAMESPACE::syscall_impl<long>(SYS_sched_yield); }
+void __llvm_libc_mmix_cxx_sleep(const timespec* time) {
+  timespec remaining = *time;
+  while (LIBC_NAMESPACE::syscall_impl<long>(SYS_nanosleep, &remaining, &remaining) == -EINTR) {}
 }
 pid_t __llvm_libc_mmix_cxx_current_id() { return LIBC_NAMESPACE::internal::gettid(); }

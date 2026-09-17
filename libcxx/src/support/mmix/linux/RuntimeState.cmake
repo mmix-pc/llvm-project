@@ -33,13 +33,20 @@ if(NOT state_sysroot STREQUAL selected_sysroot OR
    NOT EXISTS "${MMIX_STATE_HEADERS}/sys/syscall.h")
   message(FATAL_ERROR "MMIX Linux state provider must match the compiler, source and sysroot with generated headers")
 endif()
-foreach(target cxx_mmix_sync cxx_mmix_thread_api)
+add_library(cxx_mmix_keys OBJECT "${CMAKE_CURRENT_LIST_DIR}/ThreadState.cpp")
+target_include_directories(cxx_mmix_keys PRIVATE "${LIBCXX_SOURCE_DIR}/../libc")
+target_compile_features(cxx_mmix_keys PRIVATE cxx_std_17)
+target_compile_options(cxx_mmix_keys PRIVATE -nostdinc++ -fno-exceptions -fno-rtti)
+target_compile_definitions(cxx_mmix_keys PRIVATE
+  LIBC_NAMESPACE=${MMIX_STATE_NAMESPACE} LIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE)
+foreach(target cxx_mmix_sync cxx_mmix_thread_api cxx_mmix_keys)
   target_include_directories(${target} SYSTEM PRIVATE "${MMIX_STATE_HEADERS}")
   target_compile_options(${target} PRIVATE -nostdlibinc
     "-idirafter=${MMIX_STATE_KERNEL_HEADERS}")
 endforeach()
 add_library(cxx_mmix_runtime_state STATIC
-  $<TARGET_OBJECTS:cxx_mmix_sync> $<TARGET_OBJECTS:cxx_mmix_thread_api>)
+  $<TARGET_OBJECTS:cxx_mmix_sync> $<TARGET_OBJECTS:cxx_mmix_thread_api>
+  $<TARGET_OBJECTS:cxx_mmix_keys>)
 target_link_libraries(cxx_mmix_runtime_state PUBLIC mmix_libc_state)
 set_target_properties(cxx_mmix_runtime_state PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/mmix-state")

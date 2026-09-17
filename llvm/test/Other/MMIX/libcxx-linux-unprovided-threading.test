@@ -7,6 +7,7 @@
 
 #--- check.py
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -16,10 +17,9 @@ flags = ["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++23",
          "-mrelocation-model", "static", "-ffreestanding",
          "-internal-isystem", resource + "/include", "-I", str(root),
          "-I", str(source / "libcxx/include"), "-I", str(root / "c"),
+         "-I", str(root / "probe"),
          "-I", str(source / "libc/include")]
-missing = ("condvar_timedwait", "execute_once", "thread_create", "thread_join",
-           "thread_detach", "thread_yield", "thread_sleep_for", "tls_create",
-           "tls_get", "tls_set", "thread_get_id", "thread_isnull")
+missing = ("execute_once", "thread_get_id")
 for level in ("0", "2"):
     objects = []
     for name, file in (("caller", root / "probe/caller.cpp"),
@@ -33,6 +33,16 @@ for level in ("0", "2"):
     for name in missing:
         assert "__libcpp_" + name + "(" in undefined, undefined
     assert "__libcpp_mutex_lock(" not in undefined, undefined
+    for name in ("condvar_timedwait", "tls_create", "tls_get", "tls_set",
+                 "thread_create", "thread_join", "thread_detach"):
+        assert "__libcpp_" + name + "(" not in undefined, undefined
+    ir = root / ("provider" + level + ".ll")
+    subprocess.run(flags + ["-O" + level, "-emit-llvm", "-o", str(ir),
+                   str(source / "libcxx/src/support/mmix/linux/external_threading.cpp")], check=True)
+    for name in ("thread_create", "thread_join", "thread_detach"):
+        body = re.search(r"define[^\n]*__libcpp_" + name + r"[^\n]*\{(.*?)^}",
+                         ir.read_text(), re.M | re.S)
+        assert body and "ret i32 38" in body[1], "unsupported service must return Linux ENOSYS"
     elf = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
     assert "TLS" not in elf and "pthread_" not in undefined
     result = subprocess.run(["ld.lld", "--error-limit=0", "-e", "unsupported", str(obj),
@@ -65,3 +75,7 @@ extern "C" void unsupported() {
   std::__libcpp_thread_get_id(nullptr);
   std::__libcpp_thread_isnull(nullptr);
 }
+
+#--- errno.h
+// Unit-only Linux error input; complete links use generated LLVM libc headers.
+#define ENOSYS 38

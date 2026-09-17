@@ -12,10 +12,11 @@ libc, root = map(pathlib.Path, sys.argv[1:])
 resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
 common = ["clang", "-cc1", "-std=c++17", "-ffreestanding",
           "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
-          "-I", str(root), "-I", str(libc), "-DLIBC_FULL_BUILD",
+          "-I", str(root), "-I", str(libc), "-I", str(libc / "include"), "-DLIBC_FULL_BUILD",
           "-DLIBC_NAMESPACE=state_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE"]
 sources = [libc / "src/__support/threads/thread.cpp",
            libc / "src/__support/threads/linux/mmix/main_thread.cpp",
+           libc.parent / "libcxx/src/support/mmix/linux/ThreadState.cpp",
            root / "test.cpp"]
 for opt in ("0", "2"):
     files = []
@@ -76,12 +77,16 @@ foreach(LIBC_TARGET_ARCHITECTURE mmix x86_64)
 endforeach()
 #--- linux/param.h
 #define EXEC_PAGESIZE 4096
+#--- linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
 #--- sys/syscall.h
 #define SYS_gettid 123
 #define SYS_write 124
 #--- test.cpp
 #include "src/__support/threads/linux/mmix/main_thread.h"
 #include "src/__support/threads/thread.h"
+#include "../libcxx/src/support/mmix/linux/Threading.h"
+#include "hdr/errno_macros.h"
 #include <sys/syscall.h>
 
 using namespace state_test;
@@ -118,6 +123,9 @@ void callback(void *p) {
 extern "C" int main() {
   if (current_thread().attrib != nullptr)
     return 1;
+  tss_t bridge_key;
+  if (__llvm_libc_mmix_cxx_key_create(&bridge_key, callback) != EINVAL)
+    return 9;
   internal::cleanup_main_thread();
   long invalid_values[] = {-5L, 0L, 2147483648L};
   for (long invalid : invalid_values) {
@@ -140,8 +148,10 @@ extern "C" int main() {
   if (__cxa_thread_atexit_impl(callback, &one, nullptr) ||
       __cxa_thread_atexit_impl(callback, &two, nullptr))
     return 6;
-  auto key = new_tss_key(callback);
-  if (!key || !set_tss_value(*key, &four))
+  if (__llvm_libc_mmix_cxx_key_create(&bridge_key, callback) ||
+      __llvm_libc_mmix_cxx_key_get(bridge_key) ||
+      __llvm_libc_mmix_cxx_key_set(bridge_key, &four) ||
+      __llvm_libc_mmix_cxx_key_get(bridge_key) != &four)
     return 7;
   internal::cleanup_main_thread();
   internal::cleanup_main_thread();
