@@ -122,12 +122,17 @@ static bool diagnoseUnsupportedMMIXCXXFeature(CodeGenModule &CGM,
   return true;
 }
 
-static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E,
-                                    bool AllowAlignedAllocation) {
+static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E, bool IsLinux) {
   const FunctionDecl *OperatorNew = E.getOperatorNew();
   if (!OperatorNew)
     return false;
   if (OperatorNew->isReservedGlobalPlacementOperator())
+    return true;
+  // Linux also supplies standard nothrow overloads for arrays and aligned objects.
+  bool IsNothrow = false;
+  if (IsLinux && E.getNumPlacementArgs() == 1 &&
+      OperatorNew->isReplaceableGlobalAllocationFunction(nullptr, &IsNothrow) &&
+      IsNothrow)
     return true;
   // Allocator adapters use a reference to report failure without throwing.
   // Single objects use the ordinary initialization path. Arrays of scalar or
@@ -151,7 +156,7 @@ static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E,
       return true;
   }
   return E.getNumPlacementArgs() == 0 &&
-         (!E.passAlignment() || AllowAlignedAllocation) &&
+         (!E.passAlignment() || IsLinux) &&
          OperatorNew->isReplaceableGlobalAllocationFunction();
 }
 
