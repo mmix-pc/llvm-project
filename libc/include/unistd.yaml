@@ -507,6 +507,20 @@ functions:
     arguments:
       - type: const char *
       - type: off_t
+  - name: ttyname
+    standards:
+      - posix
+    return_type: char *
+    arguments:
+      - type: int
+  - name: ttyname_r
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: int
+      - type: char *
+      - type: size_t
   - name: unlink
     standards:
       - posix
