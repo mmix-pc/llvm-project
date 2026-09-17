@@ -21,6 +21,19 @@
 
 using LlvmLibcFEnvTest = LIBC_NAMESPACE::testing::FEnvSafeTest;
 
+TEST_F(LlvmLibcFEnvTest, PreserveUnselectedFlags) {
+#if !defined(LIBC_TARGET_ARCH_IS_ANY_ARM) || defined(__ARM_FP)
+  LIBC_NAMESPACE::fputil::disable_except(FE_ALL_EXCEPT);
+  LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+  LIBC_NAMESPACE::fputil::set_except(FE_INVALID | FE_DIVBYZERO);
+  fexcept_t empty = 0;
+  ASSERT_EQ(LIBC_NAMESPACE::fesetexceptflag(&empty, FE_INVALID), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT), FE_DIVBYZERO);
+  ASSERT_EQ(LIBC_NAMESPACE::fesetexceptflag(&empty, 0), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT), FE_DIVBYZERO);
+#endif
+}
+
 TEST_F(LlvmLibcFEnvTest, GetSetTestExceptFlag) {
 #if defined(LIBC_TARGET_ARCH_IS_ANY_ARM) && !defined(__ARM_FP)
   // Unsupported: no fenv

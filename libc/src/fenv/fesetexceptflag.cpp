@@ -16,14 +16,16 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(int, fesetexceptflag,
-                   (const fexcept_t *flagp, int excepts)) {
+LLVM_LIBC_FUNCTION(int, fesetexceptflag, (const fexcept_t *flagp, int excepts)) {
   // Since the return type of fetestexcept is int, we ensure that fexcept_t
   // can fit in int type.
   static_assert(sizeof(int) >= sizeof(fexcept_t),
                 "fexcept_t value cannot fit in an int value.");
-  int excepts_to_set = static_cast<int>(*flagp) & excepts;
-  fputil::clear_except(FE_ALL_EXCEPT);
+  // Some backends replace their status flags in set_except; retain all flags
+  // outside the requested mask rather than relying on an OR operation.
+  int excepts_to_set = (fputil::test_except(FE_ALL_EXCEPT) & ~excepts) |
+                      (static_cast<int>(*flagp) & excepts);
+  fputil::clear_except(excepts);
   return fputil::set_except(excepts_to_set);
 }
 
