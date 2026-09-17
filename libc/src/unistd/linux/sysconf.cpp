@@ -141,6 +141,10 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
     return get_nprocessors_onln();
   case _SC_THREADS:
     return _POSIX_THREADS;
+  case _SC_GETPW_R_SIZE_MAX:
+    // Passwd records have no fixed size limit. Preserve errno for this
+    // indeterminate value, unlike an invalid configuration name.
+    return -1;
   case _SC_OPEN_MAX:
     return get_open_max();
   case _SC_PHYS_PAGES:

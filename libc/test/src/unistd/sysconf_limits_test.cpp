@@ -101,3 +101,18 @@ TEST(LlvmLibcSysconfLimitsTest, PublicThreadCapability) {
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_THREADS), long(_POSIX_THREADS));
   EXPECT_EQ(int(libc_errno), EDOM);
 }
+
+TEST(LlvmLibcSysconfLimitsTest, IndeterminatePasswdBufferSize) {
+  const int errors[] = {0, EDOM};
+  for (int saved_errno : errors) {
+    libc_errno = saved_errno;
+    EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_GETPW_R_SIZE_MAX), -1L);
+    EXPECT_EQ(int(libc_errno), saved_errno);
+  }
+}
+
+TEST(LlvmLibcSysconfLimitsTest, InvalidName) {
+  libc_errno = 0;
+  EXPECT_EQ(LIBC_NAMESPACE::sysconf(-1), -1L);
+  EXPECT_EQ(int(libc_errno), EINVAL);
+}
