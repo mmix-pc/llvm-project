@@ -1,4 +1,5 @@
-//===-- Tests for wide printf numeric conversion ---------------------------===//
+//===-- Tests for wide printf conversion
+//-----------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -55,6 +56,92 @@ void check(const wchar_t *expected, const wchar_t *format, Args... args) {
 TEST(LlvmLibcWidePrintfConverterTest, LiteralAndPercent) {
   check(L"\u4e2d%\u03bb", L"\u4e2d%%\u03bb");
 }
+
+#ifndef LIBC_COPT_PRINTF_DISABLE_WIDE
+TEST(LlvmLibcWidePrintfConverterTest, Characters) {
+  check(L"A \u4e2d", L"%c %lc", int('A'), wint_t(L'\u4e2d'));
+  check(L"  A|\u03bb  ", L"%3c|%-3lc", int('A'), wint_t(L'\u03bb'));
+  check(L"A", L"%c", 0x141); // Conversion to unsigned char precedes btowc.
+  wchar_t buffer[8];
+  EXPECT_EQ(format_to(buffer, 8, L"%c%lcX", 0, wint_t(0)), 3);
+  EXPECT_EQ(buffer[0], L'\0');
+  EXPECT_EQ(buffer[1], L'\0');
+  EXPECT_EQ(buffer[2], L'X');
+  EXPECT_EQ(buffer[3], L'\0');
+}
+
+TEST(LlvmLibcWidePrintfConverterTest, InvalidSingleBytes) {
+  const int bytes[] = {0x80, 0xc2, 0xff};
+  for (int byte : bytes) {
+    wchar_t buffer[8];
+    EXPECT_EQ(format_to(buffer, 8, L"A%c", byte), MB_CONVERSION_ERROR);
+    EXPECT_TRUE(basic_string_view<wchar_t>(buffer) == L"A");
+  }
+}
+
+TEST(LlvmLibcWidePrintfConverterTest, Strings) {
+  check(L"abc|\u4e2d\u03bb", L"%s|%ls", "abc", L"\u4e2d\u03bb");
+  check(L"\u4e2d\u03bb\U0001f642", L"%s",
+        "\xe4\xb8\xad\xce\xbb\xf0\x9f\x99\x82");
+  check(L"   \u4e2d|\u03bb   ", L"%4s|%-4ls", "\xe4\xb8\xad", L"\u03bb");
+  check(L"  |   ", L"%2s|%-3ls", "", L"");
+}
+
+TEST(LlvmLibcWidePrintfConverterTest, StringPrecision) {
+  check(L"\u4e2d|\u03bb", L"%.1s|%.1ls", "\xe4\xb8\xadX", L"\u03bbX");
+  check(L"  \u4e2d|\u03bb  ", L"%*.*s|%-*.*ls", 3, 1, "\xe4\xb8\xadX", 3, 1,
+        L"\u03bbX");
+  check(L"abc", L"%.*s", -1, "abc");
+  // These arrays deliberately have no terminator within the selected prefix.
+  const wchar_t wide[] = {L'A', L'B'};
+  const char bytes[] = {'\xe4', '\xb8', '\xad'};
+  check(L"AB|\u4e2d", L"%.2ls|%.1s", wide, bytes);
+  check(L"|", L"%.0s|%.0ls", bytes, wide);
+  check(L"A", L"%.1s", "A\xff");
+}
+
+TEST(LlvmLibcWidePrintfConverterTest, InvalidStrings) {
+  const char *invalid[] = {
+      "\x80",         "\xe4\xb8",        "\xc2X",        "A\xff",
+      "\xc0\x80",     "\xc0\xaf",        "\xe0\x80\xaf", "\xf0\x80\x80\xaf",
+      "\xed\xa0\x80", "\xf4\x90\x80\x80"};
+  for (const char *text : invalid) {
+    wchar_t buffer[16];
+    EXPECT_EQ(format_to(buffer, 16, L"prefix:%s", text), MB_CONVERSION_ERROR);
+    EXPECT_TRUE(basic_string_view<wchar_t>(buffer) == L"prefix:");
+  }
+}
+
+TEST(LlvmLibcWidePrintfConverterTest, IndependentStringState) {
+  check(L"\u4e2d\u03bb", L"%s%s", "\xe4\xb8\xad", "\xce\xbb");
+  wchar_t buffer[8];
+  EXPECT_EQ(format_to(buffer, 8, L"%s", "\xe4"), MB_CONVERSION_ERROR);
+  check(L"\u03bb", L"%s", "\xce\xbb");
+}
+
+TEST(LlvmLibcWidePrintfConverterTest, StringAndCharacterTruncation) {
+  wchar_t buffer[] = {L'!', L'!', L'!', L'!', L'!'};
+  EXPECT_EQ(format_to(buffer + 1, 3, L"%s",
+                      "A\xe4\xb8\xad"
+                      "B"),
+            BUFFER_TOO_SMALL);
+  EXPECT_EQ(buffer[0], L'!');
+  EXPECT_EQ(buffer[4], L'!');
+  EXPECT_TRUE(basic_string_view<wchar_t>(buffer + 1) == L"A\u4e2d");
+  EXPECT_EQ(format_to(buffer, 2, L"%2lc", wint_t(L'\u4e2d')), BUFFER_TOO_SMALL);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buffer) == L" ");
+  EXPECT_EQ(format_to(buffer, 3, L"%-4ls", L"A"), BUFFER_TOO_SMALL);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buffer) == L"A ");
+#ifndef LIBC_COPT_PRINTF_DISABLE_WRITE_INT
+  int count = -1;
+  check(L"\u4e2d\u03bb", L"%s%ls%n", "\xe4\xb8\xad", L"\u03bb", &count);
+  EXPECT_EQ(count, 2);
+  count = -1;
+  EXPECT_EQ(format_to(buffer, 2, L"%s%n", "\xff", &count), MB_CONVERSION_ERROR);
+  EXPECT_EQ(count, -1);
+#endif
+}
+#endif
 
 TEST(LlvmLibcWidePrintfConverterTest, IntegerValuesAndLengths) {
   check(L"-128 -32768 -2147483648", L"%hhd %hd %d", -128, -32768,

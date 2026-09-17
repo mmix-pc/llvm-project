@@ -13,6 +13,9 @@
 #include "src/__support/printf_core/ptr_converter.h"
 #include "src/__support/printf_core/wide_writer.h"
 #include "src/__support/printf_core/write_int_converter.h"
+#ifndef LIBC_COPT_PRINTF_DISABLE_WIDE
+#include "src/__support/printf_core/wide_string_converter.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace printf_core {
@@ -34,6 +37,12 @@ LIBC_INLINE int convert_wide(WideWriter *writer,
     return writer->write(section.raw_string);
 #endif
   switch (section.conv_name) {
+#ifndef LIBC_COPT_PRINTF_DISABLE_WIDE
+  case 'c':
+    return convert_wide_char(writer, section);
+  case 's':
+    return convert_wide_string(writer, section);
+#endif
   case '%':
     return writer->write(L'%');
   case 'd':

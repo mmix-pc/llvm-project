@@ -190,10 +190,13 @@ add_header_library(
   wide_converter
   HDRS
     wide_converter.h
+    wide_string_converter.h
   DEPENDS
     .converter
     .wide_writer
     .printf_main
+    libc.hdr.types.wint_t
+    libc.src.__support.wchar.string_converter
 )
 
 add_header_library(
