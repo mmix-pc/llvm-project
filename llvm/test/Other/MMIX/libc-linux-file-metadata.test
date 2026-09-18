@@ -1,0 +1,141 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/FileMetadata.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "metadata providers must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_FILE_METADATA ON)
+include(${SOURCE}/libc/config/linux/mmix/FileMetadata.cmake)
+list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
+if(NOT count EQUAL 5)
+  message(FATAL_ERROR "unexpected metadata provider selection")
+endif()
+foreach(entry libc.src.sys.stat.utimensat libc.src.sys.sysmacros.major
+              libc.src.sys.sysmacros.minor libc.src.sys.sysmacros.makedev)
+  if(NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing metadata provider: ${entry}")
+  endif()
+endforeach()
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=metadata_test",
+          "-I", str(root), "-I", str(libc)]
+for opt in ("0", "2"):
+    subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+        "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+        *common, "-O" + opt, "-emit-obj", str(root / "semantics.cpp"),
+        "-o", str(root / ("target-O" + opt + ".o"))], check=True)
+    if len(sys.argv) == 4:
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+            str(root / "native-boundary.h"), str(root / "semantics.cpp"),
+            "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- native-boundary.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+#--- sys/syscall.h
+#define SYS_utimensat 88
+#define SYS_read 63
+#define SYS_write 64
+
+#--- linux/errno.h
+#define EPERM 1
+#define ENOENT 2
+#define EINTR 4
+#define EBADF 9
+#define EAGAIN 11
+#define EACCES 13
+#define EFAULT 14
+#define ENOTDIR 20
+#define EINVAL 22
+#define ENOSYS 38
+
+#--- semantics.cpp
+#include "src/sys/stat/linux/utimensat.cpp"
+#include "src/sys/stat/linux/mmix/futimens.cpp"
+#include "src/sys/sysmacros/linux/major.cpp"
+#include "src/sys/sysmacros/linux/minor.cpp"
+#include "src/sys/sysmacros/linux/makedev.cpp"
+#include "src/unistd/linux/read.cpp"
+#include "src/unistd/linux/write.cpp"
+#include "src/errno/libc_errno.cpp"
+#include "hdr/fcntl_macros.h"
+#include "hdr/sys_stat_macros.h"
+
+using namespace metadata_test;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+static long reply, args[6];
+static unsigned long number;
+static unsigned calls;
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                        long c, long d, long e, long f) {
+  number = n; ++calls;
+  args[0] = a; args[1] = b; args[2] = c;
+  args[3] = d; args[4] = e; args[5] = f;
+  return reply;
+}
+
+int main() {
+  static_assert(sizeof(dev_t) == 8 && sizeof(timespec) == 16);
+  const char path[] = "relative";
+  timespec stamps[2] = {{123, UTIME_NOW}, {456, UTIME_OMIT}};
+  const int errors[] = {0, EPERM, ENOENT, EINTR, EBADF, EACCES, EFAULT, ENOTDIR, EINVAL, ENOSYS};
+  for (int error : errors) {
+    reply = -error; libc_errno = 77;
+    unsigned before = calls;
+    require(utimensat(-100, path, stamps, AT_SYMLINK_NOFOLLOW) == (error ? -1 : 0));
+    require(calls == before + 1 && number == 88 && int(libc_errno) == (error ? error : 77));
+    require(args[0] == -100 && args[1] == reinterpret_cast<long>(path) &&
+            args[2] == reinterpret_cast<long>(stamps) && args[3] == AT_SYMLINK_NOFOLLOW);
+    require(args[4] == 0 && args[5] == 0 && stamps[0].tv_sec == 123 && stamps[1].tv_nsec == UTIME_OMIT);
+    require(futimens(42, stamps) == (error ? -1 : 0));
+    require(args[0] == 42 && args[1] == 0 && args[2] == reinterpret_cast<long>(stamps) && args[3] == 0);
+  }
+  reply = 0;
+  require(utimensat(42, path, nullptr, 0) == 0 && args[2] == 0);
+  reply = -EFAULT;
+  require(utimensat(-1, reinterpret_cast<const char *>(-1L), nullptr, -1) == -1);
+  require(args[0] == -1 && args[1] == -1 && args[3] == -1);
+  const unsigned parts[] = {0, 1, 0xff, 0x100, 0xfff, 0x1000, 0xdeadbeef, 0xffffffff};
+  for (unsigned a : parts) for (unsigned b : parts) {
+    libc_errno = 77;
+    dev_t value = makedev(a, b);
+    require(major(value) == a && minor(value) == b && int(libc_errno) == 77);
+  }
+  require(makedev(0x1000, 0) == 0x100000000000ULL);
+  require(makedev(0, 0x100) == 0x100000ULL);
+  require(makedev(0xffffffff, 0xffffffff) == ~dev_t(0));
+  char data[8] = {};
+  const long results[] = {0, 3, 8, -EINTR, -EAGAIN, -EBADF};
+  for (long value : results) {
+    reply = value; libc_errno = 77;
+    unsigned before = calls;
+    require(read(7, data, 8) == (value < 0 ? -1 : value) && calls == before + 1);
+    require(number == 63 && args[0] == 7 && args[1] == reinterpret_cast<long>(data) && args[2] == 8);
+    require(int(libc_errno) == (value < 0 ? -value : 77));
+    before = calls; libc_errno = 77;
+    require(write(7, data, 8) == (value < 0 ? -1 : value) && calls == before + 1);
+    require(number == 64 && args[0] == 7 && args[1] == reinterpret_cast<long>(data) && args[2] == 8);
+    require(int(libc_errno) == (value < 0 ? -value : 77));
+  }
+  return 0;
+}
