@@ -1,0 +1,33 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/AccountLookup.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "account lookup must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_ACCOUNT_LOOKUP ON)
+include(${SOURCE}/libc/config/linux/mmix/AccountLookup.cmake)
+include(${SOURCE}/libc/config/linux/mmix/AccountLookup.cmake)
+list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
+if(NOT count EQUAL 13)
+  message(FATAL_ERROR "unexpected account query provider count")
+endif()
+foreach(name getpwnam getpwuid getpwnam_r getpwuid_r)
+  if(NOT libc.src.pwd.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing passwd provider")
+  endif()
+endforeach()
+foreach(name getgrnam getgrgid getgrnam_r getgrgid_r)
+  if(NOT libc.src.grp.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing group provider")
+  endif()
+endforeach()
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT libc.include.pwd IN_LIST TARGET_PUBLIC_HEADERS OR
+   NOT libc.include.grp IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing public account query headers")
+endif()

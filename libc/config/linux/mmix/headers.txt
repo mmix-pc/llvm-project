@@ -42,6 +42,9 @@ endif()
 if(LIBC_MMIX_BUILD_FNMATCH)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.fnmatch)
 endif()
+if(LIBC_MMIX_BUILD_ACCOUNT_LOOKUP)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.pwd libc.include.grp)
+endif()
 
 if(LIBC_MMIX_BUILD_CORE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.inttypes
