@@ -13,4 +13,5 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.sys.stat.mknod
   libc.src.sys.time.utimes
   libc.src.sys.time.settimeofday
-  libc.src.unistd.chown)
+  libc.src.unistd.chown
+  libc.src.unistd.lchown)

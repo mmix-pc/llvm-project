@@ -569,3 +569,10 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.sync
 )
+
+add_entrypoint_object(
+  lchown
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.lchown
+)

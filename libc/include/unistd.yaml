@@ -58,6 +58,12 @@ objects:
   - object_name: optopt
     object_type: int
 functions:
+  - name: lchown
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: uid_t
+      - type: gid_t
   - name: sync
     standards:
       - posix

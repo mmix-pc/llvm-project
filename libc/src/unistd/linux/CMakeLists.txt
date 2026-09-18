@@ -880,3 +880,19 @@ add_entrypoint_object(
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
 )
+
+add_entrypoint_object(
+  lchown
+  SRCS
+    lchown.cpp
+  HDRS
+    ../lchown.h
+  DEPENDS
+    libc.src.__support.common
+    libc.src.__support.macros.config
+    libc.hdr.types.uid_t
+    libc.hdr.types.gid_t
+    libc.hdr.fcntl_macros
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.libc_errno
+)
