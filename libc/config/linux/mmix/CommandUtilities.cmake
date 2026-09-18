@@ -5,4 +5,5 @@ if(NOT LIBC_MMIX_BUILD_COMMAND_UTILITIES)
 endif()
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.stdlib.clearenv
-  libc.src.stdlib.mkstemp)
+  libc.src.stdlib.mkstemp
+  libc.src.libgen.dirname)
