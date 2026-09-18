@@ -2,6 +2,14 @@ header: netdb.h
 standards:
   - posix
 macros:
+  - macro_name: AI_PASSIVE
+    macro_header: netdb-macros.h
+  - macro_name: NI_NUMERICHOST
+    macro_header: netdb-macros.h
+  - macro_name: h_errno
+    macro_header: netdb-macros.h
+  - macro_name: h_addr
+    macro_header: netdb-macros.h
   - macro_name: EAI_AGAIN
     macro_header: netdb-macros.h
   - macro_name: EAI_BADFLAGS
@@ -24,9 +32,35 @@ macros:
     macro_header: netdb-macros.h
 types:
   - type_name: struct_addrinfo
+  - type_name: struct_hostent
 enums: []
 objects: []
 functions:
+  - name: __h_errno_location
+    standards:
+      - linux
+    return_type: int *
+    arguments: []
+  - name: gethostbyname
+    return_type: struct hostent *
+    arguments:
+      - type: const char *
+  - name: hstrerror
+    standards:
+      - bsd
+    return_type: const char *
+    arguments:
+      - type: int
+  - name: getnameinfo
+    return_type: int
+    arguments:
+      - type: const struct sockaddr *__restrict
+      - type: socklen_t
+      - type: char *__restrict
+      - type: socklen_t
+      - type: char *__restrict
+      - type: socklen_t
+      - type: int
   - name: freeaddrinfo
     standards:
       - posix

@@ -1,0 +1,32 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: python3 %S/../../../../libc/utils/hdrgen/main.py -o %t/netdb.h --write-if-changed -e gethostbyname -e getnameinfo -e getaddrinfo -e freeaddrinfo -e hstrerror -e __h_errno_location %S/../../../../libc/include/netdb.yaml
+# RUN: python3 %S/../../../../libc/utils/hdrgen/main.py -o %t/syslog.h --write-if-changed -e syslog %S/../../../../libc/include/syslog.yaml
+# RUN: clang --target=mmix-unknown-linux -nostdinc -I %t -I %S/../../../../libc/include -x c -std=c17 -fsyntax-only %t/layout.c
+# RUN: clang --target=mmix-unknown-linux -nostdinc -I %t -I %S/../../../../libc/include -x c++ -std=c++17 -fsyntax-only %t/layout.c
+
+#--- layout.c
+#include "llvm-libc-types/struct_hostent.h"
+#include "llvm-libc-types/struct_sockaddr_un.h"
+#include "llvm-libc-macros/linux/netdb-macros.h"
+#include <netdb.h>
+#include <syslog.h>
+#ifdef __cplusplus
+#define CHECK static_assert
+#else
+#define CHECK _Static_assert
+#endif
+CHECK(sizeof(struct hostent) == 32, "hostent LP64");
+CHECK(__builtin_offsetof(struct hostent, h_addr_list) == 24, "hostent addresses");
+CHECK(sizeof(struct sockaddr_un) == 110, "Unix socket address");
+CHECK(AI_NUMERICHOST == 4 && NI_NUMERICHOST == 1 && NI_NUMERICSERV == 2,
+      "Linux resolver flags");
+struct hostent *(*host_lookup)(const char *) = gethostbyname;
+const char *(*host_error)(int) = hstrerror;
+int *host_error_location(void) { return &h_errno; }
+int (*name_lookup)(const struct sockaddr *, socklen_t, char *, socklen_t,
+                   char *, socklen_t, int) = getnameinfo;
+int (*address_lookup)(const char *, const char *, const struct addrinfo *,
+                      struct addrinfo **) = getaddrinfo;
+void (*address_free)(struct addrinfo *) = freeaddrinfo;
+void (*logging)(int, const char *, ...) = syslog;
