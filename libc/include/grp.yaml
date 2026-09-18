@@ -7,4 +7,36 @@ types:
   - type_name: size_t
 enums: []
 objects: []
-functions: []
+functions:
+  - name: getgrnam_r
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: const char *__restrict
+      - type: struct group *__restrict
+      - type: char *__restrict
+      - type: size_t
+      - type: struct group **__restrict
+  - name: getgrnam
+    standards:
+      - posix
+    return_type: struct group *
+    arguments:
+      - type: const char *
+  - name: getgrgid_r
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: gid_t
+      - type: struct group *__restrict
+      - type: char *__restrict
+      - type: size_t
+      - type: struct group **__restrict
+  - name: getgrgid
+    standards:
+      - posix
+    return_type: struct group *
+    arguments:
+      - type: gid_t

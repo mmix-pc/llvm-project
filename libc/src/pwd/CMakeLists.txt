@@ -98,3 +98,14 @@ add_object_library(
     libc.src.__support.macros.attributes
     libc.src.__support.macros.config
 )
+
+add_header_library(
+  field_tokenizer
+  HDRS field_tokenizer.h
+  DEPENDS
+    libc.src.__support.CPP.optional
+    libc.src.__support.CPP.span
+    libc.src.__support.CPP.string_view
+    libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
