@@ -896,7 +896,7 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.__support.libc_errno
 )
-foreach(name seteuid)
+foreach(name seteuid setegid)
   add_entrypoint_object(
     ${name}
     SRCS ${name}.cpp

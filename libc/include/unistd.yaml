@@ -62,6 +62,10 @@ functions:
     return_type: int
     arguments:
       - type: uid_t
+  - name: setegid
+    return_type: int
+    arguments:
+      - type: gid_t
   - name: lchown
     return_type: int
     arguments:
