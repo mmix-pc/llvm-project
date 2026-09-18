@@ -819,6 +819,17 @@ add_header_macro(
 )
 
 add_header_macro(
+  getopt
+  ../libc/include/getopt.yaml
+  getopt.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-macros.getopt_macros
+    .llvm-libc-types.struct_option
+    .llvm-libc-types.__getoptargv_t
+)
+
+add_header_macro(
   sys_times
   ../libc/include/sys/times.yaml
   sys/times.h

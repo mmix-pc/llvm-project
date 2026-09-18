@@ -500,11 +500,10 @@ add_entrypoint_object(
     libc.include.unistd
     libc.hdr.unistd_macros
     libc.hdr.types.FILE
+    libc.hdr.types.struct_option
     libc.src.__support.common
     libc.src.__support.macros.config
-    libc.src.__support.CPP.optional
     libc.src.__support.CPP.string_view
-    libc.src.__support.File.file
     libc.src.stdio.fprintf
     libc.src.stdio.stderr
 )

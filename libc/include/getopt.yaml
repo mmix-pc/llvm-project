@@ -1,0 +1,37 @@
+header: getopt.h
+standards:
+  - gnu
+macros:
+  - macro_name: no_argument
+    macro_header: getopt-macros.h
+  - macro_name: required_argument
+    macro_header: getopt-macros.h
+  - macro_name: optional_argument
+    macro_header: getopt-macros.h
+types:
+  - type_name: struct_option
+  - type_name: __getoptargv_t
+objects:
+  - object_name: optarg
+    object_type: char *
+  - object_name: optind
+    object_type: int
+  - object_name: opterr
+    object_type: int
+  - object_name: optopt
+    object_type: int
+functions:
+  - name: getopt
+    return_type: int
+    arguments:
+      - type: int
+      - type: __getoptargv_t
+      - type: const char *
+  - name: getopt_long
+    return_type: int
+    arguments:
+      - type: int
+      - type: __getoptargv_t
+      - type: const char *
+      - type: const struct option *
+      - type: int *

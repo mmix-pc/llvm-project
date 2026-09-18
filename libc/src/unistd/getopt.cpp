@@ -7,199 +7,247 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/unistd/getopt.h"
-#include "src/__support/CPP/optional.h"
 #include "src/__support/CPP/string_view.h"
-#include "src/__support/File/file.h"
 #include "src/__support/common.h"
-#include "src/__support/macros/config.h"
 #include "src/stdio/fprintf.h"
 #include "src/stdio/stderr.h"
 
-#include "hdr/types/FILE.h"
-
-// This is POSIX compliant and does not support GNU extensions, mainly this is
-// just the re-ordering of argv elements such that unknown arguments can be
-// easily iterated over.
-
 namespace LIBC_NAMESPACE_DECL {
-
 LLVM_LIBC_VARIABLE(char *, optarg) = nullptr;
 LLVM_LIBC_VARIABLE(int, optind) = 1;
 LLVM_LIBC_VARIABLE(int, optopt) = 0;
-LLVM_LIBC_VARIABLE(int, opterr) = 0;
+LLVM_LIBC_VARIABLE(int, opterr) = 1;
 
-template <typename T> struct RefWrapper {
-  RefWrapper() = delete;
-  constexpr RefWrapper(T *p) : ptr{p} {}
-  constexpr RefWrapper(const RefWrapper &) = default;
-  RefWrapper &operator=(const RefWrapper &) = default;
-  operator T &() { return *ptr; }
-  T &get() { return *ptr; }
-  T *ptr;
-};
-
+namespace {
+enum class Ordering { Stop, Permute, ReturnOperands };
 struct GetoptContext {
-  RefWrapper<char *> optarg;
-  RefWrapper<int> optind;
-  RefWrapper<int> optopt;
-  RefWrapper<unsigned> optpos;
+  char **argument;
+  int *index;
+  int *option;
+  unsigned *position;
+  int *errors;
+  FILE *stream;
+  int first_operand = 1;
+  int last_operand = 1;
+  int previous_index = 1;
+  bool initialized = false;
+  bool finished = false;
+  Ordering ordering = Ordering::Stop;
 
-  RefWrapper<int> opterr;
-
-  FILE *errstream;
-
-  GetoptContext &operator=(const GetoptContext &) = default;
-
-  template <typename... Ts> void report_error(const char *fmt, Ts... ts) {
-    if (opterr)
-      LIBC_NAMESPACE::fprintf(
-          errstream ? errstream
-                    : reinterpret_cast<FILE *>(LIBC_NAMESPACE::stderr),
-          fmt, ts...);
+  template <typename... Ts>
+  void report(bool silent, const char *fmt, Ts... ts) {
+    if (!silent && *errors)
+      LIBC_NAMESPACE::fprintf(stream ? stream : LIBC_NAMESPACE::stderr, fmt,
+                              ts...);
   }
 };
+unsigned optpos;
+GetoptContext context{&optarg, &optind, &optopt, &optpos, &opterr, nullptr};
 
-struct OptstringParser {
-  using value_type = struct {
-    char c;
-    bool arg;
-  };
-
-  cpp::string_view optstring;
-
-  struct iterator {
-    cpp::string_view curr;
-
-    iterator operator++() {
-      curr = curr.substr(1);
-      return *this;
-    }
-
-    bool operator!=(iterator other) { return curr.data() != other.curr.data(); }
-
-    value_type operator*() {
-      value_type r{curr.front(), false};
-      if (!curr.substr(1).empty() && curr.substr(1).front() == ':') {
-        this->operator++();
-        r.arg = true;
-      }
-      return r;
-    }
-  };
-
-  iterator begin() {
-    bool skip = optstring.front() == '-' || optstring.front() == '+' ||
-                optstring.front() == ':';
-    return {optstring.substr(!!skip)};
+void reverse(char **argv, int begin, int end) {
+  while (begin < --end) {
+    char *tmp = argv[begin];
+    argv[begin++] = argv[end];
+    argv[end] = tmp;
   }
-
-  iterator end() { return {optstring.substr(optstring.size())}; }
-};
-
-int getopt_r(int argc, char *const argv[], const char *optstring,
-             GetoptContext &ctx) {
-  auto failure = [&ctx](int ret = -1) {
-    ctx.optpos.get() = 0;
-    return ret;
-  };
-
-  if (ctx.optind >= argc || !argv[ctx.optind])
-    return failure();
-
-  cpp::string_view current =
-      cpp::string_view{argv[ctx.optind]}.substr(ctx.optpos);
-
-  auto move_forward = [&current, &ctx] {
-    current = current.substr(1);
-    ctx.optpos.get()++;
-  };
-
-  // If optpos is nonzero, then we are already parsing a valid flag and these
-  // need not be checked.
-  if (ctx.optpos == 0) {
-    if (current[0] != '-')
-      return failure();
-
-    if (current == "--") {
-      ctx.optind.get()++;
-      return failure();
-    }
-
-    // Eat the '-' char.
-    move_forward();
-    if (current.empty())
-      return failure();
-  }
-
-  auto find_match =
-      [current, optstring]() -> cpp::optional<OptstringParser::value_type> {
-    for (auto i : OptstringParser{optstring})
-      if (i.c == current[0])
-        return i;
-    return {};
-  };
-
-  auto match = find_match();
-  if (!match) {
-    ctx.report_error("%s: illegal option -- %c\n", argv[0], current[0]);
-    ctx.optopt.get() = current[0];
-    return failure('?');
-  }
-
-  // We've matched so eat that character.
-  move_forward();
-  if (match->arg) {
-    // If we found an option that takes an argument and our current is not over,
-    // the rest of current is that argument. Ie, "-cabc" with opstring "c:",
-    // then optarg should point to "abc". Otherwise the argument to c will be in
-    // the next arg like "-c abc".
-    if (!current.empty()) {
-      // This const cast is fine because current was already holding a mutable
-      // string, it just doesn't have the semantics to note that, we could use
-      // span but it doesn't have string_view string niceties.
-      ctx.optarg.get() = const_cast<char *>(current.data());
-    } else {
-      // One char lookahead to see if we ran out of arguments. If so, return ':'
-      // if the first character of optstring is ':'. optind must stay at the
-      // current value so only increase it after we known there is another arg.
-      if (ctx.optind + 1 >= argc || !argv[ctx.optind + 1]) {
-        ctx.report_error("%s: option requires an argument -- %c\n", argv[0],
-                         match->c);
-        return failure(optstring[0] == ':' ? ':' : '?');
-      }
-      ctx.optarg.get() = argv[++ctx.optind];
-    }
-    ctx.optind++;
-    ctx.optpos.get() = 0;
-  } else if (current.empty()) {
-    // If this argument is now empty we are safe to move onto the next one.
-    ctx.optind++;
-    ctx.optpos.get() = 0;
-  }
-
-  return match->c;
 }
 
+// Rotate adjacent operand/option ranges without allocating or changing strings.
+void exchange(char *const argv[], GetoptContext &ctx) {
+  char **slots = const_cast<char **>(argv);
+  reverse(slots, ctx.first_operand, ctx.last_operand);
+  reverse(slots, ctx.last_operand, *ctx.index);
+  reverse(slots, ctx.first_operand, *ctx.index);
+  ctx.first_operand += *ctx.index - ctx.last_operand;
+  ctx.last_operand = *ctx.index;
+}
+
+int parse(int argc, char *const argv[], const char *optstring,
+          const struct option *options, int *long_index, bool permute,
+          GetoptContext &ctx) {
+  int &index = *ctx.index;
+  unsigned &position = *ctx.position;
+  *ctx.argument = nullptr;
+  const char prefix = *optstring;
+  if (prefix == '+' || prefix == '-')
+    ++optstring;
+  bool silent = *optstring == ':';
+  if (silent)
+    ++optstring;
+
+  if (!ctx.initialized || index <= 0 || index != ctx.previous_index) {
+    if (index <= 0)
+      index = 1;
+    position = 0;
+    ctx.first_operand = ctx.last_operand = index;
+    ctx.finished = false;
+    ctx.initialized = true;
+    ctx.ordering = prefix == '-'               ? Ordering::ReturnOperands
+                   : prefix == '+' || !permute ? Ordering::Stop
+                                               : Ordering::Permute;
+  }
+  if (ctx.finished || !argv)
+    return -1;
+  auto at_end = [&] { return index >= argc || !argv[index]; };
+  auto operand = [&] { return argv[index][0] != '-' || !argv[index][1]; };
+  auto finish = [&] {
+    if (ctx.ordering == Ordering::Permute &&
+        ctx.first_operand != ctx.last_operand)
+      index = ctx.first_operand;
+    position = 0;
+    ctx.finished = true;
+    return -1;
+  };
+  const char *program = argc > 0 && argv[0] ? argv[0] : "";
+
+  if (!position) {
+    if (ctx.ordering == Ordering::Permute) {
+      if (ctx.first_operand != ctx.last_operand && ctx.last_operand != index)
+        exchange(argv, ctx);
+      else if (ctx.last_operand != index)
+        ctx.first_operand = index;
+      while (!at_end() && operand())
+        ++index;
+      ctx.last_operand = index;
+    }
+    if (at_end())
+      return finish();
+    if (cpp::string_view(argv[index]) == "--") {
+      ++index;
+      if (ctx.ordering == Ordering::Permute) {
+        if (ctx.first_operand != ctx.last_operand && ctx.last_operand != index)
+          exchange(argv, ctx);
+        else if (ctx.first_operand == ctx.last_operand)
+          ctx.first_operand = index;
+        ctx.last_operand = argc;
+        index = argc;
+      }
+      return finish();
+    }
+    if (operand()) {
+      if (ctx.ordering == Ordering::Stop)
+        return finish();
+      *ctx.argument = argv[index++];
+      return 1;
+    }
+    if (options && argv[index][1] == '-') {
+      const char *text = argv[index++] + 2;
+      cpp::string_view full(text);
+      size_t length = 0;
+      while (length < full.size() && full[length] != '=')
+        ++length;
+      cpp::string_view name = full.substr(0, length);
+      int match = -1;
+      bool ambiguous = false;
+      for (int i = 0; options[i].name; ++i) {
+        cpp::string_view candidate(options[i].name);
+        if (name.empty() || !candidate.starts_with(name))
+          continue;
+        if (candidate == name) {
+          match = i;
+          ambiguous = false;
+          break;
+        }
+        if (match < 0)
+          match = i;
+        else if (options[i].has_arg != options[match].has_arg ||
+                 options[i].flag != options[match].flag ||
+                 options[i].val != options[match].val)
+          ambiguous = true;
+      }
+      if (match < 0 || ambiguous) {
+        *ctx.option = 0;
+        ctx.report(silent, "%s: %s option -- %s\n", program,
+                   ambiguous ? "ambiguous" : "unrecognized", text);
+        return '?';
+      }
+      const auto &selected = options[match];
+      bool attached = length != full.size();
+      if (attached && selected.has_arg == 0) {
+        *ctx.option = selected.val;
+        ctx.report(silent, "%s: option does not allow an argument -- %s\n",
+                   program, selected.name);
+        return '?';
+      }
+      if (attached)
+        *ctx.argument = const_cast<char *>(text + length + 1);
+      else if (selected.has_arg == 1) {
+        if (at_end()) {
+          *ctx.option = selected.val;
+          ctx.report(silent, "%s: option requires an argument -- %s\n", program,
+                     selected.name);
+          return silent ? ':' : '?';
+        }
+        *ctx.argument = argv[index++];
+      }
+      if (long_index)
+        *long_index = match;
+      if (selected.flag) {
+        *selected.flag = selected.val;
+        return 0;
+      }
+      return selected.val;
+    }
+    position = 1;
+  }
+
+  unsigned char current = argv[index][position++];
+  const char *match = optstring;
+  while (*match && static_cast<unsigned char>(*match) != current)
+    ++match;
+  if (!*match || current == ':') {
+    if (!argv[index][position]) {
+      ++index;
+      position = 0;
+    }
+    *ctx.option = current;
+    ctx.report(silent, "%s: illegal option -- %c\n", program, current);
+    return '?';
+  }
+  if (match[1] == ':') {
+    if (argv[index][position])
+      *ctx.argument = argv[index] + position;
+    else if (match[2] != ':') {
+      ++index;
+      if (at_end()) {
+        position = 0;
+        *ctx.option = current;
+        ctx.report(silent, "%s: option requires an argument -- %c\n", program,
+                   current);
+        return silent ? ':' : '?';
+      }
+      *ctx.argument = argv[index];
+    }
+    ++index;
+    position = 0;
+  } else if (!argv[index][position]) {
+    ++index;
+    position = 0;
+  }
+  return current;
+}
+} // namespace
+
 namespace impl {
-
-static unsigned optpos;
-
-static GetoptContext ctx{&optarg, &optind, &optopt,
-                         &optpos, &opterr, /*errstream=*/nullptr};
-
 #ifndef LIBC_COPT_PUBLIC_PACKAGING
-// This is used exclusively in tests.
-void set_getopt_state(char **optarg_in, int *optind_in, int *optopt_in,
-                      unsigned *optpos_in, int *opterr_in, FILE *errstream) {
-  ctx = {optarg_in, optind_in, optopt_in, optpos_in, opterr_in, errstream};
+void set_getopt_state(char **argument, int *index, int *option,
+                      unsigned *position, int *errors, FILE *stream) {
+  context = {argument, index, option, position, errors, stream};
 }
 #endif
 
+int getopt_internal(int argc, char *const argv[], const char *optstring,
+                    const struct option *options, int *index, bool permute) {
+  int result = parse(argc, argv, optstring, options, index, permute, context);
+  context.previous_index = *context.index;
+  return result;
+}
 } // namespace impl
 
 LLVM_LIBC_FUNCTION(int, getopt,
                    (int argc, char *const argv[], const char *optstring)) {
-  return getopt_r(argc, argv, optstring, impl::ctx);
+  // Retain POSIX stop-at-operand ordering; getopt_long supplies GNU
+  // permutation.
+  return impl::getopt_internal(argc, argv, optstring, nullptr, nullptr, false);
 }
-
 } // namespace LIBC_NAMESPACE_DECL

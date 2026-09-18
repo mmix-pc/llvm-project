@@ -20,6 +20,7 @@ add_subdirectory(stdio)
 # target conditionally depends on unistd's environ target.
 add_subdirectory(unistd)
 add_subdirectory(stdlib)
+add_subdirectory(getopt)
 add_subdirectory(string)
 add_subdirectory(strings)
 add_subdirectory(time)

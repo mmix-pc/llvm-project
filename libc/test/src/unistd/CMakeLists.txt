@@ -930,6 +930,19 @@ add_libc_test(
 )
 
 add_libc_test(
+  getopt_long_test
+  SUITE libc_unistd_unittests
+  SRCS
+    getopt_long_test.cpp
+    ${LIBC_SOURCE_DIR}/src/getopt/getopt_long.cpp
+  DEPENDS
+    libc.src.unistd.getopt
+    libc.src.stdlib.getenv
+    libc.src.stdlib.setenv
+    libc.src.stdlib.unsetenv
+)
+
+add_libc_test(
   getentropy_test
   SUITE
     libc_unistd_unittests
