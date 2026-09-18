@@ -663,6 +663,15 @@ void MMIXTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
     Ops.push_back(DAG.getSignedTargetConstant(Value, SDLoc(Op), MVT::i64));
 }
 
+EVT MMIXTargetLowering::getSetCCResultType(const DataLayout &DL,
+                                         LLVMContext &, EVT VT) const {
+  // DAG combines can introduce vector predicates before type legalization
+  // scalarizes the lanes, even though MMIX has no vector registers.
+  if (VT.isVector())
+    return VT.changeVectorElementTypeToInteger();
+  return getPointerTy(DL);
+}
+
 MMIXTargetLowering::MMIXTargetLowering(const TargetMachine &TM,
                                        const MMIXSubtarget &STI)
     : TargetLowering(TM, STI) {

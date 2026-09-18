@@ -65,6 +65,9 @@ class MMIXTargetLowering final : public TargetLowering {
 public:
   MMIXTargetLowering(const TargetMachine &TM, const MMIXSubtarget &STI);
 
+  EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
+                        EVT VT) const override;
+
   Register getExceptionPointerRegister(
       ExceptionHandling EH, const Constant *PersonalityFn) const override;
   Register getExceptionSelectorRegister(
