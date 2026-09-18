@@ -15,4 +15,5 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.sys.time.settimeofday
   libc.src.unistd.chown
   libc.src.unistd.lchown
-  libc.src.unistd.fchdir)
+  libc.src.unistd.fchdir
+  libc.src.unistd.chroot)
