@@ -12,6 +12,8 @@ macros:
     macro_header: fnmatch-macros.h
   - macro_name: FNM_CASEFOLD
     macro_header: fnmatch-macros.h
+  - macro_name: FNM_LEADING_DIR
+    macro_header: fnmatch-macros.h
   - macro_name: FNM_IGNORECASE
     macro_header: fnmatch-macros.h
 types: []

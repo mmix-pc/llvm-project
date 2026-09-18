@@ -7,5 +7,7 @@ add_entrypoint_object(
   DEPENDS
     libc.hdr.fnmatch_macros
     libc.src.__support.common
+    libc.src.__support.ctype_utils
     libc.src.__support.macros.config
+    libc.src.__support.wctype_impl
 )
