@@ -819,6 +819,16 @@ add_header_macro(
 )
 
 add_header_macro(
+  sys_times
+  ../libc/include/sys/times.yaml
+  sys/times.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-types.clock_t
+    .llvm-libc-types.struct_tms
+)
+
+add_header_macro(
   sys_resource
   ../libc/include/sys/resource.yaml
   sys/resource.h
