@@ -5,15 +5,33 @@ if(NOT TARGET libc.src.pwd.pwd_utils)
 endif()
 
 add_libc_test(
-  mmix_lookup_test
+  query_test
   SUITE libc_pwd_unittests
-  SRCS linux/mmix/lookup_test.cpp
+  SRCS
+    query_test.cpp
+    ${LIBC_SOURCE_DIR}/src/pwd/getpwnam_r.cpp
+    ${LIBC_SOURCE_DIR}/src/pwd/getpwuid_r.cpp
+    ${LIBC_SOURCE_DIR}/src/pwd/getpwnam.cpp
+    ${LIBC_SOURCE_DIR}/src/pwd/getpwuid.cpp
+  DEPENDS
+    libc.src.pwd.lookup
+    libc.src.__support.common
+    libc.src.stdio.remove
+)
+
+add_libc_test(
+  lookup_test
+  SUITE libc_pwd_unittests
+  SRCS lookup_test.cpp
   DEPENDS
     libc.src.__support.File.file
     libc.src.__support.File.platform_file
     libc.src.__support.libc_errno
     libc.src.pwd.pwd_utils
+    libc.src.pwd.lookup
     libc.src.stdio.remove
+    libc.src.unistd.dup
+    libc.src.unistd.close
 )
 
 add_libc_test(

@@ -50,6 +50,16 @@ add_object_library(
     libc.hdr.types.struct_dirent
 )
 
+add_header_library(
+  account_database
+  HDRS account_database.h
+  DEPENDS
+    .file
+    libc.hdr.errno_macros
+    libc.hdr.func.realloc
+    libc.src.__support.libc_errno
+)
+
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   return()
 endif()

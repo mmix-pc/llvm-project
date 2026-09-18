@@ -41,7 +41,7 @@ LIBC_INLINE bool parse_line<struct passwd>(cpp::span<char> line,
   FieldTokenizer tokenizer(line);
 
   auto name = tokenizer.next_field();
-  if (!name)
+  if (!name || name->size() <= 1)
     return false;
   pwd->pw_name = name->data();
 
@@ -85,7 +85,7 @@ LIBC_INLINE bool parse_line<struct passwd>(cpp::span<char> line,
     return false;
   pwd->pw_shell = shell->data();
 
-  return true;
+  return !tokenizer.next_field();
 }
 
 // Parses a colon-separated password database line into a struct passwd.

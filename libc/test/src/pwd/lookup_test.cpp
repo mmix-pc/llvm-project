@@ -4,8 +4,10 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //===----------------------------------------------------------------------===//
 
-#include "src/pwd/linux/mmix/lookup.h"
+#include "src/pwd/lookup.h"
 #include "src/stdio/remove.h"
+#include "src/unistd/close.h"
+#include "src/unistd/dup.h"
 #include "test/UnitTest/Test.h"
 
 using LIBC_NAMESPACE::pwd::lookup_passwd;
@@ -13,11 +15,13 @@ static bool alice(const passwd &entry) {
   return LIBC_NAMESPACE::cpp::string_view(entry.pw_name) == "alice";
 }
 
-TEST(LlvmLibcMMIXLookupTest, RecordsAndIndependentBuffers) {
-  const char *path = libc_make_test_file_path("mmix-passwd.test");
+TEST(LlvmLibcPwdLookupTest, RecordsAndIndependentBuffers) {
+  const char *path = libc_make_test_file_path("passwd-lookup.test");
   auto file = LIBC_NAMESPACE::openfile(path, "w");
   ASSERT_TRUE(file.has_value());
   constexpr char records[] = "\n# comment\ninvalid\nbad:x:-1:2:x:/x:/bin/sh\n"
+                             ":x:42:7:A:/a:/s\nextra:x:42:7:A:/a:/s:extra\n"
+                             "nul:x:42:7:A:/a:/s\0garbage\n"
                              "alice:x:42:7:Alice:/home/alice:/bin/sh\n"
                              "bob:x:43:8:Bob:/home/bob:/bin/sh";
   ASSERT_EQ(file.value()->write(records, sizeof(records) - 1).value,
@@ -46,8 +50,28 @@ TEST(LlvmLibcMMIXLookupTest, RecordsAndIndependentBuffers) {
   ASSERT_EQ(LIBC_NAMESPACE::remove(path), 0);
 }
 
-TEST(LlvmLibcMMIXLookupTest, BoundsAndErrors) {
-  const char *path = libc_make_test_file_path("mmix-passwd-bounds.test");
+TEST(LlvmLibcPwdLookupTest, ReadErrorIsNotMissingRecord) {
+  int before = LIBC_NAMESPACE::dup(1);
+  ASSERT_GE(before, 0);
+  ASSERT_EQ(LIBC_NAMESPACE::close(before), 0);
+  passwd entry{}, *result = &entry;
+  char buffer[128];
+  libc_errno = EDOM;
+  for (unsigned i = 0; i < 64; ++i) {
+    EXPECT_EQ(
+        lookup_passwd(alice, &entry, buffer, sizeof(buffer), &result, "."),
+        EISDIR);
+    EXPECT_EQ(result, static_cast<passwd *>(nullptr));
+    EXPECT_EQ(int(libc_errno), EDOM);
+  }
+  int after = LIBC_NAMESPACE::dup(1);
+  ASSERT_GE(after, 0);
+  EXPECT_EQ(after, before);
+  ASSERT_EQ(LIBC_NAMESPACE::close(after), 0);
+}
+
+TEST(LlvmLibcPwdLookupTest, BoundsAndErrors) {
+  const char *path = libc_make_test_file_path("passwd-lookup-bounds.test");
   constexpr char record[] = "alice:x:42:7:A:/a:/s";
   auto file = LIBC_NAMESPACE::openfile(path, "w");
   ASSERT_TRUE(file.has_value());

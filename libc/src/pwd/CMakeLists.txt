@@ -2,9 +2,33 @@ if(NOT TARGET libc.src.__support.File.file OR NOT TARGET libc.src.__support.File
   return()
 endif()
 
-if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
-  include(${CMAKE_CURRENT_SOURCE_DIR}/linux/mmix/Lookup.cmake)
-endif()
+add_object_library(
+  lookup
+  SRCS passwd_lookup.cpp
+  HDRS lookup.h
+  DEPENDS
+    .pwd_utils
+    libc.src.__support.File.account_database
+    libc.src.__support.File.platform_file
+)
+
+foreach(name getpwnam_r getpwuid_r)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .lookup libc.src.__support.common
+  )
+endforeach()
+
+foreach(name getpwnam getpwuid)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .lookup .${name}_r libc.src.__support.common
+  )
+endforeach()
 
 add_entrypoint_object(
   getpwent
