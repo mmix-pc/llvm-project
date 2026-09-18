@@ -20,7 +20,8 @@ with (root / "CMakeLists.txt").open("a") as output:
 components = ("SIGNAL_RUNTIME", "WIDE", "MATH", "IOCTL", "TERMIOS", "JOB_CONTROL",
               "EXEC_SEARCH", "SIGNAL_SUSPEND", "POLL", "PROCESS_TIMING",
               "FILE_METADATA", "OPTION_PARSING", "REGEX", "FNMATCH",
-              "ACCOUNT_LOOKUP", "MOUNT_TABLE", "SYSTEM_ADMINISTRATION", "TEXT_EXTENSIONS")
+              "ACCOUNT_LOOKUP", "MOUNT_TABLE", "SYSTEM_ADMINISTRATION", "TEXT_EXTENSIONS",
+              "PROCESS_CONTROL")
 cases = [([], None), (["-DLIBC_MMIX_ENABLE_UNIX_HEADERS=OFF"], "requires Unix headers")]
 cases += [(["-DLIBC_MMIX_BUILD_" + c + "=OFF"], "requires " + c) for c in components]
 for i, (options, error) in enumerate(cases):
