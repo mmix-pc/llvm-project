@@ -10,7 +10,7 @@ set(LIBC_MMIX_ENABLE_UNIX_HEADERS ON)
 include(${SOURCE}/libc/config/linux/mmix/headers.txt)
 foreach(header byteswap libgen poll sys_ioctl termios sys_socket netdb
     arpa_inet netinet_in sys_sysmacros sys_param pwd grp syslog regex
-    sys_statfs sys_mount sys_utsname fnmatch alloca mmix_paths mmix_getopt
+    sys_statfs sys_mount sys_utsname fnmatch alloca mmix_paths getopt
     mmix_mntent mmix_sys_reboot sys_times)
   if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
     message(FATAL_ERROR "Missing command-environment header: ${header}")

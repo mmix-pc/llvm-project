@@ -29,8 +29,12 @@ if(LIBC_MMIX_ENABLE_UNIX_HEADERS)
     libc.include.regex libc.include.sys_statfs libc.include.sys_mount
     libc.include.sys_utsname libc.include.fnmatch libc.include.alloca
     libc.include.arpa_inet libc.include.netinet_in
-    libc.include.mmix_paths libc.include.mmix_getopt libc.include.mmix_mntent
+    libc.include.mmix_paths libc.include.getopt libc.include.mmix_mntent
     libc.include.mmix_sys_reboot libc.include.sys_times)
+endif()
+
+if(LIBC_MMIX_BUILD_OPTION_PARSING)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.getopt)
 endif()
 
 if(LIBC_MMIX_BUILD_CORE)

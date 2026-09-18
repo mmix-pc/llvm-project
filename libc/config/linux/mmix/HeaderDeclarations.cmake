@@ -8,7 +8,7 @@ list(APPEND TARGET_ENTRYPOINT_NAME_LIST
   major minor makedev ioctl tcgetattr tcsetattr tcgetpgrp tcsetpgrp
   setpgid getpgid getsid ttyname cfgetispeed cfgetospeed cfsetispeed cfsetospeed
   execvp sigsuspend poll ppoll alarm utimensat
-  getopt getopt_long fnmatch regcomp regexec regerror regfree
+  getopt getopt_long optarg optind opterr optopt fnmatch regcomp regexec regerror regfree
   getuid geteuid getgid getegid getpwnam getpwuid getgrnam getgrgid endpwent endgrent
   mount umount umount2 sync uname
   strsignal strverscmp asprintf vasprintf getline getdelim)

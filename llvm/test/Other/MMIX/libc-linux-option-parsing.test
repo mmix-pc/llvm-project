@@ -1,0 +1,28 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/OptionParsing.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "option parsing must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_OPTION_PARSING ON)
+include(${SOURCE}/libc/config/linux/mmix/OptionParsing.cmake)
+list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
+if(NOT count EQUAL 7)
+  message(FATAL_ERROR "unexpected option-parsing provider selection")
+endif()
+foreach(entry libc.src.unistd.getopt libc.src.getopt.getopt_long
+              libc.src.unistd.optarg libc.src.unistd.optind
+              libc.src.unistd.opterr libc.src.unistd.optopt)
+  if(NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing option-parsing provider: ${entry}")
+  endif()
+endforeach()
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT libc.include.getopt IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing public option-parsing header")
+endif()

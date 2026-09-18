@@ -2,7 +2,7 @@ if(NOT LIBC_MMIX_ENABLE_UNIX_HEADERS)
   return()
 endif()
 
-foreach(header paths getopt mntent)
+foreach(header paths mntent)
   add_header(mmix_${header}
     HDR linux/mmix/${header}.h
     DEST_HDR ${header}.h
