@@ -10,4 +10,5 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.string.strverscmp
   libc.src.stdio.fseeko
   libc.src.stdio.freopen
-  libc.src.sys.stat.mknod)
+  libc.src.sys.stat.mknod
+  libc.src.sys.time.utimes)
