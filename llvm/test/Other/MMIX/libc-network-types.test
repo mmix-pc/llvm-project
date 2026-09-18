@@ -6,6 +6,7 @@
 # RUN: clang --target=mmix-unknown-linux -nostdinc -I %t -I %S/../../../../libc/include -x c++ -std=c++17 -fsyntax-only %t/layout.c
 
 #--- layout.c
+#include "llvm-libc-types/struct_ifreq.h"
 #include "llvm-libc-types/struct_hostent.h"
 #include "llvm-libc-types/struct_sockaddr_un.h"
 #include "llvm-libc-macros/linux/netdb-macros.h"
@@ -16,6 +17,11 @@
 #else
 #define CHECK _Static_assert
 #endif
+CHECK(sizeof(struct ifmap) == 24, "ifmap LP64");
+CHECK(sizeof(struct ifreq) == 40, "ifreq LP64 kernel ABI");
+CHECK(__alignof__(struct ifreq) == 8, "ifreq alignment");
+CHECK(__builtin_offsetof(struct ifreq, ifr_map) == 16, "ifreq payload");
+CHECK(__builtin_offsetof(struct ifmap, base_addr) == 16, "ifmap base address");
 CHECK(sizeof(struct hostent) == 32, "hostent LP64");
 CHECK(__builtin_offsetof(struct hostent, h_addr_list) == 24, "hostent addresses");
 CHECK(sizeof(struct sockaddr_un) == 110, "Unix socket address");

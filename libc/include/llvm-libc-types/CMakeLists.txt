@@ -300,7 +300,8 @@ add_header(
     libc.include.llvm-libc-macros.stdint_macros
 )
 add_header(struct_sockaddr_un HDR struct_sockaddr_un.h DEPENDS .sa_family_t)
-add_header(struct_ifreq HDR struct_ifreq.h DEPENDS libc.include.llvm-libc-macros.net_if_macros .struct_sockaddr)
+add_header(struct_ifmap HDR struct_ifmap.h)
+add_header(struct_ifreq HDR struct_ifreq.h DEPENDS libc.include.llvm-libc-macros.net_if_macros .struct_sockaddr .struct_ifmap)
 add_header(struct_if_nameindex HDR struct_if_nameindex.h)
 add_header(struct_iovec HDR struct_iovec.h DEPENDS .size_t)
 add_header(struct_linger HDR struct_linger.h)

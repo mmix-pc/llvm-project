@@ -15,6 +15,7 @@
 #define LLVM_LIBC_TYPES_STRUCT_IFREQ_H
 
 #include "../llvm-libc-macros/net-if-macros.h"
+#include "struct_ifmap.h"
 #include "struct_sockaddr.h"
 
 struct ifreq {
@@ -28,6 +29,7 @@ struct ifreq {
     short int ifr_flags;
     int ifr_metric;
     int ifr_mtu;
+    struct ifmap ifr_map;
     int ifr_ifindex;
     int ifr_bandwidth;
     int ifr_qlen;
