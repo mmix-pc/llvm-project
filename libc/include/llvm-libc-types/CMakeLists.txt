@@ -204,6 +204,7 @@ add_header(
     .time_t
 )
 add_header(struct_timeval HDR struct_timeval.h DEPENDS .suseconds_t .time_t)
+add_header(struct_timezone HDR struct_timezone.h)
 add_header(struct_itimerval HDR struct_itimerval.h DEPENDS .struct_timeval)
 add_header(struct_rusage HDR struct_rusage.h DEPENDS .struct_timeval)
 add_header(union_sigval HDR union_sigval.h)

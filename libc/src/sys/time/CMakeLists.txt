@@ -29,3 +29,10 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.gettimeofday
 )
+
+add_entrypoint_object(
+  settimeofday
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.settimeofday
+)

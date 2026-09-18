@@ -995,6 +995,7 @@ add_header_macro(
     .llvm-libc-macros.sys_time_macros
     .llvm-libc-types.struct_itimerval
     .llvm-libc-types.struct_timeval
+    .llvm-libc-types.struct_timezone
 )
 
 add_header_macro(

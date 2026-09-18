@@ -348,6 +348,14 @@ add_proxy_header_library(
 )
 
 add_proxy_header_library(
+  struct_timezone
+  HDRS
+    struct_timezone.h
+  FULL_BUILD_DEPENDS
+    libc.include.llvm-libc-types.struct_timezone
+)
+
+add_proxy_header_library(
   struct_timeval
   HDRS
     struct_timeval.h

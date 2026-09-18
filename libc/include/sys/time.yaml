@@ -11,11 +11,19 @@ macros:
   - macro_name: timeradd
     macro_header: sys-time-macros.h
 types:
+  - type_name: struct_timezone
   - type_name: struct_timeval
   - type_name: struct_itimerval
 enums: []
 objects: []
 functions:
+  - name: settimeofday
+    standards:
+      - bsd
+    return_type: int
+    arguments:
+      - type: const struct timeval *
+      - type: const struct timezone *
   - name: utimes
     return_type: int
     arguments:

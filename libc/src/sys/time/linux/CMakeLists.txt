@@ -57,3 +57,18 @@ add_entrypoint_object(
     libc.src.__support.time.units
     libc.src.errno.errno
 )
+
+add_entrypoint_object(
+  settimeofday
+  SRCS
+    settimeofday.cpp
+  HDRS
+    ../settimeofday.h
+  DEPENDS
+    libc.src.__support.common
+    libc.src.__support.macros.config
+    libc.hdr.types.struct_timeval
+    libc.hdr.types.struct_timezone
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.libc_errno
+)
