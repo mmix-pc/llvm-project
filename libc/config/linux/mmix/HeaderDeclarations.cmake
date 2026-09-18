@@ -5,6 +5,7 @@ endif()
 # Declaration-only preparation; this list does not select archive providers.
 # Keep the normal profile's generated declarations unchanged when disabled.
 list(APPEND TARGET_ENTRYPOINT_NAME_LIST
+  sched_getaffinity prctl
   major minor makedev ioctl tcgetattr tcsetattr tcgetpgrp tcsetpgrp
   setpgid getpgid getsid ttyname cfgetispeed cfgetospeed cfsetispeed cfsetospeed
   execvp sigsuspend poll ppoll alarm utimensat

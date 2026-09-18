@@ -130,6 +130,15 @@ add_libc_test(
     libc.include.llvm-libc-macros.stdckdint_macros
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    termios_macros_test
+    SUITE libc_include_tests
+    SRCS termios_macros_test.cpp
+    DEPENDS libc.include.llvm-libc-macros.termios_macros
+  )
+endif()
+
 add_libc_test(
   sched_test
   SUITE

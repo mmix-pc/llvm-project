@@ -87,6 +87,7 @@
 // Baud rate related definitions
 #define CBAUD 000000010017  // Baud speed mask
 #define CBAUDX 000000010000 // Extra baud speed mask
+#define CBAUDEX CBAUDX      // Linux name for the extended baud speed mask
 #define CIBAUD 002003600000
 #define CMSPAR 010000000000
 #define CRTSCTS 020000000000
@@ -147,6 +148,10 @@
 #define ECHONL 0000100 // Echo NL
 #define NOFLSH 0000200 // Disable flush after interrupt or quit
 #define TOSTOP 0000400 // Send SIGTTOU for background output
+#define ECHOCTL 0001000 // Echo control characters as caret notation
+#define ECHOKE 0004000  // Erase the line when processing KILL
+#define FLUSHO 0010000  // Output is being flushed
+#define IEXTEN 0100000  // Enable implementation-defined input processing
 
 // Attribute selection
 #define TCSANOW 0   // Change attributes immediately

@@ -30,7 +30,8 @@ if(LIBC_MMIX_ENABLE_UNIX_HEADERS)
     libc.include.sys_utsname libc.include.fnmatch libc.include.alloca
     libc.include.arpa_inet libc.include.netinet_in
     libc.include.mmix_paths libc.include.getopt libc.include.mntent
-    libc.include.sys_reboot libc.include.sys_times libc.include.sys_sysinfo)
+    libc.include.sys_reboot libc.include.sys_times libc.include.sys_sysinfo
+    libc.include.sched libc.include.malloc libc.include.sys_prctl)
 endif()
 
 if(LIBC_MMIX_BUILD_OPTION_PARSING)
