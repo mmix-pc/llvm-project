@@ -8,7 +8,7 @@ include(${SOURCE}/libc/config/linux/mmix/headers.txt)
 set(baseline ${TARGET_PUBLIC_HEADERS})
 set(LIBC_MMIX_ENABLE_UNIX_HEADERS ON)
 include(${SOURCE}/libc/config/linux/mmix/headers.txt)
-foreach(header byteswap libgen poll sys_ioctl termios sys_socket netdb
+foreach(header byteswap libgen poll sys_ioctl termios sys_socket sys_un netdb net_if
     arpa_inet netinet_in sys_sysmacros sys_param pwd grp syslog regex
     sys_statfs sys_mount sys_utsname fnmatch alloca mmix_paths getopt
     mntent sys_reboot sys_times sched malloc sys_prctl)
@@ -17,7 +17,10 @@ foreach(header byteswap libgen poll sys_ioctl termios sys_socket netdb
   endif()
 endforeach()
 include(${SOURCE}/libc/config/linux/mmix/HeaderDeclarations.cmake)
-foreach(name sched_getaffinity prctl)
+foreach(name sched_getaffinity prctl socket bind listen sendto getsockname
+    getpeername connect setsockopt getsockopt htons ntohs htonl ntohl
+    inet_aton inet_ntoa getaddrinfo freeaddrinfo getnameinfo gethostbyname
+    hstrerror __h_errno_location syslog)
   if(NOT name IN_LIST TARGET_ENTRYPOINT_NAME_LIST)
     message(FATAL_ERROR "Missing command-environment declaration: ${name}")
   endif()

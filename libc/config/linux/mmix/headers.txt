@@ -22,9 +22,9 @@ option(LIBC_MMIX_ENABLE_UNIX_HEADERS
   "Expose additional Unix/Linux API headers and declarations for MMIX Linux" OFF)
 if(LIBC_MMIX_ENABLE_UNIX_HEADERS)
   list(APPEND TARGET_PUBLIC_HEADERS
-    libc.include.byteswap libc.include.endian libc.include.netdb
+    libc.include.byteswap libc.include.endian libc.include.netdb libc.include.net_if
     libc.include.libgen libc.include.poll libc.include.sys_ioctl
-    libc.include.sys_socket libc.include.sys_sysmacros libc.include.termios
+    libc.include.sys_socket libc.include.sys_un libc.include.sys_sysmacros libc.include.termios
     libc.include.sys_param libc.include.pwd libc.include.grp libc.include.syslog
     libc.include.regex libc.include.sys_statfs libc.include.sys_mount
     libc.include.sys_utsname libc.include.fnmatch libc.include.alloca

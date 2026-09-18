@@ -13,4 +13,8 @@ list(APPEND TARGET_ENTRYPOINT_NAME_LIST
   getuid geteuid getgid getegid getpwnam getpwuid getgrnam getgrgid endpwent endgrent
   setmntent getmntent getmntent_r endmntent hasmntopt addmntent
   mount umount umount2 reboot sync uname
-  strsignal strverscmp asprintf vasprintf getline getdelim)
+  strsignal strverscmp asprintf vasprintf getline getdelim
+  socket bind listen sendto getsockname getpeername connect setsockopt getsockopt
+  htons ntohs htonl ntohl inet_aton inet_ntoa
+  getaddrinfo freeaddrinfo getnameinfo gethostbyname
+  hstrerror __h_errno_location syslog)
