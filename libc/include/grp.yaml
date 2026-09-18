@@ -8,6 +8,9 @@ types:
 enums: []
 objects: []
 functions:
+  - name: endgrent
+    return_type: void
+    arguments: []
   - name: getgrnam_r
     standards:
       - posix

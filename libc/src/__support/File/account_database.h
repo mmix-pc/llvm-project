@@ -75,7 +75,8 @@ int lookup_account(const char *path, Entry *entry, char *buffer, size_t size,
 }
 
 // Nonreentrant results are process-owned and may be overwritten by the next
-// query in the same database family. Keep the allocation for process lifetime.
+// query in the same database family. Retain storage across queries; a database
+// lifecycle function may explicitly release it.
 template <typename Entry> struct AccountBuffer {
   Entry entry{};
   char *buffer = nullptr;

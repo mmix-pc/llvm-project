@@ -33,3 +33,9 @@ foreach(name getgrnam getgrgid)
     DEPENDS .lookup .${name}_r libc.src.__support.common
   )
 endforeach()
+add_entrypoint_object(
+  endgrent
+  SRCS endgrent.cpp
+  HDRS endgrent.h
+  DEPENDS .lookup libc.hdr.func.free libc.src.__support.common
+)
