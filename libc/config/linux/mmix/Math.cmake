@@ -18,3 +18,5 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.fenv.feholdexcept
   libc.src.fenv.feupdateenv
 )
+
+include(${CMAKE_CURRENT_LIST_DIR}/MathLinkerScript.cmake)

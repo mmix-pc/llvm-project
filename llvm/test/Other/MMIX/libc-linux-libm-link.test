@@ -1,0 +1,45 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: cmake -S %t -B %t/build -DLIBC_SOURCE=%S/../../../../libc -DCMAKE_INSTALL_PREFIX=%t/install
+# RUN: cmake --install %t/build --component libc
+# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/math.s -o %t/math.o
+# RUN: llvm-ar qc %t/install/lib/libc.a %t/math.o
+# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/start.s -o %t/start.o
+# RUN: ld.lld -m elf64mmix_linux --entry=_start -L%t/install/lib %t/start.o -lm -o %t/a.out
+# RUN: llvm-nm --defined-only %t/a.out | FileCheck %s
+# RUN: llvm-nm --undefined-only %t/a.out | count 0
+# RUN: llvm-ar d %t/install/lib/libc.a math.o
+# RUN: not ld.lld -m elf64mmix_linux --entry=_start -L%t/install/lib %t/start.o -lm -o %t/no-provider 2>&1 | FileCheck %s --check-prefix=NO-PROVIDER
+# RUN: rm %t/install/lib/libc.a
+# RUN: not ld.lld -m elf64mmix_linux --entry=_start -L%t/install/lib %t/start.o -lm -o %t/missing 2>&1 | FileCheck %s --check-prefix=MISSING
+# RUN: cmake -S %t -B %t/off -DLIBC_SOURCE=%S/../../../../libc -DENABLE_MATH=OFF -DCMAKE_INSTALL_PREFIX=%t/off-install
+# RUN: cmake --install %t/off --component libc
+# RUN: not test -e %t/off-install/lib/libm.a
+# CHECK: T _start
+# CHECK: T math_provider
+# MISSING: unable to find libc.a
+# NO-PROVIDER: undefined symbol: math_provider
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(MathCompatibility NONE)
+option(ENABLE_MATH "Select the math profile" ON)
+set(LIBC_MMIX_BUILD_MATH ${ENABLE_MATH})
+set(LLVM_LIBC_FULL_BUILD ON)
+set(LIBC_LIBRARY_DIR ${CMAKE_BINARY_DIR}/lib)
+set(LIBC_INSTALL_LIBRARY_DIR lib)
+include(${LIBC_SOURCE}/config/linux/mmix/MathLinkerScript.cmake)
+
+#--- math.s
+.text
+.globl math_provider
+math_provider:
+  POP 0, 0
+
+#--- start.s
+.text
+.globl _start
+_start:
+  PUSHJ r0, math_provider
+  TRAP 255, 0, 0
