@@ -16,3 +16,9 @@ TEST(LlvmLibcTermiosMacrosTest, LinuxExtendedFlags) {
   EXPECT_EQ(FLUSHO, 0x1000);
   EXPECT_EQ(IEXTEN, 0x8000);
 }
+
+TEST(LlvmLibcTermiosMacrosTest, LinuxFlushSelectors) {
+  EXPECT_EQ(TCIFLUSH, 0);
+  EXPECT_EQ(TCOFLUSH, 1);
+  EXPECT_EQ(TCIOFLUSH, 2);
+}
