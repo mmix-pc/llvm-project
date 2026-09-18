@@ -576,7 +576,7 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.lchown
 )
-foreach(name seteuid setegid)
+foreach(name seteuid setegid getgroups)
   add_entrypoint_object(
     ${name}
     ALIAS

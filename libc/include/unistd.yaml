@@ -66,6 +66,11 @@ functions:
     return_type: int
     arguments:
       - type: gid_t
+  - name: getgroups
+    return_type: int
+    arguments:
+      - type: int
+      - type: gid_t *
   - name: lchown
     return_type: int
     arguments:
