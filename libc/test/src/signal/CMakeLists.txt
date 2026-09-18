@@ -1,6 +1,29 @@
 add_custom_target(libc_signal_unittests)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
+  if(LLVM_LIBC_FULL_BUILD)
+    add_libc_test(
+      sigsuspend_test
+      SUITE libc_signal_unittests
+      SRCS
+        sigsuspend_test.cpp
+        ${LIBC_SOURCE_DIR}/src/signal/linux/sigsuspend.cpp
+        ${LIBC_SOURCE_DIR}/src/signal/linux/sigismember.cpp
+      DEPENDS
+        libc.hdr.signal_macros
+        libc.hdr.types.sigset_t
+        libc.include.signal
+        libc.include.sys_syscall
+        libc.src.__support.OSUtil.osutil
+        libc.src.errno.errno
+        libc.src.signal.raise
+        libc.src.signal.sigaction
+        libc.src.signal.sigaddset
+        libc.src.signal.sigemptyset
+        libc.src.signal.sigprocmask
+    )
+  endif()
+
   add_libc_test(
     raise_error_test
     SUITE libc_signal_unittests

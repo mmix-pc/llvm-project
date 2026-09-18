@@ -38,6 +38,20 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  sigismember
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.sigismember
+)
+
+add_entrypoint_object(
+  sigsuspend
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.sigsuspend
+)
+
+add_entrypoint_object(
   pthread_sigmask
   ALIAS
   DEPENDS
