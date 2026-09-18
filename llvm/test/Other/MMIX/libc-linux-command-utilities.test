@@ -1,0 +1,171 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/CommandUtilities.cmake)
+if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL "sentinel")
+  message(FATAL_ERROR "command utilities must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_COMMAND_UTILITIES ON)
+include(${SOURCE}/libc/config/linux/mmix/CommandUtilities.cmake)
+foreach(entry stdlib.clearenv stdlib.mkstemp libgen.dirname string.strverscmp
+    stdio.fseeko stdio.freopen sys.stat.mknod sys.time.utimes
+    sys.time.settimeofday unistd.chown unistd.lchown unistd.fchdir unistd.chroot)
+  if(NOT "libc.src.${entry}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing command provider ${entry}")
+  endif()
+endforeach()
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=utilities_test",
+          "-I", str(root), "-I", str(libc)]
+for opt in ("0", "2"):
+    subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+        "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+        *common, "-O" + opt, "-emit-obj", str(root / "semantics.cpp"),
+        "-o", str(root / ("target-O" + opt + ".o"))], check=True)
+    if len(sys.argv) == 4:
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+            str(root / "native-boundary.h"), str(root / "semantics.cpp"),
+            "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- native-boundary.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+#--- sys/syscall.h
+#define SYS_mknodat 33
+#define SYS_chdir 49
+#define SYS_fchdir 50
+#define SYS_chroot 51
+#define SYS_fchownat 54
+#define SYS_openat 56
+#define SYS_utimensat 88
+#define SYS_settimeofday 170
+#define SYS_getrandom 278
+
+#--- linux/errno.h
+#define EPERM 1
+#define EINTR 4
+#define EBADF 9
+#define ENOMEM 12
+#define EACCES 13
+#define EFAULT 14
+#define EEXIST 17
+#define EINVAL 22
+#define ENOSYS 38
+#define EOVERFLOW 75
+
+#--- semantics.cpp
+#include "src/unistd/linux/chown.cpp"
+#include "src/unistd/linux/lchown.cpp"
+#include "src/unistd/linux/fchdir.cpp"
+#include "src/unistd/linux/chroot.cpp"
+#include "src/sys/stat/linux/mknod.cpp"
+#include "src/sys/time/linux/utimes.cpp"
+#include "src/sys/time/linux/settimeofday.cpp"
+#include "src/stdlib/mkstemp.cpp"
+#include "src/errno/libc_errno.cpp"
+
+using namespace utilities_test;
+static void require(bool value) { if (!value) __builtin_trap(); }
+static unsigned long number;
+static long args[6], reply;
+static unsigned calls, opens;
+static bool temporary;
+static long seconds, fraction;
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                        long c, long d, long e, long f) {
+  number = n;
+  args[0] = a; args[1] = b; args[2] = c;
+  args[3] = d; args[4] = e; args[5] = f;
+  ++calls;
+  if (n == SYS_settimeofday && a) {
+    seconds = reinterpret_cast<long *>(a)[0];
+    fraction = reinterpret_cast<long *>(a)[1];
+  }
+  if (n == SYS_utimensat && c) {
+    auto *times = reinterpret_cast<struct timespec *>(c);
+    require(times[0].tv_sec == 1 && times[0].tv_nsec == 2000);
+    require(times[1].tv_sec == 3 && times[1].tv_nsec == 4000);
+  }
+  if (temporary && n == SYS_getrandom) {
+    *reinterpret_cast<unsigned char *>(a) = calls;
+    return 1;
+  }
+  if (temporary && n == SYS_openat) {
+    require(a == AT_FDCWD && d == 0600);
+    require((c & (O_RDWR | O_CREAT | O_EXCL)) == (O_RDWR | O_CREAT | O_EXCL));
+    return ++opens == 1 ? -EEXIST : 7;
+  }
+  return reply;
+}
+
+extern "C" int main() {
+  const char *path = "not-a-host-operation";
+  require(lchown(path, (uid_t)-1, (gid_t)-1) == 0);
+  require(number == SYS_fchownat && args[0] == AT_FDCWD);
+  require(args[1] == reinterpret_cast<long>(path));
+  require(static_cast<uid_t>(args[2]) == (uid_t)-1 &&
+          static_cast<gid_t>(args[3]) == (gid_t)-1);
+  require(args[4] == AT_SYMLINK_NOFOLLOW);
+  require(chown(path, 1, 2) == 0 && args[4] == 0);
+  require(mknod(path, 0600, 123) == 0 && number == SYS_mknodat);
+  require(args[0] == AT_FDCWD && args[2] == 0600 && args[3] == 123);
+  unsigned before = calls;
+  require(mknod(path, 0600, dev_t(1) << 40) == -1);
+  require(libc_errno == EINVAL && calls == before);
+  require(fchdir(-1) == 0 && number == SYS_fchdir && args[0] == -1);
+  require(chroot(path) == 0 && number == SYS_chroot);
+  struct timeval times[2] = {{1, 2}, {3, 4}};
+  require(utimes(path, times) == 0 && number == SYS_utimensat);
+  require(args[0] == AT_FDCWD && args[3] == 0);
+  require(utimes(path, nullptr) == 0 && args[2] == 0);
+  times[0].tv_usec = 1000000;
+  before = calls;
+  require(utimes(path, times) == -1 && libc_errno == EINVAL && calls == before);
+  require(settimeofday(times, nullptr) == -1 && libc_errno == EINVAL && calls == before);
+  times[0].tv_sec = 0x100000001L;
+  times[0].tv_usec = 999999;
+  struct timezone tz = {60, 0};
+  require(settimeofday(times, &tz) == 0 && number == SYS_settimeofday);
+  require(seconds == 0x100000001L && fraction == 999999);
+  require(args[1] == reinterpret_cast<long>(&tz));
+  require(settimeofday(nullptr, &tz) == 0 && args[0] == 0);
+  const int errors[] = {EPERM, EACCES, EFAULT, ENOSYS};
+  for (int error : errors) {
+    reply = -error;
+    require(lchown(path, 1, 2) == -1 && libc_errno == error);
+    require(chown(path, 1, 2) == -1 && libc_errno == error);
+    require(mknod(path, 0600, 0) == -1 && libc_errno == error);
+    require(fchdir(1) == -1 && libc_errno == error);
+    require(chroot(path) == -1 && libc_errno == error);
+    require(utimes(path, nullptr) == -1 && libc_errno == error);
+    require(settimeofday(nullptr, nullptr) == -1 && libc_errno == error);
+  }
+  char invalid[] = "fiveXXXXX";
+  before = calls;
+  require(mkstemp(invalid) == -1 && libc_errno == EINVAL && calls == before);
+  char name[] = "sixXXXXXX";
+  reply = -EINTR;
+  require(mkstemp(name) == -1 && libc_errno == EINTR);
+  temporary = true;
+  require(mkstemp(name) == 7 && opens == 2);
+  return 0;
+}
