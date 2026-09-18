@@ -39,6 +39,9 @@ endif()
 if(LIBC_MMIX_BUILD_REGEX)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.regex)
 endif()
+if(LIBC_MMIX_BUILD_FNMATCH)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.fnmatch)
+endif()
 
 if(LIBC_MMIX_BUILD_CORE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.inttypes

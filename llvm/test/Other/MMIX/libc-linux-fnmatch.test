@@ -1,0 +1,20 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/FilenameMatching.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "fnmatch must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_FNMATCH ON)
+include(${SOURCE}/libc/config/linux/mmix/FilenameMatching.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel;libc.src.fnmatch.fnmatch")
+  message(FATAL_ERROR "unexpected filename matching provider selection")
+endif()
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT libc.include.fnmatch IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing public filename matching header")
+endif()
