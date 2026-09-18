@@ -1,0 +1,159 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+# RUN: not cmake -DSOURCE=%S/../../../.. -DTHREADED=ON -P %t/check.cmake 2>&1 | FileCheck %s --check-prefix=THREAD
+# RUN: not cmake -DSOURCE=%S/../../../.. -DNO_LOOKUP=ON -P %t/check.cmake 2>&1 | FileCheck %s --check-prefix=LOOKUP
+# RUN: %python %t/run.py %S/../../../../libc %t
+# THREAD: MMIX account management requires single-thread configuration
+# LOOKUP: MMIX account management requires file-backed account queries
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/AccountManagement.cmake)
+if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL "sentinel")
+  message(FATAL_ERROR "account management must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_ACCOUNT_MANAGEMENT ON)
+if(NOT THREADED)
+  set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_SINGLE)
+endif()
+if(NOT NO_LOOKUP)
+  set(LIBC_MMIX_BUILD_ACCOUNT_LOOKUP ON)
+endif()
+include(${SOURCE}/libc/config/linux/mmix/AccountManagement.cmake)
+foreach(entry unistd.setuid unistd.setgid unistd.seteuid unistd.setegid
+              unistd.getgroups grp.initgroups grp.endgrent)
+  if(NOT "libc.src.${entry}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing account management provider ${entry}")
+  endif()
+endforeach()
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=credential_test",
+          "-I", str(root), "-I", str(libc)]
+for opt in ("0", "2"):
+    for mode, flags in (("native", []), ("ids32", ["-DTEST_IDS32"])):
+        suffix = mode + "-O" + opt
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+            "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+            *common, *flags, "-O" + opt, "-emit-obj", str(root / "semantics.cpp"),
+            "-o", str(root / ("target-" + suffix + ".o"))], check=True)
+        if len(sys.argv) == 4:
+            exe = root / ("host-" + suffix)
+            subprocess.run([sys.argv[3], *common, *flags, "-O" + opt, "-include",
+                str(root / "native-boundary.h"), str(root / "semantics.cpp"),
+                "-o", str(exe)], check=True)
+            subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- native-boundary.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+#--- sys/syscall.h
+#define SYS_setgid 144
+#define SYS_setuid 146
+#define SYS_setresuid 147
+#define SYS_setresgid 149
+#define SYS_getgroups 158
+#define SYS_setgroups 159
+#ifdef TEST_IDS32
+#define SYS_setresuid32 208
+#define SYS_setresgid32 210
+#define SYS_getgroups32 205
+#define SYS_setgroups32 206
+#endif
+
+#--- linux/errno.h
+#define EPERM 1
+#define EAGAIN 11
+#define ENOMEM 12
+#define EFAULT 14
+#define EINVAL 22
+#define ENOSYS 38
+
+#--- semantics.cpp
+#include "src/unistd/linux/setuid.cpp"
+#include "src/unistd/linux/setgid.cpp"
+#include "src/unistd/linux/seteuid.cpp"
+#include "src/unistd/linux/setegid.cpp"
+#include "src/unistd/linux/getgroups.cpp"
+#include "src/__support/OSUtil/linux/syscall_wrappers/setgroups.h"
+#include "src/errno/libc_errno.cpp"
+
+using namespace credential_test;
+#ifdef TEST_IDS32
+constexpr long SETUID = SYS_setresuid32, SETGID = SYS_setresgid32;
+constexpr long GETGROUPS = SYS_getgroups32, SETGROUPS = SYS_setgroups32;
+#else
+constexpr long SETUID = SYS_setresuid, SETGID = SYS_setresgid;
+constexpr long GETGROUPS = SYS_getgroups, SETGROUPS = SYS_setgroups;
+#endif
+static void require(bool value) { if (!value) __builtin_trap(); }
+static unsigned long number;
+static long args[6], reply;
+static unsigned calls;
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                        long c, long d, long e, long f) {
+  number = n;
+  args[0] = a; args[1] = b; args[2] = c;
+  args[3] = d; args[4] = e; args[5] = f;
+  ++calls;
+  if (n == GETGROUPS && a == 3 && reply == 3) {
+    auto *list = reinterpret_cast<gid_t *>(b);
+    list[0] = 1; list[1] = 7; list[2] = 0x80000001U;
+  }
+  return reply;
+}
+
+extern "C" int main() {
+  require(setuid(0x80000001U) == 0 && number == SYS_setuid);
+  require(static_cast<uid_t>(args[0]) == 0x80000001U);
+  require(setgid(7) == 0 && number == SYS_setgid && args[0] == 7);
+  require(seteuid(0x80000001U) == 0 && number == SETUID);
+  require(static_cast<uid_t>(args[0]) == uid_t(-1));
+  require(static_cast<uid_t>(args[1]) == 0x80000001U);
+  require(static_cast<uid_t>(args[2]) == uid_t(-1));
+  require(setegid(7) == 0 && number == SETGID && args[1] == 7);
+  require(static_cast<gid_t>(args[0]) == gid_t(-1) &&
+          static_cast<gid_t>(args[2]) == gid_t(-1));
+  unsigned before = calls;
+  require(seteuid(uid_t(-1)) == -1 && libc_errno == EINVAL && calls == before);
+  require(setegid(gid_t(-1)) == -1 && libc_errno == EINVAL && calls == before);
+  require(getgroups(-1, nullptr) == -1 && libc_errno == EINVAL && calls == before);
+  gid_t list[3];
+  reply = 3;
+  require(getgroups(0, nullptr) == 3 && number == GETGROUPS && args[0] == 0);
+  require(getgroups(3, list) == 3 && list[0] == 1 && list[1] == 7);
+  require(list[2] == 0x80000001U);
+  reply = -EINVAL;
+  require(getgroups(1, list) == -1 && libc_errno == EINVAL);
+  reply = -EFAULT;
+  require(getgroups(3, nullptr) == -1 && libc_errno == EFAULT);
+  const int errors[] = {EPERM, EAGAIN, ENOMEM, EINVAL, ENOSYS};
+  for (int error : errors) {
+    reply = -error;
+    require(setuid(uid_t(-1)) == -1 && libc_errno == error);
+    require(setgid(gid_t(-1)) == -1 && libc_errno == error);
+    require(seteuid(1) == -1 && libc_errno == error);
+    require(setegid(1) == -1 && libc_errno == error);
+    require(getgroups(0, nullptr) == -1 && libc_errno == error);
+    auto result = linux_syscalls::setgroups(3, list);
+    require(!result && result.error() == error);
+    require(number == SETGROUPS && args[0] == 3 && args[1] == reinterpret_cast<long>(list));
+  }
+  reply = 0;
+  require(linux_syscalls::setgroups(0, nullptr).has_value());
+  require(args[0] == 0 && args[1] == 0);
+  return 0;
+}
