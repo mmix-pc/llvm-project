@@ -30,7 +30,7 @@ if(LIBC_MMIX_ENABLE_UNIX_HEADERS)
     libc.include.sys_utsname libc.include.fnmatch libc.include.alloca
     libc.include.arpa_inet libc.include.netinet_in
     libc.include.mmix_paths libc.include.mmix_getopt libc.include.mmix_mntent
-    libc.include.mmix_sys_reboot libc.include.mmix_sys_times)
+    libc.include.mmix_sys_reboot libc.include.sys_times)
 endif()
 
 if(LIBC_MMIX_BUILD_CORE)
@@ -62,6 +62,9 @@ if(LIBC_MMIX_BUILD_FILESYSTEM)
 endif()
 if(LIBC_MMIX_BUILD_TIME)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.time libc.include.sys_time)
+endif()
+if(LIBC_MMIX_BUILD_PROCESS_TIMING)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.time libc.include.sys_times)
 endif()
 if(LIBC_MMIX_BUILD_PROCESS_BASE)
   # LLVM's common Unix headers include dlfcn.h without using loader services.
