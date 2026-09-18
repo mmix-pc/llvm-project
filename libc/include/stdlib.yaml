@@ -27,6 +27,11 @@ types:
 enums: []
 objects: []
 functions:
+  - name: clearenv
+    standards:
+      - gnu
+    return_type: int
+    arguments: []
   - name: _Exit
     standards:
       - stdc

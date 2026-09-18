@@ -65,7 +65,7 @@ char **EnvironmentManager::get_array() {
 EnvironmentManager::iterator EnvironmentManager::begin() { return get_array(); }
 
 EnvironmentManager::iterator EnvironmentManager::end() {
-  return get_array() + count;
+  return count ? get_array() + count : get_array();
 }
 
 size_t EnvironmentManager::size() const { return count; }
@@ -263,6 +263,24 @@ int EnvironmentManager::unset(cpp::string_view name) {
   }
 
   return 0;
+}
+
+void EnvironmentManager::clear() {
+  if (is_ours) {
+    for (size_t i = 0; i < count; ++i)
+      if (ownership[i].can_free())
+        delete[] storage[i];
+    delete[] storage;
+    delete[] ownership;
+  }
+  storage = nullptr;
+  ownership = nullptr;
+  count = capacity = 0;
+  is_ours = false;
+  app.env_ptr = nullptr;
+#ifdef LIBC_COPT_SUPPORT_ENVIRON
+  environ = nullptr;
+#endif
 }
 
 int EnvironmentManager::put(char *string) {

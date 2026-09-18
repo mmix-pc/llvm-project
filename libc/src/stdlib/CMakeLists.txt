@@ -867,3 +867,15 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.system
 )
+
+add_entrypoint_object(
+  clearenv
+  SRCS
+    clearenv.cpp
+  HDRS
+    clearenv.h
+  DEPENDS
+    libc.src.__support.common
+    libc.src.__support.macros.config
+    .environ_internal
+)

@@ -3,3 +3,5 @@ option(LIBC_MMIX_BUILD_COMMAND_UTILITIES
 if(NOT LIBC_MMIX_BUILD_COMMAND_UTILITIES)
   return()
 endif()
+list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.stdlib.clearenv)

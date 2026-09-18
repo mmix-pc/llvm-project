@@ -140,6 +140,9 @@ public:
   // compacts the array. Returns 0 on success (including if the variable
   // was not found), -1 on allocation failure during array transition.
   int unset(cpp::string_view name);
+
+  // Release managed storage without freeing startup or putenv strings.
+  void clear();
 };
 
 } // namespace internal
