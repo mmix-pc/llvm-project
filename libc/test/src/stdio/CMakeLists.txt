@@ -644,3 +644,13 @@ endif()
 
 add_subdirectory(scanf_core)
 add_subdirectory(testdata)
+add_libc_test(
+  asprintf_allocation_test
+  SUITE libc_stdio_unittests
+  SRCS asprintf_allocation_test.cpp
+  DEPENDS
+    libc.src.__support.printf_core.vasprintf_internal
+    libc.src.__support.printf_core.error_mapper
+    libc.src.__support.CPP.limits
+    libc.src.errno.errno
+)
