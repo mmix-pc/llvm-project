@@ -215,6 +215,14 @@ functions:
     return_type: pid_t
     arguments:
       - type: void
+  - name: vfork
+    standards:
+      - bsd
+    return_type: pid_t
+    attributes:
+      - _Returns_twice
+    arguments:
+      - type: void
   - name: fsync
     standards:
       - posix

@@ -853,6 +853,7 @@ add_entrypoint_object(
 
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/TerminalNames.cmake)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/Vfork.cmake)
 endif()
 
 add_entrypoint_object(

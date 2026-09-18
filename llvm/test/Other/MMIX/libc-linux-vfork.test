@@ -1,0 +1,86 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+# RUN: not cmake -DSOURCE=%S/../../../.. -DMULTITHREAD=ON -P %t/check.cmake 2>&1 | FileCheck %s --check-prefix=CONFIG
+# RUN: %python %t/run.py %S/../../../../libc %t
+# RUN: llvm-objdump -dr %t/public-O0.o | FileCheck %s
+# RUN: llvm-objdump -dr %t/public-O2.o | FileCheck %s
+# CONFIG: MMIX vfork preparation requires single-thread mode
+# CHECK-LABEL: <vfork>:
+# CHECK-NEXT: {{.*}} SETL r231, 0x4111
+# CHECK-NEXT: {{.*}} SETL r232, 0x0
+# CHECK-NEXT: {{.*}} SETL r233, 0x0
+# CHECK-NEXT: {{.*}} SETL r234, 0x0
+# CHECK-NEXT: {{.*}} SETL r235, 0x0
+# CHECK-NEXT: {{.*}} SETL r236, 0x0
+# CHECK-NEXT: {{.*}} SETL r237, 0xdc
+# CHECK-NEXT: {{.*}} TRAP 0x1, 0x0, 0x0
+# CHECK-NEXT: {{.*}} BNN r231, 0x2
+# CHECK-NEXT: {{.*}} JMP
+# CHECK-NEXT: {{.*}} R_MMIX_ADDR27 __llvm_libc_mmix_vfork_error
+# CHECK-NEXT: {{.*}} POP 0x0, 0x0
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/Vfork.cmake)
+if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL "sentinel")
+  message(FATAL_ERROR "vfork must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_VFORK ON)
+if(NOT MULTITHREAD)
+  set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_SINGLE)
+endif()
+include(${SOURCE}/libc/config/linux/mmix/Vfork.cmake)
+if(NOT "libc.src.unistd.vfork" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "missing vfork")
+endif()
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:3])
+common = ["-std=c++17", "-ffreestanding", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=vfork_test", "-DLIBC_ERRNO_MODE=3",
+          "-I", str(root), "-I", str(libc)]
+for opt in ("0", "2"):
+    for mode in ("public", "internal"):
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+            "-mrelocation-model", "static", *common, "-O" + opt,
+            *(["-DLIBC_COPT_PUBLIC_PACKAGING"] if mode == "public" else []),
+            "-emit-obj", str(libc / "src/unistd/linux/mmix/vfork.cpp"),
+            "-o", str(root / (mode + "-O" + opt + ".o"))], check=True)
+    if len(sys.argv) == 4:
+        exe = root / ("errors-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt,
+            str(root / "errors.cpp"), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- sys/syscall.h
+#define SYS_clone 220
+
+#--- linux/sched.h
+#define CLONE_VM 0x100
+#define CLONE_VFORK 0x4000
+
+#--- linux/errno.h
+#define EAGAIN 11
+#define ENOMEM 12
+#define EINVAL 22
+#define ENOSYS 38
+#define EOPNOTSUPP 95
+
+#--- errors.cpp
+#include "src/unistd/linux/mmix/vfork_error.cpp"
+#include "src/errno/libc_errno.cpp"
+extern "C" int main() {
+  const int errors[] = {EOPNOTSUPP, ENOSYS, EAGAIN, ENOMEM, EINVAL};
+  for (int error : errors) {
+    libc_errno = 77;
+    if (__llvm_libc_mmix_vfork_error(-long(error)) != -1 ||
+        int(libc_errno) != error)
+      __builtin_trap();
+  }
+  return 0;
+}
