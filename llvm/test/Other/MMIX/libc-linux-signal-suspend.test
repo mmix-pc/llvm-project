@@ -1,0 +1,115 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+# RUN: not cmake -DSOURCE=%S/../../../.. -DNO_MASKS=ON -P %t/check.cmake 2>&1 | FileCheck %s
+# RUN: %python %t/run.py %S/../../../../libc %t
+# CHECK: MMIX sigsuspend requires signal-mask support
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/SignalSuspend.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "sigsuspend must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_SIGNAL_SUSPEND ON)
+if(NOT NO_MASKS)
+  set(LIBC_MMIX_BUILD_SIGNAL_MASKS ON)
+endif()
+include(${SOURCE}/libc/config/linux/mmix/SignalSuspend.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel;libc.src.signal.sigsuspend;libc.src.signal.sigismember")
+  message(FATAL_ERROR "unexpected signal-suspension provider selection")
+endif()
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=suspend_test",
+          "-I", str(root), "-I", str(libc)]
+for opt in ("0", "2"):
+    subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+                    "-mrelocation-model", "static", "-internal-isystem",
+                    resource + "/include", *common, "-O" + opt, "-emit-obj",
+                    str(root / "semantics.cpp"),
+                    "-o", str(root / ("target-O" + opt + ".o"))], check=True)
+    if len(sys.argv) == 4:
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+                        str(root / "native-boundary.h"),
+                        str(root / "semantics.cpp"), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- native-boundary.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+#--- sys/syscall.h
+#define SYS_rt_sigsuspend 133
+
+#--- linux/errno.h
+#define EINTR 4
+#define EFAULT 14
+#define EINVAL 22
+#define ENOSYS 38
+
+#--- semantics.cpp
+#include "src/signal/linux/sigsuspend.cpp"
+#include "src/signal/linux/sigismember.cpp"
+#include "src/errno/libc_errno.cpp"
+
+using namespace suspend_test;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+static unsigned long number;
+static long args[6], reply;
+static unsigned calls;
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                        long c, long d, long e, long f) {
+  number = n;
+  args[0] = a; args[1] = b; args[2] = c;
+  args[3] = d; args[4] = e; args[5] = f;
+  ++calls;
+  return reply;
+}
+
+int main() {
+  static_assert(sizeof(sigset_t) == 8 && NSIG == 65);
+  sigset_t set{{0x8000000000000001UL}};
+  const int errors[] = {EINTR, EFAULT, EINVAL, ENOSYS};
+  for (int error : errors) {
+    reply = -error;
+    auto before = calls;
+    libc_errno = 0;
+    require(sigsuspend(&set) == -1 && int(libc_errno) == error);
+    require(calls == before + 1 && number == 133);
+    require(args[0] == reinterpret_cast<long>(&set) && args[1] == 8);
+    require(args[2] == 0 && args[3] == 0 && args[4] == 0 && args[5] == 0);
+    require(set.__signals[0] == 0x8000000000000001UL);
+  }
+  reply = -EFAULT;
+  require(sigsuspend(nullptr) == -1 && int(libc_errno) == EFAULT && args[0] == 0);
+  require(sigsuspend(reinterpret_cast<sigset_t *>(-1L)) == -1);
+  require(int(libc_errno) == EFAULT && args[0] == -1 && args[1] == 8);
+  for (int sig = 1; sig <= 64; ++sig) {
+    set.__signals[0] = 1UL << (sig - 1);
+    libc_errno = 77;
+    for (int other = 1; other <= 64; ++other)
+      require(sigismember(&set, other) == int(other == sig));
+    require(int(libc_errno) == 77 && set.__signals[0] == (1UL << (sig - 1)));
+  }
+  const int invalid[] = {-2147483647 - 1, -1, 0, 65, 2147483647};
+  for (int sig : invalid) {
+    require(sigismember(&set, sig) == -1 && int(libc_errno) == EINVAL);
+    require(set.__signals[0] == (1UL << 63));
+  }
+  require(sigismember(nullptr, SIGUSR1) == -1 && int(libc_errno) == EINVAL);
+  return 0;
+}
