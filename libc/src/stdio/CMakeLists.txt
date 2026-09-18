@@ -309,3 +309,20 @@ add_stdio_entrypoint_object(vprintf)
 add_stdio_entrypoint_object(vfprintf)
 add_stdio_entrypoint_object(vscanf)
 add_stdio_entrypoint_object(vfscanf)
+
+add_stdio_entrypoint_object(fputc_unlocked)
+add_stdio_entrypoint_object(putc_unlocked)
+add_stdio_entrypoint_object(putchar_unlocked)
+add_stdio_entrypoint_object(fputs_unlocked)
+add_stdio_entrypoint_object(fgets_unlocked)
+add_stdio_entrypoint_object(fileno_unlocked)
+add_stdio_entrypoint_object(getdelim)
+add_stdio_entrypoint_object(getline)
+
+add_entrypoint_object(vdprintf SRCS vdprintf.cpp HDRS vdprintf.h
+  DEPENDS libc.src.unistd.write libc.src.__support.arg_list
+    libc.src.__support.printf_core.printf_main libc.src.__support.printf_core.writer
+    libc.src.__support.printf_core.error_mapper libc.src.__support.CPP.limits
+    libc.src.errno.errno)
+add_entrypoint_object(dprintf SRCS dprintf.cpp HDRS dprintf.h
+  DEPENDS .vdprintf)

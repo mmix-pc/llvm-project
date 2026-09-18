@@ -306,6 +306,7 @@ public:
   void unlock() { mutex.unlock(); }
 
   bool error_unlocked() const { return err; }
+  void set_error_unlocked() { err = true; }
 
   bool error() {
     FileLock l(this);

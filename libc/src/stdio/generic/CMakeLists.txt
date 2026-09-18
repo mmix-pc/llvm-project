@@ -607,3 +607,51 @@ add_generic_entrypoint_object(
     libc.src.__support.File.file
     libc.src.stdio.stderr
 )
+
+add_generic_entrypoint_object(fputc_unlocked
+  SRCS fputc_unlocked.cpp
+  HDRS ../fputc_unlocked.h
+  DEPENDS libc.hdr.types.FILE libc.src.__support.File.file
+    libc.src.__support.File.platform_file libc.src.errno.errno)
+
+add_generic_entrypoint_object(putc_unlocked
+  SRCS putc_unlocked.cpp
+  HDRS ../putc_unlocked.h
+  DEPENDS libc.hdr.types.FILE libc.src.__support.File.file
+    libc.src.__support.File.platform_file libc.src.errno.errno libc.src.stdio.generic.fputc_unlocked)
+
+add_generic_entrypoint_object(putchar_unlocked
+  SRCS putchar_unlocked.cpp
+  HDRS ../putchar_unlocked.h
+  DEPENDS libc.hdr.types.FILE libc.src.__support.File.file
+    libc.src.__support.File.platform_file libc.src.errno.errno libc.src.stdio.stdout libc.src.stdio.generic.fputc_unlocked)
+
+add_generic_entrypoint_object(fputs_unlocked
+  SRCS fputs_unlocked.cpp
+  HDRS ../fputs_unlocked.h
+  DEPENDS libc.hdr.types.FILE libc.src.__support.File.file
+    libc.src.__support.File.platform_file libc.src.errno.errno libc.src.__support.CPP.string_view)
+
+add_generic_entrypoint_object(fgets_unlocked
+  SRCS fgets_unlocked.cpp
+  HDRS ../fgets_unlocked.h
+  DEPENDS libc.hdr.types.FILE libc.src.__support.File.file
+    libc.src.__support.File.platform_file libc.src.errno.errno)
+
+add_generic_entrypoint_object(fileno_unlocked
+  SRCS fileno_unlocked.cpp
+  HDRS ../fileno_unlocked.h
+  DEPENDS libc.hdr.types.FILE libc.src.__support.File.file
+    libc.src.__support.File.platform_file libc.src.errno.errno)
+
+add_generic_entrypoint_object(getdelim
+  SRCS getdelim.cpp
+  HDRS ../getdelim.h
+  DEPENDS libc.hdr.types.FILE libc.src.__support.File.file
+    libc.src.__support.File.platform_file libc.src.errno.errno libc.hdr.types.ssize_t libc.hdr.func.realloc libc.src.__support.CPP.limits)
+
+add_generic_entrypoint_object(getline
+  SRCS getline.cpp
+  HDRS ../getline.h
+  DEPENDS libc.hdr.types.FILE libc.src.__support.File.file
+    libc.src.__support.File.platform_file libc.src.errno.errno libc.src.stdio.generic.getdelim libc.hdr.types.ssize_t)

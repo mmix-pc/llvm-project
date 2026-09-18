@@ -29,6 +29,7 @@ macros:
 types:
   - type_name: rsize_t
   - type_name: size_t
+  - type_name: ssize_t
   - type_name: off_t
   - type_name: cookie_io_functions_t
   - type_name: FILE
@@ -42,6 +43,80 @@ objects:
   - object_name: stderr
     object_type: FILE *
 functions:
+  - name: fputc_unlocked
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: int
+      - type: FILE *
+  - name: putc_unlocked
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: int
+      - type: FILE *
+  - name: putchar_unlocked
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: int
+  - name: fputs_unlocked
+    standards:
+      - gnu
+    return_type: int
+    arguments:
+      - type: const char *__restrict
+      - type: FILE *__restrict
+  - name: fgets_unlocked
+    standards:
+      - gnu
+    return_type: char *
+    arguments:
+      - type: char *__restrict
+      - type: int
+      - type: FILE *__restrict
+  - name: fileno_unlocked
+    standards:
+      - gnu
+    return_type: int
+    arguments:
+      - type: FILE *
+  - name: getdelim
+    standards:
+      - posix
+    return_type: ssize_t
+    arguments:
+      - type: char **__restrict
+      - type: size_t *__restrict
+      - type: int
+      - type: FILE *__restrict
+  - name: getline
+    standards:
+      - posix
+    return_type: ssize_t
+    arguments:
+      - type: char **__restrict
+      - type: size_t *__restrict
+      - type: FILE *__restrict
+  - name: dprintf
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: int
+      - type: const char *__restrict
+      - type: ...
+  - name: vdprintf
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: int
+      - type: const char *__restrict
+      - type: va_list
   - name: asprintf
     standards:
       - gnu

@@ -1,0 +1,33 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/TextExtensions.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "text providers must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_TEXT_EXTENSIONS ON)
+include(${SOURCE}/libc/config/linux/mmix/TextExtensions.cmake)
+list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
+if(NOT count EQUAL 21)
+  message(FATAL_ERROR "unexpected text provider set")
+endif()
+foreach(name mempcpy strchrnul strsep)
+  if(NOT libc.src.string.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing text provider: ${name}")
+  endif()
+endforeach()
+foreach(name asprintf vasprintf dprintf vdprintf getline getdelim
+    getc_unlocked getchar_unlocked fgetc_unlocked
+    putc_unlocked putchar_unlocked fputc_unlocked
+    fgets_unlocked fputs_unlocked feof_unlocked ferror_unlocked fileno_unlocked)
+  if(NOT libc.src.stdio.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing stdio provider: ${name}")
+  endif()
+endforeach()
+if(libc.src.string.strverscmp IN_LIST TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "unselected version sorting must not expand this profile")
+endif()

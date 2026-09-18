@@ -654,3 +654,41 @@ add_libc_test(
     libc.src.__support.CPP.limits
     libc.src.errno.errno
 )
+
+if(LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    vdprintf_write_test
+    SUITE libc_stdio_unittests
+    SRCS vdprintf_write_test.cpp
+    DEPENDS
+      libc.hdr.types.ssize_t
+      libc.src.__support.printf_core.printf_main
+      libc.src.__support.printf_core.writer
+      libc.src.__support.printf_core.error_mapper
+      libc.src.__support.CPP.limits
+      libc.src.errno.errno
+  )
+  add_libc_test(
+    text_extensions_test
+    SUITE libc_stdio_unittests
+    SRCS text_extensions_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/getline.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/fputc_unlocked.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/putc_unlocked.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/fputs_unlocked.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/fgets_unlocked.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/fileno_unlocked.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/dprintf.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/vdprintf.cpp
+    DEPENDS
+      libc.hdr.types.FILE libc.hdr.types.ssize_t libc.hdr.func.realloc
+      libc.src.__support.File.file libc.src.__support.File.platform_file
+      libc.src.__support.printf_core.printf_main
+      libc.src.__support.printf_core.writer
+      libc.src.__support.printf_core.error_mapper
+      libc.src.__support.CPP.limits
+      libc.src.stdio.remove libc.src.stdio.fdopen libc.src.errno.errno
+      libc.src.unistd.pipe libc.src.unistd.read libc.src.unistd.write
+      libc.src.unistd.close
+  )
+endif()
