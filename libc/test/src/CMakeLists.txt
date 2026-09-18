@@ -124,6 +124,7 @@ add_subdirectory(regex)
 add_subdirectory(spawn)
 add_subdirectory(pwd)
 add_subdirectory(grp)
+add_subdirectory(mntent)
 
 if(${LIBC_TARGET_OS} STREQUAL "linux")
   add_subdirectory(pthread)

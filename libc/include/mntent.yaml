@@ -1,0 +1,42 @@
+header: mntent.h
+standards:
+  - gnu
+macros:
+  - macro_name: MNTTAB
+    macro_header: mntent-macros.h
+  - macro_name: MOUNTED
+    macro_header: mntent-macros.h
+types:
+  - type_name: FILE
+  - type_name: struct_mntent
+functions:
+  - name: addmntent
+    return_type: int
+    arguments:
+      - type: FILE *
+      - type: const struct mntent *
+  - name: setmntent
+    return_type: FILE *
+    arguments:
+      - type: const char *
+      - type: const char *
+  - name: getmntent
+    return_type: struct mntent *
+    arguments:
+      - type: FILE *
+  - name: getmntent_r
+    return_type: struct mntent *
+    arguments:
+      - type: FILE *
+      - type: struct mntent *
+      - type: char *
+      - type: int
+  - name: endmntent
+    return_type: int
+    arguments:
+      - type: FILE *
+  - name: hasmntopt
+    return_type: char *
+    arguments:
+      - type: const struct mntent *
+      - type: const char *

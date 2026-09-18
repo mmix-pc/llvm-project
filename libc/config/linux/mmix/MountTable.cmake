@@ -1,0 +1,7 @@
+option(LIBC_MMIX_BUILD_MOUNT_TABLE "Build Linux mount-table readers" OFF)
+if(NOT LIBC_MMIX_BUILD_MOUNT_TABLE)
+  return()
+endif()
+foreach(name setmntent getmntent getmntent_r endmntent hasmntopt)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.mntent.${name})
+endforeach()

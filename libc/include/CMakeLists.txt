@@ -179,6 +179,17 @@ add_header_macro(
 )
 
 add_header_macro(
+  mntent
+  ../libc/include/mntent.yaml
+  mntent.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-types.FILE
+    .llvm-libc-types.struct_mntent
+    .llvm-libc-macros.mntent_macros
+)
+
+add_header_macro(
   libgen
   ../libc/include/libgen.yaml
   libgen.h

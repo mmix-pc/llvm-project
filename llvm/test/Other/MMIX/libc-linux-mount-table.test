@@ -1,0 +1,26 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/MountTable.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "mount-table providers must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_MOUNT_TABLE ON)
+include(${SOURCE}/libc/config/linux/mmix/MountTable.cmake)
+foreach(name setmntent getmntent getmntent_r endmntent hasmntopt)
+  if(NOT libc.src.mntent.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing mount-table provider")
+  endif()
+endforeach()
+list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
+if(NOT count EQUAL 6)
+  message(FATAL_ERROR "mount-table selection must not add writable-mtab/syscall providers")
+endif()
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT libc.include.mntent IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing mount-table header")
+endif()
