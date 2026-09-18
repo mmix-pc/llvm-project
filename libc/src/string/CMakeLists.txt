@@ -564,3 +564,14 @@ else()
   add_memset(memset_opt_host COMPILE_OPTIONS ${LIBC_COMPILE_OPTIONS_NATIVE})
   add_memset(memset)
 endif()
+
+add_entrypoint_object(
+  strverscmp
+  SRCS
+    strverscmp.cpp
+  HDRS
+    strverscmp.h
+  DEPENDS
+    libc.src.__support.common
+    libc.src.__support.macros.config
+)
