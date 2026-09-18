@@ -3,6 +3,27 @@ add_custom_target(libc_signal_unittests)
 if(LIBC_TARGET_OS STREQUAL "linux")
   if(LLVM_LIBC_FULL_BUILD)
     add_libc_test(
+      sigtimedwait_test
+      SUITE libc_signal_unittests
+      SRCS
+        sigtimedwait_test.cpp
+        ${LIBC_SOURCE_DIR}/src/signal/linux/sigtimedwait.cpp
+      DEPENDS
+        libc.hdr.limits_macros
+        libc.hdr.signal_macros
+        libc.hdr.types.siginfo_t
+        libc.hdr.types.sigset_t
+        libc.hdr.types.struct_timespec
+        libc.include.sys_syscall
+        libc.src.__support.OSUtil.osutil
+        libc.src.errno.errno
+        libc.src.signal.raise
+        libc.src.signal.sigaddset
+        libc.src.signal.sigemptyset
+        libc.src.signal.sigprocmask
+    )
+
+    add_libc_test(
       sigsuspend_test
       SUITE libc_signal_unittests
       SRCS

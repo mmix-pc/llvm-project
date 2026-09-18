@@ -137,6 +137,23 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  sigtimedwait
+  SRCS
+    sigtimedwait.cpp
+  HDRS
+    ../sigtimedwait.h
+  DEPENDS
+    libc.hdr.limits_macros
+    libc.hdr.signal_macros
+    libc.hdr.types.siginfo_t
+    libc.hdr.types.sigset_t
+    libc.hdr.types.struct_timespec
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
   pthread_sigmask
   SRCS
     pthread_sigmask.cpp
