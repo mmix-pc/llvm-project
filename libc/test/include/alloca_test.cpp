@@ -13,7 +13,12 @@
 
 #include "test/UnitTest/Test.h"
 
+#ifdef TEST_STDLIB_ALLOCA
+#undef alloca
+#include "include/llvm-libc-macros/stdlib-macros.h"
+#else
 #include "include/llvm-libc-macros/alloca-macros.h"
+#endif
 
 TEST(LlvmLibcAllocaTest, Basic) {
   // Ensure the macro is defined.

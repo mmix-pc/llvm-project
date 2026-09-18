@@ -29,6 +29,14 @@ add_libc_test(
 )
 
 add_libc_test(
+  stdlib_alloca_test
+  SUITE libc_include_tests
+  SRCS alloca_test.cpp
+  DEPENDS libc.include.llvm-libc-macros.stdlib_macros
+  COMPILE_OPTIONS -D_GNU_SOURCE -DTEST_STDLIB_ALLOCA
+)
+
+add_libc_test(
   assert_test
   SUITE
     libc_include_tests

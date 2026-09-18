@@ -9,6 +9,10 @@
 #ifndef LLVM_LIBC_MACROS_STDLIB_MACROS_H
 #define LLVM_LIBC_MACROS_STDLIB_MACROS_H
 
+#ifdef _GNU_SOURCE
+#include "alloca-macros.h"
+#endif
+
 #ifndef NULL
 #define __need_NULL
 #include <stddef.h>

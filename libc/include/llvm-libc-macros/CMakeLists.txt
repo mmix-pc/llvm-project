@@ -243,9 +243,17 @@ add_macro_header(
 )
 
 add_macro_header(
+  alloca_macros
+  HDR
+    alloca-macros.h
+)
+
+add_macro_header(
   stdlib_macros
   HDR
     stdlib-macros.h
+  DEPENDS
+    .alloca_macros
 )
 
 add_macro_header(
@@ -528,12 +536,6 @@ else()
       _LIBC_MODULAR_FORMAT_PRINTF.h
   )
 endif()
-
-add_macro_header(
-  alloca_macros
-  HDR
-    alloca-macros.h
-)
 
 add_macro_header(
   syslog_macros
