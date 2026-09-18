@@ -1,0 +1,35 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+# RUN: not cmake -DSOURCE=%S/../../../.. -P %t/missing-core.cmake 2>&1 | FileCheck %s
+# CHECK: MMIX regex requires core string and character services
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/Regex.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "regex must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_REGEX ON)
+set(LIBC_MMIX_BUILD_CORE ON)
+include(${SOURCE}/libc/config/linux/mmix/Regex.cmake)
+list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
+if(NOT count EQUAL 5)
+  message(FATAL_ERROR "unexpected regex provider selection")
+endif()
+
+foreach(entry regcomp regexec regerror regfree)
+  if(NOT "libc.src.regex.${entry}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing regex provider: ${entry}")
+  endif()
+endforeach()
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT libc.include.regex IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing public regex header")
+endif()
+
+#--- missing-core.cmake
+cmake_minimum_required(VERSION 3.20)
+set(LIBC_MMIX_BUILD_REGEX ON)
+include(${SOURCE}/libc/config/linux/mmix/Regex.cmake)
