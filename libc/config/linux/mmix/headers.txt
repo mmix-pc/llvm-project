@@ -56,6 +56,10 @@ endif()
 if(LIBC_MMIX_BUILD_TEXT_EXTENSIONS)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.stdio libc.include.string)
 endif()
+if(LIBC_MMIX_BUILD_COMMAND_UTILITIES)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.libgen libc.include.stdio
+    libc.include.sys_stat libc.include.sys_time)
+endif()
 
 if(LIBC_MMIX_BUILD_CORE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.inttypes

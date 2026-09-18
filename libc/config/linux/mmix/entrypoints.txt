@@ -22,6 +22,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/Core.cmake)
 foreach(family Descriptors Ioctl Termios Stdio Wide Math Filesystem FileMetadata VM Time Process Signals JumpSave Fork Vfork Spawn JobControl ExecSearch SignalSuspend Poll ProcessTiming ProcessControl OptionParsing Regex FilenameMatching AccountLookup MountTable SystemAdministration TextExtensions)
   include(${CMAKE_CURRENT_LIST_DIR}/${family}.cmake)
 endforeach()
+include(${CMAKE_CURRENT_LIST_DIR}/CommandUtilities.cmake)
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeState.cmake)
