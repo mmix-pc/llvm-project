@@ -116,3 +116,5 @@ if(LIBC_MMIX_BUILD_RUNTIME_STATE)
     libc.include.llvm-libc-types.tss_t
   )
 endif()
+
+include(${CMAKE_CURRENT_LIST_DIR}/CommandEnvironmentRuntime.cmake)

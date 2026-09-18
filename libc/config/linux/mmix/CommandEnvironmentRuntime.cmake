@@ -1,0 +1,31 @@
+option(LIBC_MMIX_BUILD_COMMAND_ENVIRONMENT_RUNTIME
+  "Compose audited Linux command-environment providers" OFF)
+if(NOT LIBC_MMIX_BUILD_COMMAND_ENVIRONMENT_RUNTIME)
+  return()
+endif()
+include(${CMAKE_CURRENT_LIST_DIR}/CommandEnvironmentComponents.cmake)
+foreach(component SIGNAL_RUNTIME WIDE MATH ${MMIX_COMMAND_ENVIRONMENT_COMPONENTS})
+  if(NOT LIBC_MMIX_BUILD_${component})
+    message(FATAL_ERROR "MMIX command-environment runtime requires ${component}")
+  endif()
+endforeach()
+if(NOT LIBC_MMIX_ENABLE_UNIX_HEADERS OR NOT TARGET mmix_libc_signal_runtime)
+  message(FATAL_ERROR "MMIX command-environment runtime requires Unix headers and the Linux signal runtime")
+endif()
+
+add_custom_target(mmix_libc_command_environment_runtime
+  DEPENDS mmix_libc_signal_runtime)
+# Public header selection contains shared dependencies; record the unique set.
+set(mmix_command_environment_headers ${TARGET_PUBLIC_HEADERS})
+list(REMOVE_DUPLICATES mmix_command_environment_headers)
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-command-environment-runtime/Inputs.cmake" CONTENT
+"include(\"${CMAKE_BINARY_DIR}/mmix-signal-runtime/Inputs.cmake\")
+set(MMIX_COMMAND_ENVIRONMENT_RUNTIME_COMPONENTS \"${MMIX_COMMAND_ENVIRONMENT_COMPONENTS}\")
+set(MMIX_COMMAND_ENVIRONMENT_RUNTIME_PUBLIC_HEADERS \"${mmix_command_environment_headers}\")
+set(MMIX_COMMAND_ENVIRONMENT_RUNTIME_ENTRYPOINTS \"${TARGET_LIBC_ENTRYPOINTS}\")
+set(MMIX_COMMAND_ENVIRONMENT_RUNTIME_THREAD_MODE \"${LIBC_CONF_THREAD_MODE}\")
+set(MMIX_COMMAND_ENVIRONMENT_RUNTIME_ERRNO_MODE \"${LIBC_CONF_ERRNO_MODE}\")
+set(MMIX_COMMAND_ENVIRONMENT_RUNTIME_EXCLUDED \"pthread;ELF-TLS;dynamic-linking\")
+set(MMIX_COMMAND_ENVIRONMENT_RUNTIME_LIMITATIONS \"configured-caller-closure-pending;local-logging-not-provided;GNU-regex-extensions-not-qualified;external-producer-admission-required\")
+set(MMIX_COMMAND_ENVIRONMENT_RUNTIME_EXECUTION \"not-qualified\")
+")
