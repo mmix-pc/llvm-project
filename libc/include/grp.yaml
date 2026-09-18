@@ -8,6 +8,13 @@ types:
 enums: []
 objects: []
 functions:
+  - name: initgroups
+    standards:
+      - bsd
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: gid_t
   - name: endgrent
     return_type: void
     arguments: []

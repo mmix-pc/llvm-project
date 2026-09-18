@@ -39,3 +39,13 @@ add_entrypoint_object(
   HDRS endgrent.h
   DEPENDS .lookup libc.hdr.func.free libc.src.__support.common
 )
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
+  add_subdirectory(${LIBC_TARGET_OS})
+endif()
+
+add_entrypoint_object(
+  initgroups
+  ALIAS
+  DEPENDS .${LIBC_TARGET_OS}.initgroups
+)
