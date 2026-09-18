@@ -58,6 +58,10 @@ objects:
   - object_name: optopt
     object_type: int
 functions:
+  - name: seteuid
+    return_type: int
+    arguments:
+      - type: uid_t
   - name: lchown
     return_type: int
     arguments:

@@ -576,3 +576,10 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.lchown
 )
+foreach(name seteuid)
+  add_entrypoint_object(
+    ${name}
+    ALIAS
+    DEPENDS .${LIBC_TARGET_OS}.${name}
+  )
+endforeach()

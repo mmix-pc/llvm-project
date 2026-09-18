@@ -896,3 +896,17 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.__support.libc_errno
 )
+foreach(name seteuid)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ../${name}.h
+    DEPENDS
+      libc.hdr.types.uid_t
+      libc.hdr.types.gid_t
+      libc.include.sys_syscall
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.common
+      libc.src.__support.libc_errno
+  )
+endforeach()
