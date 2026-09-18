@@ -126,3 +126,19 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.__support.common
 )
+
+add_entrypoint_object(
+  mknod
+  SRCS
+    mknod.cpp
+  HDRS
+    ../mknod.h
+  DEPENDS
+    libc.src.__support.common
+    libc.src.__support.macros.config
+    libc.hdr.types.mode_t
+    libc.hdr.types.dev_t
+    libc.hdr.fcntl_macros
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.libc_errno
+)

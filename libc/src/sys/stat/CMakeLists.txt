@@ -86,3 +86,10 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.utimensat
 )
+
+add_entrypoint_object(
+  mknod
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.mknod
+)

@@ -20,6 +20,12 @@ types:
 enums: []
 objects: []
 functions:
+  - name: mknod
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: mode_t
+      - type: dev_t
   - name: futimens
     return_type: int
     arguments:

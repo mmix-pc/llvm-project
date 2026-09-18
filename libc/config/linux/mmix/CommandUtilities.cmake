@@ -9,4 +9,5 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.libgen.dirname
   libc.src.string.strverscmp
   libc.src.stdio.fseeko
-  libc.src.stdio.freopen)
+  libc.src.stdio.freopen
+  libc.src.sys.stat.mknod)
