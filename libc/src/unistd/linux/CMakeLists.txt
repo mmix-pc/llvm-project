@@ -868,3 +868,14 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
     libc.src.errno.errno
 )
+
+add_entrypoint_object(
+  sync
+  SRCS
+    sync.cpp
+  HDRS
+    ../sync.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+)

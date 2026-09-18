@@ -12,4 +12,21 @@ macros:
 types: []
 enums: []
 objects: []
-functions: []
+functions:
+  - name: mount
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: const char *
+      - type: const char *
+      - type: unsigned long
+      - type: const void *
+  - name: umount
+    return_type: int
+    arguments:
+      - type: const char *
+  - name: umount2
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: int

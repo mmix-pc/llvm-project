@@ -8,7 +8,3 @@ foreach(header paths)
     DEST_HDR ${header}.h
     DEPENDS .llvm_libc_common_h .stdio .unistd)
 endforeach()
-add_header(mmix_sys_reboot
-  HDR linux/mmix/reboot.h
-  DEST_HDR sys/reboot.h
-  DEPENDS .llvm_libc_common_h)

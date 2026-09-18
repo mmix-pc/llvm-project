@@ -58,6 +58,11 @@ objects:
   - object_name: optopt
     object_type: int
 functions:
+  - name: sync
+    standards:
+      - posix
+    return_type: void
+    arguments: []
   - name: __llvm_libc_syscall
     standards:
       - posix

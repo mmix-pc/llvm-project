@@ -11,5 +11,5 @@ list(APPEND TARGET_ENTRYPOINT_NAME_LIST
   getopt getopt_long optarg optind opterr optopt fnmatch regcomp regexec regerror regfree
   getuid geteuid getgid getegid getpwnam getpwuid getgrnam getgrgid endpwent endgrent
   setmntent getmntent getmntent_r endmntent hasmntopt addmntent
-  mount umount umount2 sync uname
+  mount umount umount2 reboot sync uname
   strsignal strverscmp asprintf vasprintf getline getdelim)

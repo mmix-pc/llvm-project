@@ -1,0 +1,151 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS sentinel)
+include(${SOURCE}/libc/config/linux/mmix/SystemAdministration.cmake)
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
+  message(FATAL_ERROR "system administration must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_SYSTEM_ADMINISTRATION ON)
+include(${SOURCE}/libc/config/linux/mmix/SystemAdministration.cmake)
+list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
+if(NOT count EQUAL 7)
+  message(FATAL_ERROR "unexpected system provider set")
+endif()
+foreach(entry libc.src.sys.mount.mount libc.src.sys.mount.umount
+    libc.src.sys.mount.umount2 libc.src.sys.reboot.reboot
+    libc.src.sys.utsname.uname libc.src.unistd.sync)
+  if(NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing system provider: ${entry}")
+  endif()
+endforeach()
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=admin_test",
+          "-I", str(root), "-I", str(libc)]
+for opt in ("0", "2"):
+    subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+        "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+        *common, "-O" + opt, "-emit-obj", str(root / "semantics.cpp"),
+        "-o", str(root / ("target-O" + opt + ".o"))], check=True)
+    if len(sys.argv) == 4:
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+            str(root / "native-boundary.h"), str(root / "semantics.cpp"),
+            "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- native-boundary.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+#--- sys/syscall.h
+#define SYS_umount2 39
+#define SYS_mount 40
+#define SYS_sync 81
+#define SYS_reboot 142
+#define SYS_uname 160
+
+#--- linux/reboot.h
+#define LINUX_REBOOT_MAGIC1 0xfee1dead
+#define LINUX_REBOOT_MAGIC2 672274793
+
+#--- linux/errno.h
+#define EPERM 1
+#define EFAULT 14
+#define EINVAL 22
+#define ENOSYS 38
+
+#--- semantics.cpp
+#include "src/sys/mount/linux/mount.cpp"
+#include "src/sys/mount/linux/umount.cpp"
+#include "src/sys/mount/linux/umount2.cpp"
+#include "src/sys/reboot/linux/reboot.cpp"
+#include "src/sys/utsname/linux/uname.cpp"
+#include "src/unistd/linux/sync.cpp"
+#include "src/errno/libc_errno.cpp"
+#include "include/llvm-libc-macros/sys-reboot-macros.h"
+#include "include/llvm-libc-macros/linux/sys-mount-macros.h"
+
+using namespace admin_test;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+static long reply, args[6];
+static unsigned long number;
+static unsigned calls;
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                        long c, long d, long e, long f) {
+  number = n; ++calls;
+  args[0] = a; args[1] = b; args[2] = c;
+  args[3] = d; args[4] = e; args[5] = f;
+  if (n == SYS_uname && a && reply == 0)
+    reinterpret_cast<utsname *>(a)->machine[0] = 'm';
+  return reply;
+}
+int main() {
+  static_assert(sizeof(utsname) == 390);
+  const char source[] = "source", target[] = "target", type[] = "tmpfs";
+  const char data[] = "size=4096";
+  const int errors[] = {0, EPERM, EFAULT, EINVAL, ENOSYS, 4095};
+  for (int error : errors) {
+    reply = -error;
+    libc_errno = 77;
+    unsigned before = calls;
+    require(mount(source, target, type, 0x8000000000000021UL, data) == (error ? -1 : 0));
+    require(calls == before + 1 && number == SYS_mount);
+    require(args[0] == (long)source && args[1] == (long)target &&
+            args[2] == (long)type && (unsigned long)args[3] == 0x8000000000000021UL &&
+            args[4] == (long)data && args[5] == 0);
+    require(int(libc_errno) == (error ? error : 77));
+    libc_errno = 77;
+    require(umount(target) == (error ? -1 : 0));
+    require(number == SYS_umount2 && args[0] == (long)target && args[1] == 0);
+    require(int(libc_errno) == (error ? error : 77));
+    const int unmount_flags[] = {MNT_FORCE, MNT_DETACH, MNT_EXPIRE, UMOUNT_NOFOLLOW, -1};
+    for (int flags : unmount_flags) {
+      libc_errno = 77;
+      require(umount2(target, flags) == (error ? -1 : 0));
+      require(number == SYS_umount2 && args[0] == (long)target && args[1] == flags);
+      require(int(libc_errno) == (error ? error : 77));
+    }
+    const unsigned commands[] = {RB_AUTOBOOT, RB_HALT_SYSTEM, RB_ENABLE_CAD,
+        RB_DISABLE_CAD, RB_POWER_OFF, RB_SW_SUSPEND, RB_KEXEC, 0xffffffffU};
+    for (unsigned command : commands) {
+      libc_errno = 77;
+      require(reboot((int)command) == (error ? -1 : 0));
+      require(number == SYS_reboot && (unsigned)args[0] == 0xfee1deadU &&
+              args[1] == 672274793 && (unsigned)args[2] == command &&
+              args[3] == 0 && args[4] == 0 && args[5] == 0);
+      require(int(libc_errno) == (error ? error : 77));
+    }
+    utsname names{};
+    libc_errno = 77;
+    int result = uname(&names);
+    require(error ? result == -1 : result >= 0 && names.machine[0] == 'm');
+    require(number == SYS_uname && args[0] == (long)&names);
+    require(int(libc_errno) == (error ? error : 77));
+    libc_errno = 77;
+    before = calls;
+    sync();
+    require(number == SYS_sync && calls == before + 1 && int(libc_errno) == 77);
+    for (long arg : args) require(arg == 0);
+  }
+  reply = -EFAULT;
+  require(mount(nullptr, nullptr, nullptr, 0, nullptr) == -1);
+  require(int(libc_errno) == EFAULT);
+  require(uname(nullptr) == -1 && int(libc_errno) == EFAULT);
+  return 0;
+}

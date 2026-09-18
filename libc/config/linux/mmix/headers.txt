@@ -30,7 +30,7 @@ if(LIBC_MMIX_ENABLE_UNIX_HEADERS)
     libc.include.sys_utsname libc.include.fnmatch libc.include.alloca
     libc.include.arpa_inet libc.include.netinet_in
     libc.include.mmix_paths libc.include.getopt libc.include.mntent
-    libc.include.mmix_sys_reboot libc.include.sys_times)
+    libc.include.sys_reboot libc.include.sys_times libc.include.sys_sysinfo)
 endif()
 
 if(LIBC_MMIX_BUILD_OPTION_PARSING)
@@ -47,6 +47,10 @@ if(LIBC_MMIX_BUILD_ACCOUNT_LOOKUP)
 endif()
 if(LIBC_MMIX_BUILD_MOUNT_TABLE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.mntent)
+endif()
+if(LIBC_MMIX_BUILD_SYSTEM_ADMINISTRATION)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.sys_mount
+    libc.include.sys_reboot libc.include.sys_utsname)
 endif()
 
 if(LIBC_MMIX_BUILD_CORE)

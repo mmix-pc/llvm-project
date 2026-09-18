@@ -1,0 +1,11 @@
+header: sys/reboot.h
+standards:
+  - linux
+macros:
+  - macro_name: RB_AUTOBOOT
+    macro_header: sys-reboot-macros.h
+functions:
+  - name: reboot
+    return_type: int
+    arguments:
+      - type: int

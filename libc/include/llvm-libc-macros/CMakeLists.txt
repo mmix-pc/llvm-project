@@ -549,3 +549,4 @@ add_macro_header(
     syslog-macros.h
 )
 add_header(mntent_macros HDR mntent-macros.h)
+add_macro_header(sys_reboot_macros HDR sys-reboot-macros.h)

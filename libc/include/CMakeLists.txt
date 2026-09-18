@@ -784,6 +784,11 @@ add_header_macro(
     .llvm-libc-macros.sys_param_macros
 )
 
+add_header_macro(sys_reboot
+  ../libc/include/sys/reboot.yaml
+  sys/reboot.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-macros.sys_reboot_macros)
+
 add_header_macro(
   sys_personality
   ../libc/include/sys/personality.yaml
