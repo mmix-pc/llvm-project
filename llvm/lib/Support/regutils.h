@@ -38,6 +38,16 @@
 #ifndef LLVM_SUPPORT_REGUTILS_H
 #define LLVM_SUPPORT_REGUTILS_H
 
+/* Keep the C engine usable without generated LLVM configuration headers. */
+#if defined(__has_attribute)
+#if __has_attribute(fallthrough)
+#define REGEX_FALLTHROUGH __attribute__((fallthrough))
+#endif
+#endif
+#ifndef REGEX_FALLTHROUGH
+#define REGEX_FALLTHROUGH ((void)0)
+#endif
+
 /* utility definitions */
 #define	NC		(CHAR_MAX - CHAR_MIN + 1)
 typedef unsigned char uch;
