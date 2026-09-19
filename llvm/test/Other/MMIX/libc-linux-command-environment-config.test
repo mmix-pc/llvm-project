@@ -16,12 +16,15 @@ assert not (root / "0/mmix-command-environment-runtime/Inputs.cmake").exists()
 for name in ("rstack", "sigcontext", "ucontext", "ptrace"):
     (root / "sysroot/usr/include/asm" / (name + ".h")).touch()
 with (root / "CMakeLists.txt").open("a") as output:
+    output.write('\ninclude(${LIBC_SOURCE}/config/linux/mmix/LocalLogging.cmake)\n')
+    output.write('\ninclude(${LIBC_SOURCE}/config/linux/mmix/NameResolution.cmake)\n')
     output.write('\ninclude(${LIBC_SOURCE}/config/linux/mmix/CommandEnvironmentRuntime.cmake)\n')
 components = ("SIGNAL_RUNTIME", "WIDE", "MATH", "IOCTL", "TERMIOS", "JOB_CONTROL",
               "EXEC_SEARCH", "SIGNAL_SUSPEND", "POLL", "PROCESS_TIMING",
               "FILE_METADATA", "OPTION_PARSING", "REGEX", "FNMATCH",
               "ACCOUNT_LOOKUP", "MOUNT_TABLE", "SYSTEM_ADMINISTRATION", "TEXT_EXTENSIONS",
-              "PROCESS_CONTROL", "VFORK", "COMMAND_UTILITIES", "ACCOUNT_MANAGEMENT")
+              "PROCESS_CONTROL", "VFORK", "COMMAND_UTILITIES", "ACCOUNT_MANAGEMENT",
+              "LOCAL_LOGGING", "NAME_RESOLUTION")
 cases = [([], None), (["-DLIBC_MMIX_ENABLE_UNIX_HEADERS=OFF"], "requires Unix headers")]
 cases += [(["-DLIBC_MMIX_BUILD_" + c + "=OFF"], "requires " + c) for c in components]
 for i, (options, error) in enumerate(cases):
@@ -36,5 +39,10 @@ for i, (options, error) in enumerate(cases):
         manifest = (build / "mmix-command-environment-runtime/Inputs.cmake").read_text()
         for value in ("mmix-signal-runtime/Inputs.cmake", "LIBC_THREAD_MODE_SINGLE",
                       "LIBC_ERRNO_MODE_SHARED", "configured-caller-closure-pending",
-                      "local-logging-not-provided", "not-qualified", "pthread;ELF-TLS;dynamic-linking"):
+                      "local-logging-receiver-unqualified", "name-resolution-not-provided",
+                      "libc.src.syslog.syslog", "libc.src.syslog.openlog",
+                      "libc.src.syslog.closelog", "libc.src.syslog.vsyslog",
+                      "libc.src.syslog.setlogmask", "libc.src.netdb.getaddrinfo",
+                      "libc.src.netdb.freeaddrinfo", "libc.src.netdb.getnameinfo",
+                      "not-qualified", "pthread;ELF-TLS;dynamic-linking"):
             assert value in manifest, value

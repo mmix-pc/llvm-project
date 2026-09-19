@@ -24,6 +24,8 @@ foreach(family Descriptors Ioctl Termios Stdio Wide Math Filesystem FileMetadata
 endforeach()
 include(${CMAKE_CURRENT_LIST_DIR}/CommandUtilities.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/AccountManagement.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/LocalLogging.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/NameResolution.cmake)
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeState.cmake)
