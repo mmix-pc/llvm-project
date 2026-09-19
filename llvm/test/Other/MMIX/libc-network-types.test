@@ -1,9 +1,10 @@
 # REQUIRES: mmix-registered-target
 # RUN: split-file %s %t
 # RUN: python3 %S/../../../../libc/utils/hdrgen/main.py -o %t/netdb.h --write-if-changed -e gethostbyname -e getnameinfo -e getaddrinfo -e freeaddrinfo -e hstrerror -e __h_errno_location %S/../../../../libc/include/netdb.yaml
-# RUN: python3 %S/../../../../libc/utils/hdrgen/main.py -o %t/syslog.h --write-if-changed -e syslog %S/../../../../libc/include/syslog.yaml
-# RUN: clang --target=mmix-unknown-linux -nostdinc -I %t -I %S/../../../../libc/include -x c -std=c17 -fsyntax-only %t/layout.c
-# RUN: clang --target=mmix-unknown-linux -nostdinc -I %t -I %S/../../../../libc/include -x c++ -std=c++17 -fsyntax-only %t/layout.c
+# RUN: python3 %S/../../../../libc/utils/hdrgen/main.py -o %t/syslog.h --write-if-changed -e syslog -e vsyslog -e openlog -e closelog -e setlogmask %S/../../../../libc/include/syslog.yaml
+# Keep compiler-owned stdarg.h, without searching system C or C++ headers.
+# RUN: clang --target=mmix-unknown-linux -nostdlibinc -I %t -I %S/../../../../libc/include -x c -std=c17 -fsyntax-only %t/layout.c
+# RUN: clang --target=mmix-unknown-linux -nostdlibinc -nostdinc++ -I %t -I %S/../../../../libc/include -x c++ -std=c++17 -fsyntax-only %t/layout.c
 
 #--- layout.c
 #include "llvm-libc-types/struct_ifreq.h"
@@ -36,3 +37,8 @@ int (*address_lookup)(const char *, const char *, const struct addrinfo *,
                       struct addrinfo **) = getaddrinfo;
 void (*address_free)(struct addrinfo *) = freeaddrinfo;
 void (*logging)(int, const char *, ...) = syslog;
+void (*vlogging)(int, const char *, va_list) = vsyslog;
+void (*logging_open)(const char *, int, int) = openlog;
+void (*logging_close)(void) = closelog;
+int (*logging_mask)(int) = setlogmask;
+CHECK(LOG_MASK(LOG_ERR) == 8 && LOG_UPTO(LOG_WARNING) == 31, "priority masks");

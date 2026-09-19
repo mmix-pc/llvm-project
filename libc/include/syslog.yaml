@@ -2,6 +2,12 @@ header: syslog.h
 standards:
   - posix
 macros:
+  - macro_name: LOG_MASK
+    macro_header: syslog-macros.h
+  - macro_name: LOG_UPTO
+    macro_header: syslog-macros.h
+  - macro_name: LOG_PERROR
+    macro_header: syslog-macros.h
   - macro_name: LOG_PID
     macro_header: syslog-macros.h
   - macro_name: LOG_CONS
@@ -62,10 +68,32 @@ macros:
     macro_header: syslog-macros.h
   - macro_name: LOG_DEBUG
     macro_header: syslog-macros.h
-types: []
+types:
+  - type_name: va_list
 enums: []
 objects: []
 functions:
+  - name: openlog
+    return_type: void
+    arguments:
+      - type: const char *
+      - type: int
+      - type: int
+  - name: closelog
+    return_type: void
+    arguments: []
+  - name: setlogmask
+    return_type: int
+    arguments:
+      - type: int
+  - name: vsyslog
+    standards:
+      - bsd
+    return_type: void
+    arguments:
+      - type: int
+      - type: const char *
+      - type: va_list
   - name: syslog
     return_type: void
     arguments:

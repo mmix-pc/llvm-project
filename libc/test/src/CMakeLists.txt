@@ -102,6 +102,7 @@ if(${LIBC_TARGET_OS} STREQUAL "linux")
   add_subdirectory(poll)
   add_subdirectory(sched)
   add_subdirectory(sys)
+  add_subdirectory(syslog)
   add_subdirectory(termios)
 endif()
 
