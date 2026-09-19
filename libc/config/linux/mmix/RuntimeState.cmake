@@ -10,13 +10,18 @@ if(NOT LLVM_LIBC_FULL_BUILD OR
   message(FATAL_ERROR "MMIX Linux state requires cross Release, shared errno and untimed SINGLE mode")
 endif()
 # Keep preparation distinct from libc.a and out of installation rules.
-add_library(mmix_libc_state STATIC
-  $<TARGET_OBJECTS:libc.src.errno.errno>
-  $<TARGET_OBJECTS:libc.src.__support.threads.thread>
-  $<TARGET_OBJECTS:libc.src.__support.threads.linux.mmix.main_thread>
-  $<TARGET_OBJECTS:libc.src.__support.OSUtil.linux.linux_util>
-  $<TARGET_OBJECTS:libc.src.__support.OSUtil.linux.mmix.syscall_asm>)
+set(mmix_state_objects
+  libc.src.errno.errno
+  libc.src.__support.threads.thread
+  libc.src.__support.threads.linux.mmix.main_thread
+  libc.src.__support.OSUtil.linux.linux_util
+  libc.src.__support.OSUtil.linux.mmix.syscall_asm)
+add_library(mmix_libc_state STATIC)
+foreach(object IN LISTS mmix_state_objects)
+  target_sources(mmix_libc_state PRIVATE $<TARGET_OBJECTS:${object}>)
+endforeach()
 set_target_properties(mmix_libc_state PROPERTIES
+  MMIX_STATE_OBJECT_TARGETS "${mmix_state_objects}"
   ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/mmix-state")
 export(TARGETS mmix_libc_state
   FILE "${CMAKE_BINARY_DIR}/mmix-state/LibcStateTargets.cmake")

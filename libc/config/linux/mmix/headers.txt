@@ -123,3 +123,4 @@ if(LIBC_MMIX_BUILD_RUNTIME_STATE)
 endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/CommandEnvironmentRuntime.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/RuntimeInstallation.cmake)

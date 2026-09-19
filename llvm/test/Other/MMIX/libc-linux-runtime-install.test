@@ -1,0 +1,83 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(InstallRuntime C)
+include(${LIBC_SOURCE}/cmake/modules/LLVMLibCLibraryRules.cmake)
+set(OBJECT_LIBRARY_TARGET_TYPE OBJECT)
+set(ENTRYPOINT_OBJ_TARGET_TYPE ENTRYPOINT)
+set(ENTRYPOINT_EXT_TARGET_TYPE EXTERNAL)
+set(LIBC_INSTALL_LIBRARY_DIR lib)
+set(LIBC_LIBRARY_DIR ${CMAKE_BINARY_DIR}/lib)
+file(MAKE_DIRECTORY ${LIBC_LIBRARY_DIR})
+file(WRITE ${LIBC_LIBRARY_DIR}/libm.a "INPUT ( libc.a )\n")
+add_library(common OBJECT common.c)
+set_target_properties(common PROPERTIES TARGET_TYPE OBJECT DEPS "")
+add_library(entry OBJECT entry.c)
+set_target_properties(entry PROPERTIES TARGET_TYPE ENTRYPOINT DEPS common)
+add_library(state OBJECT state.c)
+set_target_properties(state PROPERTIES TARGET_TYPE OBJECT DEPS "")
+add_library(mmix_libc_state STATIC $<TARGET_OBJECTS:common> $<TARGET_OBJECTS:state>)
+set_target_properties(mmix_libc_state PROPERTIES MMIX_STATE_OBJECT_TARGETS "common;state")
+set(TARGET_LIBC_ENTRYPOINTS entry)
+if(LIBC_MMIX_BUILD_COMMAND_ENVIRONMENT_RUNTIME)
+  add_custom_target(mmix_libc_command_environment_runtime)
+endif()
+include(${LIBC_SOURCE}/config/linux/mmix/RuntimeInstallation.cmake)
+# The real libc target is likewise created after target configuration.
+add_library(libc STATIC $<TARGET_OBJECTS:entry> $<TARGET_OBJECTS:common>)
+set_target_properties(libc PROPERTIES OUTPUT_NAME c)
+add_custom_target(libc-headers)
+file(WRITE ${CMAKE_BINARY_DIR}/crt1.o "fixture CRT\n")
+add_library(libc.startup.linux.mmix.crt1 OBJECT IMPORTED)
+set_target_properties(libc.startup.linux.mmix.crt1 PROPERTIES
+  IMPORTED_OBJECTS ${CMAKE_BINARY_DIR}/crt1.o)
+
+#--- common.c
+int common(void) { return 1; }
+#--- state.c
+int state(void) { return 2; }
+#--- entry.c
+int common(void);
+int entry(void) { return common(); }
+
+#--- check.py
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+source, root = map(Path, sys.argv[1:])
+def run(args, success=True, env=None):
+    result = subprocess.run(list(map(str, args)), capture_output=True, text=True, env=env)
+    assert (result.returncode == 0) == success, result.stdout + result.stderr
+    return result.stdout + result.stderr
+
+base = ["cmake", "-G", "Ninja", "-S", root, "-DLIBC_SOURCE=" + str(source.resolve())]
+run(base + ["-B", root / "off"])
+run(["cmake", "--install", root / "off", "--prefix", root / "empty", "--component", "mmix-libc-runtime"])
+assert not (root / "empty/lib/libc.a").exists()
+error = run(base + ["-B", root / "invalid", "-DLIBC_MMIX_INSTALL_RUNTIME=ON"], False)
+assert "requires the command-environment runtime" in error
+build = root / "on"
+run(base + ["-B", build, "-DLIBC_MMIX_INSTALL_RUNTIME=ON",
+            "-DLIBC_MMIX_BUILD_COMMAND_ENVIRONMENT_RUNTIME=ON"])
+run(["cmake", "--build", build, "--target", "mmix_libc_install_runtime", "--parallel", "1"])
+prefix = root.resolve() / "prefix with spaces"
+run(["cmake", "--install", build, "--prefix", prefix, "--component", "mmix-libc-runtime"])
+assert {p.name for p in (prefix / "lib").iterdir()} == {"libc.a", "crt1.o", "libm.a"}
+members = run(["llvm-ar", "t", prefix / "lib/libc.a"]).splitlines()
+assert len(members) == 3 and len(set(members)) == 3, members
+symbols = run(["llvm-nm", "--defined-only", prefix / "lib/libc.a"])
+for name in ("common", "entry", "state"):
+    assert sum(line.endswith(" T " + name) for line in symbols.splitlines()) == 1, symbols
+before = (prefix / "lib/libc.a").read_bytes()
+run(["cmake", "--install", build, "--prefix", prefix, "--component", "mmix-libc-runtime"])
+assert (prefix / "lib/libc.a").read_bytes() == before
+destdir = root.resolve() / "destdir"
+run(["cmake", "--install", build, "--prefix", "/usr", "--component", "mmix-libc-runtime"],
+    env=dict(os.environ, DESTDIR=str(destdir)))
+assert (destdir / "usr/lib/libc.a").read_bytes() == before
