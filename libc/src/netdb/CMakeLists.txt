@@ -6,6 +6,7 @@ add_entrypoint_object(
     freeaddrinfo.h
   DEPENDS
     libc.hdr.types.struct_addrinfo
+    libc.hdr.func.free
     libc.src.__support.common
     libc.src.__support.macros.config
 )
@@ -23,4 +24,27 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.macros.config
     libc.src.errno.errno
+    libc.hdr.func.malloc
+    libc.hdr.netinet_in_macros
+    libc.hdr.sys_socket_macros
+    libc.hdr.types.struct_sockaddr_in
+    libc.src.__support.net.address
+    libc.src.arpa.inet.inet_ntop
+    .freeaddrinfo
+)
+
+add_entrypoint_object(
+  getnameinfo
+  SRCS getnameinfo.cpp
+  HDRS getnameinfo.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.netdb_macros
+    libc.hdr.sys_socket_macros
+    libc.hdr.types.struct_sockaddr_in
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+    libc.src.arpa.inet.inet_ntop
+    libc.src.stdio.snprintf
+    libc.src.string.string_utils
 )
