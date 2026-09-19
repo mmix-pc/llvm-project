@@ -926,6 +926,19 @@ defm : MMIXLoadPatterns<extloadi32, LDTU, LDTUI>;
 defm : MMIXLoadPatterns<zextloadi32, LDTU, LDTUI>;
 defm : MMIXLoadPatterns<load, LDOU, LDOUI>;
 
+// Naturally aligned atomic reads must not require write permission. Ordering
+// is supplied by AtomicExpand's fences; preserve the atomic memory operand.
+defm : MMIXLoadPatterns<atomic_load_aext_8, LDBU, LDBUI>;
+defm : MMIXLoadPatterns<atomic_load_zext_8, LDBU, LDBUI>;
+defm : MMIXLoadPatterns<atomic_load_sext_8, LDB, LDBI>;
+defm : MMIXLoadPatterns<atomic_load_aext_16, LDWU, LDWUI>;
+defm : MMIXLoadPatterns<atomic_load_zext_16, LDWU, LDWUI>;
+defm : MMIXLoadPatterns<atomic_load_sext_16, LDW, LDWI>;
+defm : MMIXLoadPatterns<atomic_load_aext_32, LDTU, LDTUI>;
+defm : MMIXLoadPatterns<atomic_load_zext_32, LDTU, LDTUI>;
+defm : MMIXLoadPatterns<atomic_load_sext_32, LDT, LDTI>;
+defm : MMIXLoadPatterns<atomic_load_nonext_64, LDOU, LDOUI>;
+
 multiclass MMIXStorePatterns<PatFrag StoreOp, Instruction RegOp,
                              Instruction ImmOp> {
   def : Pat<(StoreOp (i64 GPR64:$value), GPR64:$base),

@@ -57,16 +57,16 @@
 // IR: fence seq_cst
 
 // ASM-LABEL: load_relaxed_i8:
-// ASM: CSWAP
+// ASM: LDBU r231, r231, 0
 // ASM-LABEL: load_consume_i16:
-// ASM: CSWAP
+// ASM: LDW{{U?}} r231, r231, 0
 // ASM: SYNC 3
 // ASM-LABEL: load_acquire_i32:
-// ASM: CSWAP
+// ASM: LDTU r231, r231, 0
 // ASM: SYNC 3
 // ASM-LABEL: load_seq_cst_i64:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU r231, r231, 0
 // ASM: SYNC 3
 // ASM-LABEL: store_relaxed_i8:
 // ASM: CSWAP

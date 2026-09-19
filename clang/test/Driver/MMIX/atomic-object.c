@@ -27,14 +27,14 @@
 // encoded immediate-form CSWAP retry.
 // DIS-LABEL: <c17_exchange_byte>:
 // DIS: ANDN
-// DIS: CSWAP
+// DIS: LDOU
 // DIS: AND
 // DIS: OR
 // DIS: CSWAP
 // DIS: BNZB
 // DIS-LABEL: <gnu_fetch_add_word>:
 // DIS: SYNC 3
-// DIS: CSWAP
+// DIS: LDOU
 // DIS: ADDU
 // DIS: CSWAP
 // DIS: BNZB

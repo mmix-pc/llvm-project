@@ -6,12 +6,14 @@
 
 define ptr @load_pointer(ptr %address) {
 ; IR-LABEL: define ptr @load_pointer(
-; IR: cmpxchg ptr %address, i64 0, i64 0 monotonic monotonic, align 8
-; IR: [[LOADED:%.*]] = extractvalue { i64, i1 }
+; IR: [[LOADED:%.*]] = load atomic i64, ptr %address monotonic, align 8
 ; IR: fence acquire
 ; IR: inttoptr i64 [[LOADED]] to ptr
 ; CHECK-LABEL: load_pointer:
-; CHECK: CSWAP
+; CHECK-NOT: CSWAP
+; CHECK: LDOU
+; CHECK: SYNC 3
+; CHECK-NOT: CSWAP
 ; CHECK: POP
   %value = load atomic ptr, ptr %address acquire, align 8
   ret ptr %value

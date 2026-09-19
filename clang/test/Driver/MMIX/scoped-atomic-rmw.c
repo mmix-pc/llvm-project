@@ -45,34 +45,34 @@
 // IR: cmpxchg ptr %{{.*}}, i64 %{{.*}} seq_cst seq_cst, align 8
 
 // ASM-LABEL: fetch_add_i8:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: ADDU
 // ASM: AND
 // ASM: OR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: fetch_sub_i16:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: SUBU
 // ASM: CSWAP
 // ASM: BNZB
 // ASM: SYNC 3
 // ASM-LABEL: fetch_and_i32:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: AND
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: fetch_or_i64:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: OR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM: SYNC 3
 // ASM-LABEL: fetch_xor_i8:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: XOR
 // ASM: CSWAP
 // ASM: BNZB
@@ -92,7 +92,7 @@
 // ELF-NEXT: ]
 
 // OBJ-LABEL: <fetch_add_i8>:
-// OBJ: CSWAP
+// OBJ: LDOU
 // OBJ: ADDU
 // OBJ: AND
 // OBJ: OR
@@ -100,7 +100,7 @@
 // OBJ: BNZB
 // OBJ-LABEL: <fetch_or_i64>:
 // OBJ: SYNC 3
-// OBJ: CSWAP
+// OBJ: LDOU
 // OBJ: OR
 // OBJ: CSWAP
 // OBJ: BNZB

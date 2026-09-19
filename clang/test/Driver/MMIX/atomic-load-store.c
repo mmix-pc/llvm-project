@@ -50,44 +50,35 @@
 
 // ASM-LABEL: c11_load_relaxed_i8:
 // ASM-NOT: SYNC
-// ASM: ANDN [[ALIGNED8:r[0-9]+]], r231, 7
-// ASM: CSWAP r255, [[ALIGNED8]], 0
-// ASM: SETL [[END8:r[0-9]+]], 7
-// ASM: ANDN [[BYTE8:r[0-9]+]], [[END8]], r231
-// ASM: SLU [[SHIFT8:r[0-9]+]], [[BYTE8]], 3
-// ASM: SRU r231, {{r[0-9]+}}, [[SHIFT8]]
+// ASM-NOT: CSWAP
+// ASM: LDBU r231, r231, 0
+// ASM-NOT: CSWAP
 // ASM-NOT: SYNC
 // ASM: POP 0, 0
 
 // ASM-LABEL: c11_load_acquire_i16:
 // ASM-NOT: SYNC
-// ASM: ANDN [[ALIGNED16:r[0-9]+]], r231, 7
-// ASM: CSWAP r255, [[ALIGNED16]], 0
-// ASM: SETL [[END16:r[0-9]+]], 6
-// ASM: SUBU [[BYTE16:r[0-9]+]], [[END16]], {{r[0-9]+}}
-// ASM: SRU r231, {{r[0-9]+}}, {{r[0-9]+}}
+// ASM-NOT: CSWAP
+// ASM: LDWU r231, r231, 0
 // ASM-NEXT: SYNC 3
 
 // ASM-LABEL: gnu_load_relaxed_i32:
 // ASM-NOT: SYNC
-// ASM: ANDN [[ALIGNED32:r[0-9]+]], r231, 7
-// ASM: CSWAP r255, [[ALIGNED32]], 0
-// ASM: SETL [[END32:r[0-9]+]], 4
-// ASM: SUBU {{r[0-9]+}}, [[END32]], {{r[0-9]+}}
-// ASM: SRU r231, {{r[0-9]+}}, {{r[0-9]+}}
+// ASM-NOT: CSWAP
+// ASM: LDTU r231, r231, 0
+// ASM-NOT: CSWAP
 // ASM-NOT: SYNC
 // ASM: POP 0, 0
 
 // ASM-LABEL: gnu_load_seq_cst_i64:
 // ASM: SYNC 3
-// ASM: CSWAP
-// ASM: GET
+// ASM: LDOU r231, r231, 0
 // ASM-NEXT: SYNC 3
 
 // ASM-LABEL: c11_store_relaxed_i8:
 // ASM-NOT: SYNC
 // ASM: ANDN [[STORE8:r[0-9]+]], r231, 7
-// ASM: CSWAP r255, [[STORE8]], 0
+// ASM: LDOU {{r[0-9]+}}, [[STORE8]], 0
 // ASM: NXOR [[PRESERVE8:r[0-9]+]], {{r[0-9]+}}, 0
 // ASM: AND {{r[0-9]+}}, {{r[0-9]+}}, [[PRESERVE8]]
 // ASM: OR
@@ -98,7 +89,7 @@
 
 // ASM-LABEL: c11_store_release_i16:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: AND
 // ASM: OR
 // ASM: CSWAP
@@ -106,7 +97,7 @@
 
 // ASM-LABEL: gnu_store_relaxed_i32:
 // ASM-NOT: SYNC
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: AND
 // ASM: OR
 // ASM: CSWAP

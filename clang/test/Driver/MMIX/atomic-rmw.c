@@ -83,7 +83,7 @@
 // Narrow loops preserve the unselected bits of their containing octabyte.
 // ASM-LABEL: c11_fetch_add_i8:
 // ASM-NOT: SYNC
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: ADDU
 // ASM: AND
 // ASM: OR
@@ -92,7 +92,7 @@
 // ASM-NOT: SYNC
 // ASM: POP 0, 0
 // ASM-LABEL: c11_fetch_sub_i16:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: SUBU
 // ASM: AND
 // ASM: OR
@@ -101,52 +101,52 @@
 // ASM: SYNC 3
 // ASM-LABEL: c11_fetch_and_i32:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: AND
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: c11_fetch_or_i64:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: OR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM: SYNC 3
 // ASM-LABEL: c11_fetch_xor_i8:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: XOR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM: SYNC 3
 // ASM-LABEL: c11_fetch_nand_i16:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: AND
 // ASM: ANDN
 // ASM: OR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: c11_fetch_min_i64:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: CMP
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: c11_fetch_max_i16:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: CMP
 // ASM: AND
 // ASM: OR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: c11_fetch_umin_i8:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: CMPU
 // ASM: AND
 // ASM: OR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: c11_fetch_umax_i32:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: CMPU
 // ASM: AND
 // ASM: OR

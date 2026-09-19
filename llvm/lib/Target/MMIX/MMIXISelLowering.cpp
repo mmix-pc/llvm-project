@@ -834,6 +834,7 @@ MMIXTargetLowering::MMIXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
   RejectOperation(ISD::BRIND, MVT::Other);
   setOperationAction(ISD::TRAP, MVT::Other, Legal);
+  setOperationAction(ISD::ATOMIC_LOAD, MVT::i64, Legal);
   setOperationAction(ISD::ATOMIC_CMP_SWAP, MVT::i64, Legal);
   setOperationAction(ISD::ATOMIC_CMP_SWAP_WITH_SUCCESS, MVT::i64, Expand);
   setOperationAction(ISD::ATOMIC_FENCE, MVT::Other, Custom);
@@ -857,7 +858,7 @@ bool MMIXTargetLowering::allowsMisalignedMemoryAccesses(
 
 TargetLowering::AtomicExpansionKind
 MMIXTargetLowering::shouldCastAtomicLoadInIR(LoadInst *LI) const {
-  // The cmpxchg-based load/store expansion operates on integer register values.
+  // Atomic memory operations use integer register values.
   if (LI->getType()->isPointerTy())
     return AtomicExpansionKind::CastToInteger;
   return TargetLowering::shouldCastAtomicLoadInIR(LI);
@@ -870,64 +871,12 @@ MMIXTargetLowering::shouldCastAtomicStoreInIR(StoreInst *SI) const {
   return TargetLowering::shouldCastAtomicStoreInIR(SI);
 }
 
-TargetLowering::AtomicExpansionKind
-MMIXTargetLowering::shouldExpandAtomicLoadInIR(LoadInst *LI) const {
-  if (LI->getType()->isIntegerTy() &&
-      LI->getType()->getPrimitiveSizeInBits() < 64)
-    return AtomicExpansionKind::CustomExpand;
-  return AtomicExpansionKind::CmpXChg;
-}
-
 Instruction *MMIXTargetLowering::emitLeadingFence(IRBuilderBase &Builder,
                                                   Instruction *Inst,
                                                   AtomicOrdering Ord) const {
   if (Ord == AtomicOrdering::SequentiallyConsistent)
     return Builder.CreateFence(Ord);
   return TargetLowering::emitLeadingFence(Builder, Inst, Ord);
-}
-
-void MMIXTargetLowering::emitExpandAtomicLoad(LoadInst *LI) const {
-  auto *ValueTy = cast<IntegerType>(LI->getType());
-  unsigned Width = ValueTy->getBitWidth();
-  assert((Width == 8 || Width == 16 || Width == 32) &&
-         "unexpected narrow MMIX atomic load type");
-
-  IRBuilder<> Builder(LI);
-  Type *I64Ty = Builder.getInt64Ty();
-  Value *Address = LI->getPointerOperand();
-  Value *AddressInt = Builder.CreatePtrToInt(Address, I64Ty);
-  Value *ByteOffset =
-      Builder.CreateAnd(AddressInt, Builder.getInt64(7), "atomic.byte.offset");
-  Value *AlignedInt = Builder.CreateAnd(
-      AddressInt, Builder.getInt64(uint64_t(-8)), "atomic.aligned.address");
-  Value *AlignedAddress =
-      Builder.CreateIntToPtr(AlignedInt, Address->getType());
-
-  unsigned WidthBytes = Width / 8;
-  Value *BigEndianByte = Builder.CreateSub(
-      Builder.getInt64(8 - WidthBytes), ByteOffset, "atomic.big-endian.byte");
-  Value *Shift = Builder.CreateShl(BigEndianByte, 3, "atomic.shift");
-
-  AtomicOrdering Order = LI->getOrdering();
-  if (Order == AtomicOrdering::Unordered)
-    Order = AtomicOrdering::Monotonic;
-  Constant *Zero = Builder.getInt64(0);
-  auto *Pair = Builder.CreateAtomicCmpXchg(
-      AlignedAddress, Zero, Zero, Align(8), Order,
-      AtomicCmpXchgInst::getStrongestFailureOrdering(Order),
-      LI->getSyncScopeID());
-  Pair->setVolatile(LI->isVolatile());
-  Pair->copyMetadata(*LI, {LLVMContext::MD_dbg, LLVMContext::MD_tbaa,
-                           LLVMContext::MD_tbaa_struct,
-                           LLVMContext::MD_alias_scope, LLVMContext::MD_noalias,
-                           LLVMContext::MD_noalias_addrspace,
-                           LLVMContext::MD_access_group, LLVMContext::MD_mmra});
-
-  Value *Loaded = Builder.CreateExtractValue(Pair, 0, "atomic.loaded.octa");
-  Value *Shifted = Builder.CreateLShr(Loaded, Shift, "atomic.loaded.shifted");
-  Value *Result = Builder.CreateTrunc(Shifted, ValueTy, "atomic.loaded");
-  LI->replaceAllUsesWith(Result);
-  LI->eraseFromParent();
 }
 
 void MMIXTargetLowering::getTgtMemIntrinsic(

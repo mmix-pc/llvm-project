@@ -78,33 +78,33 @@
 // Four widths exercise the same native loop without runtime calls.
 // ASM-LABEL: sync_fetch_add_i8:
 // ASM: SYNC 3
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: ADDU
 // ASM: CSWAP
 // ASM: BNZB
 // ASM: SYNC 3
 // ASM-LABEL: sync_fetch_sub_i16:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: SUBU
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: sync_fetch_or_i32:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: OR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: sync_fetch_and_i64:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: AND
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: sync_fetch_xor_i32:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: XOR
 // ASM: CSWAP
 // ASM: BNZB
 // ASM-LABEL: sync_fetch_nand_i16:
-// ASM: CSWAP
+// ASM: LDOU
 // ASM: ANDN
 // ASM: CSWAP
 // ASM: BNZB

@@ -73,7 +73,7 @@ define i1 @cmp_seqcst(ptr %p, i64 %expected, i64 %new) nounwind {
 ; Atomic RMW operations expand to a retrying cmpxchg loop.
 ; CHECK-LABEL: rmw_add:
 ; CHECK:       SYNC 3
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       ADDU
 ; CHECK:       CSWAP
 ; CHECK:       BNZB
@@ -86,7 +86,7 @@ define i64 @rmw_add(ptr %p, i64 %value) {
 ; Sub-octabyte operations use a big-endian masked octabyte cmpxchg loop.
 ; CHECK-LABEL: rmw_add_i8:
 ; CHECK:       ANDN
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       AND
 ; CHECK:       CSWAP
 ; CHECK:       BNZB
@@ -100,7 +100,7 @@ define i8 @rmw_add_i8(ptr %p, i8 %value) {
 ; CHECK-LABEL: rmw_xor_i16:
 ; CHECK-NOT:   PUT rM
 ; CHECK:       ANDN
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       XOR
 ; CHECK:       CSWAP
 ; CHECK:       BNZB
@@ -113,7 +113,7 @@ define i16 @rmw_xor_i16(ptr %p, i16 %value) {
 ; CHECK-LABEL: rmw_or_i32:
 ; CHECK-NOT:   PUT rM
 ; CHECK:       ANDN
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       OR
 ; CHECK:       CSWAP
 ; CHECK:       BNZB
@@ -127,7 +127,7 @@ define i32 @rmw_or_i32(ptr %p, i32 %value) {
 ; checks identify the semantic operation without depending on the shape of
 ; AtomicExpand's IR control flow.
 ; CHECK-LABEL: rmw_sub:
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       SUBU
 ; CHECK:       CSWAP
 ; CHECK:       BNZB
@@ -137,7 +137,7 @@ define i64 @rmw_sub(ptr %p, i64 %value) {
 }
 
 ; CHECK-LABEL: rmw_and_i8:
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       AND
 ; CHECK:       OR
 ; CHECK:       CSWAP
@@ -148,7 +148,7 @@ define i8 @rmw_and_i8(ptr %p, i8 %value) {
 }
 
 ; CHECK-LABEL: rmw_nand_i16:
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       AND
 ; CHECK:       ANDN
 ; CHECK:       OR
@@ -161,7 +161,7 @@ define i16 @rmw_nand_i16(ptr %p, i16 %value) {
 
 ; Signed narrow extrema sign-extend the selected field before comparison.
 ; CHECK-LABEL: rmw_min_i16:
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       SRU
 ; CHECK:       SLU
 ; CHECK:       SR
@@ -174,7 +174,7 @@ define i16 @rmw_min_i16(ptr %p, i16 %value) {
 }
 
 ; CHECK-LABEL: rmw_max_i32:
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       SRU
 ; CHECK:       SLU
 ; CHECK:       SR
@@ -188,7 +188,7 @@ define i32 @rmw_max_i32(ptr %p, i32 %value) {
 
 ; Unsigned extrema mask the selected field and use an unsigned comparison.
 ; CHECK-LABEL: rmw_umin_i8:
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       SRU
 ; CHECK:       AND
 ; CHECK:       CMPU
@@ -200,7 +200,7 @@ define i8 @rmw_umin_i8(ptr %p, i8 %value) {
 }
 
 ; CHECK-LABEL: rmw_umax_i32:
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       SRU
 ; CHECK:       AND
 ; CHECK:       CMPU
@@ -240,10 +240,13 @@ define i16 @cmp_i16(ptr %p, i16 %expected, i16 %new) {
 ; CHECK-LABEL: cmp_i32:
 ; CHECK-NOT:   PUT rM
 ; CHECK:       ANDN
+; CHECK:       LDOU
+; CHECK:       ANDN
 ; CHECK:       PUT rP
 ; CHECK:       CSWAP
 ; CHECK:       GET {{.*}}, rP
-; CHECK:       ANDN
+; CHECK:       AND
+; CHECK:       BNZB
 ; CHECK-NOT:   PUT rM
 define i32 @cmp_i32(ptr %p, i32 %expected, i32 %new) {
   %pair = cmpxchg ptr %p, i32 %expected, i32 %new monotonic monotonic
@@ -251,13 +254,9 @@ define i32 @cmp_i32(ptr %p, i32 %expected, i32 %new) {
   ret i32 %old
 }
 
-; Atomic loads use a no-change cmpxchg and acquire ordering is a trailing
-; memory fence.
+; Atomic loads are read-only; acquire ordering is a trailing memory fence.
 ; CHECK-LABEL: load_acquire:
-; CHECK:       PUT rP
-; CHECK-NEXT:  OR r255
-; CHECK-NEXT:  CSWAP
-; CHECK-NEXT:  GET
+; CHECK:       LDOU r231, r231, 0
 ; CHECK-NEXT:  SYNC 3
 define i64 @load_acquire(ptr %p) {
   %value = load atomic i64, ptr %p acquire, align 8
@@ -267,8 +266,7 @@ define i64 @load_acquire(ptr %p) {
 ; Sequentially consistent loads use the contracted system fence on both sides.
 ; CHECK-LABEL: load_seq_cst:
 ; CHECK:       SYNC 3
-; CHECK:       CSWAP
-; CHECK:       GET
+; CHECK:       LDOU r231, r231, 0
 ; CHECK-NEXT:  SYNC 3
 define i64 @load_seq_cst(ptr %p) {
   %value = load atomic i64, ptr %p seq_cst, align 8
@@ -277,11 +275,7 @@ define i64 @load_seq_cst(ptr %p) {
 
 ; CHECK-LABEL: load_monotonic_i8:
 ; CHECK-NOT:   PUT rM
-; CHECK:       ANDN
-; CHECK:       PUT rP
-; CHECK:       CSWAP
-; CHECK:       GET {{.*}}, rP
-; CHECK:       SRU
+; CHECK:       LDBU r231, r231, 0
 ; CHECK-NOT:   PUT rM
 define i8 @load_monotonic_i8(ptr %p) {
   %value = load atomic i8, ptr %p monotonic, align 1
@@ -290,11 +284,7 @@ define i8 @load_monotonic_i8(ptr %p) {
 
 ; CHECK-LABEL: load_monotonic_i16:
 ; CHECK-NOT:   PUT rM
-; CHECK:       ANDN
-; CHECK:       PUT rP
-; CHECK:       CSWAP
-; CHECK:       GET {{.*}}, rP
-; CHECK:       SRU
+; CHECK:       LDWU r231, r231, 0
 ; CHECK-NOT:   PUT rM
 define i16 @load_monotonic_i16(ptr %p) {
   %value = load atomic i16, ptr %p monotonic, align 2
@@ -303,8 +293,7 @@ define i16 @load_monotonic_i16(ptr %p) {
 
 ; CHECK-LABEL: load_acquire_i32:
 ; CHECK-NOT:   PUT rM
-; CHECK:       CSWAP
-; CHECK:       GET
+; CHECK:       LDTU r231, r231, 0
 ; CHECK:       SYNC 3
 ; CHECK-NOT:   PUT rM
 define i32 @load_acquire_i32(ptr %p) {
@@ -316,7 +305,7 @@ define i32 @load_acquire_i32(ptr %p) {
 ; memory fence.
 ; CHECK-LABEL: store_release:
 ; CHECK:       SYNC 3
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       CSWAP
 ; CHECK:       BNZB
 define void @store_release(ptr %p, i64 %value) {
@@ -327,7 +316,7 @@ define void @store_release(ptr %p, i64 %value) {
 ; CHECK-LABEL: store_release_i16:
 ; CHECK-NOT:   PUT rM
 ; CHECK:       SYNC 3
-; CHECK:       CSWAP
+; CHECK:       LDOU
 ; CHECK:       CSWAP
 ; CHECK:       BNZB
 ; CHECK-NOT:   PUT rM
