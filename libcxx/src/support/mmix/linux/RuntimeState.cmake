@@ -1,8 +1,9 @@
 # Compose build-tree preparation only; full C++ runtime closure is separate.
 foreach(project LIBCXXABI LIBUNWIND)
   if(${project}_ENABLE_THREADS OR ${project}_ENABLE_SHARED OR
-     NOT ${project}_ENABLE_STATIC OR ${project}_INSTALL_HEADERS OR
-     ${project}_INSTALL_LIBRARY OR NOT ${project}_USE_COMPILER_RT OR
+     NOT ${project}_ENABLE_STATIC OR
+     ((${project}_INSTALL_HEADERS OR ${project}_INSTALL_LIBRARY) AND
+      NOT LIBCXX_MMIX_LINUX_INSTALL_RUNTIME) OR NOT ${project}_USE_COMPILER_RT OR
      ${project}_HAS_PTHREAD_LIB OR ${project}_HAS_DL_LIB)
     message(FATAL_ERROR "MMIX Linux state requires non-installing static single-thread ${project}")
   endif()

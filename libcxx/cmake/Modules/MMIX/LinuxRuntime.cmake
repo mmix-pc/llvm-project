@@ -1,5 +1,7 @@
 # Validate build-tree inputs before the runtime projects create their targets.
 include_guard(GLOBAL)
+option(LIBCXX_MMIX_LINUX_INSTALL_RUNTIME
+  "Install the validated static MMIX Linux C++ runtime" OFF)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
    NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "mmix" OR
@@ -55,7 +57,16 @@ foreach(option LIBCXX_ENABLE_SHARED LIBCXXABI_ENABLE_SHARED LIBUNWIND_ENABLE_SHA
   endif()
 endforeach()
 foreach(project LIBCXX LIBCXXABI LIBUNWIND)
-  foreach(option INSTALL_HEADERS INSTALL_LIBRARY INCLUDE_TESTS HAS_PTHREAD_LIB HAS_DL_LIB HAS_GCC_LIB HAS_GCC_S_LIB)
+  foreach(option INSTALL_HEADERS INSTALL_LIBRARY)
+    if(LIBCXX_MMIX_LINUX_INSTALL_RUNTIME)
+      if(NOT ${project}_${option})
+        message(FATAL_ERROR "MMIX Linux installation requires ${project}_${option}")
+      endif()
+    elseif(${project}_${option})
+      message(FATAL_ERROR "MMIX Linux C++ composition rejects ${project}_${option}")
+    endif()
+  endforeach()
+  foreach(option INCLUDE_TESTS HAS_PTHREAD_LIB HAS_DL_LIB HAS_GCC_LIB HAS_GCC_S_LIB)
     if(${project}_${option})
       message(FATAL_ERROR "MMIX Linux C++ composition rejects ${project}_${option}")
     endif()
@@ -189,3 +200,4 @@ foreach(kind LIBC STATE CRT1 BUILTINS CRTBEGIN CRTEND)
     "set(MMIX_CXX_${kind}_SHA256 \"${hash}\")\n")
 endforeach()
 file(WRITE "${CMAKE_BINARY_DIR}/mmix-linux-runtime/Inputs.cmake" "${record}")
+set(MMIX_LINUX_RUNTIME_VALIDATED TRUE)

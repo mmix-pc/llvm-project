@@ -6,7 +6,11 @@
 # Synthetic providers exercise configuration admission, not runtime linking.
 #--- CMakeLists.txt
 cmake_minimum_required(VERSION 3.20)
-include(${SOURCE}/libcxx/cmake/caches/MMIXLinuxRuntime.cmake)
+if(INSTALL_PROFILE)
+  include(${SOURCE}/libcxx/cmake/caches/MMIXLinuxInstall.cmake)
+else()
+  include(${SOURCE}/libcxx/cmake/caches/MMIXLinuxRuntime.cmake)
+endif()
 project(Admission NONE)
 set(CMAKE_CROSSCOMPILING TRUE)
 set(CMAKE_C_COMPILER "${TOOLS}/clang")
@@ -84,7 +88,7 @@ for header in ("asm/unistd.h", "asm/rstack.h", "asm/sigcontext.h"):
     write(inputs / "sysroot/usr/include" / header, "/* synthetic UAPI */\n")
 
 counter = 0
-def configure(diagnostic=None, option=None, value=None):
+def configure(diagnostic=None, option=None, value=None, install=False):
     global counter
     build = root / ("config-" + str(counter))
     counter += 1
@@ -92,6 +96,8 @@ def configure(diagnostic=None, option=None, value=None):
             "-DTOOLS=" + str(tools), "-DINPUT=" + str(inputs)]
     if option:
         args += ["-DOPTION=" + option, "-DVALUE=" + value]
+    if install:
+        args += ["-DINSTALL_PROFILE=ON"]
     result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if diagnostic:
         assert result.returncode and diagnostic in " ".join(result.stdout.split()), result.stdout
@@ -154,3 +160,10 @@ cmake(manifest, dict(fields, MMIX_C_RUNTIME_ENTRYPOINTS=""))
 configure("requires wide libc provider swprintf")
 cmake(manifest, fields)
 configure()
+configure(install=True)
+for project in ("LIBCXX", "LIBCXXABI", "LIBUNWIND"):
+    for option in ("INSTALL_HEADERS", "INSTALL_LIBRARY"):
+        name = project + "_" + option
+        configure("installation requires " + name, name, "OFF", install=True)
+configure("LIBCXX_ENABLE_SHARED=OFF", "LIBCXX_ENABLE_SHARED", "ON", install=True)
+configure("LIBCXXABI_ENABLE_THREADS=OFF", "LIBCXXABI_ENABLE_THREADS", "ON", install=True)
