@@ -31,7 +31,8 @@ set(LIBCXX_HAS_WIN32_THREAD_API OFF CACHE BOOL "")
 set(LIBCXX_ENABLE_MONOTONIC_CLOCK ON CACHE BOOL "")
 set(LIBCXX_PSTL_BACKEND serial CACHE STRING "")
 set(LIBCXX_ENABLE_FILESYSTEM OFF CACHE BOOL "")
-set(LIBCXX_ENABLE_LOCALIZATION OFF CACHE BOOL "")
+# Streams use LLVM libc's existing C-locale adapter, not a locale database.
+set(LIBCXX_ENABLE_LOCALIZATION ON CACHE BOOL "")
 # Use the upstream device-backed implementation; Linux must provide /dev/urandom.
 set(LIBCXX_ENABLE_RANDOM_DEVICE ON CACHE BOOL "")
 set(LIBCXX_ENABLE_TIME_ZONE_DATABASE OFF CACHE BOOL "")

@@ -579,6 +579,7 @@ add_entrypoint_object(
     libc.hdr.types.wint_t
     libc.hdr.wchar_macros
     libc.src.__support.File.file
+    libc.src.__support.libc_assert
     libc.src.__support.common
     libc.src.__support.libc_errno
     libc.src.__support.macros.config

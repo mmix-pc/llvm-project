@@ -19,6 +19,7 @@
 #include "hdr/wchar_macros.h" // For WEOF
 #include "src/__support/File/file.h"
 #include "src/__support/common.h"
+#include "src/__support/libc_assert.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/macros/null_check.h"
