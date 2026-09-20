@@ -2,6 +2,15 @@ add_custom_target(libc_include_tests)
 add_dependencies(check-libc libc_include_tests-build)
 
 if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    socket_length_test
+    SUITE libc_include_tests
+    SRCS socket_length_test.cpp
+    DEPENDS
+      libc.include.llvm-libc-types.socklen_t
+      libc.include.llvm-libc-types.struct_msghdr
+      libc.include.llvm-libc-types.struct_addrinfo
+  )
   foreach(language IN ITEMS c cpp)
     add_libc_test(
       siginfo_layout_${language}_test
