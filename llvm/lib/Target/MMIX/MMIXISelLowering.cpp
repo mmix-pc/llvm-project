@@ -1388,6 +1388,20 @@ static bool isMMIXWideComplexResultType(Type *Ty) {
          StructTy->getElementType(1)->isDoubleTy();
 }
 
+static bool isMMIXIndirectVectorType(Type *Ty) {
+  auto *VT = dyn_cast_or_null<FixedVectorType>(Ty);
+  if (!VT || !isPowerOf2_32(VT->getNumElements()))
+    return false;
+  Type *Element = VT->getElementType();
+  if (!Element->isIntegerTy(8) && !Element->isIntegerTy(16) &&
+      !Element->isIntegerTy(32) &&
+      !Element->isIntegerTy(64) && !Element->isFloatTy() &&
+      !Element->isDoubleTy())
+    return false;
+  uint64_t Bits = VT->getPrimitiveSizeInBits().getFixedValue();
+  return Bits == 128 || Bits == 256;
+}
+
 static MMIXAggregateABIClassification classifyMMIXABIValue(
     MMIXAggregateABIRole Role, const ISD::ArgFlagsTy &Flags,
     const DataLayout &DL, Type *AggregateTy = nullptr,
@@ -1400,7 +1414,10 @@ static MMIXAggregateABIClassification classifyMMIXABIValue(
                        !Flags.isByVal() && !Flags.isSRet();
   MMIXAggregateABIValue Value;
   Value.Role = Flags.isSRet() ? MMIXAggregateABIRole::Result : Role;
-  Value.IsAggregate = AggregateTy && AggregateTy->isAggregateType();
+  bool IsIndirectVector = (Flags.isByVal() || Flags.isSRet()) &&
+                          isMMIXIndirectVectorType(AggregateTy);
+  Value.IsAggregate =
+      AggregateTy && (AggregateTy->isAggregateType() || IsIndirectVector);
   Value.IsByVal = Flags.isByVal();
   Value.IsSRet = Flags.isSRet();
   Value.IsSplit = !IsDirectAggregate && !IsWideInteger &&
@@ -1417,7 +1434,7 @@ static MMIXAggregateABIClassification classifyMMIXABIValue(
   if (Flags.isByVal()) {
     Value.Size = Flags.getByValSize();
     Value.Alignment = Flags.getNonZeroByValAlign();
-  } else if (AggregateTy && AggregateTy->isAggregateType()) {
+  } else if (Value.IsAggregate) {
     Align FlagAlignment = Flags.getNonZeroMemAlign();
     Value.Alignment = FlagAlignment;
     if (AggregateTy->isSized()) {
@@ -1430,6 +1447,10 @@ static MMIXAggregateABIClassification classifyMMIXABIValue(
     }
   }
 
+  // These vectors travel by pointer, not in aggregate register slots. Their
+  // backing storage retains its natural alignment in the caller and callee.
+  if (IsIndirectVector && Value.Alignment <= DL.getABITypeAlign(AggregateTy))
+    Value.Alignment = Align(8);
   MMIXAggregateABIClassification Classification =
       classifyMMIXAggregateABI(Value);
   // Clang selects { double, double } as the direct IR result for the standard
@@ -1969,7 +1990,9 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
                         ? OriginalArg.IndirectType
                         : OriginalArg.OrigTy;
     }
-    if (AggregateTy && !isSupportedMMIXABIType(AggregateTy, DataLayout))
+    if (AggregateTy && !isSupportedMMIXABIType(AggregateTy, DataLayout) &&
+        !((Arg.Flags.isByVal() || Arg.Flags.isSRet()) &&
+          isMMIXIndirectVectorType(AggregateTy)))
       reportUnsupportedMMIXABIType(AggregateTy, "call arguments",
                                    MF.getName());
     std::optional<unsigned> VectorWidth =
@@ -2365,7 +2388,9 @@ SDValue MMIXTargetLowering::LowerFormalArguments(
     if (!AggregateTy)
       AggregateTy =
           getMMIXFixedVectorFormalArgumentType(*this, F, DataLayout, I);
-    if (AggregateTy && !isSupportedMMIXABIType(AggregateTy, DataLayout))
+    if (AggregateTy && !isSupportedMMIXABIType(AggregateTy, DataLayout) &&
+        !((Arg.Flags.isByVal() || Arg.Flags.isSRet()) &&
+          isMMIXIndirectVectorType(AggregateTy)))
       reportUnsupportedMMIXABIType(AggregateTy, "formal arguments",
                                    F.getName());
     std::optional<unsigned> VectorWidth =

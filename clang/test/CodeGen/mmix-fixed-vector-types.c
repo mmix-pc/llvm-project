@@ -7,10 +7,10 @@
 // RUN:   -DTEST_WIDE %s 2>&1 | FileCheck %s --check-prefix=WIDE
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -std=c17 \
 // RUN:   -mrelocation-model static -emit-llvm -o /dev/null \
-// RUN:   -DTEST_ODD_LANES %s 2>&1 | FileCheck %s --check-prefix=ODD
+// RUN:   -DTEST_WIDE_MASK %s 2>&1 | FileCheck %s --check-prefix=WIDE-MASK
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -std=c17 \
 // RUN:   -mrelocation-model static -emit-llvm -o /dev/null \
-// RUN:   -DTEST_PARTIAL_MASK %s 2>&1 | FileCheck %s --check-prefix=MASK
+// RUN:   -DTEST_ODD_LANES %s 2>&1 | FileCheck %s --check-prefix=ODD
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -std=c17 \
 // RUN:   -mrelocation-model static -emit-llvm -o /dev/null \
 // RUN:   -DTEST_BITINT_LANE %s 2>&1 | FileCheck %s --check-prefix=BITINT
@@ -79,17 +79,17 @@ i32x2 array[2];
 // SUPPORTED: load <2 x i32>, ptr @words, align 8
 // SUPPORTED: store <2 x i32>
 #elif defined(TEST_WIDE)
-typedef int i32x4 __attribute__((ext_vector_type(4)));
-i32x4 wide;
-// WIDE: error: MMIX GNU ABI does not support vector value CodeGen involving type 'i32x4'
+typedef int i32x16 __attribute__((ext_vector_type(16)));
+i32x16 wide;
+// WIDE: error: MMIX GNU ABI does not support vector value CodeGen involving type 'i32x16'
+#elif defined(TEST_WIDE_MASK)
+typedef _Bool mask128 __attribute__((ext_vector_type(128)));
+mask128 wide_mask;
+// WIDE-MASK: error: MMIX GNU ABI does not support vector value CodeGen involving type 'mask128'
 #elif defined(TEST_ODD_LANES)
 typedef short i16x3 __attribute__((ext_vector_type(3)));
 i16x3 odd;
 // ODD: error: MMIX GNU ABI does not support vector value CodeGen involving type 'i16x3'
-#elif defined(TEST_PARTIAL_MASK)
-typedef _Bool mask4 __attribute__((ext_vector_type(4)));
-mask4 partial_mask;
-// MASK: error: MMIX GNU ABI does not support vector value CodeGen involving type 'mask4'
 #elif defined(TEST_BITINT_LANE)
 typedef _BitInt(32) bitint2 __attribute__((ext_vector_type(2)));
 bitint2 bitint_lanes;

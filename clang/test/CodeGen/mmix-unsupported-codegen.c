@@ -34,9 +34,9 @@ float fetch_add(float *value) {
 }
 // BUILTIN: error: MMIX GNU ABI does not support atomic operation __atomic_fetch_add
 #elif defined(TEST_VECTOR)
-typedef int int4 __attribute__((ext_vector_type(4)));
-int4 value;
-// VECTOR: error: MMIX GNU ABI does not support vector value CodeGen involving type 'int4'
+typedef int int16 __attribute__((ext_vector_type(16)));
+int16 value;
+// VECTOR: error: MMIX GNU ABI does not support vector value CodeGen involving type 'int16'
 #elif defined(TEST_WIDE_OPERATION)
 long multiply(long value) {
   _BitInt(128) wide = value;

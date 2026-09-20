@@ -46,11 +46,11 @@ void call_make(long Value) { (void)make(Value); }
 
 #elif defined(TEST_UNSUPPORTED_FIELD)
 using int2 = int __attribute__((ext_vector_type(2)));
-using int4 = int __attribute__((ext_vector_type(4)));
+using int16 = int __attribute__((ext_vector_type(16)));
 struct WithVector {
-  int4 Value;
+  int16 Value;
 };
 
-int4 read(WithVector Value) { return Value.Value; }
+int16 read(WithVector Value) { return Value.Value; }
 // UNSUPPORTED-FIELD: error: MMIX GNU ABI does not support vector value CodeGen involving type 'WithVector'
 #endif

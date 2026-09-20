@@ -223,8 +223,10 @@ static bool isSupportedMMIXFixedVectorType(const ASTContext &Context,
   QualType ElementTy = VT->getElementType();
   uint64_t ElementBits = Context.getTypeSize(ElementTy);
   uint64_t LaneBits = ElementTy->isBooleanType() ? 1 : ElementBits;
-  bool SupportedElement =
-      ElementTy->isBooleanType() && VT->getNumElements() >= 8;
+  // Wider boolean masks use integer memory types, not the wide-vector ABI.
+  if (ElementTy->isBooleanType() && VT->getNumElements() > 64)
+    return false;
+  bool SupportedElement = ElementTy->isBooleanType();
   if (!ElementTy->isBooleanType() && ElementTy->isIntegerType() &&
       !ElementTy->isBitIntType())
     SupportedElement |= ElementBits == 8 || ElementBits == 16 ||
@@ -232,12 +234,13 @@ static bool isSupportedMMIXFixedVectorType(const ASTContext &Context,
   SupportedElement |= ElementTy->isSpecificBuiltinType(BuiltinType::Float) ||
                       ElementTy->isSpecificBuiltinType(BuiltinType::Double) ||
                       ElementTy->isSpecificBuiltinType(BuiltinType::LongDouble);
-  if (!SupportedElement || LaneBits * uint64_t(VT->getNumElements()) > 64)
+  if (!SupportedElement || LaneBits * uint64_t(VT->getNumElements()) > 256)
     return false;
 
   uint64_t Size = Context.getTypeSize(Ty);
   uint64_t Align = Context.getTypeAlign(Ty);
-  return (Size == 8 || Size == 16 || Size == 32 || Size == 64) && Align == Size;
+  return llvm::isPowerOf2_64(Size) && Size >= 8 && Size <= 256 &&
+         Align == Size;
 }
 
 static MMIXUnsupportedObjectKind
@@ -823,6 +826,10 @@ ABIArgInfo MMIXABIInfo::classifyReturnType(QualType Ty) const {
   if (Ty->isVoidType())
     return ABIArgInfo::getIgnore();
   if (isSupportedMMIXFixedVectorType(getContext(), Ty)) {
+    // Larger software vectors use memory; preserve the one-register ABI.
+    if (getContext().getTypeSize(Ty) > 64)
+      return getNaturalAlignIndirect(Ty, getDataLayout().getAllocaAddrSpace(),
+                                     /*ByVal=*/false);
     llvm::IntegerType *CoerceTy =
         llvm::IntegerType::get(getVMContext(), getContext().getTypeSize(Ty));
     return ABIArgInfo::getDirect(CoerceTy);
@@ -893,6 +900,9 @@ ABIArgInfo MMIXABIInfo::classifyArgumentType(QualType Ty) const {
   Ty = useFirstFieldIfTransparentUnion(Ty);
   if (isSupportedMMIXFixedVectorType(getContext(), Ty)) {
     unsigned Size = getContext().getTypeSize(Ty);
+    if (Size > 64)
+      return getNaturalAlignIndirect(Ty, getDataLayout().getAllocaAddrSpace(),
+                                     /*ByVal=*/false);
     llvm::IntegerType *CoerceTy =
         llvm::IntegerType::get(getVMContext(), Size);
     return Size < 64 ? ABIArgInfo::getNoExtend(CoerceTy)

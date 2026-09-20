@@ -83,7 +83,7 @@
 // BITINT: error: MMIX GNU ABI does not support extended scalar operation CodeGen involving type '_BitInt(17)'
 // COMPLEX: error: MMIX GNU ABI does not support return type '_Complex int'
 // COMPLEX: error: MMIX GNU ABI does not support argument type '_Complex int'
-// VECTOR: error: MMIX GNU ABI does not support vector value CodeGen involving type 'int4'
+// VECTOR: error: MMIX GNU ABI does not support vector value CodeGen involving type 'int16'
 // ATOMIC-OPERATION: error: MMIX GNU ABI does not support atomic operation __atomic_fetch_add
 // ATOMIC-RMW: error: MMIX GNU ABI does not support atomic operation +=
 // ATOMIC-EXTENSION: error: MMIX GNU ABI does not support atomic operation __atomic_fetch_uinc

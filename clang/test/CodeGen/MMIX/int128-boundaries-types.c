@@ -34,6 +34,8 @@ i128x1 signed_lane; // vector1-error {{MMIX GNU ABI does not support vector valu
 u128x1 unsigned_lane; // vector2-error {{MMIX GNU ABI does not support vector value CodeGen involving type 'u128x1'}}
 #endif
 #if VECTOR == 3
-i64x2 wide_vector; // vector3-error {{MMIX GNU ABI does not support vector value CodeGen involving type 'i64x2'}}
+// 128-bit storage with supported lanes is distinct from a 128-bit lane.
+// vector3-no-diagnostics
+i64x2 wide_vector;
 #endif
 #endif

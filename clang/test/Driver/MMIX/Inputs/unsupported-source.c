@@ -7,8 +7,8 @@ _BitInt(17) add_bitint(_BitInt(17) lhs, _BitInt(17) rhs) {
 #elif defined(TEST_COMPLEX)
 _Complex int consume(_Complex int value) { return value; }
 #elif defined(TEST_VECTOR)
-typedef int int4 __attribute__((ext_vector_type(4)));
-int4 value;
+typedef int int16 __attribute__((ext_vector_type(16)));
+int16 value;
 #elif defined(TEST_ATOMIC)
 struct ThreeBytes {
   unsigned char bytes[3];

@@ -25,10 +25,10 @@ extern void variadic_sink(int, ...);
 void unsupported(_Complex int value) { variadic_sink(0, value); }
 // VARIADIC-COMPLEX: error: MMIX GNU ABI does not support argument type '_Complex int'
 #elif defined(TEST_VECTOR)
-typedef int int4 __attribute__((ext_vector_type(4)));
-int4 unsupported(int4 value) { return value; }
-// VECTOR: error: MMIX GNU ABI does not support return type 'int4'
-// VECTOR: error: MMIX GNU ABI does not support argument type 'int4'
+typedef int int16 __attribute__((ext_vector_type(16)));
+int16 unsupported(int16 value) { return value; }
+// VECTOR: error: MMIX GNU ABI does not support return type 'int16'
+// VECTOR: error: MMIX GNU ABI does not support argument type 'int16'
 #elif defined(TEST_ADDRESS_SPACE)
 typedef int __attribute__((address_space(1))) as1_int;
 as1_int *unsupported(as1_int *value) { return value; }
