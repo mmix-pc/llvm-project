@@ -799,10 +799,8 @@ MMIXTargetLowering::MMIXTargetLowering(const TargetMachine &TM,
   for (unsigned Opcode : SymbolicAddressOperations)
     setOperationAction(Opcode, MVT::i64, Custom);
 
-  static constexpr unsigned AddressOperations[] = {
-      ISD::FRAMEADDR, ISD::ADDRSPACECAST};
-  for (unsigned Opcode : AddressOperations)
-    RejectOperation(Opcode, MVT::i64);
+  RejectOperation(ISD::ADDRSPACECAST, MVT::i64);
+  setOperationAction(ISD::FRAMEADDR, MVT::i64, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i64, Custom);
 
   setOperationAction(ISD::FrameIndex, MVT::i64, Legal);
@@ -939,6 +937,16 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
                                            SelectionDAG &DAG) const {
   const Function &F = DAG.getMachineFunction().getFunction();
   const SDLoc DL(Op);
+  if (Op.getOpcode() == ISD::FRAMEADDR) {
+    if (Op.getConstantOperandVal(0) != 0)
+      reportFatalUsageError(
+          Twine("MMIX supports only frame address depth 0 in function '") +
+          F.getName() + "'");
+    DAG.getMachineFunction().getFrameInfo().setFrameAddressIsTaken(true);
+    // The frame pointer holds entry SP, even after dynamic stack adjustments
+    // or realignment. Request it before frame layout and register allocation.
+    return DAG.getCopyFromReg(DAG.getEntryNode(), DL, MMIX::R253, MVT::i64);
+  }
   if (Op.getOpcode() == ISD::RETURNADDR) {
     if (Op.getConstantOperandVal(0) != 0)
       reportFatalUsageError(
