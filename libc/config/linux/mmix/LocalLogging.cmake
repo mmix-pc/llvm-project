@@ -9,6 +9,9 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.syslog.openlog
   libc.src.syslog.closelog
   libc.src.syslog.setlogmask
-  libc.src.sys.socket.socket
-  libc.src.sys.socket.connect
   libc.src.sys.socket.send)
+if(NOT LIBC_MMIX_BUILD_SOCKETS)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.sys.socket.socket
+    libc.src.sys.socket.connect)
+endif()
