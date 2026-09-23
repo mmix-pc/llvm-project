@@ -165,17 +165,17 @@ define i32 @explicit_ffsdi2(i64 %value) nounwind {
   ret i32 %result
 }
 
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: memcpy
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: memcpy
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: memcpy
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: memmove
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: memset
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: __ffsdi2
 
 ; SYMBOLS:      Name: memcpy

@@ -70,8 +70,8 @@ extern "C" long second(long Value) {
 // OBJECT:      SHF_GROUP
 // OBJECT:      Name: .text._ZN12object_model14template_valueIlEET_S1_
 // OBJECT:      SHF_GROUP
-// OBJECT:      R_MMIX_PUSHJ_STUBBABLE _ZN12object_model12inline_valueEl
-// OBJECT:      R_MMIX_PUSHJ_STUBBABLE _ZN12object_model14template_valueIlEET_S1_
+// OBJECT:      R_MMIX_GETA _ZN12object_model12inline_valueEl
+// OBJECT:      R_MMIX_GETA _ZN12object_model14template_valueIlEET_S1_
 // OBJECT:      Name: _ZN12object_model12hidden_valueEl
 // OBJECT:      Other [ (0x2)
 // OBJECT:      STV_HIDDEN

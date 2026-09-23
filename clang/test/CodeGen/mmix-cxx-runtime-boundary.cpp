@@ -51,8 +51,8 @@ extern "C" long producer_entry(long Value) {
 // OBJECT:      Type: SHT_GROUP
 // OBJECT:      Name: .text._ZN8producer6adjustIlEET_S1_
 // OBJECT:      SHF_GROUP
-// OBJECT:      R_MMIX_PUSHJ_STUBBABLE _ZN8producer6adjustIlEET_S1_
-// OBJECT:      R_MMIX_PUSHJ_STUBBABLE source_owned_hook
+// OBJECT:      R_MMIX_GETA _ZN8producer6adjustIlEET_S1_
+// OBJECT:      R_MMIX_GETA source_owned_hook
 // OBJECT:      Name: _ZN8producer6adjustIlEET_S1_
 // OBJECT:      Binding: Weak
 // OBJECT:      Type: COMDAT

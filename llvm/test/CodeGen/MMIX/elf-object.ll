@@ -37,18 +37,19 @@
 ; SECTIONS-NEXT:   SHF_ALLOC
 ; SECTIONS-NEXT:   SHF_EXECINSTR
 ; SECTIONS-NEXT: ]
-; SECTIONS:      Size: 124
+; SECTIONS:      Size: 140
 ; SECTIONS:      AddressAlignment: 4
 ; SECTIONS-NEXT: EntrySize: 0
 ; SECTIONS-NEXT: SectionData (
 ; SECTIONS-NEXT:   0000: 40010000 F0000000 F8000000 FE1E0004
 ; SECTIONS-NEXT:   0010: F31FFFFE F604001E F8000000 FE1E0004
-; SECTIONS-NEXT:   0020: F21F0000 F604001E F8000000 F4E70000
-; SECTIONS-NEXT:   0030: FD000000 FD000000 FD000000 F8000000
-; SECTIONS-NEXT:   0040: F4E70000 FD000000 FD000000 FD000000
-; SECTIONS-NEXT:   0050: F8000000 C9FAE701 33FAFA00 42FA0006
-; SECTIONS-NEXT:   0060: F4E70000 FD000000 FD000000 FD000000
-; SECTIONS-NEXT:   0070: F8000000 E3E70000 F8000000
+; SECTIONS-NEXT:   0020: F4FA0000 FD000000 FD000000 FD000000
+; SECTIONS-NEXT:   0030: BF1FFA00 F604001E F8000000 F4E70000
+; SECTIONS-NEXT:   0040: FD000000 FD000000 FD000000 F8000000
+; SECTIONS-NEXT:   0050: F4E70000 FD000000 FD000000 FD000000
+; SECTIONS-NEXT:   0060: F8000000 C9FAE701 33FAFA00 42FA0006
+; SECTIONS-NEXT:   0070: F4E70000 FD000000 FD000000 FD000000
+; SECTIONS-NEXT:   0080: F8000000 E3E70000 F8000000
 ; SECTIONS-NEXT: )
 
 ; SECTIONS:      Name: .rela.text
@@ -151,27 +152,27 @@
 ; RELOCS-NEXT:     }
 ; RELOCS-NEXT:     Relocation {
 ; RELOCS-NEXT:       Offset: 0x20
-; RELOCS-NEXT:       Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS-NEXT:       Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT:       Symbol: external_function
 ; RELOCS-NEXT:       Addend: 0x0
 ; RELOCS-NEXT:     }
 ; RELOCS-NEXT:     Relocation {
-; RELOCS-NEXT:       Offset: 0x2C
+; RELOCS-NEXT:       Offset: 0x3C
 ; RELOCS-NEXT:       Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT:       Symbol: external_data
 ; RELOCS-NEXT:       Addend: 0x0
 ; RELOCS-NEXT:     }
 ; RELOCS-NEXT:     Relocation {
-; RELOCS-NEXT:       Offset: 0x40
+; RELOCS-NEXT:       Offset: 0x50
 ; RELOCS-NEXT:       Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT:       Symbol: .rodata.cst8
 ; RELOCS-NEXT:       Addend: 0x0
 ; RELOCS-NEXT:     }
 ; RELOCS-NEXT:     Relocation {
-; RELOCS-NEXT:       Offset: 0x60
+; RELOCS-NEXT:       Offset: 0x70
 ; RELOCS-NEXT:       Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT:       Symbol: .text
-; RELOCS-NEXT:       Addend: 0x60
+; RELOCS-NEXT:       Addend: 0x70
 ; RELOCS-NEXT:     }
 ; RELOCS-NEXT:   }
 ; RELOCS-NEXT:   Section {{.*}} .rela.data24 {
@@ -223,7 +224,7 @@
 ; RELOCS-NEXT:       Offset: 0x28
 ; RELOCS-NEXT:       Type: R_MMIX_64 (5)
 ; RELOCS-NEXT:       Symbol: .text
-; RELOCS-NEXT:       Addend: 0x60
+; RELOCS-NEXT:       Addend: 0x70
 ; RELOCS-NEXT:     }
 ; RELOCS-NEXT:   }
 ; RELOCS-NEXT: ]
@@ -286,8 +287,9 @@
 ; DIS-LABEL: <local_call>:
 ; DIS:       {{.*}} PUSHJB r31, -2
 ; DIS-LABEL: <symbolic_call>:
-; DIS:       {{.*}} PUSHJ r31, 0
-; DIS-NEXT:  {{.*}} R_MMIX_PUSHJ_STUBBABLE external_function
+; DIS:       {{.*}} GETA {{r[0-9]+}}, 0
+; DIS-NEXT:  {{.*}} R_MMIX_GETA external_function
+; DIS:       PUSHGO r31, {{r[0-9]+}}, 0
 ; DIS-LABEL: <external_address>:
 ; DIS-NEXT:  {{.*}} GETA r231, 0
 ; DIS-NEXT:  {{.*}} R_MMIX_GETA external_data
@@ -303,7 +305,7 @@
 ; DIS-LABEL: <block_address>:
 ; DIS:       {{.*}} BZ r250, 6
 ; DIS-NEXT:  {{.*}} GETA r231, 0
-; DIS-NEXT:  {{.*}} R_MMIX_GETA .text+0x60
+; DIS-NEXT:  {{.*}} R_MMIX_GETA .text+0x70
 ; DIS-NEXT:  {{.*}} SWYM 0, 0, 0
 ; DIS-NEXT:  {{.*}} SWYM 0, 0, 0
 ; DIS-NEXT:  {{.*}} SWYM 0, 0, 0

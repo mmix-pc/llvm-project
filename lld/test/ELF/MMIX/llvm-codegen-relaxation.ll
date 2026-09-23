@@ -41,8 +41,7 @@
 ; FAR:      Type: PT_LOAD
 ; FAR:      Relocations [
 ; FAR-NEXT: ]
-; FAR:      Name: __MMIX_call_stub_0
-; FAR-NOT:  Name: __MMIX_call_stub_1
+; FAR-NOT:  Name: __MMIX_call_stub_
 
 ; NEAR-DIS-LABEL: <defined_data_address>:
 ; NEAR-DIS:       GETA r231, {{[0-9]+}}
@@ -53,9 +52,11 @@
 ; NEAR-DIS-LABEL: <external_function_address>:
 ; NEAR-DIS:       GETA r231, {{[0-9]+}}
 ; NEAR-DIS-LABEL: <call_defined>:
-; NEAR-DIS:       PUSHJ r31, {{[0-9]+}}
+; NEAR-DIS:       GETA [[NEAR_REG:r[0-9]+]], {{[0-9]+}}
+; NEAR-DIS:       PUSHGO r31, [[NEAR_REG]], 0
 ; NEAR-DIS-LABEL: <call_external>:
-; NEAR-DIS:       PUSHJ r31, {{[0-9]+}}
+; NEAR-DIS:       GETA [[NEAR_EXT:r[0-9]+]], {{[0-9]+}}
+; NEAR-DIS:       PUSHGO r31, [[NEAR_EXT]], 0
 
 ; FAR-DIS-LABEL: <defined_data_address>:
 ; FAR-DIS:       GETA r231, {{[0-9]+}}
@@ -68,11 +69,12 @@
 ; FAR-DIS:       SETL r231,
 ; FAR-DIS:       INCML r231,
 ; FAR-DIS-LABEL: <call_defined>:
-; FAR-DIS:       PUSHJ r31, {{[0-9]+}}
+; FAR-DIS:       GETA [[FAR_REG:r[0-9]+]], {{[0-9]+}}
+; FAR-DIS:       PUSHGO r31, [[FAR_REG]], 0
 ; FAR-DIS-LABEL: <call_external>:
-; FAR-DIS:       PUSHJ r31, {{[0-9]+}}
-; FAR-DIS-LABEL: <__MMIX_call_stub_0>:
-; FAR-DIS:       GO r255, r255, 0
+; FAR-DIS:       SETL [[FAR_EXT:r[0-9]+]],
+; FAR-DIS:       INCMH [[FAR_EXT]],
+; FAR-DIS:       PUSHGO r31, [[FAR_EXT]], 0
 
 ; DATA:      Contents of section .data.pointer:
 ; DATA-NEXT: 210000 00000000 00200000

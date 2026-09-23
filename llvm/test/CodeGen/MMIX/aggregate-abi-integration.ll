@@ -152,13 +152,13 @@ entry:
   ret void
 }
 
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_direct
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_exhausted
 ; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: aggregate_result
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_sret
 ; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: aggregate_source

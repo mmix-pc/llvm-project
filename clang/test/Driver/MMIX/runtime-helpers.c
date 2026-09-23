@@ -41,7 +41,7 @@
 // ELF: Format: elf64-mmix
 // ELF-NEXT: Arch: mmix
 // ELF: Type: Relocatable
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: memcpy
 // ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: __ffsdi2
@@ -59,8 +59,9 @@
 // ELF: Section: Undefined
 
 // DIS-LABEL: <copy_large>:
-// DIS: PUSHJ r31, 0
-// DIS-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE memcpy
+// DIS: GETA {{r[0-9]+}}, 0
+// DIS-NEXT: {{.*}} R_MMIX_GETA memcpy
+// DIS: PUSHGO r31, {{r[0-9]+}}, 0
 // DIS-LABEL: <find_first_set>:
 // DIS: GETA
 // DIS-NEXT: {{.*}} R_MMIX_GETA __ffsdi2

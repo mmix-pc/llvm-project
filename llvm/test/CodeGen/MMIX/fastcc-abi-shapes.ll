@@ -214,7 +214,7 @@ define i32 @exercise_fastcc_size(%small %value, ptr %copy) optsize {
   ret i32 %word
 }
 
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: .text.fastcc
 ; OBJ-LABEL: <exercise_fastcc>:
 ; OBJ:       PUSHJ{{B?}} r31,

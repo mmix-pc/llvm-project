@@ -113,23 +113,23 @@ define double @explicit_fmal(double %lhs, double %rhs, double %addend) nounwind 
 
 ; Every undefined helper remains an ordinary ELF symbol referenced through the
 ; GNU-compatible stubbable direct-call relocation.
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: fmodf
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: fmod
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: fmaf
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: fma
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: roundf
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: round
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: nearbyintf
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: nearbyint
-; RELOCS:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS:      Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT: Symbol: fmal
 
 ; SYMBOLS:      Name: fmodf

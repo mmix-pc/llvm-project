@@ -58,9 +58,9 @@
 
 // ELF: Format: elf64-mmix
 // ELF-NEXT: Arch: mmix
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_direct
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_boundary
 // ELF: Name: external_direct
 // ELF: Section: Undefined
@@ -68,8 +68,10 @@
 // ELF: Section: Undefined
 
 // DIS-LABEL: <forward_direct>:
-// DIS: PUSHJ r31, 0
-// DIS-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_direct
+// DIS: GETA {{r[0-9]+}}, 0
+// DIS-NEXT: {{.*}} R_MMIX_GETA external_direct
+// DIS: PUSHGO r31, {{r[0-9]+}}, 0
 // DIS-LABEL: <forward_boundary>:
-// DIS: PUSHJ r31, 0
-// DIS-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_boundary
+// DIS: GETA {{r[0-9]+}}, 0
+// DIS-NEXT: {{.*}} R_MMIX_GETA external_boundary
+// DIS: PUSHGO r31, {{r[0-9]+}}, 0

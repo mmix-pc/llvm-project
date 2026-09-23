@@ -82,15 +82,17 @@
 // ELF: Type: Relocatable
 // ELF: Machine: EM_MMIX
 // ELF: Name: .rela.text
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_scalar
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_direct
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_variadic
 // ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: global_pointer
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
+// ELF-NEXT: Symbol: global_seed
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: memcpy
 // ELF: Name: recursive_sum
 // ELF: Binding: Local
@@ -104,16 +106,20 @@
 // DIS-LABEL: <compose>:
 // DIS: PUSHJ r31,
 // DIS: PUSHGO r31, r{{[0-9]+}}, 0
-// DIS: PUSHJ r31, 0
-// DIS-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_scalar
-// DIS: PUSHJ r31, 0
-// DIS-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_direct
-// DIS: PUSHJ r31, 0
-// DIS-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_variadic
+// DIS: GETA {{r[0-9]+}}, 0
+// DIS-NEXT: {{.*}} R_MMIX_GETA external_scalar
+// DIS: PUSHGO r31, {{r[0-9]+}}, 0
+// DIS: GETA {{r[0-9]+}}, 0
+// DIS-NEXT: {{.*}} R_MMIX_GETA external_direct
+// DIS: PUSHGO r31, {{r[0-9]+}}, 0
+// DIS: GETA {{r[0-9]+}}, 0
+// DIS-NEXT: {{.*}} R_MMIX_GETA external_variadic
+// DIS: PUSHGO r31, {{r[0-9]+}}, 0
 // DIS: GETA r{{[0-9]+}}, 0
 // DIS-NEXT: {{.*}} R_MMIX_GETA global_pointer
 // DIS-LABEL: <recursive_sum>:
 // DIS: PUSHJB r31,
 // DIS-LABEL: <copy_block>:
-// DIS: PUSHJ r31, 0
-// DIS-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE memcpy
+// DIS: GETA {{r[0-9]+}}, 0
+// DIS-NEXT: {{.*}} R_MMIX_GETA memcpy
+// DIS: PUSHGO r31, {{r[0-9]+}}, 0

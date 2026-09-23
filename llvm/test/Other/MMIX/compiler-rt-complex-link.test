@@ -25,10 +25,10 @@
 # RUN:   | FileCheck %s --check-prefix=SYMBOL \
 # RUN:     --implicit-check-not=__multc3 --implicit-check-not=__divtc3
 
-# CALLER-DAG: R_MMIX_PUSHJ_STUBBABLE __mulsc3
-# CALLER-DAG: R_MMIX_PUSHJ_STUBBABLE __divsc3
-# CALLER-DAG: R_MMIX_PUSHJ_STUBBABLE __muldc3
-# CALLER-DAG: R_MMIX_PUSHJ_STUBBABLE __divdc3
+# CALLER-DAG: R_MMIX_GETA __mulsc3
+# CALLER-DAG: R_MMIX_GETA __divsc3
+# CALLER-DAG: R_MMIX_GETA __muldc3
+# CALLER-DAG: R_MMIX_GETA __divdc3
 # ELF:      Format: elf64-mmix
 # ELF-NEXT: Arch: mmix
 # ELF:      Type: Executable

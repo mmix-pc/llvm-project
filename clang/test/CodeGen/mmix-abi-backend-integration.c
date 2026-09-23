@@ -114,15 +114,17 @@ void copy_block(void *destination, const void *source) {
 // ELF: Type: SHT_PROGBITS
 // ELF: Name: .rela.data
 // ELF: Type: SHT_RELA
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_scalar
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_direct
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_variadic
 // ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: global_pointer
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
+// ELF-NEXT: Symbol: global_seed
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: memcpy
 // ELF: Type: R_MMIX_64 (5)
 // ELF-NEXT: Symbol: global_seed
@@ -142,14 +144,18 @@ void copy_block(void *destination, const void *source) {
 // OBJ-LABEL: <compose>:
 // OBJ: PUSHJ {{r[0-9]+}},
 // OBJ: PUSHGO {{r[0-9]+}}, {{r[0-9]+}}, 0
-// OBJ: PUSHJ {{r[0-9]+}}, 0
-// OBJ-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_scalar
-// OBJ: PUSHJ {{r[0-9]+}}, 0
-// OBJ-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_direct
-// OBJ: PUSHJ {{r[0-9]+}}, 0
-// OBJ-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_variadic
+// OBJ: GETA {{r[0-9]+}}, 0
+// OBJ-NEXT: {{.*}} R_MMIX_GETA external_scalar
+// OBJ: PUSHGO r31, {{r[0-9]+}}, 0
+// OBJ: GETA {{r[0-9]+}}, 0
+// OBJ-NEXT: {{.*}} R_MMIX_GETA external_direct
+// OBJ: PUSHGO r31, {{r[0-9]+}}, 0
+// OBJ: GETA {{r[0-9]+}}, 0
+// OBJ-NEXT: {{.*}} R_MMIX_GETA external_variadic
+// OBJ: PUSHGO r31, {{r[0-9]+}}, 0
 // OBJ: GETA {{r[0-9]+}}, 0
 // OBJ-NEXT: {{.*}} R_MMIX_GETA global_pointer
 // OBJ-LABEL: <copy_block>:
-// OBJ: PUSHJ {{r[0-9]+}}, 0
-// OBJ-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE memcpy
+// OBJ: GETA {{r[0-9]+}}, 0
+// OBJ-NEXT: {{.*}} R_MMIX_GETA memcpy
+// OBJ: PUSHGO r31, {{r[0-9]+}}, 0

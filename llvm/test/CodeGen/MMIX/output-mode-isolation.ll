@@ -20,8 +20,9 @@
 ; ELF-LABEL: <Main>:
 ; ELF:       GETA [[OBJECT_DATA:r[0-9]+]], 0
 ; ELF-NEXT:  {{.*}} R_MMIX_GETA named.data
-; ELF:       PUSHJ r31, 0
-; ELF-NEXT:  {{.*}} R_MMIX_PUSHJ_STUBBABLE worker
+; ELF:       GETA {{r[0-9]+}}, 0
+; ELF-NEXT:  {{.*}} R_MMIX_GETA worker
+; ELF:       PUSHGO r31, {{r[0-9]+}}, 0
 ; CANONICAL:      .text
 ; CANONICAL:      .globl Main
 ; CANONICAL:      .type Main,@function

@@ -103,7 +103,7 @@ int address_taken(int value) {
 // ASM-ALL: __stack_chk_guard
 
 // RELOC-DAG: R_MMIX_GETA __stack_chk_guard
-// RELOC-DAG: R_MMIX_PUSHJ_STUBBABLE __stack_chk_fail
+// RELOC-DAG: R_MMIX_GETA __stack_chk_fail
 // SYMBOL-DAG: U __stack_chk_fail
 // SYMBOL-DAG: U __stack_chk_guard
 

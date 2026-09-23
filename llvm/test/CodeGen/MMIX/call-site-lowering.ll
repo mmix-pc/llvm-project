@@ -50,7 +50,7 @@ define i64 @call_i64(i64 %value) {
 ; OBJ-LABEL: <call_signext>:
 ; OBJ:       SLU r250, r231, 56
 ; OBJ-NEXT:  SR r231, r250, 56
-; OBJ:       PUSHJ r31, 0
+; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0
 define i64 @call_signext(i64 %value) {
   %narrow = trunc i64 %value to i8
   %result = call signext i8 @sext_callee(i8 signext %narrow)
@@ -66,7 +66,7 @@ define i64 @call_signext(i64 %value) {
 ; OBJ:       SETL r250, 65535
 ; OBJ-NEXT:  INCML r250, 65535
 ; OBJ-NEXT:  AND r231, r231, r250
-; OBJ:       PUSHJ r31, 0
+; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0
 define i64 @call_zeroext(i64 %value) {
   %narrow = trunc i64 %value to i32
   %result = call zeroext i32 @zext_callee(i32 zeroext %narrow)
@@ -94,7 +94,7 @@ define float @call_f32(float %value) {
 ; ISEL:       [[MASK:%[0-9]+]]:{{[^ ]+}} = LOAD_IMM64 65535
 ; ISEL-NEXT:  %{{[0-9]+}}:{{[^ ]+}} = AND [[RESULT]], killed [[MASK]]
 ; OBJ-LABEL: <call_anyext>:
-; OBJ:       PUSHJ r31, 0
+; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0
 ; OBJ:       SETL r250, 65535
 ; OBJ-NEXT:  AND r231, r231, r250
 define i64 @call_anyext(i64 %value) {

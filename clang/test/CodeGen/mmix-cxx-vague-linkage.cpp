@@ -104,7 +104,7 @@ void operator delete(void *, size_t) noexcept {}
 // OBJECT-DAG:  Signature: _ZTV4Poly
 // OBJECT-DAG:  Signature: shared
 // RELOC-DAG:   R_MMIX_64
-// RELOC-DAG:   R_MMIX_PUSHJ_STUBBABLE
+// RELOC-DAG:   R_MMIX_GETA
 
 // LINKED-COUNT-1: W _Z9incrementl
 // LINKED-COUNT-1: V _ZGV6shared

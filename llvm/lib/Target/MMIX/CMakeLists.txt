@@ -20,7 +20,6 @@ add_llvm_target(MMIXCodeGen
   MMIXAggregateABI.cpp
   MMIXALModuleValidator.cpp
   MMIXAsmPrinter.cpp
-  MMIXCallEmission.cpp
   MMIXFrameLowering.cpp
   MMIXInstrInfo.cpp
   MMIXISelDAGToDAG.cpp

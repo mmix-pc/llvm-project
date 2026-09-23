@@ -109,23 +109,23 @@ define i64 @call_indirect(ptr %callee, i64 %value) nounwind {
 ; ELF:      Name: .bss
 ; ELF:      Type: SHT_NOBITS
 
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_scalar
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_direct
 ; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_data
 ; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: aggregate_result
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_sret
 ; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: aggregate_source
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_variadic
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: memcpy
-; ELF:      Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; ELF:      Type: R_MMIX_GETA (13)
 ; ELF-NEXT: Symbol: external_addend
 ; ELF-NEXT: Addend: 0xFFFFFFFFFFFFFFF4
 ; ELF:      Type: R_MMIX_64 (5)
@@ -152,21 +152,25 @@ define i64 @call_indirect(ptr %callee, i64 %value) nounwind {
 ; use stubbable direct-call records.
 ; OBJ-LABEL: <call_values>:
 ; OBJ:       PUSHJB r31,
-; OBJ:       PUSHJ r31, 0
-; OBJ-NEXT:  {{.*}} R_MMIX_PUSHJ_STUBBABLE external_scalar
-; OBJ:       PUSHJ r31, 0
-; OBJ-NEXT:  {{.*}} R_MMIX_PUSHJ_STUBBABLE external_direct
+; OBJ:       GETA {{r[0-9]+}}, 0
+; OBJ-NEXT:  {{.*}} R_MMIX_GETA external_scalar
+; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0
+; OBJ:       GETA {{r[0-9]+}}, 0
+; OBJ-NEXT:  {{.*}} R_MMIX_GETA external_direct
+; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0
 
 ; The GETA relocation denotes global storage in object output.
 ; OBJ-LABEL: <call_results_and_varargs>:
 ; OBJ:       GETA {{r[0-9]+}}, 0
 ; OBJ-NEXT:  {{.*}} R_MMIX_GETA aggregate_result
-; OBJ:       PUSHJ r31, 0
-; OBJ-NEXT:  {{.*}} R_MMIX_PUSHJ_STUBBABLE external_sret
+; OBJ:       GETA {{r[0-9]+}}, 0
+; OBJ-NEXT:  {{.*}} R_MMIX_GETA external_sret
+; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0
 ; OBJ:       GETA {{r[0-9]+}}, 0
 ; OBJ-NEXT:  {{.*}} R_MMIX_GETA aggregate_source
-; OBJ:       PUSHJ r31, 0
-; OBJ-NEXT:  {{.*}} R_MMIX_PUSHJ_STUBBABLE external_variadic
+; OBJ:       GETA {{r[0-9]+}}, 0
+; OBJ-NEXT:  {{.*}} R_MMIX_GETA external_variadic
+; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0
 
 ; OBJ-LABEL: <call_indirect>:
 ; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0

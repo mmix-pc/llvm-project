@@ -63,7 +63,7 @@
 ; RELOCS-NEXT:   }
 ; RELOCS-NEXT:   Relocation {
 ; RELOCS-NEXT:     Offset: 0xA0
-; RELOCS-NEXT:     Type: R_MMIX_PUSHJ_STUBBABLE (36)
+; RELOCS-NEXT:     Type: R_MMIX_GETA (13)
 ; RELOCS-NEXT:     Symbol: external_function
 ; RELOCS-NEXT:     Addend: 0x0
 ; RELOCS-NEXT:   }
@@ -131,8 +131,9 @@
 ; A function address uses GETA, while direct and indirect calls retain their
 ; separately owned stubbable and register-indirect paths.
 ; OBJ-LABEL: <direct_call>:
-; OBJ:       {{.*}} PUSHJ r31, 0
-; OBJ-NEXT:  {{.*}} R_MMIX_PUSHJ_STUBBABLE external_function
+; OBJ:       {{.*}} GETA {{r[0-9]+}}, 0
+; OBJ-NEXT:  {{.*}} R_MMIX_GETA external_function
+; OBJ:       PUSHGO r31, {{r[0-9]+}}, 0
 ; OBJ-LABEL: <indirect_call>:
 ; OBJ:       {{.*}} PUSHGO r31, r231, 0
 

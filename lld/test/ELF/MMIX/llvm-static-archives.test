@@ -32,7 +32,6 @@
 # OBJ:      Relocations [
 # OBJ-NEXT: ]
 # OBJ-DAG:  Name: __MMIX_call_stub_0
-# OBJ-DAG:  Name: __MMIX_call_stub_1
 # OBJ-DAG:  Name: _start
 # OBJ-DAG:  Name: archive_codegen
 # OBJ-DAG:  Name: archive_leaf
@@ -41,15 +40,13 @@
 # OBJ-DAG:  Name: archive_pointer
 
 # DIS-LABEL: <_start>:
-# DIS:       PUSHJ r31, {{[0-9]+}}
+# DIS:       PUSHGO r31, {{r[0-9]+}}, 0
 # DIS-LABEL: <archive_codegen>:
-# DIS:       PUSHJ r31, {{[0-9]+}}
+# DIS:       PUSHGO r31, {{r[0-9]+}}, 0
 # DIS:       SETL
-# DIS-LABEL: <__MMIX_call_stub_0>:
-# DIS:       GO r255, r255, 0
 # DIS-LABEL: <archive_mc>:
 # DIS:       PUSHJ r1, {{[0-9]+}}
-# DIS-LABEL: <__MMIX_call_stub_1>:
+# DIS-LABEL: <__MMIX_call_stub_0>:
 # DIS:       GO r255, r255, 0
 
 # DATA:      Contents of section .data.codegen:

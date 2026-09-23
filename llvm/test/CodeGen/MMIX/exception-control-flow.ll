@@ -52,9 +52,9 @@
 ; MIR: DIRECT_CALL_STATE @_Unwind_Resume, {{.*}}csr_mmix
 ; MIR-NOT: RET
 ; MIR: ...
-; OBJ: R_MMIX_PUSHJ_STUBBABLE callee
-; OBJ: R_MMIX_PUSHJ_STUBBABLE cleanup
-; OBJ: R_MMIX_PUSHJ_STUBBABLE _Unwind_Resume
+; OBJ: R_MMIX_GETA callee
+; OBJ: R_MMIX_GETA cleanup
+; OBJ: R_MMIX_GETA _Unwind_Resume
 
 declare void @callee()
 declare void @cleanup(ptr, i32)

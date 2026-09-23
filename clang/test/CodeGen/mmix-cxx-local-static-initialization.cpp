@@ -78,9 +78,9 @@ extern "C" long c_entry() { return 0; }
 // UNDEFINED-DAG: U __cxa_guard_release
 // UNDEFINED-NOT: __cxa_guard_abort
 
-// OBJECT: R_MMIX_PUSHJ_STUBBABLE __cxa_guard_acquire 0x0
-// OBJECT: R_MMIX_PUSHJ_STUBBABLE _Z10make_valuel 0x0
-// OBJECT: R_MMIX_PUSHJ_STUBBABLE __cxa_guard_release 0x0
+// OBJECT: R_MMIX_GETA __cxa_guard_acquire 0x0
+// OBJECT: R_MMIX_GETA _Z10make_valuel 0x0
+// OBJECT: R_MMIX_GETA __cxa_guard_release 0x0
 // OBJECT-DAG: Name: _ZGVZ7guardedvE5value
 // OBJECT-DAG: Name: __cxa_guard_acquire
 // OBJECT-DAG: Name: __cxa_guard_release

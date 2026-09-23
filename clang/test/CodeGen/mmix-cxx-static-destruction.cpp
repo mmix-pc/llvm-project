@@ -149,13 +149,13 @@ void observe(long) {}
 
 // CXA-OBJECT: R_MMIX_GETA _ZN5ValueD1Ev 0x0
 // CXA-OBJECT: R_MMIX_GETA __dso_handle 0x0
-// CXA-OBJECT: R_MMIX_PUSHJ_STUBBABLE __cxa_atexit 0x0
+// CXA-OBJECT: R_MMIX_GETA __cxa_atexit 0x0
 // CXA-OBJECT-DAG: Name: _ZN5ValueD1Ev
 // CXA-OBJECT-DAG: Name: __cxa_atexit
 // CXA-OBJECT-DAG: Name: __dso_handle
 
 // ATEXIT-OBJECT: R_MMIX_PUSHJ_STUBBABLE _ZN5ValueD1Ev 0x0
-// ATEXIT-OBJECT: R_MMIX_PUSHJ_STUBBABLE atexit 0x0
+// ATEXIT-OBJECT: R_MMIX_GETA atexit 0x0
 // ATEXIT-OBJECT-DAG: Name: __dtor_global
 // ATEXIT-OBJECT-DAG: Name: __dtor__ZZ5localvE5value
 // ATEXIT-OBJECT-DAG: Name: atexit

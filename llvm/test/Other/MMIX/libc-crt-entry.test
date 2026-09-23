@@ -118,14 +118,13 @@
 # SYMBOLS-NEXT: STV_HIDDEN
 
 # RELOCS:      Section {{.*}} .rela.text.__llvm_libc_mmix_start_main {
-# RELOCS:      R_MMIX_PUSHJ_STUBBABLE {{.*}}atexit
-# RELOCS:      R_MMIX_PUSHJ_STUBBABLE {{.*}}atexit
+# RELOCS:      R_MMIX_GETA {{.*}}atexit
 # RELOCS:      R_MMIX_GETA __preinit_array_end
 # RELOCS:      R_MMIX_GETA __preinit_array_start
 # RELOCS:      R_MMIX_GETA __init_array_end
 # RELOCS:      R_MMIX_GETA __init_array_start
-# RELOCS:      R_MMIX_PUSHJ_STUBBABLE main
-# RELOCS-NEXT: R_MMIX_PUSHJ_STUBBABLE {{.*}}exit
+# RELOCS:      R_MMIX_GETA main
+# RELOCS-NEXT: R_MMIX_GETA {{.*}}exit
 
 # NORMAL-EXIT-DAG: U __cxa_finalize
 # NORMAL-EXIT-DAG: U {{.*}}internal4exitEi
@@ -304,10 +303,13 @@
 
 # ABORT-LABEL: <abort>:
 # ABORT:       SETL {{.*}}, 0x6
-# ABORT:       R_MMIX_PUSHJ_STUBBABLE {{.*}}dispatch_signalEi
+# ABORT:       GETA [[DISPATCH:r[0-9]+]],
+# ABORT-NEXT:  {{.*}} R_MMIX_GETA {{.*}}dispatch_signalEi
+# ABORT:       PUSHGO r31, [[DISPATCH]],
 # ABORT:       SETL {{.*}}, 0x0
-# ABORT:       R_MMIX_PUSHJ_STUBBABLE {{.*}}set_signal_handler
-# ABORT:       R_MMIX_PUSHJ_STUBBABLE {{.*}}dispatch_signalEi
+# ABORT:       R_MMIX_GETA {{.*}}set_signal_handler
+# ABORT:       PUSHGO r31, {{r[0-9]+}},
+# ABORT:       PUSHGO r31, [[DISPATCH]],
 
 # IMAGE:      Format: elf64-mmix
 # IMAGE:      Type: Executable

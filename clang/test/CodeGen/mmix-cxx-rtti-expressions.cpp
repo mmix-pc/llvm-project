@@ -81,8 +81,8 @@ Lifetime::~Lifetime() { observe(typeid(*this)); }
 // IR-LABEL: define{{.*}} @_ZN8LifetimeD2Ev(
 // IR: store ptr getelementptr inbounds {{.*}}@_ZTV8Lifetime
 // IR: call{{.*}} @_Z7observeRKSt9type_info(
-// OBJ-DAG: R_MMIX_PUSHJ_STUBBABLE __cxa_bad_typeid
-// OBJ-DAG: R_MMIX_PUSHJ_STUBBABLE __cxa_bad_cast
-// OBJ-DAG: R_MMIX_PUSHJ_STUBBABLE __dynamic_cast
+// OBJ-DAG: R_MMIX_GETA __cxa_bad_typeid
+// OBJ-DAG: R_MMIX_GETA __cxa_bad_cast
+// OBJ-DAG: R_MMIX_GETA __dynamic_cast
 // OFF-DAG: error: use of typeid requires -frtti
 // OFF-DAG: error: use of dynamic_cast requires -frtti

@@ -106,6 +106,8 @@ define i64 @stack_fallback_direct() {
 }
 
 ; RELOC: Type: R_MMIX_GETA
+; RELOC-NEXT: Symbol: side_effect
+; RELOC: Type: R_MMIX_GETA
 ; RELOC-NEXT: Symbol: .text.tail.target
 ; RELOC: Type: R_MMIX_GETA
 ; RELOC-NEXT: Symbol: unresolved
@@ -123,6 +125,6 @@ define i64 @stack_fallback_direct() {
 ; OBJ-LABEL: <forwarded_sret_direct>:
 ; OBJ: GO r255
 ; OBJ-LABEL: <caller_copy_fallback_direct>:
-; OBJ: PUSHJ
+; OBJ:       PUSHGO
 ; OBJ-LABEL: <stack_fallback_direct>:
-; OBJ: PUSHJ
+; OBJ:       PUSHGO

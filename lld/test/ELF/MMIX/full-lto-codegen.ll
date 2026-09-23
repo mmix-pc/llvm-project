@@ -47,7 +47,7 @@
 ; STRUCTURE-DAG:  Name: observation
 
 ; DISASSEMBLY-LABEL: <_start>:
-; DISASSEMBLY:       PUSHJ
+; DISASSEMBLY:       PUSHGO
 ; DISASSEMBLY:       STO
 ; DISASSEMBLY:       JMP 0
 ; DISASSEMBLY-LABEL: <compute>:

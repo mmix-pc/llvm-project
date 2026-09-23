@@ -153,7 +153,7 @@ void operator delete(void *, size_t) noexcept {}
 // OBJECT: Type: SHT_INIT_ARRAY
 // OBJECT-DAG: R_MMIX_64
 // OBJECT-DAG: R_MMIX_GETA
-// OBJECT-DAG: R_MMIX_PUSHJ_STUBBABLE
+// OBJECT-DAG: R_MMIX_GETA
 // OBJECT-DAG: Name: _ZTT7Diamond
 // OBJECT-DAG: Name: _ZTV7Diamond
 // OBJECT-DAG: Name: _ZThn16_NK7Diamond5valueEv

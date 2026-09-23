@@ -308,8 +308,8 @@ public:
 
   void emitInstruction(const MachineInstr *MI) override {
     if (MI->getOpcode() == MMIX::LOAD_CALL_ADDR) {
-      if (EmissionMode == MMIXEmissionMode::ELFObject)
-        return;
+      // Materialize unresolved callees even in ELF: section-end call stubs
+      // need not be reachable from a call in a large input section.
       if (!MI->getOperand(0).isReg())
         report_fatal_error("MMIX call address has no destination register");
       MMIXMCInstLower Lower(OutContext, *this, EmissionMode);
@@ -329,18 +329,6 @@ public:
                EmissionMode, MI->getOperand(0).getReg(), Address, OutContext))
         emitCheckedMCInstruction(Inst);
       return;
-    }
-
-    if (MI->getOpcode() == MMIX::PseudoMaterializedDirectTail &&
-        EmissionMode == MMIXEmissionMode::ELFObject) {
-      if (!MI->getOperand(1).isReg())
-        report_fatal_error(
-            "MMIX materialized tail address has no destination register");
-      MMIXMCInstLower Lower(OutContext, *this, EmissionMode);
-      const MCExpr *Address = Lower.lowerAddressOperand(MI->getOperand(0));
-      for (const MCInst &Inst : createMMIXStaticAddressSequence(
-               EmissionMode, MI->getOperand(1).getReg(), Address, OutContext))
-        emitCheckedMCInstruction(Inst);
     }
 
     if (MI->isPseudo() && MI->getOpcode() != MMIX::PseudoB &&

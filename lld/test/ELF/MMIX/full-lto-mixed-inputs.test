@@ -77,7 +77,7 @@
 # DISASSEMBLY-LABEL: <native_archive_entry>:
 # DISASSEMBLY:       PUSHJ
 # DISASSEMBLY-LABEL: <bitcode_direct>:
-# DISASSEMBLY:       PUSHJ
+# DISASSEMBLY:       PUSHGO
 # DISASSEMBLY-LABEL: <bitcode_archive_entry>:
 
 # GROUP-TRACE:      {{.*}}main-cycle.o

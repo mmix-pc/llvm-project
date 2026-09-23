@@ -49,7 +49,7 @@
 // ELF-NEXT: Symbol: recursive_sum
 // ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
 // ELF-NEXT: Symbol: local_add
-// ELF: Type: R_MMIX_PUSHJ_STUBBABLE (36)
+// ELF: Type: R_MMIX_GETA (13)
 // ELF-NEXT: Symbol: external_many
 // ELF: Name: external_many
 // ELF: Section: Undefined
@@ -59,5 +59,6 @@
 // DIS-LABEL: <call_indirect>:
 // DIS: PUSHGO r31,
 // DIS-LABEL: <call_external_many>:
-// DIS: PUSHJ r31, 0
-// DIS-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE external_many
+// DIS: GETA {{r[0-9]+}}, 0
+// DIS-NEXT: {{.*}} R_MMIX_GETA external_many
+// DIS: PUSHGO r31, {{r[0-9]+}}, 0

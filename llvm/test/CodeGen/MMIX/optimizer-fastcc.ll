@@ -62,5 +62,5 @@ define internal i64 @internal_variadic(i64 %value, ...) {
 ; OBJ-DAG: Name: public_caller
 ; OBJ-DAG: Name: external_callee
 ; OBJ-DAG: Name: __compiler_runtime_helper
-; OBJ-DAG: R_MMIX_PUSHJ_STUBBABLE external_callee
-; OBJ-DAG: R_MMIX_PUSHJ_STUBBABLE __compiler_runtime_helper
+; OBJ-DAG: R_MMIX_GETA external_callee
+; OBJ-DAG: R_MMIX_GETA __compiler_runtime_helper

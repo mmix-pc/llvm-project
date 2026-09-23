@@ -65,7 +65,7 @@ extern "C" u32x2 vector_entry(Box *Object, u32x2 Input) {
 // OBJECT-DAG:  Name: _Z7combineIDv2_jET_S1_S1_
 // OBJECT-DAG:  Binding: Weak
 // OBJECT-DAG:  Type: COMDAT
-// OBJECT-DAG:  R_MMIX_PUSHJ_STUBBABLE c_transform
-// OBJECT-DAG:  R_MMIX_PUSHJ_STUBBABLE _Z7combineIDv2_jET_S1_S1_
+// OBJECT-DAG:  R_MMIX_GETA c_transform
+// OBJECT-DAG:  R_MMIX_GETA _Z7combineIDv2_jET_S1_S1_
 // OBJECT-DAG:  Name: Global
 // OBJECT-DAG:  Name: WeakGlobal
