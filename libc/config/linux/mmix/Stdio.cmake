@@ -30,6 +30,7 @@ set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio.fputs
   libc.src.stdio.getc
   libc.src.stdio.putc
+  libc.src.stdio.putchar
   libc.src.stdio.puts
   libc.src.stdio.ungetc
   libc.src.stdio.printf

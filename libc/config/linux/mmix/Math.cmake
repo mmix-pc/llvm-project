@@ -15,8 +15,10 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.math.log
   libc.src.math.log1p
   libc.src.math.log2
+  libc.src.math.log2f
   libc.src.math.logb
   libc.src.math.pow
+  libc.src.math.round
   libc.src.math.sin
   libc.src.math.sinh
   libc.src.math.tan

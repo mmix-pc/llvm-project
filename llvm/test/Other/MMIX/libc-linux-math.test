@@ -24,8 +24,8 @@ foreach(name feclearexcept fetestexcept fegetexceptflag fesetexceptflag
     message(FATAL_ERROR "missing fenv provider ${name}")
   endif()
 endforeach()
-foreach(name acos asin atan atan2 cos cosh erf exp log log1p log2 logb
-             pow sin sinh sqrt tan tanh log10)
+foreach(name acos asin atan atan2 cos cosh erf exp log log1p log2 log2f logb
+             pow round sin sinh sqrt tan tanh log10)
   if(NOT "libc.src.math.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
     message(FATAL_ERROR "missing math provider ${name}")
   endif()
