@@ -1551,7 +1551,7 @@ getMMIXFixedVectorABIWidth(Type *Ty, const DataLayout &DL) {
   return Width;
 }
 
-static bool isSupportedMMIXABIType(Type *Ty, const DataLayout &DL) {
+bool MMIXTargetLowering::isSupportedABIType(Type *Ty, const DataLayout &DL) {
   if (Ty->isVectorTy())
     return getMMIXFixedVectorABIWidth(Ty, DL).has_value();
   if (Ty->isVoidTy() || Ty->isAggregateType() || Ty->isPointerTy() ||
@@ -1893,7 +1893,7 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
   const DataLayout &DataLayout = DAG.getDataLayout();
   std::optional<unsigned> VectorResultWidth =
       getMMIXFixedVectorABIWidth(CLI.OrigRetTy, DataLayout);
-  if (!isSupportedMMIXABIType(CLI.OrigRetTy, DataLayout))
+  if (!isSupportedABIType(CLI.OrigRetTy, DataLayout))
     reportUnsupportedMMIXABIType(CLI.OrigRetTy, "call results", MF.getName());
   ISD::ArgFlagsTy ResultFlags;
   if (!CLI.Ins.empty())
@@ -2000,7 +2000,7 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
                         ? OriginalArg.IndirectType
                         : OriginalArg.OrigTy;
     }
-    if (AggregateTy && !isSupportedMMIXABIType(AggregateTy, DataLayout) &&
+    if (AggregateTy && !isSupportedABIType(AggregateTy, DataLayout) &&
         !((Arg.Flags.isByVal() || Arg.Flags.isSRet()) &&
           isMMIXIndirectVectorType(AggregateTy)))
       reportUnsupportedMMIXABIType(AggregateTy, "call arguments",
@@ -2398,7 +2398,7 @@ SDValue MMIXTargetLowering::LowerFormalArguments(
     if (!AggregateTy)
       AggregateTy =
           getMMIXFixedVectorFormalArgumentType(*this, F, DataLayout, I);
-    if (AggregateTy && !isSupportedMMIXABIType(AggregateTy, DataLayout) &&
+    if (AggregateTy && !isSupportedABIType(AggregateTy, DataLayout) &&
         !((Arg.Flags.isByVal() || Arg.Flags.isSRet()) &&
           isMMIXIndirectVectorType(AggregateTy)))
       reportUnsupportedMMIXABIType(AggregateTy, "formal arguments",
@@ -2720,7 +2720,7 @@ MMIXTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   const DataLayout &DataLayout = DAG.getDataLayout();
   std::optional<unsigned> VectorWidth =
       getMMIXFixedVectorABIWidth(F.getReturnType(), DataLayout);
-  if (!isSupportedMMIXABIType(F.getReturnType(), DataLayout))
+  if (!isSupportedABIType(F.getReturnType(), DataLayout))
     reportUnsupportedMMIXABIType(F.getReturnType(), "function results",
                                  F.getName());
 

@@ -32,6 +32,16 @@ public:
   explicit MMIXTTIImpl(const MMIXTargetMachine *TM, const Function &F)
       : BaseT(TM, F.getDataLayout()), ST(TM->getSubtargetImpl(F)),
         TLI(ST->getTargetLowering()) {}
+
+  bool areTypesABICompatible(const Function *Caller, const Function *Callee,
+                            ArrayRef<Type *> Types) const override {
+    if (!BaseT::areTypesABICompatible(Caller, Callee, Types))
+      return false;
+    // Argument promotion must not introduce values that call lowering rejects.
+    return llvm::all_of(Types, [&](Type *Ty) {
+      return MMIXTargetLowering::isSupportedABIType(Ty, Caller->getDataLayout());
+    });
+  }
 };
 
 } // namespace llvm

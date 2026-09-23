@@ -65,6 +65,8 @@ class MMIXTargetLowering final : public TargetLowering {
 public:
   MMIXTargetLowering(const TargetMachine &TM, const MMIXSubtarget &STI);
 
+  static bool isSupportedABIType(Type *Ty, const DataLayout &DL);
+
   EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
                         EVT VT) const override;
 
