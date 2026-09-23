@@ -5066,3 +5066,17 @@ add_entrypoint_object(
   DEPENDS
     libc.src.__support.math.bf16subf128
 )
+
+foreach(name sinh cosh tanh erf)
+  add_entrypoint_object(
+    ${name}
+    SRCS
+      ${name}.cpp
+    HDRS
+      ../${name}.h
+    DEPENDS
+      libc.src.__support.math.${name}
+    COMPILE_OPTIONS
+      -ffp-contract=off
+  )
+endforeach()

@@ -3928,3 +3928,15 @@ if(NOT LLVM_LIBC_FULL_BUILD)
   add_subdirectory(exhaustive)
   add_subdirectory(performance_testing)
 endif()
+
+foreach(name sinh cosh tanh erf)
+  add_fp_unittest(
+    ${name}_test
+    NEED_MPFR
+    SUITE libc-math-unittests
+    SRCS ${name}_test.cpp
+    DEPENDS
+      libc.src.math.${name}
+      libc.src.__support.FPUtil.fp_bits
+  )
+endforeach()

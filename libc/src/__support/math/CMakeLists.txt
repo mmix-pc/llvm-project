@@ -1,4 +1,42 @@
 add_header_library(
+  hyperbolic_utils
+  HDRS
+    hyperbolic_utils.h
+  DEPENDS
+    .exp
+    libc.hdr.errno_macros
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.multiply_add
+    libc.src.__support.FPUtil.rounding_mode
+)
+
+foreach(name sinh cosh tanh)
+  add_header_library(
+    ${name}
+    HDRS
+      ${name}.h
+    DEPENDS
+      .exp
+      .expm1
+      .hyperbolic_utils
+      libc.src.__support.FPUtil.except_value_utils
+  )
+endforeach()
+
+add_header_library(
+  erf
+  HDRS
+    erf.h
+  DEPENDS
+    .exp
+    libc.hdr.errno_macros
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.polyeval
+    libc.src.__support.FPUtil.except_value_utils
+)
+
+add_header_library(
   acos
   HDRS
     acos.h
