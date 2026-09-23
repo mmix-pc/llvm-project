@@ -1923,8 +1923,10 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
     ISD::ArgFlagsTy PackedFlags;
     PackedFlags.setOrigAlign(DataLayout.getABITypeAlign(CLI.OrigRetTy));
     Type *I64Ty = Type::getInt64Ty(*DAG.getContext());
+    // Pass the sentinel by value; it has no out-of-line storage definition.
     ABIIns.emplace_back(PackedFlags, MVT::i64, MVT::i64, I64Ty,
-                        CLI.Ins.front().Used, ISD::InputArg::NoArgIndex, 0);
+                        CLI.Ins.front().Used,
+                        static_cast<unsigned>(ISD::InputArg::NoArgIndex), 0);
   } else if (ResultClassification.Kind == MMIXAggregateABIKind::DirectResult) {
     for (const ISD::InputArg &Result : CLI.Ins)
       if (!isSupportedCallValueType(Result.VT))
@@ -1958,7 +1960,7 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
           DAG.getDataLayout().getABITypeAlign(CLI.OrigRetTy));
       Type *I64Ty = Type::getInt64Ty(*DAG.getContext());
       ABIIns.emplace_back(PackedFlags, MVT::i64, MVT::i64, I64Ty, Used,
-                          ISD::InputArg::NoArgIndex, 0);
+                          static_cast<unsigned>(ISD::InputArg::NoArgIndex), 0);
     }
   } else if (ResultClassification.Kind == MMIXAggregateABIKind::Empty) {
     if (!CLI.Ins.empty())

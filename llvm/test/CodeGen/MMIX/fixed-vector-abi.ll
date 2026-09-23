@@ -1,5 +1,7 @@
 ; RUN: llc -mtriple=mmix -verify-machineinstrs -stop-after=mmix-isel %s -o - | FileCheck %s
 ; RUN: llc -mtriple=mmix -verify-machineinstrs %s -o /dev/null
+; RUN: llc -mtriple=mmix-unknown-linux -O0 -verify-machineinstrs -filetype=obj %s -o /dev/null
+; RUN: llc -mtriple=mmix-unknown-linux -O2 -verify-machineinstrs -filetype=obj %s -o /dev/null
 
 target triple = "mmix"
 
