@@ -11,6 +11,7 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.sys.stat.mkdir
   libc.src.sys.stat.chmod
   libc.src.sys.stat.fchmod
+  libc.src.sys.stat.fchmodat
   libc.src.sys.stat.futimens
   libc.src.sys.mman.msync
   libc.src.sys.mman.posix_madvise
@@ -20,6 +21,7 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.unistd.faccessat
   libc.src.unistd.chdir
   libc.src.unistd.getcwd
+  libc.src.unistd.pathconf
   libc.src.unistd.readlink
   libc.src.unistd.readlinkat
   libc.src.unistd.unlink
@@ -39,6 +41,8 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.dirent.dirfd
   libc.src.sys.statfs.statfs
   libc.src.sys.statfs.fstatfs
+  libc.src.sys.statvfs.statvfs
+  libc.src.sys.statvfs.fstatvfs
   libc.src.unistd.getuid
   libc.src.pwd.getpwnam_r
   libc.src.pwd.getpwuid_r

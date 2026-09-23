@@ -21,6 +21,7 @@ set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio.fileno
   libc.src.stdio.fseek
   libc.src.stdio.ftell
+  libc.src.stdio.ftello
   libc.src.stdio.rewind
   libc.src.stdio.setbuf
   libc.src.stdio.setvbuf
@@ -32,6 +33,7 @@ set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio.putc
   libc.src.stdio.putchar
   libc.src.stdio.puts
+  libc.src.stdio.perror
   libc.src.stdio.ungetc
   libc.src.stdio.printf
   libc.src.stdio.fprintf

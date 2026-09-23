@@ -24,6 +24,8 @@ foreach(entry libc.src.stdlib.rand libc.src.stdlib.srand libc.src.string.strsign
               libc.src.pwd.getpwnam_r libc.src.pwd.getpwuid_r
               libc.src.sys.stat.futimens libc.src.sys.statfs.statfs
               libc.src.sys.statfs.fstatfs libc.src.unistd.getuid
+              libc.src.sys.statvfs.statvfs libc.src.sys.statvfs.fstatvfs
+              libc.src.sys.stat.fchmodat libc.src.unistd.pathconf
               libc.src.unistd.fchown libc.src.unistd.usleep
               libc.src.sys.mman.msync libc.src.sys.mman.posix_madvise
               libc.src.unistd.gethostname libc.src.sys.socket.socket
@@ -34,7 +36,7 @@ foreach(entry libc.src.stdlib.rand libc.src.stdlib.srand libc.src.string.strsign
   endif()
 endforeach()
 include(${config}/headers.txt)
-foreach(header dlfcn pwd sys_vfs sys_statfs sysexits sys_socket sys_un)
+foreach(header dlfcn pwd sys_vfs sys_statfs sys_statvfs sysexits sys_socket sys_un)
   if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
     message(FATAL_ERROR "missing common Unix include: ${header}")
   endif()

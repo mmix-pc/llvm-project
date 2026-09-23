@@ -74,6 +74,10 @@ fields["MMIX_C_RUNTIME_ENTRYPOINTS"] += ";" + ";".join("libc.src." + name for na
     ("locale.newlocale", "locale.freelocale", "locale.localeconv", "locale.setlocale",
      "wchar.getwc", "wchar.ungetwc", "wchar.fputwc", "wchar.mbrlen", "wchar.mbrtowc",
      "wchar.mbsrtowcs", "wchar.mbsnrtowcs", "wchar.wcrtomb", "wchar.wcsnrtombs"))
+fields["MMIX_C_RUNTIME_ENTRYPOINTS"] += ";" + ";".join("libc.src.stdio." + name for name in
+    ("fopen", "fdopen", "fclose", "fread", "fwrite", "fflush", "fseeko", "ftello"))
+fields["MMIX_C_RUNTIME_ENTRYPOINTS"] += ";" + ";".join("libc.src." + name for name in
+    ("sys.statvfs.statvfs", "sys.stat.fchmodat", "unistd.pathconf"))
 manifest = libc / "mmix-c-runtime/Inputs.cmake"
 cmake(manifest, fields)
 write(libc / "mmix-state/LibcStateConfig.cmake", "# synthetic state package\n")
@@ -86,7 +90,7 @@ rt_contents = ("CMAKE_C_COMPILER_TARGET:STRING=mmix-unknown-linux\n"
                "CMAKE_CXX_COMPILER_TARGET:STRING=mmix-unknown-linux\n"
                "CMAKE_C_COMPILER:FILEPATH=" + str(tools / "clang") + "\n")
 write(rt_cache, rt_contents)
-for header in ("errno.h", "stdlib.h", "stdio.h", "string.h", "wchar.h", "wctype.h", "locale.h", "time.h", "signal.h", "sys/syscall.h"):
+for header in ("errno.h", "stdlib.h", "stdio.h", "string.h", "wchar.h", "wctype.h", "locale.h", "time.h", "signal.h", "sys/syscall.h", "sys/statvfs.h"):
     write(libc / "include" / header, "#define __LLVM_LIBC__ 1\n")
 for header in ("asm/unistd.h", "asm/rstack.h", "asm/sigcontext.h"):
     write(inputs / "sysroot/usr/include" / header, "/* synthetic UAPI */\n")
@@ -120,6 +124,7 @@ for option, value, diagnostic in (
     ("LIBCXX_ENABLE_MONOTONIC_CLOCK", "OFF", "LIBCXX_ENABLE_MONOTONIC_CLOCK=ON"),
     ("LIBCXX_ENABLE_RANDOM_DEVICE", "OFF", "LIBCXX_ENABLE_RANDOM_DEVICE=ON"),
     ("LIBCXX_ENABLE_LOCALIZATION", "OFF", "LIBCXX_ENABLE_LOCALIZATION=ON"),
+    ("LIBCXX_ENABLE_FILESYSTEM", "OFF", "LIBCXX_ENABLE_FILESYSTEM=ON"),
     ("LIBCXXABI_ENABLE_THREADS", "ON", "LIBCXXABI_ENABLE_THREADS=OFF"),
     ("CMAKE_CXX_FLAGS", "-fno-exceptions", "conflicting producer flags"),
     ("CMAKE_C_FLAGS_RELEASE", "-flto", "conflicting producer flags"),
@@ -167,6 +172,12 @@ configure("requires wide libc provider swprintf")
 cmake(manifest, dict(fields, MMIX_C_RUNTIME_ENTRYPOINTS=
     fields["MMIX_C_RUNTIME_ENTRYPOINTS"].replace("libc.src.locale.newlocale", "")))
 configure("requires C-locale provider locale.newlocale")
+cmake(manifest, dict(fields, MMIX_C_RUNTIME_ENTRYPOINTS=
+    fields["MMIX_C_RUNTIME_ENTRYPOINTS"].replace("libc.src.stdio.ftello", "")))
+configure("requires file-stream provider ftello")
+cmake(manifest, dict(fields, MMIX_C_RUNTIME_ENTRYPOINTS=
+    fields["MMIX_C_RUNTIME_ENTRYPOINTS"].replace("libc.src.sys.statvfs.statvfs", "")))
+configure("requires filesystem provider sys.statvfs.statvfs")
 cmake(manifest, fields)
 configure()
 configure(install=True)
