@@ -1,8 +1,12 @@
 // REQUIRES: mmix-registered-target
-// RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=0 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
-// RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=1 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
-// RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=2 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
-// RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=3 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
+// RUN: not %clang_cc1 -triple mmix-unknown-unknown -mrelocation-model static -std=c++17 -DCASE=0 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
+// RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=0 -emit-obj -o %t.o %s
+// RUN: not %clang_cc1 -triple mmix-unknown-unknown -mrelocation-model static -std=c++17 -DCASE=1 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
+// RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=1 -emit-obj -o %t.o %s
+// RUN: not %clang_cc1 -triple mmix-unknown-unknown -mrelocation-model static -std=c++17 -DCASE=2 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
+// RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=2 -emit-obj -o %t.o %s
+// RUN: not %clang_cc1 -triple mmix-unknown-unknown -mrelocation-model static -std=c++17 -DCASE=3 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
+// RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=3 -emit-obj -o %t.o %s
 // RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=4 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s
 using size_t = __SIZE_TYPE__;
 struct State {};

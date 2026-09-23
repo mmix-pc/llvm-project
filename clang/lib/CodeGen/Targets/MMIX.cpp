@@ -125,28 +125,16 @@ static bool diagnoseUnsupportedMMIXCXXFeature(CodeGenModule &CGM,
 
 static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E, bool IsLinux) {
   const FunctionDecl *OperatorNew = E.getOperatorNew();
-  if (!OperatorNew)
+  if (!OperatorNew || OperatorNew->isVariadic() ||
+      OperatorNew->isTypeAwareOperatorNewOrDelete())
     return false;
   if (OperatorNew->isReservedGlobalPlacementOperator())
     return true;
-  // Linux Support uses named and arena allocators with reference/scalar args.
-  if (IsLinux && !E.isArray() && !E.passAlignment() &&
-      E.getNumPlacementArgs() && !OperatorNew->isVariadic()) {
-    bool Supported = true;
-    for (const ParmVarDecl *Param : OperatorNew->parameters()) {
-      QualType Type = Param->getType();
-      Supported &= Type->isReferenceType() || Type->isIntegerType() ||
-                   Type->isPointerType();
-    }
-    if (Supported)
-      return true;
-  }
-  // Linux also supplies standard nothrow overloads for arrays and aligned objects.
-  bool IsNothrow = false;
-  if (IsLinux && E.getNumPlacementArgs() == 1 &&
-      OperatorNew->isReplaceableGlobalAllocationFunction(nullptr, &IsNothrow) &&
-      IsNothrow)
+  // Linux uses ordinary Itanium allocation/lifetime lowering. EmitCall checks
+  // the ABI of allocation and cleanup arguments, including placement records.
+  if (IsLinux)
     return true;
+  // Keep the bounded Generic runtime's placement and alignment profile.
   // Allocator adapters use a reference to report failure without throwing.
   // Single objects use the ordinary initialization path. Arrays of scalar or
   // trivially destructible record elements need no destructor cookie.
@@ -169,24 +157,23 @@ static bool isSupportedMMIXCXXNewExpr(const CXXNewExpr &E, bool IsLinux) {
       return true;
   }
   return E.getNumPlacementArgs() == 0 &&
-         (!E.passAlignment() || IsLinux) &&
+         !E.passAlignment() &&
          OperatorNew->isReplaceableGlobalAllocationFunction();
 }
 
 static bool isSupportedMMIXCXXDeleteExpr(const CXXDeleteExpr &E, bool IsLinux) {
   const FunctionDecl *OperatorDelete = E.getOperatorDelete();
-  if (!OperatorDelete)
+  if (!OperatorDelete || OperatorDelete->isVariadic() ||
+      OperatorDelete->isDestroyingOperatorDelete() ||
+      OperatorDelete->isTypeAwareOperatorNewOrDelete())
     return false;
-  // Class-owned storage is released by its ordinary unsized deallocator.
-  if (IsLinux && !E.isArrayForm() &&
-      isa<CXXMethodDecl>(OperatorDelete) &&
-      OperatorDelete->getNumParams() == 1 && !OperatorDelete->isVariadic())
+  if (IsLinux)
     return true;
   UnsignedOrNone AlignmentParam = std::nullopt;
   bool IsNothrow = false;
   return OperatorDelete->isReplaceableGlobalAllocationFunction(&AlignmentParam,
                                                                &IsNothrow) &&
-         (!AlignmentParam || IsLinux) && !IsNothrow;
+         !AlignmentParam && !IsNothrow;
 }
 
 static bool isMMIXNativeAtomicStorageType(const ASTContext &Context,

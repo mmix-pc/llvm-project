@@ -2,9 +2,9 @@
 // RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -fcxx-exceptions -fexceptions -exception-model=dwarf -emit-llvm -o - %s | FileCheck %s
 // RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -O2 -emit-obj -o %t.o %s
 // RUN: not %clang_cc1 -triple mmix-unknown-unknown -mrelocation-model static -std=c++17 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=GENERIC
-// RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DNEGATIVE=1 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=NEGATIVE
-// RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DNEGATIVE=2 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=NEGATIVE
-// RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DNEGATIVE=3 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=NEGATIVE
+// RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=1 -emit-obj -o %t.record.o %s
+// RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=2 -emit-obj -o %t.array.o %s
+// RUN: not %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -std=c++17 -DCASE=3 -emit-llvm -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=NEGATIVE
 
 using size_t = __SIZE_TYPE__;
 struct Allocator {};
@@ -40,19 +40,19 @@ extern "C" Node *arena(Allocator &allocator) { return new (allocator) Node; }
 // CHECK: call{{.*}} @_ZN4NodedlEPvR9Allocatorm
 // GENERIC: error: MMIX does not support C++ allocation form
 
-#if NEGATIVE == 1
+#if CASE == 1
 struct ByValue { int tag; };
 void *operator new(size_t, ByValue);
 int *aggregate_argument(ByValue value) { return new (value) int; }
-// NEGATIVE: error: MMIX does not support C++ allocation form
-#elif NEGATIVE == 2
+#elif CASE == 2
 struct Array {
   static void *operator new[](size_t, Allocator &);
 };
 Array *custom_array(Allocator &allocator) { return new (allocator) Array[2]; }
-#elif NEGATIVE == 3
+#elif CASE == 3
 struct Variadic {
   static void *operator new(size_t, ...);
 };
 Variadic *variadic_argument() { return new (1) Variadic; }
+// NEGATIVE: error: MMIX does not support C++ allocation form
 #endif
