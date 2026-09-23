@@ -18,6 +18,7 @@
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/Diagnostic.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -243,9 +244,9 @@ static bool isSupportedMMIXFixedVectorType(const ASTContext &Context,
          Align == Size;
 }
 
-static MMIXUnsupportedObjectKind
-classifyUnsupportedMMIXObjectType(const ASTContext &Context, QualType Ty,
-                                  bool AllowSupportedVector = true) {
+static MMIXUnsupportedObjectKind classifyUnsupportedMMIXObjectType(
+    const ASTContext &Context, QualType Ty, bool AllowSupportedVector,
+    llvm::SmallDenseSet<std::pair<const Type *, unsigned>, 16> &VisitedRecords) {
   if (Ty.isNull())
     return MMIXUnsupportedObjectKind::None;
 
@@ -255,7 +256,8 @@ classifyUnsupportedMMIXObjectType(const ASTContext &Context, QualType Ty,
     return MMIXUnsupportedObjectKind::AddressSpace;
   if (const auto *AT = Ty->getAs<AtomicType>()) {
     return classifyUnsupportedMMIXObjectType(Context, AT->getValueType(),
-                                             /*AllowSupportedVector=*/false);
+                                             /*AllowSupportedVector=*/false,
+                                             VisitedRecords);
   }
   if (Ty->isVectorType())
     return AllowSupportedVector &&
@@ -271,23 +273,35 @@ classifyUnsupportedMMIXObjectType(const ASTContext &Context, QualType Ty,
   }
 
   if (const auto *RT = Ty->getAs<ReferenceType>())
-    return classifyUnsupportedMMIXObjectType(Context, RT->getPointeeType(),
-                                             AllowSupportedVector);
+    return classifyUnsupportedMMIXObjectType(
+        Context, RT->getPointeeType(), AllowSupportedVector, VisitedRecords);
 
   if (const auto *AT = Context.getAsArrayType(Ty))
-    return classifyUnsupportedMMIXObjectType(Context, AT->getElementType(),
-                                             AllowSupportedVector);
+    return classifyUnsupportedMMIXObjectType(
+        Context, AT->getElementType(), AllowSupportedVector, VisitedRecords);
 
   if (const auto *RT = Ty->getAs<RecordType>()) {
+    // References can form cycles. Atomic traversal has stricter vector rules
+    // and must not reuse a record visited in the ordinary-object context.
+    if (!VisitedRecords.insert({Ty.getTypePtr(), AllowSupportedVector}).second)
+      return MMIXUnsupportedObjectKind::None;
     for (const FieldDecl *Field : RT->getDecl()->fields()) {
       MMIXUnsupportedObjectKind Kind = classifyUnsupportedMMIXObjectType(
-          Context, Field->getType(), AllowSupportedVector);
+          Context, Field->getType(), AllowSupportedVector, VisitedRecords);
       if (Kind != MMIXUnsupportedObjectKind::None)
         return Kind;
     }
   }
 
   return MMIXUnsupportedObjectKind::None;
+}
+
+static MMIXUnsupportedObjectKind
+classifyUnsupportedMMIXObjectType(const ASTContext &Context, QualType Ty) {
+  llvm::SmallDenseSet<std::pair<const Type *, unsigned>, 16> VisitedRecords;
+  return classifyUnsupportedMMIXObjectType(Context, Ty,
+                                           /*AllowSupportedVector=*/true,
+                                           VisitedRecords);
 }
 
 static StringRef
