@@ -33,11 +33,23 @@ public:
             /*HasRelocationAddend=*/true, /*ABIVersion=*/0) {}
 
 protected:
+  bool needsRelocateWithSymbol(const MCValue &, unsigned Type) const override {
+    return Type >= ELF::R_MMIX_TPREL_LO16 && Type <= ELF::R_MMIX_TPREL_HI16;
+  }
+
   unsigned getRelocType(const MCFixup &Fixup, const MCValue &,
                         bool IsPCRel) const override {
     unsigned AbsoluteType;
     unsigned PCRelativeType;
     switch (Fixup.getKind()) {
+    case MMIX::fixup_mmix_tprel_lo:
+      return ELF::R_MMIX_TPREL_LO16;
+    case MMIX::fixup_mmix_tprel_ml:
+      return ELF::R_MMIX_TPREL_ML16;
+    case MMIX::fixup_mmix_tprel_mh:
+      return ELF::R_MMIX_TPREL_MH16;
+    case MMIX::fixup_mmix_tprel_hi:
+      return ELF::R_MMIX_TPREL_HI16;
     case FK_Data_1:
       AbsoluteType = ELF::R_MMIX_8;
       PCRelativeType = ELF::R_MMIX_PC_8;

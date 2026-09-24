@@ -7,10 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/MMIXBaseInfo.h"
+#include "MCTargetDesc/MMIXMCExpr.h"
 #include "MCTargetDesc/MMIXMCTargetDesc.h"
 #include "MCTargetDesc/MMIXTargetStreamer.h"
 #include "TargetInfo/MMIXTargetInfo.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -217,6 +220,7 @@ class MMIXAsmParser : public MCTargetAsmParser {
   ParseStatus parseDirective(AsmToken DirectiveID) override;
   bool parseDirectiveData24(SMLoc DirectiveLoc, bool IsPCRel);
   bool parseOperandExpression(const MCExpr *&Expr);
+  bool parseTPRELExpression(const MCExpr *&Expr);
   void onBeginOfFile() override;
 
 public:
@@ -298,26 +302,73 @@ bool MMIXAsmParser::parseRegister(MCRegister &Reg, SMLoc &StartLoc,
   return false;
 }
 
+bool MMIXAsmParser::parseTPRELExpression(const MCExpr *&Expr) {
+  // Check the literal magnitude before MC's ordinary int64_t expression folding
+  // can wrap an unrepresentable signed RELA addend.
+  StringRef Name;
+  const SMLoc Loc = Parser.getTok().getLoc();
+  if (Parser.parseIdentifier(Name))
+    return Error(Loc, "MMIX TLS expression requires a symbol");
+  Expr = MCSymbolRefExpr::create(getContext().getOrCreateSymbol(Name),
+                                 getContext(), Loc);
+  if (Parser.getTok().is(AsmToken::Plus) ||
+      Parser.getTok().is(AsmToken::Minus)) {
+    bool Negative = Parser.getTok().is(AsmToken::Minus);
+    Parser.Lex();
+    if (Parser.getTok().is(AsmToken::Plus) ||
+        Parser.getTok().is(AsmToken::Minus)) {
+      Negative ^= Parser.getTok().is(AsmToken::Minus);
+      Parser.Lex();
+    }
+    const AsmToken &Token = Parser.getTok();
+    if (!Token.is(AsmToken::Integer) && !Token.is(AsmToken::BigNum))
+      return Error(Token.getLoc(), "expected integer MMIX TLS addend");
+    const APInt Magnitude = Token.getAPIntVal();
+    if (Magnitude.getActiveBits() > (Negative ? 64u : 63u) ||
+        (Negative && Magnitude.getZExtValue() > (uint64_t(1) << 63)))
+      return Error(Token.getLoc(),
+                   "MMIX TLS addend is outside signed 64-bit range");
+    const uint64_t Bits = Magnitude.getZExtValue();
+    const int64_t Addend = static_cast<int64_t>(Negative ? -Bits : Bits);
+    Expr = MCBinaryExpr::createAdd(
+        Expr, MCConstantExpr::create(Addend, getContext()), getContext());
+    Parser.Lex();
+  }
+  return Parser.parseToken(AsmToken::RParen,
+                           "expected ')' after MMIX TLS symbol and addend");
+}
+
 bool MMIXAsmParser::parseOperandExpression(const MCExpr *&Expr) {
   if (Parser.getTok().isNot(AsmToken::Percent))
     return Parser.parseExpression(Expr);
 
   const SMLoc SpecifierLoc = Parser.getTok().getLoc();
   Parser.Lex();
-  if (Parser.getTok().isNot(AsmToken::Identifier) ||
-      Parser.getTok().getIdentifier() != "geta")
+  if (Parser.getTok().isNot(AsmToken::Identifier))
     return Error(Parser.getTok().getLoc(),
-                 "expected '%geta' expression specifier");
+                 "expected MMIX expression specifier");
+  const unsigned Specifier =
+      StringSwitch<unsigned>(Parser.getTok().getIdentifier())
+          .Case("geta", MMIXII::S_GETA)
+          .Case("tprel_lo", MMIXII::S_TPREL_LO)
+          .Case("tprel_ml", MMIXII::S_TPREL_ML)
+          .Case("tprel_mh", MMIXII::S_TPREL_MH)
+          .Case("tprel_hi", MMIXII::S_TPREL_HI)
+          .Default(MMIXII::S_None);
+  if (Specifier == MMIXII::S_None)
+    return Error(Parser.getTok().getLoc(), "unknown MMIX expression specifier");
   Parser.Lex();
-  if (Parser.parseToken(AsmToken::LParen, "expected '(' after '%geta'"))
+  if (Parser.parseToken(AsmToken::LParen, "expected '(' after MMIX modifier"))
     return true;
 
   SMLoc End;
   const MCExpr *SubExpr;
-  if (Parser.parseParenExpression(SubExpr, End))
+  if (MMIXII::isTPRELSpecifier(Specifier)
+          ? parseTPRELExpression(SubExpr)
+          : Parser.parseParenExpression(SubExpr, End))
     return true;
-  Expr = MCSpecifierExpr::create(SubExpr, MMIXII::S_GETA, getContext(),
-                                 SpecifierLoc);
+  Expr =
+      MCSpecifierExpr::create(SubExpr, Specifier, getContext(), SpecifierLoc);
   return false;
 }
 
@@ -370,6 +421,8 @@ bool MMIXAsmParser::matchAndEmitInstruction(
   case Match_Success:
     Inst.setLoc(IDLoc);
     Opcode = Inst.getOpcode();
+    if (!MMIX::validateTPRELInstruction(Inst, getSTI(), getContext()))
+      return true;
     Out.emitInstruction(Inst, getSTI());
     return false;
   case Match_MissingFeature: {

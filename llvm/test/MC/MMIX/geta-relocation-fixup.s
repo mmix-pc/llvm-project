@@ -31,7 +31,7 @@
 # INVALID: invalid.s:3:10: error: expanding GETA requires one symbol plus an optional addend
 # INVALID: invalid.s:4:1: error: '%geta' expression requires a GETA instruction
 # INVALID: invalid.s:5:1: error: '%geta' expression requires a GETA instruction
-# INVALID: invalid.s:6:11: error: expected '%geta' expression specifier
+# INVALID: invalid.s:6:11: error: unknown MMIX expression specifier
 
 # SPLIT: split-address.s:1:1: error: unresolved MMIX split-address expression is not supported; use GETA with '%geta(...)'
 # SPLIT: split-address.s:2:1: error: unresolved MMIX split-address expression is not supported; use GETA with '%geta(...)'

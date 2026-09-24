@@ -36,7 +36,7 @@
 # DIFFERENCE: symbol-difference.s:1:20: error: MMIX stubbable call relocations do not support symbol differences
 # MULTIPLE: multiple-symbols.s:1:17: error: expected relocatable expression
 # OPERATION: symbolic-operation.s:1:19: error: expected relocatable expression
-# MODIFIER: modifiers.s:1:12: error: expected '%geta' expression specifier
+# MODIFIER: modifiers.s:1:12: error: unknown MMIX expression specifier
 # MODIFIER: modifiers.s:2:1: error: '%geta' expression requires a GETA instruction
 
 # R_MMIX_PUSHJ_STUBBABLE is owned by PUSHJ/PUSHJB fixups and cannot be

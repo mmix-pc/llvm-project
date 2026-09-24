@@ -19,7 +19,9 @@
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCObjectWriter.h"
+#include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Endian.h"
@@ -128,6 +130,24 @@ public:
   void applyFixup(const MCFragment &F, const MCFixup &Fixup,
                   const MCValue &Target, uint8_t *Data, uint64_t Value,
                   bool IsResolved) override {
+    if (MMIX::isTPRELFixup(Fixup.getKind())) {
+      const auto *Symbol = static_cast<const MCSymbolELF *>(Target.getAddSym());
+      if (!Symbol || Target.getSubSym() || Symbol->isAbsolute() ||
+          Symbol->isCommon() ||
+          (Symbol->getType() != ELF::STT_NOTYPE &&
+           Symbol->getType() != ELF::STT_TLS) ||
+          (Symbol->isInSection() &&
+           !(static_cast<const MCSectionELF &>(Symbol->getSection())
+                 .getFlags() &
+             ELF::SHF_TLS))) {
+        getContext().reportError(Fixup.getLoc(),
+                                 "MMIX TLS relocation requires a TLS symbol");
+        return;
+      }
+      Symbol->setType(ELF::STT_TLS);
+      addRelocation(F, Fixup, Target, 0);
+      return;
+    }
     if (mc::isRelocRelocation(Fixup.getKind())) {
       const unsigned Type = Fixup.getKind() - FirstLiteralRelocationKind;
       switch (Type) {
@@ -362,6 +382,10 @@ public:
         {"fixup_mmix_data_24", 0, 24, 0},
         {"fixup_mmix_pcrel_24", 0, 24, 0},
         {"fixup_mmix_geta", 0, 16, 0},
+        {"fixup_mmix_tprel_lo", 16, 16, 0},
+        {"fixup_mmix_tprel_ml", 16, 16, 0},
+        {"fixup_mmix_tprel_mh", 16, 16, 0},
+        {"fixup_mmix_tprel_hi", 16, 16, 0},
     };
 
     if (mc::isRelocRelocation(Kind))
@@ -374,6 +398,9 @@ public:
   std::optional<bool> evaluateFixup(const MCFragment &F, MCFixup &Fixup,
                                     MCValue &Target,
                                     uint64_t &Value) override {
+    // Neither the output TLS image offset nor the TCB bias is known here.
+    if (MMIX::isTPRELFixup(Fixup.getKind()))
+      return false;
     const MCSymbol *Add = Target.getAddSym();
     const MCSymbol *Sub = Target.getSubSym();
     if (Add && Sub && Add->isDefined() && Sub->isDefined() &&

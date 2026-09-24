@@ -64,7 +64,15 @@ enum MCInstFlags {
 enum Specifier : uint16_t {
   S_None,
   S_GETA,
+  S_TPREL_LO,
+  S_TPREL_ML,
+  S_TPREL_MH,
+  S_TPREL_HI,
 };
+
+inline bool isTPRELSpecifier(unsigned Specifier) {
+  return Specifier >= S_TPREL_LO && Specifier <= S_TPREL_HI;
+}
 
 // MC relaxation appends this operand and emits the corresponding SWYM slots.
 constexpr unsigned GETARelocationReservedSlots = 3;

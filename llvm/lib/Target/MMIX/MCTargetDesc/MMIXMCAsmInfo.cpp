@@ -8,6 +8,7 @@
 
 #include "MMIXMCAsmInfo.h"
 #include "MMIXBaseInfo.h"
+#include "MMIXMCExpr.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Triple.h"
@@ -39,10 +40,30 @@ void MMIXMCAsmInfo::printSpecifierExpr(raw_ostream &OS,
   switch (Expr.getSpecifier()) {
   case MMIXII::S_GETA:
     OS << "%geta(";
-    printExpr(OS, *Expr.getSubExpr());
-    OS << ')';
-    return;
+    break;
+  case MMIXII::S_TPREL_LO:
+    OS << "%tprel_lo(";
+    break;
+  case MMIXII::S_TPREL_ML:
+    OS << "%tprel_ml(";
+    break;
+  case MMIXII::S_TPREL_MH:
+    OS << "%tprel_mh(";
+    break;
+  case MMIXII::S_TPREL_HI:
+    OS << "%tprel_hi(";
+    break;
   default:
     llvm_unreachable("unknown MMIX expression specifier");
   }
+  printExpr(OS, *Expr.getSubExpr());
+  OS << ')';
+}
+
+bool MMIXMCAsmInfo::evaluateAsRelocatableImpl(const MCSpecifierExpr &Expr,
+                                              MCValue &Value,
+                                              const MCAssembler *Asm) const {
+  if (MMIXII::isTPRELSpecifier(Expr.getSpecifier()))
+    return MMIX::getTPRELValue(*Expr.getSubExpr(), Value);
+  return MCAsmInfoELF::evaluateAsRelocatableImpl(Expr, Value, Asm);
 }

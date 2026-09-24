@@ -25,9 +25,17 @@ enum FixupKind {
   fixup_mmix_data_24,
   fixup_mmix_pcrel_24,
   fixup_mmix_geta,
+  fixup_mmix_tprel_lo,
+  fixup_mmix_tprel_ml,
+  fixup_mmix_tprel_mh,
+  fixup_mmix_tprel_hi,
   LastTargetFixupKind,
   NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
 };
+
+inline bool isTPRELFixup(MCFixupKind Kind) {
+  return Kind >= fixup_mmix_tprel_lo && Kind <= fixup_mmix_tprel_hi;
+}
 } // namespace MMIX
 } // namespace llvm
 

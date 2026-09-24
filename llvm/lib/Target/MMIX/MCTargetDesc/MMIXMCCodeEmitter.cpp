@@ -8,6 +8,7 @@
 
 #include "MMIXBaseInfo.h"
 #include "MMIXFixupKinds.h"
+#include "MMIXMCExpr.h"
 #include "MMIXMCTargetDesc.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
@@ -108,6 +109,8 @@ public:
   void encodeInstruction(const MCInst &MI, SmallVectorImpl<char> &CB,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const override {
+    if (!MMIX::validateTPRELInstruction(MI, STI, Ctx))
+      return;
     const bool IsExpandedGETA = isExpandedGETARelocation(MI);
     [[maybe_unused]] const size_t FirstFixup = Fixups.size();
     const uint32_t Word = getBinaryCodeForInstr(MI, Fixups, STI);
@@ -137,12 +140,23 @@ public:
 
 unsigned
 MMIXMCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
-                                     SmallVectorImpl<MCFixup> & /*Fixups*/,
+                                     SmallVectorImpl<MCFixup> &Fixups,
                                      const MCSubtargetInfo & /*STI*/) const {
   if (MO.isReg())
     return MRI.getEncodingValue(MO.getReg());
   if (MO.isImm())
     return static_cast<unsigned>(MO.getImm());
+
+  if (MO.isExpr()) {
+    const auto *Expr = dyn_cast<MCSpecifierExpr>(MO.getExpr());
+    if (Expr && MMIXII::isTPRELSpecifier(Expr->getSpecifier())) {
+      const auto Kind =
+          static_cast<MCFixupKind>(MMIX::fixup_mmix_tprel_lo +
+                                   Expr->getSpecifier() - MMIXII::S_TPREL_LO);
+      Fixups.push_back(MCFixup::create(0, Expr, Kind));
+      return 0;
+    }
+  }
 
   if (MO.isExpr() && isSplitAddressOpcode(MI.getOpcode())) {
     Ctx.reportError(MI.getLoc(),

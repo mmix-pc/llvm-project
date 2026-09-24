@@ -43,7 +43,7 @@
 # OPERATIONS: symbolic-operations.s:1:16: error: expected relocatable expression
 # OPERATIONS: symbolic-operations.s:2:12: error: expected relocatable expression
 
-# MODIFIER: modifier.s:1:9: error: expected '%geta' expression specifier
+# MODIFIER: modifier.s:1:9: error: unknown MMIX expression specifier
 
 # GETA: geta-reclassification.s:1:1: error: '%geta' expression requires a GETA instruction
 # GETA: geta-reclassification.s:2:1: error: '%geta' expression requires a GETA instruction

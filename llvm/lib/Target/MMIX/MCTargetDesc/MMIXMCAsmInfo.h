@@ -23,6 +23,8 @@ public:
 
   void printSpecifierExpr(raw_ostream &OS,
                           const MCSpecifierExpr &Expr) const override;
+  bool evaluateAsRelocatableImpl(const MCSpecifierExpr &Expr, MCValue &Value,
+                                 const MCAssembler *Asm) const override;
 };
 
 } // namespace llvm

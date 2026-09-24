@@ -9,6 +9,7 @@ add_llvm_component_library(LLVMMMIXDesc
   MMIXAsmBackend.cpp
   MMIXELFObjectWriter.cpp
   MMIXMCCodeEmitter.cpp
+  MMIXMCExpr.cpp
   MMIXMCAsmInfo.cpp
   MMIXInstPrinter.cpp
   MMIXALInstPrinter.cpp
