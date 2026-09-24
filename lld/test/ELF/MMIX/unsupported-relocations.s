@@ -23,8 +23,8 @@
 # CHECK-DAG: unsupported relocation R_MMIX_GNU_VTINHERIT against symbol target: requires GNU vtable metadata support
 # CHECK-DAG: unsupported relocation R_MMIX_GNU_VTENTRY against symbol target: requires GNU vtable metadata support
 
-## Values outside the complete GNU MMIX relocation enum are unknown.
-# CHECK-DAG: unknown relocation (37) against symbol target
+## Values outside the GNU MMIX enum and Linux TLS extensions are unknown.
+# CHECK-DAG: unknown relocation (41) against symbol target
 
 --- !ELF
 FileHeader:
@@ -62,7 +62,7 @@ Sections:
       - { Offset: 0, Type: R_MMIX_JMP_1, Symbol: target, Addend: 0 }
       - { Offset: 0, Type: R_MMIX_JMP_2, Symbol: target, Addend: 0 }
       - { Offset: 0, Type: R_MMIX_JMP_3, Symbol: target, Addend: 0 }
-      - { Offset: 0, Type: 37, Symbol: target, Addend: 0 }
+      - { Offset: 0, Type: 41, Symbol: target, Addend: 0 }
 Symbols:
   - Name:    target
     Section: .text

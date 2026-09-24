@@ -1,0 +1,70 @@
+## Check numeric and symbolic relocation identities independently of MC/lld
+## support. Synthetic records do not imply that LLVM emits or applies TLS.+# RUN: yaml2obj %s -o %t.o
+# RUN: llvm-readobj --relocations --expand-relocs %t.o | FileCheck %s
+# RUN: llvm-readelf --relocations %t.o | FileCheck %s --check-prefix=GNU
+# RUN: obj2yaml %t.o | FileCheck %s --check-prefix=YAML
+# RUN: yaml2obj %s -DLO=R_MMIX_TPREL_LO16 -DML=R_MMIX_TPREL_ML16 \
+# RUN:   -DMH=R_MMIX_TPREL_MH16 -DHI=R_MMIX_TPREL_HI16 -o %t.named.o
+# RUN: cmp %t.o %t.named.o
+
+# CHECK:      Relocations [
+# CHECK:        Relocation {
+# CHECK-NEXT:     Offset: 0x0
+# CHECK-NEXT:     Type: R_MMIX_TPREL_LO16 (37)
+# CHECK-NEXT:     Symbol: tls (1)
+# CHECK-NEXT:     Addend: 0x0
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Relocation {
+# CHECK-NEXT:     Offset: 0x4
+# CHECK-NEXT:     Type: R_MMIX_TPREL_ML16 (38)
+# CHECK-NEXT:     Symbol: tls (1)
+# CHECK-NEXT:     Addend: 0x8
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Relocation {
+# CHECK-NEXT:     Offset: 0x8
+# CHECK-NEXT:     Type: R_MMIX_TPREL_MH16 (39)
+# CHECK-NEXT:     Symbol: tls (1)
+# CHECK-NEXT:     Addend: 0xFFFFFFFFFFFFFFF8
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Relocation {
+# CHECK-NEXT:     Offset: 0xC
+# CHECK-NEXT:     Type: R_MMIX_TPREL_HI16 (40)
+# CHECK-NEXT:     Symbol: tls (1)
+# CHECK-NEXT:     Addend: 0x0
+# CHECK-NEXT:   }
+
+# GNU:      R_MMIX_TPREL_LO16
+# GNU-NEXT: R_MMIX_TPREL_ML16
+# GNU-NEXT: R_MMIX_TPREL_MH16
+# GNU-NEXT: R_MMIX_TPREL_HI16
+
+# YAML:      Type: R_MMIX_TPREL_LO16
+# YAML:      Type: R_MMIX_TPREL_ML16
+# YAML:      Type: R_MMIX_TPREL_MH16
+# YAML:      Type: R_MMIX_TPREL_HI16
+
+--- !ELF
+FileHeader:
+  Class: ELFCLASS64
+  Data: ELFDATA2MSB
+  Type: ET_REL
+  Machine: EM_MMIX
+Sections:
+  - Name: .text
+    Type: SHT_PROGBITS
+    Flags: [SHF_ALLOC, SHF_EXECINSTR]
+    AddressAlign: 4
+    Content: E3000000E6000000E5000000E4000000
+  - Name: .rela.text
+    Type: SHT_RELA
+    Link: .symtab
+    Info: .text
+    Relocations:
+      - { Offset: 0, Type: '[[LO=37]]', Symbol: tls, Addend: 0 }
+      - { Offset: 4, Type: '[[ML=38]]', Symbol: tls, Addend: 8 }
+      - { Offset: 8, Type: '[[MH=39]]', Symbol: tls, Addend: -8 }
+      - { Offset: 12, Type: '[[HI=40]]', Symbol: tls, Addend: 0 }
+Symbols:
+  - Name: tls
+    Type: STT_TLS
+    Binding: STB_GLOBAL

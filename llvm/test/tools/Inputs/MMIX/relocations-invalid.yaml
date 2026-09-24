@@ -13,7 +13,7 @@ Sections:
     Link: .symtab
     Info: .text
     Relocations:
-      - { Offset: 4, Type: 37 }
+      - { Offset: 4, Type: 41 }
       - { Offset: 8, Type: 0xffffffff }
 Symbols:
   - Name: boundary
