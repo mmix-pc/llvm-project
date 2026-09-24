@@ -12,11 +12,13 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.math.cosh
   libc.src.math.erf
   libc.src.math.exp
+  libc.src.math.ldexp
   libc.src.math.log
   libc.src.math.log1p
   libc.src.math.log2
   libc.src.math.log2f
   libc.src.math.logb
+  libc.src.math.lround
   libc.src.math.pow
   libc.src.math.round
   libc.src.math.sin
