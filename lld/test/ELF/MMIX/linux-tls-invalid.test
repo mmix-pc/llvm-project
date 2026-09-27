@@ -1,0 +1,103 @@
+# REQUIRES: mmix
+# RUN: split-file %s %t
+# RUN: yaml2obj %t/input.yaml -o %t/valid.o
+# RUN: not ld.lld -m elf64mmix %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PROFILE
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=SHARED
+# RUN: not ld.lld -m elf64mmix_linux -pie %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PIE
+# RUN: yaml2obj %t/input.yaml -DOP=E4010000 -o %t/op.o
+# RUN: not ld.lld -m elf64mmix_linux %t/op.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: yaml2obj %t/input.yaml -DOFFSET=1 -o %t/offset.o
+# RUN: not ld.lld -m elf64mmix_linux %t/offset.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: yaml2obj %t/input.yaml -DOP=E30100 -o %t/short.o
+# RUN: not ld.lld -m elf64mmix_linux %t/short.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: yaml2obj %t/input.yaml -DTEXTFLAGS=SHF_WRITE -o %t/nonexec.o
+# RUN: not ld.lld -m elf64mmix_linux %t/nonexec.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: yaml2obj %t/input.yaml -DSYMTYPE=STT_OBJECT -DTLSFLAGS=3 -o %t/type.o
+# RUN: not ld.lld -m elf64mmix_linux %t/type.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=TYPE
+# RUN: yaml2obj %t/input.yaml -DTLSFLAGS=3 -o %t/section.o
+# RUN: not ld.lld -m elf64mmix_linux %t/section.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PROVIDER
+# RUN: yaml2obj %t/input.yaml -DINDEX=0 -o %t/undefined.o
+# RUN: not ld.lld -m elf64mmix_linux --unresolved-symbols=ignore-all %t/undefined.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PROVIDER
+# RUN: yaml2obj %t/input.yaml -DINDEX=0 -DBINDING=STB_WEAK -o %t/weak.o
+# RUN: not ld.lld -m elf64mmix_linux %t/weak.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PROVIDER
+# RUN: yaml2obj %t/input.yaml -DINDEX=0xfff1 -o %t/absolute.o
+# RUN: not ld.lld -m elf64mmix_linux %t/absolute.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PROVIDER
+# RUN: ld.lld -m elf64mmix_linux -r %t/undefined.o -o %t/partial.o
+# RUN: not ld.lld -m elf64mmix_linux %t/partial.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PROVIDER
+# RUN: yaml2obj %t/input.yaml -DVALUE=16 -o %t/outside.o
+# RUN: not ld.lld -m elf64mmix_linux %t/outside.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=EXTENT
+# RUN: yaml2obj %t/input.yaml -DVALUE=0xffffffffffffffff -o %t/wrapped.o
+# RUN: not ld.lld -m elf64mmix_linux %t/wrapped.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=EXTENT
+# RUN: not ld.lld -m elf64mmix_linux -T %t/no-tls.ld %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=SEGMENT
+# RUN: not ld.lld -m elf64mmix_linux -T %t/misaligned.ld %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=ALIGN
+# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/overflow.s -o %t/overflow.o
+# RUN: not ld.lld -m elf64mmix_linux %t/overflow.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=RANGE
+
+# PROFILE: requires MMIX Linux static output
+# SHARED: MMIX does not support shared object output
+# PIE: MMIX does not support PIE output
+# FIELD: requires a complete aligned matching instruction
+# TYPE: requires an STT_TLS symbol
+# PROVIDER: requires a defined symbol in the executable TLS image
+# EXTENT: TLS symbol lies outside its defining section
+# SEGMENT: requires exactly one PT_TLS segment
+# ALIGN: instruction address is not 4-byte aligned
+# RANGE-COUNT-4: TP-relative value 9223372036854775823 is outside signed 64-bit range
+
+#--- input.yaml
+--- !ELF
+FileHeader:
+  Class: ELFCLASS64
+  Data: ELFDATA2MSB
+  Type: ET_REL
+  Machine: EM_MMIX
+Sections:
+  - Name: .text
+    Type: SHT_PROGBITS
+    Flags: [ SHF_ALLOC, '[[TEXTFLAGS=SHF_EXECINSTR]]' ]
+    AddressAlign: 4
+    Content: '[[OP=E3010000]]'
+  - Name: .tdata
+    Type: SHT_PROGBITS
+    ShFlags: '[[TLSFLAGS=0x403]]'
+    AddressAlign: 8
+    Content: '0000000000000000'
+  - Name: .rela.text
+    Type: SHT_RELA
+    Link: .symtab
+    Info: .text
+    Relocations:
+      - { Offset: '[[OFFSET=0]]', Type: R_MMIX_TPREL_LO16, Symbol: tls, Addend: 0 }
+Symbols:
+  - { Name: _start, Type: STT_FUNC, Binding: STB_GLOBAL, Section: .text }
+  - Name: tls
+    Type: '[[SYMTYPE=STT_TLS]]'
+    Binding: '[[BINDING=STB_GLOBAL]]'
+    Index: '[[INDEX=2]]'
+    Value: '[[VALUE=0]]'
+
+#--- no-tls.ld
+PHDRS { text PT_LOAD FLAGS(5); data PT_LOAD FLAGS(6); }
+SECTIONS {
+ .text 0x10000 : { *(.text) } :text
+ .tdata 0x20000 : { *(.tdata) } :data
+}
+
+#--- misaligned.ld
+SECTIONS {
+ .text 0x10001 : SUBALIGN(1) { *(.text) }
+ .entry 0x18000 : { LONG(0xfd000000) }
+ .tdata 0x20000 : { *(.tdata) }
+}
+ENTRY(0x10004)
+
+#--- overflow.s
+.text
+.globl _start
+_start:
+SETL r1, %tprel_lo(tls + 9223372036854775807)
+INCML r2, %tprel_ml(tls + 9223372036854775807)
+INCMH r3, %tprel_mh(tls + 9223372036854775807)
+INCH r4, %tprel_hi(tls + 9223372036854775807)
+.section .tdata,"awT",@progbits
+tls: .8byte 0

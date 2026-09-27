@@ -990,6 +990,8 @@ uint64_t InputSectionBase::getRelocTargetVA(Ctx &ctx, const Relocation &r,
   case R_RELAX_GOT_PC:
     return r.sym->getVA(ctx, a) - p;
   case R_TPREL:
+    if (ctx.arg.emachine == EM_MMIX)
+      return getMMIXTlsTpOffset(ctx, r, *this);
     // It is not very clear what to return if the symbol is undefined. With
     // --noinhibit-exec, even a non-weak undefined reference may reach here.
     // Just return A, which matches R_ABS, and the behavior of some dynamic

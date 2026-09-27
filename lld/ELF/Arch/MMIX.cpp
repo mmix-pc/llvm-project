@@ -13,9 +13,11 @@
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Support/Endian.h"
@@ -69,6 +71,41 @@ std::optional<MMIXRelaxationSequence> getRelaxationSequence(RelType type) {
 }
 
 bool isStubbableCall(RelType type) { return type == R_MMIX_PUSHJ_STUBBABLE; }
+
+bool isTPRel(RelType type) {
+  return type == R_MMIX_TPREL_LO16 || type == R_MMIX_TPREL_ML16 ||
+         type == R_MMIX_TPREL_MH16 || type == R_MMIX_TPREL_HI16;
+}
+
+unsigned getTPRelShift(RelType type) {
+  switch (type) {
+  case R_MMIX_TPREL_LO16:
+    return 0;
+  case R_MMIX_TPREL_ML16:
+    return 16;
+  case R_MMIX_TPREL_MH16:
+    return 32;
+  case R_MMIX_TPREL_HI16:
+    return 48;
+  default:
+    llvm_unreachable("not an MMIX TP-relative relocation");
+  }
+}
+
+uint8_t getTPRelOpcode(RelType type) {
+  switch (type) {
+  case R_MMIX_TPREL_LO16:
+    return setlOpcode;
+  case R_MMIX_TPREL_ML16:
+    return incmlOpcode;
+  case R_MMIX_TPREL_MH16:
+    return incmhOpcode;
+  case R_MMIX_TPREL_HI16:
+    return inchOpcode;
+  default:
+    llvm_unreachable("not an MMIX TP-relative relocation");
+  }
+}
 
 class MMIXLinkerAllocatedRegisterSection final : public SyntheticSection {
 public:
@@ -417,6 +454,9 @@ void MMIX::validateInputRelocations(InputSectionBase &sec) const {
   for (const ELF64BE::Rela &rela : relocs.relas) {
     RelType type = rela.getType(false);
     if (type == R_MMIX_NONE)
+      continue;
+    // Final TLS admission belongs to the live relocation scan, after GC.
+    if (isTPRel(type) && !ctx.arg.relocatable)
       continue;
     Symbol &sym = sec.getFile<ELF64BE>()->getSymbol(rela.getSymbol(false));
     const uint8_t *loc = contents.data();
@@ -862,6 +902,31 @@ std::optional<uint8_t> MMIX::resolveRegister(const Relocation &rel,
 
 RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
                          const uint8_t *loc) const {
+  if (isTPRel(type)) {
+    if (!isLinux() || ctx.arg.isPic) {
+      Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type << " against "
+               << &s << " requires MMIX Linux static output";
+      return R_NONE;
+    }
+    if (!s.isTls()) {
+      Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type << " against "
+               << &s << " requires an STT_TLS symbol";
+      return R_NONE;
+    }
+    if (!ctx.arg.relocatable) {
+      const auto *d = dyn_cast<Defined>(&s);
+      if (!d || !d->section || d->section == &InputSection::discarded ||
+          !d->section->isLive() ||
+          (d->section->flags & (SHF_ALLOC | SHF_TLS)) !=
+              (SHF_ALLOC | SHF_TLS)) {
+        Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
+                 << " against " << &s
+                 << " requires a defined symbol in the executable TLS image";
+        return R_NONE;
+      }
+    }
+    return R_TPREL;
+  }
   if (isLinux() && type == R_MMIX_BASE_PLUS_OFFSET) {
     Err(ctx) << getErrorLoc(ctx, loc)
              << "MMIX Linux does not support R_MMIX_BASE_PLUS_OFFSET "
@@ -938,6 +1003,21 @@ void MMIX::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
     RelType type = it->getType(false);
     if (type == R_MMIX_NONE)
       continue;
+
+    if (isTPRel(type)) {
+      const uint64_t offset = it->r_offset;
+      Symbol &sym = sec.getFile<ELFT>()->getSymbol(it->getSymbol(false));
+      ArrayRef<uint8_t> contents = sec.content();
+      if (!(sec.flags & SHF_EXECINSTR) || !(sec.flags & SHF_ALLOC) ||
+          offset >= contents.size() || 4 > contents.size() - offset ||
+          (offset & 3) || contents[offset] != getTPRelOpcode(type)) {
+        Err(ctx) << &sec << ": relocation " << type << " against " << &sym
+                 << " at offset " << offset
+                 << " requires a complete aligned matching instruction in an "
+                    "allocated executable section";
+        continue;
+      }
+    }
 
     if (type == R_MMIX_BASE_PLUS_OFFSET && !isLinux())
       linkerAllocatedRegisterContents->markNeeded();
@@ -1253,6 +1333,14 @@ void MMIX::validateLinuxLayout() const {
     if (sec->addr >= userLimit || sec->size > userLimit - sec->addr)
       Err(ctx) << "MMIX Linux section " << sec->name
                << " is outside the nonnegative user address range";
+    // TLS NOBITS is zero-filled in each thread's allocation, not the process
+    // image. Default ELF layout need not give it a PT_LOAD mapping.
+    if ((sec->flags & SHF_TLS) && sec->type == SHT_NOBITS) {
+      if (!ctx.tlsPhdr)
+        Err(ctx) << "MMIX Linux TLS section " << sec->name
+                 << " is not in a PT_TLS segment";
+      continue;
+    }
     if (!sec->ptLoad) {
       Err(ctx) << "MMIX Linux allocated section " << sec->name
                << " is not in a PT_LOAD segment";
@@ -1289,6 +1377,12 @@ void MMIX::validateLinuxLayout() const {
 
 void MMIX::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   switch (rel.type) {
+  case R_MMIX_TPREL_LO16:
+  case R_MMIX_TPREL_ML16:
+  case R_MMIX_TPREL_MH16:
+  case R_MMIX_TPREL_HI16:
+    write16be(loc + 2, val >> getTPRelShift(rel.type));
+    return;
   case R_MMIX_NONE:
     return;
   case R_MMIX_8:
@@ -1378,3 +1472,67 @@ void MMIX::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
 }
 
 void elf::setMMIXTargetInfo(Ctx &ctx) { ctx.target.reset(new MMIX(ctx)); }
+
+uint64_t elf::getMMIXTlsTpOffset(Ctx &ctx, const Relocation &rel,
+                                 const InputSectionBase &sec) {
+  auto error = [&](const Twine &reason) -> uint64_t {
+    Err(ctx) << getErrorLoc(ctx, sec.content().data() + rel.offset)
+             << "relocation " << rel.type << " against " << rel.sym << ": "
+             << reason;
+    return 0;
+  };
+  if (sec.getVA(rel.offset) & 3)
+    return error("instruction address is not 4-byte aligned");
+  const auto *d = dyn_cast<Defined>(rel.sym);
+  PhdrEntry *tls = ctx.tlsPhdr;
+  if (!d || !d->section || d->section == &InputSection::discarded ||
+      !d->section->isLive() || !rel.sym->isTls())
+    return error("requires a defined TLS provider");
+  if (!tls || !tls->firstSec || llvm::count_if(ctx.phdrs, [](const auto &p) {
+                                  return p->p_type == PT_TLS;
+                                }) != 1)
+    return error("requires exactly one PT_TLS segment");
+  const uint64_t alignment = std::max(uint64_t(tls->p_align), uint64_t(1));
+  constexpr uint64_t userLimit = uint64_t(1) << 63;
+  if (!isPowerOf2_64(alignment) || tls->p_filesz > tls->p_memsz ||
+      tls->p_vaddr >= userLimit || tls->p_memsz > userLimit - tls->p_vaddr ||
+      tls->p_offset % alignment != tls->p_vaddr % alignment)
+    return error("invalid PT_TLS alignment or extent");
+  if (tls->p_filesz && llvm::none_of(ctx.phdrs, [&](const auto &p) {
+        return p->p_type == PT_LOAD && (p->p_flags & PF_R) &&
+               tls->p_vaddr >= p->p_vaddr && tls->p_offset >= p->p_offset &&
+               tls->p_vaddr - p->p_vaddr == tls->p_offset - p->p_offset &&
+               tls->p_offset - p->p_offset <= p->p_filesz &&
+               tls->p_filesz <= p->p_filesz - (tls->p_offset - p->p_offset);
+      }))
+    return error("PT_TLS template is not covered by a readable PT_LOAD");
+  const OutputSection *os = d->section->getOutputSection();
+  if (!os || (os->flags & (SHF_ALLOC | SHF_TLS)) != (SHF_ALLOC | SHF_TLS))
+    return error("provider is not in an allocated TLS section");
+  const auto *isec = dyn_cast<InputSectionBase>(d->section);
+  const uint64_t sectionSize = isec ? isec->getSize() : os->size;
+  if (d->value > sectionSize || d->size > sectionSize - d->value)
+    return error("TLS symbol lies outside its defining section");
+  const uint64_t offset = rel.sym->getVA(ctx);
+  if (offset > tls->p_memsz || d->size > tls->p_memsz - offset)
+    return error("TLS symbol lies outside PT_TLS");
+  constexpr uint64_t headerSize = 16;
+  const uint64_t residue = tls->p_vaddr % alignment;
+  const uint64_t headerResidue = headerSize % alignment;
+  const uint64_t padding = residue >= headerResidue
+                               ? residue - headerResidue
+                               : alignment - (headerResidue - residue);
+  const uint64_t bias = headerSize + padding;
+  if (tls->p_memsz > uint64_t(INT64_MAX) - bias)
+    return error("TLS allocation extent exceeds PTRDIFF_MAX");
+  // Keep the entire mathematical sum until after signed-range validation.
+  APInt value = APInt(128, bias) + APInt(128, offset) +
+                APInt(128, rel.addend, /*isSigned=*/true);
+  if (!value.isSignedIntN(64)) {
+    SmallString<40> text;
+    value.toString(text, 10, true);
+    return error(Twine("TP-relative value ") + text +
+                 " is outside signed 64-bit range");
+  }
+  return value.trunc(64).getZExtValue();
+}
