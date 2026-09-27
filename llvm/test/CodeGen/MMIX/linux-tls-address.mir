@@ -1,0 +1,53 @@
+# RUN: llc -mtriple=mmix-unknown-linux -run-pass=postrapseudos -verify-machineinstrs %s -o %t.mir
+# RUN: FileCheck %s --check-prefix=MIR < %t.mir
+# RUN: llc -mtriple=mmix-unknown-linux -start-after=postrapseudos -verify-machineinstrs -filetype=obj %t.mir -o %t.o
+# RUN: llvm-readobj -r %t.o | FileCheck %s --check-prefix=RELOC
+# RUN: llvm-objdump -d %t.o | FileCheck %s --check-prefix=BYTES
+
+# MIR: $r231 = SETL target-flags(mmix-tprel-lo) @tls - 8
+# MIR-NEXT: $r231 = INCML target-flags(mmix-tprel-ml) @tls - 8, implicit $r231
+# MIR-NEXT: $r231 = INCMH target-flags(mmix-tprel-mh) @tls - 8, implicit $r231
+# MIR-NEXT: $r231 = INCH target-flags(mmix-tprel-hi) @tls - 8, implicit $r231
+# MIR-NEXT: $r231 = ADDU $r230, killed $r231
+# MIR: $r231 = SETL target-flags(mmix-tprel-lo) @tls + 65536
+# MIR-NEXT: $r231 = INCML target-flags(mmix-tprel-ml) @tls + 65536, implicit $r231
+# MIR-NEXT: $r231 = INCMH target-flags(mmix-tprel-mh) @tls + 65536, implicit $r231
+# MIR-NEXT: $r231 = INCH target-flags(mmix-tprel-hi) @tls + 65536, implicit $r231
+
+# Each fragment preserves the signed full addend, never its shifted/masked part.
+# RELOC:      R_MMIX_TPREL_LO16 tls 0xFFFFFFFFFFFFFFF8
+# RELOC-NEXT: R_MMIX_TPREL_ML16 tls 0xFFFFFFFFFFFFFFF8
+# RELOC-NEXT: R_MMIX_TPREL_MH16 tls 0xFFFFFFFFFFFFFFF8
+# RELOC-NEXT: R_MMIX_TPREL_HI16 tls 0xFFFFFFFFFFFFFFF8
+# RELOC:      R_MMIX_TPREL_LO16 tls 0x10000
+# RELOC-NEXT: R_MMIX_TPREL_ML16 tls 0x10000
+# RELOC-NEXT: R_MMIX_TPREL_MH16 tls 0x10000
+# RELOC-NEXT: R_MMIX_TPREL_HI16 tls 0x10000
+# BYTES-LABEL: <negative>:
+# BYTES: e3 e7 00 00
+# BYTES-NEXT: {{.*}}e6 e7 00 00
+# BYTES-NEXT: {{.*}}e5 e7 00 00
+# BYTES-NEXT: {{.*}}e4 e7 00 00
+# BYTES-NEXT: {{.*}}22 e7 e6 e7
+
+--- |
+  @tls = external thread_local(localexec) global i64
+  define ptr @negative() { ret ptr @tls }
+  define ptr @positive() { ret ptr @tls }
+...
+---
+name: negative
+tracksRegLiveness: true
+body: |
+  bb.0:
+    $r231 = LOAD_TLS_ADDR @tls - 8, implicit $r230
+    RET_VALUE implicit $rj, implicit $rl, implicit $ro, implicit $rg, implicit $r231
+...
+---
+name: positive
+tracksRegLiveness: true
+body: |
+  bb.0:
+    $r231 = LOAD_TLS_ADDR @tls + 65536, implicit $r230
+    RET_VALUE implicit $rj, implicit $rl, implicit $ro, implicit $rg, implicit $r231
+...

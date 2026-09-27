@@ -121,6 +121,29 @@ void MMIXInstrInfo::loadImmediate(MachineBasicBlock &MBB,
 }
 
 bool MMIXInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
+  if (MI.getOpcode() == MMIX::LOAD_TLS_ADDR) {
+    Register Dst = MI.getOperand(0).getReg();
+    const MachineOperand &Symbol = MI.getOperand(1);
+    static constexpr unsigned Opcodes[] = {MMIX::SETL, MMIX::INCML,
+                                          MMIX::INCMH, MMIX::INCH};
+    static constexpr unsigned Flags[] = {MMIXII::MO_TPREL_LO, MMIXII::MO_TPREL_ML,
+                                         MMIXII::MO_TPREL_MH, MMIXII::MO_TPREL_HI};
+    for (unsigned I = 0; I != 4; ++I) {
+      auto MIB = BuildMI(*MI.getParent(), MI, MI.getDebugLoc(), get(Opcodes[I]),
+                         Dst)
+                     .addGlobalAddress(Symbol.getGlobal(), Symbol.getOffset(),
+                                       Flags[I]);
+      // INC reads the preceding value even though MC prints only X and YZ.
+      if (I)
+        MIB.addReg(Dst, RegState::Implicit);
+    }
+    BuildMI(*MI.getParent(), MI, MI.getDebugLoc(), get(MMIX::ADDU), Dst)
+        .addReg(MMIX::R230)
+        .addReg(Dst, RegState::Kill);
+    MI.eraseFromParent();
+    return true;
+  }
+
   if (MI.getDesc().TSFlags & MMIXII::PutSpecialRegister) {
     Register SpecialReg;
     for (const MachineOperand &MO : MI.operands())
@@ -335,6 +358,10 @@ MMIXInstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
       {MMIXII::MO_ABS_ML, "mmix-abs-ml"},
       {MMIXII::MO_ABS_MH, "mmix-abs-mh"},
       {MMIXII::MO_ABS_HI, "mmix-abs-hi"},
+      {MMIXII::MO_TPREL_LO, "mmix-tprel-lo"},
+      {MMIXII::MO_TPREL_ML, "mmix-tprel-ml"},
+      {MMIXII::MO_TPREL_MH, "mmix-tprel-mh"},
+      {MMIXII::MO_TPREL_HI, "mmix-tprel-hi"},
   };
   return ArrayRef(TargetFlags);
 }

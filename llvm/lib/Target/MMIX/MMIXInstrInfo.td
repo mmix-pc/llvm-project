@@ -2501,6 +2501,16 @@ class MMIXAddressProducerPseudo<string Use>
 }
 
 def LOAD_ADDR : MMIXAddressProducerPseudo<"static-address">;
+// Keep the full TP-relative offset together until after register allocation.
+def LOAD_TLS_ADDR
+    : MMIXPseudoInstruction<(outs GPR64CodeGen:$dst),
+                            (ins i64imm:$symbol), ""> {
+  let Uses = [R230];
+  let Size = 20;
+  let hasSideEffects = false;
+  let mayLoad = false;
+  let mayStore = false;
+}
 def LOAD_CALL_ADDR
     : MMIXAddressProducerPseudo<"unresolved-direct-call">;
 

@@ -28,6 +28,7 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicsMMIX.h"
+#include "llvm/IR/Module.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
@@ -836,6 +837,7 @@ MMIXTargetLowering::MMIXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::ATOMIC_CMP_SWAP, MVT::i64, Legal);
   setOperationAction(ISD::ATOMIC_CMP_SWAP_WITH_SUCCESS, MVT::i64, Expand);
   setOperationAction(ISD::ATOMIC_FENCE, MVT::Other, Custom);
+  setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
   setOperationAction(ISD::INTRINSIC_W_CHAIN, MVT::i64, Custom);
   setOperationAction(ISD::INTRINSIC_W_CHAIN, MVT::Other, Custom);
   setOperationAction(ISD::INTRINSIC_VOID, MVT::Other, Custom);
@@ -1056,10 +1058,31 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
     reportFatalUsageError(
         Twine("MMIX does not support nonzero address spaces in function '") +
         F.getName() + "'");
-  if (Op.getOpcode() == ISD::GlobalTLSAddress)
-    reportFatalUsageError(
-        Twine("MMIX does not support thread-local storage in function '") +
-        F.getName() + "'");
+  bool IsThreadPointer =
+      Op.getOpcode() == ISD::INTRINSIC_WO_CHAIN &&
+      Op.getConstantOperandVal(0) == Intrinsic::thread_pointer;
+  if (Op.getOpcode() == ISD::GlobalTLSAddress || IsThreadPointer) {
+    const TargetMachine &TM = getTargetMachine();
+    if (!TM.getTargetTriple().isOSLinux())
+      reportFatalUsageError(
+          Twine("MMIX does not support thread-local storage in function '") +
+          F.getName() + "'");
+    if (TM.getRelocationModel() != Reloc::Static ||
+        F.getParent()->getPIELevel() != PIELevel::Default)
+      reportFatalUsageError("MMIX Linux TLS requires static non-PIE code");
+    if (IsThreadPointer)
+      return DAG.getCopyFromReg(DAG.getEntryNode(), DL, MMIX::R230, MVT::i64);
+    auto *GA = cast<GlobalAddressSDNode>(Op);
+    if (TM.getTLSModel(GA->getGlobal()) != TLSModel::LocalExec)
+      reportFatalUsageError(
+          "MMIX Linux supports only the effective local-exec TLS model");
+    SDValue Target = DAG.getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64,
+                                                GA->getOffset());
+    return SDValue(DAG.getMachineNode(MMIX::LOAD_TLS_ADDR, DL, MVT::i64, Target),
+                   0);
+  }
+  if (Op.getOpcode() == ISD::INTRINSIC_WO_CHAIN)
+    return SDValue();
   if (Op.getOpcode() == ISD::BRIND)
     reportFatalUsageError(
         Twine("MMIX does not support indirect branches in ordinary function '") +

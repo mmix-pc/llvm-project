@@ -96,6 +96,14 @@ const MCExpr *MMIXMCInstLower::lowerSymbolOperand(const MachineOperand &MO,
   switch (MO.getTargetFlags()) {
   case MMIXII::MO_None:
     return Expr;
+  case MMIXII::MO_TPREL_LO:
+    return MCSpecifierExpr::create(Expr, MMIXII::S_TPREL_LO, Ctx);
+  case MMIXII::MO_TPREL_ML:
+    return MCSpecifierExpr::create(Expr, MMIXII::S_TPREL_ML, Ctx);
+  case MMIXII::MO_TPREL_MH:
+    return MCSpecifierExpr::create(Expr, MMIXII::S_TPREL_MH, Ctx);
+  case MMIXII::MO_TPREL_HI:
+    return MCSpecifierExpr::create(Expr, MMIXII::S_TPREL_HI, Ctx);
   case MMIXII::MO_ABS_LO:
     Shift = 0;
     break;

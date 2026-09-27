@@ -55,6 +55,10 @@ enum MachineOperandFlags {
   MO_ABS_ML,
   MO_ABS_MH,
   MO_ABS_HI,
+  MO_TPREL_LO,
+  MO_TPREL_ML,
+  MO_TPREL_MH,
+  MO_TPREL_HI,
 };
 
 enum MCInstFlags {
