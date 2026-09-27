@@ -1,6 +1,19 @@
 # The Linux CRT is preparation until the complete libc profile is published.
 # FIXME: Revisit the unprotected TLS-free bootstrap and guard ownership for
 # pthread/TLS and dynamic-loader integration; normal runtime code stays protected.
+add_header_library(
+  tls_handoff_h
+  HDRS tls_handoff.h
+  DEPENDS libc.src.__support.macros.config
+)
+
+# Not part of crt1 until the post-TP bootstrap and providers are selected.
+add_startup_object(
+  tls_handoff
+  SRC tls_handoff.cpp
+  COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector -fno-lto
+)
+
 add_startup_object(
   start
   SRC start.cpp

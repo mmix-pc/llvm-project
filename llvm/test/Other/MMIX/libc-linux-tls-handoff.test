@@ -1,0 +1,133 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-process-args.test %t/args
+# RUN: split-file %S/libc-linux-synchronization.test %t/args/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+# RUN: llvm-objdump -dr %t/handoff.o | FileCheck %s --check-prefix=HANDOFF
+# RUN: llvm-readobj --symbols %t/handoff.o | FileCheck %s --check-prefix=SYMBOL
+
+# Exact native transition: no compiler prologue, software-stack change, special
+# register reset, TP read before installation or return to the old activation.
+# HANDOFF-LABEL: <__llvm_libc_mmix_linux_tls_handoff>:
+# HANDOFF-NEXT: {{.*}} OR r230, r231, 0x0
+# HANDOFF-NEXT: {{.*}} OR r231, r232, 0x0
+# HANDOFF-NEXT: {{.*}} PUSHJ r31, 0x0
+# HANDOFF-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE __llvm_libc_mmix_linux_post_tls
+# HANDOFF-NEXT: {{.*}} TRAP 0xff, 0x0, 0x0
+# HANDOFF-NEXT: {{.*}} JMPB -0x1
+# HANDOFF-NOT: {{[0-9a-f]+:}}
+# SYMBOL: Name: __llvm_libc_mmix_linux_tls_handoff
+# SYMBOL: Size: 20
+# SYMBOL: Binding: Global
+# SYMBOL: STV_HIDDEN
+# SYMBOL: Name: __llvm_libc_mmix_linux_post_tls
+# SYMBOL: STV_HIDDEN
+# SYMBOL: Section: Undefined
+
+#--- run.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+args = root / "args"
+subprocess.run([sys.executable, str(args / "run.py"), str(libc), str(args)], check=True)
+common = ["clang", "--target=mmix-unknown-linux", "-ffreestanding", "-fno-builtin",
+          "-fno-exceptions", "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=startup_test",
+          "-I", str(libc), "-I", str(args / "headers"),
+          "-DSYS_exit=93", "-DSYS_exit_group=94"]
+def run(*command):
+    subprocess.run(list(map(str, command)), check=True)
+def output(*command):
+    return subprocess.check_output(list(map(str, command)), text=True)
+def undefined(obj):
+    return {line.split()[-1] for line in output("llvm-nm", "-u", obj).splitlines()}
+
+handoff = root / "handoff.o"
+# Runtime LTO settings must not turn the opaque assembly object into bitcode.
+run(*common, "-O2", "-flto=full", "-fno-lto", "-fno-stack-protector", "-c",
+    libc / "startup/linux/mmix/tls_handoff.cpp", "-o", handoff)
+assert handoff.read_bytes().startswith(b"\x7fELF")
+assert undefined(handoff) == {"__llvm_libc_mmix_linux_post_tls"}
+syscall = root / "syscall.o"
+run(*common, "-c", libc / "src/__support/OSUtil/linux/mmix/syscall.S", "-o", syscall)
+
+for mode, flags in (("o0", ["-O0"]), ("o2", ["-O2"]),
+                    ("lto-o0", ["-O0", "-flto=full"]),
+                    ("lto-o2", ["-O2", "-flto=full"])):
+    objects = []
+    for name, source, protection in (
+        ("pre", root / "pre.cpp", "-fno-stack-protector"),
+        ("post", root / "post.cpp", "-fstack-protector-all"),
+        ("guard", libc / "startup/linux/mmix/stack_guard.cpp", "-fno-stack-protector")):
+        obj = root / (mode + "-" + name + ".o")
+        # Retain the native runtime provider used by the supported composition.
+        # Its failure symbol is also referenced by late stack-protector codegen.
+        run(*common, *flags, *(["-fno-lto"] if name == "guard" else []),
+            protection, "-c", source, "-o", obj)
+        objects.append(obj)
+    if not mode.startswith("lto-"):
+        assert undefined(objects[0]) == {"__llvm_libc_mmix_linux_init_guard",
+                                        "__llvm_libc_mmix_linux_tls_handoff"}
+        assert undefined(objects[2]) == {"__llvm_libc_mmix_syscall"}
+        assert {"__stack_chk_guard", "__stack_chk_fail"} <= undefined(objects[1])
+    elf = root / (mode + ".elf")
+    run(*common, *flags, "-nostdlib", "-Wl,--threads=1,-e,_start", *objects,
+        handoff, syscall, "-o", elf)
+    assert not undefined(elf)
+    disasm = output("llvm-objdump", "-d", elf)
+    symbols = {line.split()[-1]: int(line.split()[0], 16)
+               for line in output("llvm-nm", "--defined-only", elf).splitlines()}
+    def body(name):
+        return disasm.split("<" + name + ">:\n", 1)[1].split("\n\n", 1)[0]
+    pre, post = body("_start"), body("__llvm_libc_mmix_linux_post_tls")
+    assert "r230" not in pre and "__stack_chk_fail" not in pre, pre
+    assert not re.search(r"\bPOP\b", pre), pre
+    # MMIX disassembly prints word displacements, not symbolic destinations.
+    targets = [int(pc, 16) + 4 * int(disp, 16) for pc, disp in re.findall(
+        r"([0-9a-f]+):[^\n]*\tGETAB? r250, (-?0x[0-9a-f]+)", pre)]
+    assert symbols["__llvm_libc_mmix_linux_tls_handoff"] in targets, pre
+    assert "PUSHGO r31, r250, 0x0" in pre, pre
+    assert "r230" in post, post
+    transition = body("__llvm_libc_mmix_linux_tls_handoff")
+    assert "OR r230, r231, 0x0" in transition and "OR r231, r232, 0x0" in transition
+    pc, disp = re.search(r"([0-9a-f]+):[^\n]*\tPUSHJB? r31, (-?0x[0-9a-f]+)", transition).groups()
+    assert int(pc, 16) + 4 * int(disp, 16) == symbols["__llvm_libc_mmix_linux_post_tls"]
+    assert "TRAP 0xff, 0x0, 0x0" in transition and "JMPB -0x1" in transition
+    assert not re.search(r"\bPOP\b|\br254\b|\bPUT\b|\bGET\b", transition), transition
+    assert "__tls_get_addr" not in disasm and "__emutls" not in disasm
+    assert "__stack_chk_guard" in symbols and "__stack_chk_fail" in symbols
+    headers = output("llvm-readobj", "--program-headers", elf)
+    assert "PT_TLS" in headers and "PT_INTERP" not in headers and "PT_DYNAMIC" not in headers
+
+# Test-only post-TP endpoint: real publication and lifecycle arrive separately.
+# These linked artifacts are for inspection, not runnable process entries.
+#--- pre.cpp
+#include "startup/linux/mmix/tls_handoff.h"
+extern "C" void __llvm_libc_mmix_linux_init_guard(const unsigned char *);
+extern "C" [[noreturn]] void _start(__UINTPTR_TYPE__ tp,
+    startup_test::mmix::StartupState *state, const unsigned char *random) {
+  __llvm_libc_mmix_linux_init_guard(random);
+  __llvm_libc_mmix_linux_tls_handoff(tp, state);
+}
+
+#--- post.cpp
+#include "startup/linux/mmix/tls_handoff.h"
+namespace startup_test { namespace mmix { struct StartupState { unsigned long value; }; } }
+__thread volatile unsigned long tls_value;
+volatile unsigned long sink;
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start_fail();
+extern "C" __attribute__((noinline)) unsigned long read_after_tls(
+    startup_test::mmix::StartupState *state) {
+  volatile unsigned char buffer[16];
+  buffer[0] = state->value;
+  asm volatile("" : : "r"(buffer) : "memory");
+  return tls_value + buffer[0];
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_post_tls(
+    startup_test::mmix::StartupState *state) {
+  tls_value = state->value;
+  sink = read_after_tls(state);
+  __llvm_libc_mmix_linux_start_fail();
+}
