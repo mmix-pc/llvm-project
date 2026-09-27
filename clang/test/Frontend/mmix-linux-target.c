@@ -4,7 +4,8 @@
 // RUN: %clang_cc1 -triple mmix-unknown-linux -x c++ -std=c++17 -fsyntax-only %s
 // RUN: %clang_cc1 -triple mmix-unknown-unknown -DBARE -std=c17 -fsyntax-only %s
 // RUN: %clang_cc1 -triple mmix-unknown-unknown -DBARE -x c++ -std=c++17 -fsyntax-only %s
-// RUN: not %clang_cc1 -triple mmix-unknown-linux -DTEST_TLS -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=TLS
+// RUN: %clang_cc1 -triple mmix-unknown-linux -DTEST_TLS -fsyntax-only %s
+// RUN: not %clang_cc1 -triple mmix-unknown-unknown -DBARE -DTEST_TLS -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=TLS
 // RUN: not %clang_cc1 -triple mmix-pc-linux -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=VENDOR
 // RUN: not %clang_cc1 -triple mmix-unknown-linux-gnu -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=GNU
 // RUN: not %clang_cc1 -triple mmix-unknown-linux-musl -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=ENV

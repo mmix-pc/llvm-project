@@ -46,7 +46,7 @@ public:
     MaxAlignedAttribute = 32768 * 8;
 
     HasMustTail = false;
-    TLSSupported = false;
+    TLSSupported = Triple.isOSLinux();
     MaxAtomicPromoteWidth = 0;
     MaxAtomicInlineWidth = 64;
 

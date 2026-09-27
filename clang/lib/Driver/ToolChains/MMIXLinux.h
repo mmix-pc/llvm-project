@@ -43,6 +43,9 @@ public:
   }
   UnwindLibType GetUnwindLibType(const llvm::opt::ArgList &Args) const override;
   std::string getSysrootFile(StringRef Name) const;
+  void addClangTargetOptions(const llvm::opt::ArgList &Args,
+                            llvm::opt::ArgStringList &CC1Args, BoundArch BA,
+                            Action::OffloadKind DeviceOffloadKind) const override;
   void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs) const override;
   std::string getCompilerRTPath() const override;

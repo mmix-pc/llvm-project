@@ -197,6 +197,10 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
   RequireProvider(options::OPT_rtlib_EQ, "compiler-rt", true);
   RequireProvider(options::OPT_stdlib_EQ, "libc++", true);
   RequireProvider(options::OPT_fuse_ld_EQ, "lld");
+  RequireProvider(options::OPT_ftlsmodel_EQ, "local-exec");
+  if (Args.hasFlag(options::OPT_femulated_tls, options::OPT_fno_emulated_tls,
+                   false))
+    Reject(Args.getLastArg(options::OPT_femulated_tls));
   if (const Arg *A = Args.getLastArg(options::OPT_unwindlib_EQ)) {
     A->claim();
     StringRef Value = A->getValue();
@@ -233,6 +237,13 @@ MMIXLinuxToolChain::GetUnwindLibType(const ArgList &Args) const {
                    false))
     return UNW_CompilerRT;
   return UNW_None;
+}
+
+void MMIXLinuxToolChain::addClangTargetOptions(
+    const ArgList &Args, ArgStringList &CC1Args, BoundArch,
+    Action::OffloadKind) const {
+  if (!Args.hasArg(options::OPT_ftlsmodel_EQ))
+    CC1Args.push_back("-ftls-model=local-exec");
 }
 
 std::string MMIXLinuxToolChain::getSysrootFile(StringRef Name) const {
