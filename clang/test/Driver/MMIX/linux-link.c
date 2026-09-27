@@ -28,9 +28,16 @@
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -Wl,-r -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -Wl,-m,elf_x86_64 -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -Wl,-m,elf64mmix -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto -### %t/input.o 2>&1 | FileCheck %s --check-prefix=LTO
+// RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto=thin -### %t/input.o 2>&1 | FileCheck %s --check-prefix=LTO
 
 // Empty fixtures establish command composition, not Linux runtime validity.
+// RUN: %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -flto=full -O2 -### %t/input.o -o %t/a.out 2>&1 | FileCheck %s --check-prefixes=LTO-START,DEFAULTS,LTO-END --implicit-check-not=LLVMgold --implicit-check-not=libgcc
+// RUN: %clangxx --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -flto=full -### %t/input.o 2>&1 | FileCheck %s --check-prefix=CXX
+// RUN: %clang --target=mmix-unknown-linux --sysroot=%t/missing -resource-dir %t/missing-resource -flto=full -nostdlib -### %t/input.o 2>&1 | FileCheck %s --check-prefix=RAW --implicit-check-not=libc.a --implicit-check-not=libclang_rt
+// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/missing -resource-dir %t/resource -flto=full -nostartfiles -L%t/root/usr/lib -B%t/root/usr/lib -### %t/input.o 2>&1 | FileCheck %s --check-prefix=MISSING-LIBC
+// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/missing-resource -flto=full -### %t/input.o 2>&1 | FileCheck %s --check-prefix=MISSING-RT
+// LTO-START: "{{.*}}/root/usr/lib/crt1.o" "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o"
+// LTO-START-SAME: "-plugin-opt=O2"
 // C: "{{.*}}ld.lld{{.*}}" "-m" "elf64mmix_linux" "-static" "--no-dynamic-linker" "--eh-frame-hdr"
 // C-SAME: "-z" "max-page-size=8192" "-z" "common-page-size=8192"
 // C-SAME: "{{.*}}/root/usr/lib/crt1.o" "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o" "{{.*}}/input.o" "--start-group" "{{.*}}/root/usr/lib/libc.a" "{{.*}}/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a" "--end-group" "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtend.o" "-o" "{{.*}}/a.out"
@@ -39,6 +46,7 @@
 // DEFAULTS: "--start-group"
 // DEFAULTS-SAME: "{{.*}}/root/usr/lib/libc.a"
 // DEFAULTS-SAME: "{{.*}}/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a" "--end-group"
+// LTO-END-SAME: "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtend.o"
 // START: "{{.*}}/root/usr/lib/crt1.o" "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o"
 // START-SAME: "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtend.o"
 // RAW: "-m" "elf64mmix_linux" "-static"
@@ -52,7 +60,7 @@
 // MISSING-LIBC: error: no such file or directory: '{{.*}}/missing/usr/lib/libc.a'
 // MISSING-RT: error: no such file or directory: '{{.*}}/missing-resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o'
 // REJECT: error: unsupported option
-// LTO: error: the clang compiler does not support 'LTO linking for MMIX Linux'
+// LTO: error: the clang compiler does not support 'ThinLTO linking for MMIX Linux'
 //--- script
 //--- input.ll
 define void @_start() {

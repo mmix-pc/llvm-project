@@ -18,7 +18,8 @@
 # RUN: not ld.lld -m elf64mmix_linux -r %t/base.o -o %t/bad.o 2>&1 | FileCheck %s --check-prefix=BASE
 # RUN: ld.lld -m elf64mmix %t/start.o %t/base.o -o %t/base
 # RUN: llvm-as %t/input.ll -o %t/input.bc
-# RUN: not ld.lld -m elf64mmix_linux %t/input.bc -o %t/bad 2>&1 | FileCheck %s --check-prefix=BITCODE
+# RUN: ld.lld -m elf64mmix_linux %t/input.bc -o %t/bitcode
+# RUN: llvm-readobj --file-headers %t/bitcode | FileCheck %s --check-prefix=HEADER
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/start.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=SHARED
 # RUN: not ld.lld -m elf64mmix_linux -pie %t/start.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PIE
 # RUN: yaml2obj -DREG=229 %t/local.yaml -o %t/local.o
@@ -27,16 +28,26 @@
 # RUN: not ld.lld -m elf64mmix_linux %t/start.o %t/global.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=LOCAL
 # RUN: ld.lld -m elf64mmix %t/start.o %t/global.o -o %t/generic-local
 # RUN: not ld.lld -m elf64mmixlinux %t/start.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=ALIAS
+## LTO-generated code retains the same Linux register and layout checks.
+# RUN: not ld.lld -m elf64mmix_linux %t/input.bc %t/global.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=LOCAL
+# RUN: not ld.lld -m elf64mmix_linux %t/input.bc %t/greg.o --allow-multiple-definition -o %t/bad 2>&1 | FileCheck %s --check-prefix=GREG
+# RUN: not ld.lld -m elf64mmix_linux %t/input.bc %t/base.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=BASE
+# RUN: not ld.lld -m elf64mmix_linux %t/input.bc -z max-page-size=4096 -o %t/bad 2>&1 | FileCheck %s --check-prefix=PAGE
+# RUN: not ld.lld -m elf64mmix_linux %t/input.bc -e 1 -o %t/bad 2>&1 | FileCheck %s --check-prefix=ENTRY
+# RUN: %python %t/set-flags.py %t/local.o %t/flags.o
+# RUN: not ld.lld -m elf64mmix_linux %t/input.bc %t/flags.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=FLAGS
 # HEADER: Format: elf64-mmix
 # HEADER: OS/ABI: SystemV
 # HEADER: Type: Executable
 # GREG: MMIX Linux does not support loader-initialized register contents
 # BASE: MMIX Linux does not support R_MMIX_BASE_PLUS_OFFSET requiring loader-initialized global registers
-# BITCODE: MMIX Linux does not support bitcode input
 # SHARED: MMIX does not support shared object output
 # PIE: MMIX does not support PIE output
 # LOCAL: R_MMIX_LOCAL register $230 is not local; first global register is $230
 # ALIAS: unknown emulation: elf64mmixlinux
+# PAGE: MMIX Linux requires maximum and common page sizes of at least 8192 bytes
+# ENTRY: MMIX Linux entry must be a nonnegative 4-byte-aligned address
+# FLAGS: MMIX Linux does not support ELF e_flags
 
 #--- start.s
 .global _start
@@ -95,3 +106,12 @@ target triple = "mmix-unknown-linux"
 define void @_start() {
   ret void
 }
+
+#--- set-flags.py
+import pathlib
+import struct
+import sys
+data = bytearray(pathlib.Path(sys.argv[1]).read_bytes())
+# No MMIX ELF flags are assigned. Inject a bit into the ELF64 header.
+struct.pack_into(">I", data, 48, 1)
+pathlib.Path(sys.argv[2]).write_bytes(data)

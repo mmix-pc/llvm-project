@@ -386,8 +386,6 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
     // Linux fixes rG at process entry; the loader does not initialize GREGs.
     firstGlobalRegister = 230;
     defaultMaxPageSize = defaultCommonPageSize = linuxPageSize;
-    if (!ctx.bitcodeFiles.empty())
-      ErrAlways(ctx) << "MMIX Linux does not support bitcode input";
   }
   if (ctx.arg.ekind != ELF64BEKind)
     ErrAlways(ctx) << "MMIX supports only ELF64 big-endian input and output";

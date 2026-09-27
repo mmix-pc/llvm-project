@@ -1,0 +1,28 @@
+# REQUIRES: mmix
+# RUN: split-file %s %t
+# RUN: llvm-as %t/linux.ll -o %t/linux.bc
+# RUN: llvm-as %t/foreign.ll -o %t/foreign.bc
+# RUN: llvm-as %t/no-layout.ll -o %t/no-layout.bc
+# RUN: not ld.lld -m elf64mmix_linux --threads=1 -r %t/linux.bc -o /dev/null 2>&1 | FileCheck %s --check-prefix=PARTIAL
+# RUN: not ld.lld -m elf64mmix_linux --threads=1 %t/foreign.bc -o /dev/null 2>&1 | FileCheck %s --check-prefix=FOREIGN
+# RUN: not ld.lld -m elf64mmix_linux --threads=1 %t/no-layout.bc -o /dev/null 2>&1 | FileCheck %s --check-prefix=LAYOUT
+
+## Reuse common bitcode validation and the target's final ELF checks.
+## No per-input Linux triple/model filter is imposed before LTO.
+# PARTIAL: MMIX does not support relocatable links with bitcode input
+# FOREIGN: is incompatible with elf64mmix_linux
+# LAYOUT: input module has no datalayout
+
+#--- linux.ll
+target datalayout = "E-m:e-p:64:64-i64:64-n64-S64"
+target triple = "mmix-unknown-linux"
+define void @_start() { ret void }
+
+#--- foreign.ll
+target datalayout = "e-m:e-p:64:64-i64:64-n8:16:32:64-S128"
+target triple = "x86_64-unknown-linux-gnu"
+define void @_start() { ret void }
+
+#--- no-layout.ll
+target triple = "mmix-unknown-linux"
+define void @_start() { ret void }

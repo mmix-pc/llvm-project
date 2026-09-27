@@ -66,16 +66,18 @@ public:
     auto Reject = [&](StringRef Mode) {
       D.Diag(diag::err_drv_clang_unsupported) << Mode;
     };
-    // Full Linux LTO qualification follows the ordinary static link boundary.
-    if (TC.getLTOMode(Args) != LTOK_None) {
-      Reject("LTO linking for MMIX Linux");
+    const auto LTOMode = TC.getLTOMode(Args);
+    if (LTOMode == LTOK_Thin) {
+      Reject("ThinLTO linking for MMIX Linux");
       return;
     }
-    for (const InputInfo &Input : Inputs) {
-      if (types::isLLVMIR(Input.getType())) {
-        Reject("LTO linking for MMIX Linux");
-        return;
-      }
+    bool HasIRInput = false;
+    for (const InputInfo &Input : Inputs)
+      HasIRInput |= types::isLLVMIR(Input.getType());
+    const bool Relocatable = Args.hasArg(options::OPT_r);
+    if (Relocatable && (LTOMode != LTOK_None || HasIRInput)) {
+      Reject("LTO relocatable linking for MMIX Linux");
+      return;
     }
     if (Args.hasArg(options::OPT_ld_path_EQ)) {
       Reject("custom linker selection for MMIX Linux");
@@ -100,7 +102,6 @@ public:
       }
     }
 
-    const bool Relocatable = Args.hasArg(options::OPT_r);
     const bool StartFiles =
         !Relocatable &&
         !Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles);
@@ -133,6 +134,9 @@ public:
           TC.getCompilerRTArgString(Args, "crtbegin", ToolChain::FT_Object));
     }
     tools::addLinkerCompressDebugSectionsOption(TC, Args, CmdArgs);
+    if (LTOMode == LTOK_Full || HasIRInput)
+      tools::addLTOOptions(TC, Args, CmdArgs, Output, Inputs,
+                           /*IsThinLTO=*/false);
     tools::AddLinkerInputs(TC, Inputs, Args, CmdArgs, JA);
     if (DefaultLibs) {
       CmdArgs.push_back("--start-group");
