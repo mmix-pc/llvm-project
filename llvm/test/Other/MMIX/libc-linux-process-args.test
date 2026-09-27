@@ -89,7 +89,7 @@ if len(sys.argv) == 4:
 
 using namespace startup_test;
 uintptr_t stack[128];
-Elf64_Phdr phdrs[2];
+alignas(8192) Elf64_Phdr phdrs[6];
 unsigned char random_bytes[17];
 char name[] = "/bin/clang", arg[] = "-v", env[] = "A=B";
 unsigned aux_index;
@@ -103,8 +103,17 @@ static void require(bool value) {
 static void prepare(unsigned argc, unsigned envc) {
   for (auto &word : stack)
     word = 0;
+  for (auto &header : phdrs)
+    header = {};
   phdrs[0].p_type = PT_LOAD;
+  phdrs[0].p_flags = PF_R;
+  phdrs[0].p_vaddr = reinterpret_cast<uintptr_t>(phdrs);
+  phdrs[0].p_filesz = phdrs[0].p_memsz = sizeof(phdrs);
+  phdrs[0].p_align = 8192;
   phdrs[1].p_type = PT_PHDR;
+  phdrs[1].p_vaddr = reinterpret_cast<uintptr_t>(phdrs);
+  phdrs[1].p_filesz = phdrs[1].p_memsz = sizeof(phdrs);
+  phdrs[1].p_align = 8;
   stack[0] = argc;
   for (unsigned i = 0; i < argc; ++i)
     stack[i + 1] = reinterpret_cast<uintptr_t>(i ? arg : name);
@@ -113,7 +122,7 @@ static void prepare(unsigned argc, unsigned envc) {
   aux_index = argc + envc + 3;
   auto *aux = reinterpret_cast<auxv::Entry *>(stack + aux_index);
   aux[0] = {AT_PHDR, reinterpret_cast<uintptr_t>(phdrs)};
-  aux[1] = {AT_PHNUM, 2};
+  aux[1] = {AT_PHNUM, 6};
   aux[2] = {AT_PHENT, sizeof(Elf64_Phdr)};
   aux[3] = {AT_PAGESZ, 8192};
   aux[4] = {AT_RANDOM, reinterpret_cast<uintptr_t>(random_bytes + 1)};
@@ -141,7 +150,7 @@ extern "C" [[noreturn]] void __llvm_libc_mmix_linux_run() {
   auto it = auxv::Vector::begin();
   require(&*it == reinterpret_cast<auxv::Entry *>(stack + aux_index));
   require(auxv::get(AT_PHDR).value() == reinterpret_cast<uintptr_t>(phdrs));
-  require(auxv::get(AT_PHNUM).value() == 2);
+  require(auxv::get(AT_PHNUM).value() == 6);
   require(auxv::get(AT_HWCAP).value() == 0);
   require(auxv::get(0x12345).value() == 0xabcdef);
   require(!auxv::get(0x12346).has_value());
@@ -152,7 +161,7 @@ extern "C" [[noreturn]] void __llvm_libc_mmix_linux_run() {
   throw 2;
 }
 
-int main() {
+extern "C" int main() {
   mmix::ProcessArgs parsed;
   unsigned counts[] = {0, 2};
   for (unsigned argc : counts)
@@ -161,6 +170,9 @@ int main() {
       require(mmix::parse_process_args(stack, parsed));
       require(parsed.args->argc == argc && parsed.env == stack + argc + 2);
       require(parsed.random == random_bytes + 1 && parsed.page_size == 8192);
+      require(parsed.phdrs == phdrs && parsed.phnum == 6 && !parsed.has_tls);
+      require(parsed.tls.address == 0 && parsed.tls.size == 0 &&
+              parsed.tls.init_size == 0 && parsed.tls.align == 1);
       app.args = nullptr;
       guard_called = false;
       try {
@@ -182,7 +194,7 @@ int main() {
     aux[i].val = 0;
     require(!mmix::parse_process_args(stack, parsed));
   }
-  unsigned unsupported[] = {PT_TLS, PT_INTERP, PT_DYNAMIC};
+  unsigned unsupported[] = {PT_INTERP, PT_DYNAMIC};
   for (unsigned type : unsupported) {
     prepare(0, 0);
     phdrs[1].p_type = type;
@@ -219,7 +231,7 @@ int main() {
   aux = reinterpret_cast<auxv::Entry *>(stack + aux_index);
   aux[1].val = UINTPTR_MAX; // PHNUM multiplication overflow.
   require(!mmix::parse_process_args(stack, parsed));
-  aux[1].val = 2;
+  aux[1].val = 6;
   aux[0].val += 1; // Unaligned PHDR.
   require(!mmix::parse_process_args(stack, parsed));
   guard_called = false;
@@ -229,5 +241,151 @@ int main() {
   } catch (int stage) {
     require(stage == 1 && !app.args);
   }
+
+  // This readable synthetic table describes the TLS template without reading
+  // its bytes. Zero-only TLS deliberately has no mapped template load.
+  auto tls = [](uintptr_t align, uintptr_t address, uintptr_t file_size,
+                uintptr_t size) {
+    prepare(0, 0);
+    auto &p = phdrs[2];
+    p.p_type = PT_TLS;
+    p.p_align = align;
+    p.p_vaddr = address;
+    p.p_offset = address;
+    p.p_filesz = file_size;
+    p.p_memsz = size;
+    if (file_size) {
+      phdrs[3] = p;
+      phdrs[3].p_type = PT_LOAD;
+      phdrs[3].p_flags = PF_R;
+      phdrs[3].p_memsz = file_size;
+    }
+  };
+  uintptr_t alignments[] = {0, 1, 64, 16384}, sizes[] = {0, 32};
+  unsigned indices[] = {0, 1, 2};
+  for (uintptr_t align : alignments) {
+    for (uintptr_t size : sizes) {
+      tls(align, 0x20008, 0, size);
+      require(mmix::parse_process_args(stack, parsed));
+      require(parsed.has_tls && parsed.tls.address == 0x20008 &&
+              parsed.tls.init_size == 0 && parsed.tls.size == size &&
+              parsed.tls.align == (align ? align : 1));
+    }
+  }
+  tls(64, 0x20008, 16, 32);
+  require(mmix::parse_process_args(stack, parsed));
+  require(parsed.tls.address == 0x20008 && parsed.tls.init_size == 16 &&
+          parsed.tls.size == 32 && parsed.tls.align == 64);
+  // Parsing is not permission to run TLS code before TP bootstrap exists.
+  guard_called = false;
+  app.args = nullptr;
+  try {
+    __llvm_libc_mmix_linux_start(stack);
+  } catch (int stage) {
+    require(stage == 1 && !guard_called && !app.args);
+  }
+  phdrs[1].p_type = PT_NULL; // AT_PHDR need not have a PT_PHDR segment.
+  require(mmix::parse_process_args(stack, parsed));
+  phdrs[0].p_flags = 0;
+  require(!mmix::parse_process_args(stack, parsed));
+  phdrs[0].p_flags = PF_R;
+  phdrs[0].p_filesz = sizeof(phdrs) - 1;
+  require(!mmix::parse_process_args(stack, parsed));
+
+  // Adjacent file-backed loads are valid; gaps, BSS-only tails and conflicting
+  // overlapping mappings are not. File offsets must correspond, not just VAs.
+  tls(64, 0x20000, 16, 32);
+  phdrs[3].p_filesz = phdrs[3].p_memsz = 8;
+  phdrs[4] = phdrs[3];
+  phdrs[4].p_vaddr += 8;
+  phdrs[4].p_offset += 8;
+  phdrs[4].p_align = 1;
+  require(mmix::parse_process_args(stack, parsed));
+  phdrs[3].p_filesz = 7;
+  require(!mmix::parse_process_args(stack, parsed));
+  phdrs[3].p_memsz = 7;
+  require(!mmix::parse_process_args(stack, parsed));
+  phdrs[3].p_filesz = phdrs[3].p_memsz = 8;
+  phdrs[4].p_flags = 0;
+  require(!mmix::parse_process_args(stack, parsed));
+  phdrs[4].p_flags = PF_R;
+  phdrs[4].p_offset += 8192;
+  require(!mmix::parse_process_args(stack, parsed));
+  phdrs[4].p_offset -= 8192;
+  phdrs[5] = phdrs[3];
+  require(mmix::parse_process_args(stack, parsed));
+  phdrs[5].p_offset += 8192;
+  require(!mmix::parse_process_args(stack, parsed));
+  phdrs[5].p_offset -= 8192;
+  phdrs[5].p_flags = 0;
+  require(!mmix::parse_process_args(stack, parsed));
+
+  prepare(0, 0);
+  phdrs[1].p_type = PT_NULL;
+  phdrs[0].p_filesz = phdrs[0].p_memsz = 168;
+  phdrs[4] = phdrs[0];
+  phdrs[4].p_vaddr += 168;
+  phdrs[4].p_offset += 168;
+  phdrs[4].p_align = 1;
+  require(mmix::parse_process_args(stack, parsed));
+  phdrs[4].p_offset += 8192;
+  require(!mmix::parse_process_args(stack, parsed));
+
+  for (unsigned index : indices) {
+    tls(64, 0x20000, 16, 32);
+    phdrs[5] = phdrs[index];
+    if (index == 0) {
+      require(mmix::parse_process_args(stack, parsed));
+      phdrs[5].p_offset += 8192; // Conflicting table mapping.
+    }
+    require(!mmix::parse_process_args(stack, parsed));
+  }
+  for (unsigned index : indices) {
+    tls(64, 0x20000, 16, 32);
+    phdrs[index].p_filesz = phdrs[index].p_memsz + 1;
+    require(!mmix::parse_process_args(stack, parsed));
+    tls(64, 0x20000, 16, 32);
+    phdrs[index].p_offset = UINTPTR_MAX - 7;
+    require(!mmix::parse_process_args(stack, parsed));
+    tls(64, 0x20000, 16, 32);
+    phdrs[index].p_vaddr = (UINTPTR_MAX >> 1) - 7;
+    require(!mmix::parse_process_args(stack, parsed));
+    tls(64, 0x20000, 16, 32);
+    phdrs[index].p_align = 3;
+    require(!mmix::parse_process_args(stack, parsed));
+    tls(64, 0x20000, 16, 32);
+    ++phdrs[index].p_offset;
+    require(!mmix::parse_process_args(stack, parsed));
+  }
+  tls(1, 0x20000, 0, 32);
+  phdrs[3] = phdrs[0];
+  phdrs[3].p_offset += 1; // Page congruence, even when p_align is one.
+  phdrs[3].p_align = 1;
+  require(!mmix::parse_process_args(stack, parsed));
+  tls(uintptr_t(1) << 63, 0, 0, 0);
+  require(!mmix::parse_process_args(stack, parsed));
+  tls(0, 0, 0, 0);
+  require(mmix::parse_process_args(stack, parsed));
+  require(parsed.has_tls && parsed.tls.address == 0 && parsed.tls.align == 1);
+  tls(uintptr_t(1) << 62, 0, 0, 0); // Alignment slack plus rounding overflow.
+  require(!mmix::parse_process_args(stack, parsed));
+  tls(1, 1, 0, (UINTPTR_MAX >> 1) - 1); // TCB plus image overflow.
+  require(!mmix::parse_process_args(stack, parsed));
+  prepare(0, 0);
+  phdrs[1].p_filesz = sizeof(phdrs) - 1;
+  require(!mmix::parse_process_args(stack, parsed));
+  prepare(0, 0);
+  phdrs[1].p_vaddr += 8;
+  require(!mmix::parse_process_args(stack, parsed));
+  prepare(0, 0);
+  phdrs[1].p_offset += 8192;
+  require(!mmix::parse_process_args(stack, parsed));
+  prepare(0, 0);
+  aux = reinterpret_cast<auxv::Entry *>(stack + aux_index);
+  aux[8] = aux[7]; // Duplicate optional AT_BASE is also invalid.
+  require(!mmix::parse_process_args(stack, parsed));
+  aux[8].type = AT_IGNORE;
+  aux[7].type = AT_IGNORE;
+  require(mmix::parse_process_args(stack, parsed));
   return 0;
 }

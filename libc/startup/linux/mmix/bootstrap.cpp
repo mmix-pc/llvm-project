@@ -44,7 +44,8 @@ void mmix::publish_process_args(const ProcessArgs &args) {
 extern "C" [[noreturn, gnu::visibility("hidden")]] void
 __llvm_libc_mmix_linux_start(uintptr_t *stack) {
   LIBC_NAMESPACE::mmix::ProcessArgs args;
-  if (!LIBC_NAMESPACE::mmix::parse_process_args(stack, args))
+  // FIXME: Admit TLS images only after allocation and TP bootstrap are wired in.
+  if (!LIBC_NAMESPACE::mmix::parse_process_args(stack, args) || args.has_tls)
     __llvm_libc_mmix_linux_start_fail();
   __llvm_libc_mmix_linux_init_guard(args.random);
   LIBC_NAMESPACE::mmix::publish_process_args(args);

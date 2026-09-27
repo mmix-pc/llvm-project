@@ -10,6 +10,7 @@
 #define LLVM_LIBC_STARTUP_LINUX_MMIX_PROCESS_ARGS_H
 
 #include "config/linux/app.h"
+#include "hdr/elf_proxy.h"
 #include "src/__support/OSUtil/linux/auxv.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -21,6 +22,10 @@ struct ProcessArgs {
   const auxv::Entry *aux;
   const unsigned char *random;
   uintptr_t page_size;
+  const Elf64_Phdr *phdrs;
+  uintptr_t phnum;
+  TLSImage tls;
+  bool has_tls;
 };
 
 // Accessible, terminated initial memory is a kernel obligation. This checks
