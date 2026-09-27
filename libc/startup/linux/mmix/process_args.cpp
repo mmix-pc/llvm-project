@@ -8,6 +8,7 @@
 
 #include "process_args.h"
 #include "hdr/elf_proxy.h"
+#include "src/__support/threads/linux/mmix/tls.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -63,25 +64,6 @@ static bool file_coverage(const Elf64_Phdr *headers, uintptr_t count,
     cursor = next;
   }
   return true;
-}
-
-static bool tls_extent(const TLSImage &tls) {
-  // Bound the TCB, image, over-page alignment slack and final page rounding.
-  constexpr uintptr_t MAX_EXTENT = UINTPTR_MAX >> 1;
-  uintptr_t residue = tls.address % tls.align;
-  uintptr_t header_residue = 16 % tls.align;
-  uintptr_t padding = residue >= header_residue
-                          ? residue - header_residue
-                          : tls.align - (header_residue - residue);
-  if (padding > MAX_EXTENT - 16 || tls.size > MAX_EXTENT - 16 - padding)
-    return false;
-  uintptr_t extent = 16 + padding + tls.size;
-  uintptr_t slack = tls.align > 8192 ? tls.align - 1 : 0;
-  if (slack > MAX_EXTENT - extent)
-    return false;
-  extent += slack;
-  uintptr_t rounding = (8192 - extent % 8192) % 8192;
-  return rounding <= MAX_EXTENT - extent;
 }
 
 bool parse_process_args(uintptr_t *stack, ProcessArgs &result) {
@@ -219,7 +201,8 @@ bool parse_process_args(uintptr_t *stack, ProcessArgs &result) {
   if (tls) {
     image = {tls->p_vaddr, tls->p_memsz, tls->p_filesz,
              tls->p_align ? tls->p_align : 1};
-    if (!tls_extent(image) ||
+    TLSLayout layout;
+    if (tls_layout(image, page_size, layout) != TLSError::None ||
         (image.init_size && !file_coverage(headers, phnum, image.address,
                                           image.init_size, tls->p_offset)))
       return false;

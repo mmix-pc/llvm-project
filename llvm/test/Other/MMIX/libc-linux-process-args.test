@@ -367,7 +367,9 @@ extern "C" int main() {
   tls(0, 0, 0, 0);
   require(mmix::parse_process_args(stack, parsed));
   require(parsed.has_tls && parsed.tls.address == 0 && parsed.tls.align == 1);
-  tls(uintptr_t(1) << 62, 0, 0, 0); // Alignment slack plus rounding overflow.
+  tls(uintptr_t(1) << 62, 0, 0, 0); // Page-aligned mmap needs only B-P slack.
+  require(mmix::parse_process_args(stack, parsed));
+  tls(uintptr_t(1) << 62, uintptr_t(1) << 62, 0, 8192); // Extent overflow.
   require(!mmix::parse_process_args(stack, parsed));
   tls(1, 1, 0, (UINTPTR_MAX >> 1) - 1); // TCB plus image overflow.
   require(!mmix::parse_process_args(stack, parsed));

@@ -13,6 +13,7 @@ add_startup_object(
   DEPENDS
     libc.config.app_h
     libc.hdr.elf_proxy
+    libc.src.__support.threads.linux.mmix.tls_h
     libc.src.__support.OSUtil.linux.auxv
   COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector
 )

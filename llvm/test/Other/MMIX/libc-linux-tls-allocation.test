@@ -1,0 +1,158 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-process-args.test %t/args
+# RUN: split-file %S/libc-linux-synchronization.test %t/args/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+args = root / "args"
+subprocess.run([sys.executable, str(args / "run.py"), str(libc), str(args)], check=True)
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin",
+    "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=startup_test",
+    "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
+    "-I", str(args / "headers"), "-I", str(args / "sync"),
+    "-I", str(libc), "-I", str(libc / "include")]
+source = libc / "src/__support/threads/linux/mmix/tls.cpp"
+for opt in ("0", "2"):
+    obj = root / ("tls-O" + opt + ".o")
+    subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+        "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+        *common, "-O" + opt, "-emit-obj", "-o", str(obj), str(source)], check=True)
+    undefined = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+    assert {line.split()[-1] for line in undefined.splitlines()} == {
+        "__llvm_libc_mmix_syscall"}, undefined
+    elf = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
+    for forbidden in ("SHF_TLS", ".init_array", ".MMIX.reg_contents", "R_MMIX_TPREL"):
+        assert forbidden not in elf, elf
+    if len(sys.argv) == 4:
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], "-fno-stack-protector", "-I", str(root / "fake"), *common,
+            "-O" + opt, str(source), str(root / "test.cpp"), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
+
+# Only the syscall transport is replaced for host semantics, never in target objects.
+#--- fake/src/__support/OSUtil/linux/mmix/syscall.h
+extern "C" long __llvm_libc_mmix_syscall(unsigned long, long, long, long, long, long, long);
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/tls.h"
+#include <linux/mman.h>
+#include <sys/syscall.h>
+using namespace startup_test;
+using namespace startup_test::mmix;
+alignas(32768) unsigned char memory[65536];
+alignas(16384) unsigned char bytes[128];
+static long map_result, unmap_result;
+static uintptr_t map_size, unmap_base, unmap_size;
+static unsigned maps, unmaps;
+static void require(bool condition) { if (!condition) __builtin_abort(); }
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+    long c, long d, long e, long f) {
+  if (n == SYS_mmap) {
+    require(a == 0 && c == (PROT_READ | PROT_WRITE) &&
+            d == (MAP_PRIVATE | MAP_ANONYMOUS) && e == -1 && f == 0);
+    ++maps; map_size = b;
+    return map_result;
+  }
+  require(n == SYS_munmap && !(c | d | e | f));
+  ++unmaps; unmap_base = a; unmap_size = b;
+  return unmap_result;
+}
+static void reset() {
+  maps = unmaps = 0;
+  map_result = reinterpret_cast<uintptr_t>(memory + 8192);
+  unmap_result = 0;
+  for (auto &b : memory) b = 0xa5;
+  for (unsigned i = 0; i < sizeof(bytes); ++i) bytes[i] = i + 1;
+}
+static bool sentinel(const TLSDescriptor &d) {
+  return d.size == 1 && d.addr == 2 && d.tp == 3;
+}
+extern "C" int main() {
+  struct Vector { uintptr_t a, v, f, m, offset, extent, size; };
+  Vector vectors[] = {
+    {0, 0, 0, 0, 16, 16, 8192},
+    {64, 65536, 0, 0, 64, 64, 8192},
+    {8, 65536, 16, 16, 16, 32, 8192},
+    {8, 65536, 0, 24, 16, 40, 8192},
+    {64, 65536, 12, 80, 64, 144, 8192},
+    {64, 65544, 12, 80, 72, 152, 8192},
+    {64, 65568, 12, 80, 32, 112, 8192},
+    {4, 65537, 1, 7, 17, 24, 8192},
+    {8192, 65536, 8, 24, 8192, 8216, 16384},
+    {16384, 65536, 8, 32, 16384, 16416, 32768},
+  };
+  for (auto v : vectors) {
+    reset();
+    TLSLayout layout;
+    require(tls_layout({v.v, v.m, v.f, v.a}, 8192, layout) == TLSError::None);
+    require(layout.offset == v.offset && layout.extent == v.extent &&
+            layout.mapping_size == v.size);
+    uintptr_t source = v.v ? reinterpret_cast<uintptr_t>(bytes) + v.v % 16384 : 0;
+    TLSDescriptor descriptor{1, 2, 3};
+    auto result = allocate_tls({source, v.m, v.f, v.a}, 8192, bytes, descriptor);
+    require(result.error == TLSError::None && !result.retained_mapping.size);
+    require(maps == 1 && !unmaps && map_size == v.size);
+    require(descriptor.addr == static_cast<uintptr_t>(map_result) &&
+            descriptor.size == map_size && descriptor.tp % layout.alignment == 0);
+    uintptr_t delta = descriptor.tp - descriptor.addr;
+    require(delta == (v.a > 8192 ? 8192 : 0));
+    auto *header = reinterpret_cast<TLSHeader *>(descriptor.tp);
+    require(!header->dtv && header->thread_state == reinterpret_cast<uintptr_t>(bytes));
+    auto *data = reinterpret_cast<unsigned char *>(descriptor.tp);
+    for (uintptr_t i = 16; i < layout.extent; ++i)
+      require(data[i] == (i >= v.offset && i - v.offset < v.f
+                          ? reinterpret_cast<unsigned char *>(source)[i - v.offset] : 0));
+    require(data[layout.extent] == 0xa5 && memory[8191] == 0xa5);
+    if (delta) require(memory[8192] == 0xa5);
+    unmap_result = -5;
+    result = release_tls(descriptor);
+    require(result.error == TLSError::UnmapFailed && result.syscall_error == 5);
+    require(descriptor.size == map_size && result.retained_mapping.addr == descriptor.addr);
+    unmap_result = 0;
+    require(release_tls(descriptor).error == TLSError::None);
+    require(unmap_base == static_cast<uintptr_t>(map_result) && unmap_size == map_size);
+    require(!descriptor.size && !descriptor.addr && !descriptor.tp);
+    require(release_tls(descriptor).error == TLSError::None && unmaps == 2);
+  }
+  reset();
+  TLSDescriptor out{1, 2, 3};
+  TLSImage empty{0, 0, 0, 1};
+  map_result = -12;
+  auto result = allocate_tls(empty, 8192, nullptr, out);
+  require(result.error == TLSError::MapFailed && result.syscall_error == 12 &&
+          sentinel(out) && maps == 1 && !unmaps);
+  uintptr_t invalid[] = {0, 1, (UINTPTR_MAX >> 1) & ~uintptr_t(8191), uintptr_t(1) << 63};
+  for (auto base : invalid) {
+    reset(); map_result = static_cast<long>(base);
+    result = allocate_tls(empty, 8192, nullptr, out);
+    require(result.error == TLSError::InvalidMapping && sentinel(out));
+    require(maps == 1 && unmaps == 1 && unmap_base == base && unmap_size == 8192);
+    reset(); map_result = static_cast<long>(base); unmap_result = -22;
+    result = allocate_tls(empty, 8192, nullptr, out);
+    require(result.error == TLSError::UnmapFailed && result.syscall_error == 22 &&
+            result.retained_mapping.addr == base && result.retained_mapping.size == 8192 &&
+            sentinel(out));
+  }
+  reset();
+  require(allocate_tls(empty, 4096, nullptr, out).error == TLSError::InvalidImage);
+  TLSImage bad[] = {{0, 0, 0, 3}, {1, 1, 2, 1}, {0, 1, 0, 1},
+                   {0, 0, 0, uintptr_t(1) << 63}, {UINTPTR_MAX, 0, 0, 1},
+                   {1, UINTPTR_MAX >> 1, 0, 1},
+                   {uintptr_t(1) << 62, 8192, 0, uintptr_t(1) << 62}};
+  for (auto image : bad) {
+    require(allocate_tls(image, 8192, nullptr, out).error != TLSError::None);
+    require(sentinel(out) && !maps && !unmaps);
+  }
+  // No template read for zero-only TLS, even when its address is unmapped.
+  require(allocate_tls({1, 24, 0, 1}, 8192, nullptr, out).error == TLSError::None);
+  require(reinterpret_cast<TLSHeader *>(out.tp)->thread_state == 0);
+  require(release_tls(out).error == TLSError::None);
+  return 0;
+}
