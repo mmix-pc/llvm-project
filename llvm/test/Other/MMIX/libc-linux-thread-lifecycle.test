@@ -219,6 +219,37 @@ static void ownership() {
   require(registry.wait(sequence - 1, *deadline).has_value());
 }
 
+static void main_registration() {
+  ThreadRegistry registry;
+  ThreadControl main, other;
+  event_address = 0;
+  ThreadRegistryLock lock(registry);
+  require(!lock.register_main(main)); // Missing identity.
+  main.attributes.tid = 321;
+  require(lock.reserve() && !lock.register_main(main));
+  require(lock.cancel_reservation());
+  main.owns_stack = true;
+  require(!lock.register_main(main));
+  main.owns_stack = false;
+  main.control_mapping = {8192, 8192};
+  require(!lock.register_main(main));
+  main.control_mapping = {};
+  require(lock.register_main(main));
+  require(main.retains_resources_until_process_exit());
+  require(lock.live_threads() == 1 && !lock.pending_creations());
+  require(!lock.register_main(main) && !lock.register_main(other));
+  require(!lock.claim_process_exit() && !lock.drop_creator(main));
+  require(lock.pin(&main.attributes) == &main);
+  require(lock.acquire_lease(main) && lock.release_lease(main));
+  require(lock.claim_join(main) && lock.begin_cleanup(main));
+  require(lock.close_leases(main) && lock.exit_ready(main, 0));
+  main.clear_tid.value.store(0);
+  // Even a terminal proof must not transfer static main storage to a worker
+  // reclaimer. Main pthread_exit integration is a separate lifecycle boundary.
+  require(!lock.begin_reaping(main) && !lock.finish_reaping(main));
+  require(lock.unpin(main) && !lock.live_threads());
+}
+
 // Enumerate the model's independent creator/reader drops around terminal clear
 // and removal for each ownership family. Every permutation tests production
 // rejection predicates rather than replacing them with the abstract model.
@@ -300,6 +331,7 @@ static void concurrency() {
 extern "C" int main() {
   layout_and_publication();
   ownership();
+  main_registration();
   for (unsigned owner = 0; owner != 3; ++owner)
     for (unsigned creator = 0; creator != 4; ++creator)
       for (unsigned reader = 0; reader != 4; ++reader)

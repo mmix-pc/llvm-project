@@ -34,10 +34,11 @@ StartupState *prepare_tls_startup(uintptr_t *stack) {
   // Allocation attempts rollback on failure; the caller terminates.
   if (result.error != TLSError::None)
     return nullptr;
+  state.thread.tls = state.tls;
   auto &attributes = state.thread.attributes;
   attributes.tls = state.tls.addr;
   attributes.tls_size = state.tls.size;
-  attributes.platform_data = &state.thread.clear_tid.value;
+  attributes.platform_data = &state.thread.clear_tid.value.val;
   return &state;
 }
 } // namespace mmix

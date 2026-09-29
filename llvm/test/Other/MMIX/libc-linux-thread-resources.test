@@ -14,7 +14,7 @@ common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
           "-DLIBC_NAMESPACE=resource_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
           "-I", str(root / "headers"), "-I", str(root / "sync"), "-I", str(libc)]
 sources = [libc / "src/__support/threads/linux/mmix" / name
-           for name in ("resources.cpp", "tls.cpp")]
+           for name in ("resources.cpp", "tls.cpp", "lifecycle.cpp")]
 for opt in ("0", "2"):
     objects, files = [], []
     for index, source in enumerate(sources + [root / "test.cpp"]):
@@ -22,10 +22,11 @@ for opt in ("0", "2"):
         subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
             "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
             *common, "-O" + opt, "-emit-obj", str(source), "-o", path + ".o"], check=True)
-        if index < 2:
+        if index < len(sources):
             objects.append(path + ".o")
         if opt == "0":
             subprocess.run(["clang", "-cc1", "-triple", "x86_64-unknown-linux-gnu",
+                "-include", str(root / "fake/src/__support/OSUtil/linux/syscall.h"),
                 "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
                 "-I", str(root / "fake"), *common, "-disable-O0-optnone",
                 "-O0", "-emit-llvm-bc", str(source), "-o", path + ".bc"], check=True)
@@ -51,6 +52,7 @@ for opt in ("0", "2"):
     if len(sys.argv) == 4:
         native = str(root / ("native-O" + opt))
         subprocess.run([sys.argv[3], "-I", str(root / "fake"), *common,
+            "-include", str(root / "fake/src/__support/OSUtil/linux/syscall.h"),
             "-O" + opt, *map(str, sources), str(root / "test.cpp"),
             "-o", native], check=True)
         subprocess.run([native], check=True)
@@ -71,6 +73,20 @@ for opt in ("0", "2"):
 #define MAP_ANONYMOUS 32
 #--- fake/src/__support/OSUtil/linux/mmix/syscall.h
 extern "C" long __llvm_libc_mmix_syscall(unsigned long, long, long, long, long, long, long);
+
+#--- fake/src/__support/OSUtil/linux/syscall.h
+#ifndef LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_SYSCALL_H
+#define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_SYSCALL_H
+#include "src/__support/macros/config.h"
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
+namespace LIBC_NAMESPACE_DECL {
+template <typename R, typename... Ts> R syscall_impl(long n, Ts... args) {
+  long values[6] = {(long)args...};
+  return R(__llvm_libc_mmix_syscall(n, values[0], values[1], values[2],
+                                  values[3], values[4], values[5]));
+}
+}
+#endif
 
 #--- test.cpp
 #include "src/__support/threads/linux/mmix/resources.h"
@@ -122,6 +138,7 @@ static void reset(bool supplied = false) {
 }
 extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
                                          long c, long d, long e, long f) {
+  if (n == SYS_futex) return 0; // Sequential registry notification only.
   if (n == SYS_mmap) {
     require(!a && b > 0 && b % 8192 == 0 && !f && e == -1);
     require(d == (MAP_PRIVATE | MAP_ANONYMOUS) && maps < 3);
@@ -351,6 +368,17 @@ static void faults(bool supplied) {
   }
 }
 extern "C" int main() {
+  {
+    ThreadRegistry registry;
+    ThreadControl main;
+    main.attributes.tid = 321;
+    main.tls = {8192, 16384, 16448};
+    ThreadRegistryLock lock(registry);
+    require(lock.register_main(main));
+    ThreadResources retained = thread_resources(main);
+    require(empty(retained) && !release_thread_resources(retained));
+    require(main.tls.size == 8192 && main.tls.tp == 16448 && !unmaps);
+  }
   invalid_inputs();
   unsigned guards[] = {0, 1, 8193};
   for (unsigned guard : guards)

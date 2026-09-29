@@ -72,6 +72,25 @@ bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
   return true;
 }
 
+bool ThreadRegistryLock::register_main(ThreadControl &c) {
+  if (registry.main_registered || registry.exiting || registry.head ||
+      registry.live || registry.reservations || c.registry ||
+      c.owner != ThreadOwner::Unpublished || !c.creator_pin ||
+      !c.lifecycle_pin || c.attributes.tid <= 0 || c.owns_stack ||
+      c.attributes.owned_stack || c.control_mapping.size || c.stack_mapping.size)
+    return false;
+  c.registry = &registry;
+  c.owner = ThreadOwner::Joinable;
+  c.execution = ThreadExecution::Running;
+  c.creator_pin = false;
+  c.listed = c.leases_open = c.counted = c.process_lifetime = true;
+  registry.head = &c;
+  registry.live = 1;
+  registry.main_registered = true;
+  change();
+  return true;
+}
+
 bool ThreadRegistryLock::adopt_abort(ThreadControl &c) {
   if (c.registry || c.owner != ThreadOwner::Unpublished || !c.creator_pin ||
       !c.lifecycle_pin)
@@ -188,7 +207,7 @@ bool ThreadRegistryLock::close_leases(ThreadControl &c) {
 }
 
 bool ThreadRegistryLock::begin_reaping(ThreadControl &c) {
-  if (!belongs(c) || c.leases_open || c.leases ||
+  if (!belongs(c) || c.process_lifetime || c.leases_open || c.leases ||
       c.clear_tid.value.load(cpp::MemoryOrder::ACQUIRE) != 0)
     return false;
   if (c.owner != ThreadOwner::AbortOwner &&

@@ -14,6 +14,7 @@ args = root / "args"
 subprocess.run([sys.executable, str(args / "run.py"), str(libc), str(args)], check=True)
 resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
 common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-include", str(args / "sync/linux/errno.h"),
           "-DLIBC_NAMESPACE=startup_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
           "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL", "-DSYS_gettid=178",
           "-DSYS_set_tid_address=96", "-I", str(args / "headers"),
@@ -21,6 +22,7 @@ common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
 sources = [libc / "startup/linux/mmix" / (name + ".cpp")
            for name in ("tls_prepare", "tls_post", "bootstrap", "lifecycle")]
 sources += [libc / "src/__support/threads/linux/mmix/main_thread.cpp",
+            libc / "src/__support/threads/linux/mmix/lifecycle.cpp",
             libc / "src/errno/libc_errno.cpp"]
 renames = ["-Dmain=program_main"]
 for kind in ("preinit", "init", "fini"):
@@ -28,8 +30,8 @@ for kind in ("preinit", "init", "fini"):
         name = "__" + kind + "_array_" + bound
         renames.append("-D" + name + "=test" + name)
 for opt in ("0", "2"):
-    for source in sources:
-        obj = root / (source.stem + "-O" + opt + ".o")
+    for index, source in enumerate(sources):
+        obj = root / (str(index) + source.stem + "-O" + opt + ".o")
         subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
             "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
             "-ftls-model=local-exec", *common, "-O" + opt, "-emit-obj", "-o", str(obj), str(source)], check=True)
@@ -47,8 +49,8 @@ for opt in ("0", "2"):
             assert "SHF_TLS" in report and "R_MMIX_TPREL" in report, report
     if len(sys.argv) == 4:
         objects = []
-        for source in sources:
-            obj = root / (source.stem + "-native-O" + opt + ".o")
+        for index, source in enumerate(sources):
+            obj = root / (str(index) + source.stem + "-native-O" + opt + ".o")
             subprocess.run([sys.argv[3], "-include", str(root / "transport.h"), *common, "-D__mmix__", "-fno-stack-protector",
                 *(renames if source.stem == "lifecycle" else []), "-O" + opt,
                 "-c", str(source), "-o", str(obj)], check=True)
@@ -141,6 +143,7 @@ int atexit(void (*fn)()) {
 }
 extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c,
                                         long d, long e, long f) {
+  if (n == SYS_futex) return 0; // Registry notification, not guest execution.
   require(!(b | c | d | e | f));
   if (n == SYS_gettid) {
     require(step++ == 1 && !a && !internal::self.attrib);
@@ -157,6 +160,9 @@ extern "C" void __llvm_libc_mmix_linux_init_guard(const unsigned char *p) {
 extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start_fail() {
   require(!drains && !finis && !constructor_tls);
   if (mode != 7) require(!app.args && !internal::self.attrib);
+  ThreadRegistryLock lock(thread_registry);
+  require(lock.live_threads() == unsigned(mode == 7));
+  require(!lock.pending_creations());
   throw Done{true};
 }
 extern "C" [[noreturn]] void __llvm_libc_mmix_linux_tls_handoff(uintptr_t tp, StartupState *state) {
@@ -171,6 +177,13 @@ extern "C" [[noreturn]] void __llvm_libc_mmix_linux_tls_handoff(uintptr_t tp, St
 extern "C" void pre(int, char **, char **) {
   require(step++ == 8 && !constructor_tls && int(libc_errno) == 0);
   require(internal::initialize_main_thread());
+  require(!internal::activate_main_thread(prepared->thread));
+  ThreadRegistryLock lock(thread_registry);
+  require(lock.live_threads() == 1 && !lock.pending_creations());
+  auto *control = lock.pin(internal::self.attrib);
+  require(control == &prepared->thread && control->retains_resources_until_process_exit());
+  require(control->tls.tp == prepared->tls.tp && !control->owns_stack);
+  require(lock.unpin(*control) && !lock.claim_process_exit());
   constructor_tls = 8;
 }
 extern "C" void init(int, char **, char **) {

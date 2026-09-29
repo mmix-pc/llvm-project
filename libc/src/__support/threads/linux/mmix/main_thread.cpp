@@ -62,12 +62,21 @@ bool activate_main_thread(MainThreadState &state) {
   auto *manager = get_thread_atexit_callback_mgr();
   if (!manager ||
       syscall_impl(SYS_set_tid_address,
-                   reinterpret_cast<long>(&state.clear_tid.value)) !=
+                   reinterpret_cast<long>(&state.clear_tid.value.val)) !=
           state.attributes.tid) {
     self.attrib = nullptr;
     return false;
   }
   state.attributes.atexit_callback_mgr = manager;
+  {
+    // Startup has not installed user handlers or published any worker. Do not
+    // run callback setup or the clear-TID syscall while holding this lock.
+    mmix::ThreadRegistryLock lock(mmix::thread_registry);
+    if (!lock.register_main(state)) {
+      self.attrib = nullptr;
+      return false;
+    }
+  }
   active_attributes = &state.attributes;
   phase = Phase::Active;
   return true;

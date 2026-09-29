@@ -87,7 +87,8 @@ set(LIBC_COMPILE_OPTIONS_DEFAULT -ftls-model=local-exec -fno-lto)
 include(${LIBC_SOURCE}/src/__support/threads/linux/CMakeLists.txt)
 get_property(main_thread_deps GLOBAL PROPERTY main_thread_deps)
 if(NOT selected_alias OR NOT selected_deps STREQUAL ".mmix.main_thread" OR
-   NOT "libc.src.errno.errno" IN_LIST main_thread_deps)
+   NOT "libc.src.errno.errno" IN_LIST main_thread_deps OR
+   NOT ".lifecycle" IN_LIST main_thread_deps)
   message(FATAL_ERROR "incoherent static TLS main-thread provider")
 endif()
 #--- linux/param.h

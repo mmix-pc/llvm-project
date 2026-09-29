@@ -57,6 +57,10 @@ static long release_mapping(ThreadMapping &mapping) {
 }
 
 ThreadResources thread_resources(const ThreadControl &control) {
+  // Main's initial stack, static control and bootstrap TLS are retained until
+  // process teardown; worker reclamation must not acquire these descriptors.
+  if (control.retains_resources_until_process_exit())
+    return {};
   return {control.control_mapping, control.stack_mapping, control.tls};
 }
 

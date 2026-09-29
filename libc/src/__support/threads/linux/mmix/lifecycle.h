@@ -87,6 +87,8 @@ struct ThreadControl {
         creator_decision.value.load(cpp::MemoryOrder::ACQUIRE));
   }
 
+  bool retains_resources_until_process_exit() const { return process_lifetime; }
+
 private:
   friend class ThreadRegistryLock;
   ThreadRegistry *registry = nullptr;
@@ -95,6 +97,7 @@ private:
   ThreadExecution execution = ThreadExecution::Starting;
   bool creator_pin = true, lifecycle_pin = true;
   bool listed = false, leases_open = false, counted = false;
+  bool process_lifetime = false;
   size_t api_pins = 0, leases = 0;
 };
 
@@ -109,6 +112,7 @@ class ThreadRegistry {
   ThreadControl *head = nullptr;
   size_t live = 0, reservations = 0;
   bool exiting = false;
+  bool main_registered = false;
 
 public:
   constexpr ThreadRegistry() = default;
@@ -139,6 +143,9 @@ public:
   uint32_t sequence();
   bool reserve();
   bool cancel_reservation();
+  // Bootstrap only, before user callbacks or worker publication. Main uses
+  // static control storage and the kernel's non-owned initial stack.
+  bool register_main(ThreadControl &control);
   // Register a successful creation, consuming one reservation. The helper is
   // explicitly excluded from application accounting and needs no reservation.
   bool insert(ThreadControl &control, bool detached, bool helper = false);

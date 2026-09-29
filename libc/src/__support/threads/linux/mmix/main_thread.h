@@ -12,18 +12,18 @@
 #include "src/__support/macros/config.h"
 #include "src/__support/threads/thread_attributes.h"
 
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+#include "src/__support/threads/linux/mmix/lifecycle.h"
+#endif
+
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
-struct MainThreadState {
-  ThreadAttributes attributes;
-  // Reserve the entire octa: the kernel writes only the native 32-bit word.
-  struct alignas(8) ClearTID {
-    uint32_t value = UINT32_MAX;
-    uint32_t reserved = 0;
-  } clear_tid;
-};
-static_assert(sizeof(MainThreadState::ClearTID) == 8);
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+using MainThreadState = mmix::ThreadControl;
+#else
+struct MainThreadState;
+#endif
 
 // Post-TP only. The caller prepared the identity, mapping and non-owned stacks.
 bool activate_main_thread(MainThreadState &state);
