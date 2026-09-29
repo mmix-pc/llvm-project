@@ -20,7 +20,7 @@ common = ['-std=c++17', '-ffreestanding', '-fno-builtin', '-DLIBC_FULL_BUILD',
     '-I', str(libc/'include')]
 sources = [libc/'src/__support/threads/linux/mmix'/n for n in
     ('thread_create.cpp', 'thread_reaper.cpp', 'thread_reclaim.cpp', 'thread_finish.cpp',
-     'resources.cpp', 'tls.cpp', 'lifecycle.cpp')]
+     'resources.cpp', 'tls.cpp', 'lifecycle.cpp', 'thread_join.cpp')]
 for opt in ('0','2'):
     objects = []
     for i, src in enumerate(sources):
@@ -59,12 +59,19 @@ for opt in ('0','2'):
         subprocess.run([sys.argv[3], *common, '-D__mmix__', '-pthread', '-O'+opt,
             '-include', str(root/'reclaim/transport.h'), *map(str,sources),
             str(root/'test.cpp'), str(bridge), '-o', str(exe)], check=True)
-        for mode in range(14):
+        for mode in range(32):
             subprocess.run([str(exe), str(mode)], check=True, timeout=15)
-        print('Native reaper bootstrap: 14 scenarios passed at O'+opt, flush=True)
+        print('Native reaper/bootstrap lifecycle: 32 scenarios passed at O'+opt, flush=True)
 
 #--- headers/linux/param.h
 #define EXEC_PAGESIZE 8192
+#--- headers/linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#define EDEADLK 35
+#define EWOULDBLOCK EAGAIN
+#define ETIMEDOUT 110
+#define EOVERFLOW 75
+#define ENOSYS 38
 #--- bridge.cpp
 #include <atomic>
 #include <cerrno>
@@ -84,6 +91,8 @@ extern "C" void concurrent(void (*fn)()) {
 #--- test.cpp
 #include "src/__support/threads/linux/mmix/thread_reaper.h"
 #include "src/__support/threads/linux/mmix/thread_start.h"
+#include "src/__support/threads/linux/mmix/thread_join.h"
+#include "src/__support/threads/linux/mmix/thread_finish.h"
 #include "src/__support/threads/thread.h"
 #include "hdr/errno_macros.h"
 #include <linux/futex.h>
@@ -108,11 +117,29 @@ static unsigned mode;
 static bool inject = true;
 static thread_local uint64_t mask = 0x1234;
 static ThreadControl main_control, *helper;
-static void *user_runner(void *p) { return p; }
+static ThreadControl *worker;
+static unsigned fault, map_start, runners, callbacks;
+static bool supplied_stack, early_run;
+alignas(8) static unsigned char supplied[65536];
+static void *user_runner(void *p) {
+  ++runners;
+  if (mode >= 28) {
+    require(mask == 0x1234 && internal::self.attrib == &worker->attributes);
+    require(worker->acquire_decision() == CreatorDecision::Go);
+    require(worker->attributes.stacksize == sizeof(supplied));
+    require(worker->attributes.guardsize == (supplied_stack ? 0 : 8192));
+    if (supplied_stack) require(worker->attributes.stack == supplied);
+    if (mode >= 30) exit_thread(*worker, ThreadReturnValue(p));
+  }
+  return p;
+}
 struct Done {};
 namespace reaper_test { namespace internal {
 void cleanup_main_thread() { __builtin_trap(); }
-void call_atexit_callbacks(ThreadAttributes *) { __builtin_trap(); }
+void call_atexit_callbacks(ThreadAttributes *a) {
+  require(mode >= 28 && a == &worker->attributes && mask == 0x1234);
+  ++callbacks;
+}
 } }
 namespace reaper_test { namespace mmix {
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
@@ -122,7 +149,23 @@ extern "C" void __llvm_libc_mmix_reaper_loop() {
   if (mode == 11) throw Done{};
   require(mode == 10); // A returning service must be fatal.
 }
-extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() { __builtin_trap(); }
+extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
+  require(mode >= 28 && mask == UINT64_MAX);
+  throw Done{}; // Simulate terminal entry, not kernel retirement.
+}
+static void run_worker() {
+  require(!runners && !callbacks && worker && worker != helper);
+  auto *saved_self = internal::self.attrib;
+  uint64_t saved_mask = mask;
+  internal::self.attrib = &worker->attributes;
+  try { __llvm_libc_mmix_thread_run(worker); __builtin_abort(); }
+  catch (Done &) {}
+  require(runners == 1 && callbacks == 1);
+  // The external receiver separately proves actual kernel clear ordering.
+  worker->clear_tid.value.store(0, cpp::MemoryOrder::RELEASE);
+  internal::self.attrib = saved_self;
+  mask = saved_mask;
+}
 extern "C" long __llvm_libc_mmix_clone_thread(unsigned long,uintptr_t sp,
     uint32_t *parent,uint32_t *clear,uintptr_t tp) {
   unsigned clone_index = clones.fetch_add(1);
@@ -130,13 +173,17 @@ extern "C" long __llvm_libc_mmix_clone_thread(unsigned long,uintptr_t sp,
   require(c->is_prepared() && sp == c->stack_top && tp == c->tls.tp && mask == UINT64_MAX);
   bool is_helper = c->runner.posix_runner != user_runner;
   if (is_helper) { helper_clones.fetch_add(1); helper = c; require(c->saved_signal_mask == UINT64_MAX); }
-  else { workers.fetch_add(1); require(helper && helper->acquire_decision() == CreatorDecision::Go); }
-  if (inject && mode == 5) return -EAGAIN;
+  else { workers.fetch_add(1); require(helper && helper->acquire_decision() == CreatorDecision::Go);
+    if (mode >= 14) worker = c;
+    require(!runners && c->acquire_decision() == CreatorDecision::Hold);
+    ThreadRegistryLock lock(thread_registry); require(!lock.pin(&c->attributes)); }
+  unsigned failure = mode >= 14 ? fault : mode;
+  if (inject && failure == 5) return -EAGAIN;
   int tid = 100 + clone_index;
   *parent = tid; c->attributes.tid = tid;
   require(clear == &c->clear_tid.value.val);
-  if (inject && (mode == 6 || mode == 7 || mode == 8)) {
-    if (mode != 7) c->publish_child(ChildStatus::Failed, mode == 6 ? ENOMEM : EIO);
+  if (inject && (failure == 6 || failure == 7 || failure == 8)) {
+    if (failure != 7) c->publish_child(ChildStatus::Failed, failure == 6 ? ENOMEM : EIO);
     c->clear_tid.value.store(0,cpp::MemoryOrder::RELEASE);
   } else c->publish_child(ChildStatus::Ready);
   return tid;
@@ -150,18 +197,41 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n,long a,long b,long c,lo
     unsigned i = maps.fetch_add(1); require(i < 16 && b <= 81920);
     if (mode == 13 && i == 0) { inject = false; return -ENOMEM; }
     if (inject && mode >= 1 && mode <= 3 && i+1 == mode) return -ENOMEM;
+    if (inject && mode >= 14 && fault >= 1 && fault <= 3) {
+      unsigned allocation = i - map_start + 1;
+      if (supplied_stack && allocation == 2) allocation = 3;
+      if (allocation == fault) return -ENOMEM;
+    }
     sizes[i] = b;
     return reinterpret_cast<long>(memory[i]);
   }
-  if (n == SYS_mprotect) return inject && (mode == 4 || mode == 12) ? -EINVAL : 0;
+  if (n == SYS_mprotect)
+    return inject && (mode == 4 || mode == 12 || fault == 4) ? -EINVAL : 0;
   if (n == SYS_munmap) {
     require(mask == UINT64_MAX);
     unsigned i = (reinterpret_cast<unsigned char *>(a)-memory[0])/sizeof(memory[0]);
     require(i < maps.load() && !freed[i] && sizes[i] == size_t(b));
     if (mode == 12) return -EINVAL;
-    freed[i] = true; unmaps.fetch_add(1); return 0;
+    freed[i] = true; unmaps.fetch_add(1);
+    if (mode >= 14)
+      for (long j = 0; j < b; ++j) reinterpret_cast<unsigned char *>(a)[j] = 0xa5;
+    return 0;
   }
-  if (n == SYS_futex) return host_futex(a,b,c,d,e,f);
+  if (n == SYS_futex) {
+    if (early_run && worker && a == reinterpret_cast<long>(&worker->creator_decision.value.val)) {
+      require(b == FUTEX_WAKE_PRIVATE && worker->acquire_decision() == CreatorDecision::Go);
+      early_run = false;
+      run_worker();
+      // Completion and terminal observation cannot consume the creator pin.
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.pin(&worker->attributes) == worker);
+      require(lock.claim_join(*worker) && lock.begin_reaping(*worker));
+      require(!lock.finish_reaping(*worker) && !lock.pin(&worker->attributes));
+      require(lock.unpin(*worker));
+      require(!lock.finish_reaping(*worker)); // Only the creator pin remains.
+    }
+    return host_futex(a,b,c,d,e,f);
+  }
   if (n == SYS_clock_gettime) { *reinterpret_cast<timespec *>(b)={10,0}; return 0; }
   __builtin_trap();
 }
@@ -188,7 +258,69 @@ extern "C" int main(int argc,char **argv) {
     int child=fork(); require(child>=0);
     if (child) { int status; require(waitpid(child,&status,0)==child); require((status&127)==4); return 0; }
   }
-  if (mode==0 || mode==13) {
+  if (mode >= 14) {
+    // Adapt upstream create/join/exit and attribute semantics to the internal
+    // interface; native clone, callback execution and TP installation are
+    // separate receiver obligations, not supplied by this transport.
+    inject = false;
+    require(!ensure_thread_reaper({}, 8192).error && mask == 0x1234);
+    require(maps.load() == 3 && helper_clones.load() == 1);
+    map_start = maps.load();
+    supplied_stack = (mode >= 22 && mode < 28) || mode == 29 || mode == 31;
+    ThreadPreparation r;
+    r.runner.posix_runner = user_runner;
+    r.argument = reinterpret_cast<void *>(42);
+    if (supplied_stack) r.stack = supplied;
+    ThreadAttributes *out = reinterpret_cast<ThreadAttributes *>(1);
+    if (mode < 28) {
+      constexpr unsigned caller_faults[] = {1, 3, 5, 6, 7, 8};
+      fault = mode < 22 ? mode - 13 : caller_faults[mode - 22];
+      inject = true;
+      auto result = create_thread(r, out);
+      long expected = fault <= 3 || fault == 6 ? -ENOMEM :
+                      fault == 4 ? -EINVAL : fault == 8 ? -EIO : -EAGAIN;
+      require(result.error == expected && out == reinterpret_cast<ThreadAttributes *>(1));
+      require(mask == 0x1234 && !runners && !callbacks);
+      unsigned acquired = 0;
+      for (unsigned i = map_start; i < maps.load(); ++i)
+        if (sizes[i]) { ++acquired; require(freed[i]); }
+      require(unmaps.load() == acquired);
+      { ThreadRegistryLock lock(thread_registry);
+        require(lock.live_threads() == 1 && !lock.pending_creations()); }
+      inject = false;
+      create_worker(); // A failed application creation must not poison the helper.
+      require(helper_clones.load() == 1);
+    } else {
+      early_run = mode == 28 || mode == 30;
+      require(!create_thread(r, out).error && out == &worker->attributes && mask == 0x1234);
+      internal::self.attrib = &main_control.attributes;
+      mask = UINT64_MAX;
+      if (mode == 29 || mode == 31) {
+        require(!runners);
+        ThreadJoinClaim claim;
+        require(claim_thread_join(out, claim) == 0);
+        ThreadJoinClaim other;
+        require(claim_thread_join(out, other) == EINVAL);
+        run_worker();
+        ThreadReturnValue result;
+        commit_thread_join(claim, result);
+        require(result.posix_retval == r.argument);
+      } else {
+        // The early owner removed lookup before creator release. Complete
+        // its already-claimed reap only after create_thread has returned.
+        ThreadResources resources = thread_resources(*worker);
+        { ThreadRegistryLock lock(thread_registry); require(lock.finish_reaping(*worker)); }
+        require(!release_thread_resources(resources));
+      }
+      require(runners == 1 && callbacks == 1);
+      require(unmaps.load() == (supplied_stack ? 2 : 3));
+      { ThreadRegistryLock lock(thread_registry);
+        require(lock.live_threads() == 1 && !lock.pending_creations() && !lock.pin(out)); }
+    }
+    for (unsigned i = 0; i < 3; ++i) require(!freed[i]);
+    for (auto byte : supplied) require(byte == 0);
+    return 0;
+  } else if (mode==0 || mode==13) {
     concurrent(create_worker);
     require(helper_clones.load()==1 && workers.load()==(mode==0 ? 3 : 2));
     require(maps.load()==(mode==0 ? 12 : 10) && failures.load()==(mode==0 ? 0 : 1));
