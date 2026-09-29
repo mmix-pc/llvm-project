@@ -18,6 +18,16 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
   set(mmix_main_errno_dependency libc.src.errno.errno)
+  # Internal primitives only; worker creation and public pthread remain unselected.
+  add_object_library(
+    lifecycle
+    SRCS lifecycle.cpp
+    HDRS lifecycle.h
+    DEPENDS
+      .tls_h
+      libc.src.__support.threads.raw_mutex
+      libc.src.__support.threads.thread_attributes
+  )
 endif()
 
 add_object_library(

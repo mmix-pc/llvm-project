@@ -1,0 +1,330 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/headers
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+base = ["clang", "-cc1", "-std=c++17", "-ffreestanding", "-mrelocation-model", "static",
+        "-internal-isystem", resource + "/include", "-I", str(root / "headers"),
+        "-I", str(libc), "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=lifetime_test",
+        "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM"]
+source = libc / "src/__support/threads/linux/mmix/lifecycle.cpp"
+layout = str(root / "layout.o")
+subprocess.run(base + ["-triple", "mmix-unknown-linux", "-emit-obj",
+    str(root / "layout.cpp"), "-o", layout], check=True)
+dump = subprocess.check_output(["llvm-readobj", "--hex-dump=.lifecycle_layout", layout], text=True)
+assert "12345678 00000000" in dump, dump
+for opt in ("0", "2"):
+    files = []
+    for index, src in enumerate((source, root / "test.cpp")):
+        path = str(root / (str(index) + "-O" + opt))
+        subprocess.run(base + ["-triple", "mmix-unknown-linux", "-O" + opt,
+            "-emit-obj", str(src), "-o", path + ".o"], check=True)
+        symbols = subprocess.check_output(["llvm-nm", "-u", path + ".o"], text=True)
+        for forbidden in ("__atomic_", "__sync_", "pthread_", "__tls_get_addr",
+                          "malloc", "free", "clock_gettime"):
+            assert forbidden not in symbols, symbols
+        if index == 0:
+            assert {line.split()[-1] for line in symbols.splitlines()} == {
+                "__llvm_libc_mmix_syscall"}, symbols
+            ir = path + ".ll"
+            subprocess.run(base + ["-triple", "mmix-unknown-linux", "-O" + opt,
+                "-emit-llvm", str(src), "-o", ir], check=True)
+            text = pathlib.Path(ir).read_text()
+            assert "acquire" in text and "release" in text
+            sections = subprocess.check_output(["llvm-readobj", "--sections", path + ".o"], text=True)
+            assert ".init_array" not in sections, sections
+        else:
+            ir = path + ".ll"
+            subprocess.run(base + ["-triple", "mmix-unknown-linux", "-O" + opt,
+                "-emit-llvm", str(root / "layout.cpp"), "-o", ir], check=True)
+            text = pathlib.Path(ir).read_text()
+            assert re.search(r"store atomic i32 .* release", text), text
+            assert re.search(r"load atomic i32, .* acquire", text), text
+        subprocess.run(base + ["-include", str(root / "fake-syscall.h"), "-triple", "x86_64-unknown-linux-gnu",
+            "-disable-O0-optnone", "-O" + opt, "-emit-llvm-bc", str(src),
+            "-o", path + ".bc"], check=True)
+        files.append(path + ".bc")
+    linked = str(root / ("host-O" + opt + ".bc"))
+    subprocess.run(["llvm-link", *files, "-o", linked], check=True)
+    # This sequential host ownership harness is not an atomic concurrency test.
+    # Only interpreter input lowers atomics/inline copies; target objects above
+    # retain the production futex transport and memory ordering.
+    lowered = linked + ".lowered.bc"
+    subprocess.run(["opt", "-passes=function(sroa,instcombine,lower-atomic)",
+                    linked, "-o", lowered], check=True)
+    subprocess.run(["lli", "-force-interpreter=true", lowered], check=True)
+    if len(sys.argv) == 4:
+        native = str(root / ("native-O" + opt))
+        subprocess.run([sys.argv[3], "-std=c++17", "-O" + opt, "-pthread",
+            "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=lifetime_test",
+            "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM", "-DNATIVE_CONCURRENCY",
+            "-I", str(root / "headers"), "-I", str(libc),
+            "-include", str(root / "fake-syscall.h"),
+            str(source), str(root / "test.cpp"), "-o", native], check=True)
+        subprocess.run([native], check=True, timeout=60)
+
+#--- fake-syscall.h
+#define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_SYSCALL_H
+#include "src/__support/macros/config.h"
+extern "C" long test_syscall(long, long, long, long, long, long, long);
+namespace LIBC_NAMESPACE_DECL {
+template <typename R, typename... Ts> R syscall_impl(long n, Ts... args) {
+  long values[6] = {(long)args...};
+  return R(test_syscall(n, values[0], values[1], values[2], values[3], values[4], values[5]));
+}
+}
+
+#--- layout.cpp
+#include "src/__support/threads/linux/mmix/lifecycle.h"
+using namespace lifetime_test::mmix;
+__attribute__((used, section(".lifecycle_layout")))
+const LifecycleWord layout_word{0x12345678};
+extern "C" void publish(ThreadControl *c) {
+  c->publish_prepared();
+  c->publish_child(ChildStatus::Ready);
+  c->publish_decision(CreatorDecision::Go);
+}
+extern "C" bool acquire(ThreadControl *c) {
+  return c->is_prepared() && c->acquire_child() == ChildStatus::Ready &&
+         c->acquire_decision() == CreatorDecision::Go;
+}
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/lifecycle.h"
+#include <linux/futex.h>
+#include <sys/syscall.h>
+using namespace lifetime_test;
+using namespace lifetime_test::mmix;
+
+static unsigned wakes, waits;
+static long event_address;
+static void require(bool value) { if (!value) __builtin_trap(); }
+#ifdef NATIVE_CONCURRENCY
+extern "C" int pthread_create(unsigned long *, const void *, void *(*)(void *), void *);
+extern "C" int pthread_join(unsigned long, void **);
+extern "C" long syscall(long, ...);
+extern "C" int *__errno_location();
+static bool concurrent;
+#endif
+extern "C" long test_syscall(long n, long address, long op, long value,
+                             long timeout, long ignored, long bitset) {
+  require(n == SYS_futex && address && !ignored);
+#ifdef NATIVE_CONCURRENCY
+  if (concurrent) {
+    // This optional native harness is explicitly Linux x86-64. Production MMIX
+    // objects use the real target transport, never this syscall translation.
+    long ret = syscall(202, address, op, value, timeout, ignored, bitset);
+    return ret < 0 ? -*__errno_location() : ret;
+  }
+#endif
+  if (op == FUTEX_WAKE_PRIVATE) {
+    require(value == 2147483647 && !timeout && !bitset);
+    if (event_address) require(address == event_address);
+    event_address = address;
+    ++wakes;
+    return 0;
+  }
+  require(op == FUTEX_WAIT_BITSET_PRIVATE && timeout && bitset == 0xffffffffu);
+  ++waits;
+  return -110;
+}
+
+static void layout_and_publication() {
+  LifecycleWord word{0x12345678};
+  require(word.reserved == 0);
+  unsigned char *bytes = reinterpret_cast<unsigned char *>(&word);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  require(bytes[0] == 0x12 && bytes[3] == 0x78);
+#else
+  require(bytes[0] == 0x78 && bytes[3] == 0x12);
+#endif
+  for (unsigned i = 4; i != 8; ++i) require(bytes[i] == 0);
+  ThreadControl c;
+  require(c.clear_tid.value.load() == UINT32_MAX && !c.parent_tid.value.load());
+  require(!c.is_prepared() && c.acquire_child() == ChildStatus::Starting);
+  require(c.acquire_decision() == CreatorDecision::Hold);
+  c.argument = &word;
+  c.publish_prepared();
+  require(c.is_prepared() && c.argument == &word);
+  c.publish_child(ChildStatus::Failed, 17);
+  require(c.acquire_child() == ChildStatus::Failed && c.child_error == 17);
+  c.publish_decision(CreatorDecision::Abort);
+  require(c.acquire_decision() == CreatorDecision::Abort);
+}
+
+static void ownership() {
+  ThreadRegistry registry;
+  ThreadControl c;
+  event_address = 0;
+  unsigned before = wakes;
+  uint32_t sequence;
+  {
+    ThreadRegistryLock lock(registry);
+    require(!lock.pin(reinterpret_cast<ThreadAttributes *>(1)));
+    require(!lock.insert(c, false));
+    require(lock.reserve() && lock.insert(c, false));
+    require(!lock.insert(c, false) && lock.live_threads() == 1);
+    require(!lock.claim_process_exit() && !lock.claim_join(c));
+    require(lock.pin(&c.attributes) == &c);
+    require(lock.claim_join(c) && !lock.claim_join(c) && !lock.detach(c));
+    require(lock.release_join(c) && !lock.release_join(c));
+    require(lock.detach(c) && !lock.detach(c) && !lock.claim_join(c));
+    require(lock.start(c) && !lock.start(c));
+    require(lock.acquire_lease(c));
+    require(lock.begin_cleanup(c) && !lock.exit_ready(c, 42));
+    require(lock.close_leases(c) && !lock.acquire_lease(c));
+    require(!lock.exit_ready(c, 42));
+    require(lock.release_lease(c) && !lock.release_lease(c));
+    require(lock.exit_ready(c, 42) && !lock.exit_ready(c, 9));
+    require(c.attributes.retval.stdc_retval == 42);
+    require(!lock.begin_reaping(c));
+    // A test kernel zero is distinct from EXIT_READY and ownership.
+    c.clear_tid.value.store(0);
+    require(lock.begin_reaping(c) && !lock.begin_reaping(c));
+    require(!lock.pin(&c.attributes) && !lock.finish_reaping(c));
+    require(lock.drop_creator(c) && !lock.drop_creator(c));
+    require(!lock.finish_reaping(c));
+    sequence = lock.sequence();
+  }
+  require(wakes == before + 1);
+  {
+    ThreadRegistryLock lock(registry);
+    require(lock.sequence() == sequence + 1);
+    sequence = lock.sequence();
+    require(lock.unpin(c) && !lock.unpin(c));
+  }
+  require(wakes == before + 2);
+  {
+    ThreadRegistryLock lock(registry);
+    require(lock.sequence() == sequence + 1);
+    require(lock.finish_reaping(c) && !lock.finish_reaping(c));
+    require(lock.owner(c) == ThreadOwner::Reaped);
+    require(lock.reserve() && !lock.claim_process_exit());
+    require(lock.cancel_reservation() && !lock.cancel_reservation());
+    require(lock.claim_process_exit() && !lock.claim_process_exit());
+    require(!lock.reserve());
+    sequence = lock.sequence() + 1;
+  }
+  auto deadline = Futex::Timeout::from_timespec({1, 0}, false);
+  auto result = registry.wait(sequence, *deadline);
+  require(!result && result.error() == 110 && waits);
+  require(registry.wait(sequence - 1, *deadline).has_value());
+}
+
+// Enumerate the model's independent creator/reader drops around terminal clear
+// and removal for each ownership family. Every permutation tests production
+// rejection predicates rather than replacing them with the abstract model.
+static void schedule(unsigned owner, unsigned creator_at, unsigned reader_at) {
+  ThreadRegistry registry;
+  ThreadControl c;
+  event_address = 0;
+  {
+    ThreadRegistryLock lock(registry);
+    if (owner == 2) {
+      require(lock.adopt_abort(c) && !lock.adopt_abort(c));
+      require(!lock.pin(&c.attributes));
+    } else {
+      require(lock.reserve() && lock.insert(c, owner == 1));
+      require(lock.pin(&c.attributes) == &c);
+      if (owner == 0) require(lock.claim_join(c));
+      require(lock.start(c) && lock.begin_cleanup(c));
+      require(lock.close_leases(c) && lock.exit_ready(c, 19));
+    }
+  }
+  for (unsigned step = 0; step != 4; ++step) {
+    ThreadRegistryLock lock(registry);
+    if (step == creator_at) require(lock.drop_creator(c));
+    if (step == reader_at && owner != 2) require(lock.unpin(c));
+    if (step == 1) c.clear_tid.value.store(0);
+    if (step < 1) require(!lock.begin_reaping(c));
+    if (step == 2) require(lock.begin_reaping(c));
+    if (step < 2 || step < creator_at || (owner != 2 && step < reader_at))
+      require(!lock.finish_reaping(c));
+  }
+  ThreadRegistryLock lock(registry);
+  require(lock.finish_reaping(c));
+}
+
+#ifdef NATIVE_CONCURRENCY
+struct ConcurrentState {
+  ThreadRegistry registry;
+  ThreadControl control;
+  LifecycleWord acknowledged;
+  unsigned payload = 0;
+};
+static void *producer(void *arg) {
+  auto &state = *static_cast<ConcurrentState *>(arg);
+  for (unsigned i = 1; i != 10001; ++i) {
+    while (state.acknowledged.value.load(cpp::MemoryOrder::ACQUIRE) != i - 1) {}
+    state.payload = i;
+    state.control.publish_child(ChildStatus::Ready, int(i));
+    state.control.prepared.value.store(i, cpp::MemoryOrder::RELEASE);
+    ThreadRegistryLock lock(state.registry);
+    require(lock.pin(&state.control.attributes) == &state.control);
+    require(lock.unpin(state.control));
+  }
+  return nullptr;
+}
+static void concurrency() {
+  ConcurrentState state;
+  concurrent = true;
+  {
+    ThreadRegistryLock lock(state.registry);
+    require(lock.reserve() && lock.insert(state.control, false));
+  }
+  unsigned long worker;
+  require(pthread_create(&worker, nullptr, producer, &state) == 0);
+  for (unsigned i = 1; i != 10001; ++i) {
+    while (state.control.prepared.value.load(cpp::MemoryOrder::ACQUIRE) != i) {}
+    require(state.payload == i && state.control.acquire_child() == ChildStatus::Ready);
+    require(state.control.child_error == int(i));
+    state.acknowledged.value.store(i, cpp::MemoryOrder::RELEASE);
+    ThreadRegistryLock lock(state.registry);
+    require(lock.pin(&state.control.attributes) == &state.control);
+    require(lock.claim_join(state.control) && lock.release_join(state.control));
+    require(lock.unpin(state.control));
+  }
+  require(pthread_join(worker, nullptr) == 0);
+  concurrent = false;
+}
+#endif
+
+extern "C" int main() {
+  layout_and_publication();
+  ownership();
+  for (unsigned owner = 0; owner != 3; ++owner)
+    for (unsigned creator = 0; creator != 4; ++creator)
+      for (unsigned reader = 0; reader != 4; ++reader)
+        schedule(owner, creator, reader);
+  ThreadRegistry registry, other;
+  ThreadControl helper, early;
+  event_address = 0;
+  {
+    ThreadRegistryLock lock(registry);
+    require(lock.insert(helper, true, true) && lock.live_threads() == 0);
+    require(lock.reserve());
+    require(lock.insert(early, false));
+    require(lock.pin(&early.attributes) == &early && lock.claim_join(early));
+    early.clear_tid.value.store(0);
+    require(lock.close_leases(early) && !lock.begin_reaping(early));
+    require(lock.release_join(early) && lock.detach(early));
+    require(!lock.begin_reaping(early)); // No cleanup/result publication.
+  }
+  event_address = 0;
+  {
+    ThreadRegistryLock lock(other);
+    require(!lock.pin(&early.attributes) && !lock.unpin(early));
+  }
+#ifdef NATIVE_CONCURRENCY
+  concurrency();
+#endif
+  return 0;
+}
