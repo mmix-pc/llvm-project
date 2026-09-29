@@ -111,7 +111,11 @@ static ThreadControl main_control, *helper;
 static void *user_runner(void *p) { return p; }
 struct Done {};
 namespace reaper_test { namespace internal {
+void cleanup_main_thread() { __builtin_trap(); }
 void call_atexit_callbacks(ThreadAttributes *) { __builtin_trap(); }
+} }
+namespace reaper_test { namespace mmix {
+[[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
 } }
 extern "C" void __llvm_libc_mmix_reaper_loop() {
   require(mask == UINT64_MAX && internal::self.attrib == &helper->attributes);

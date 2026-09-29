@@ -1,0 +1,216 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: split-file %S/libc-linux-thread-finish.test %t/finish
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(['clang', '-print-resource-dir'], text=True).strip()
+common = ['-std=c++17', '-ffreestanding', '-fno-builtin', '-DLIBC_FULL_BUILD',
+          '-DLIBC_NAMESPACE=process_test', '-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM',
+          '-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL',
+          '-I', str(root/'headers'), '-I', str(root/'finish/headers'),
+          '-I', str(root/'sync'), '-I', str(libc), '-I', str(libc/'include')]
+sources = [libc/'src/__support/threads/linux/mmix'/n for n in
+           ('thread_finish.cpp', 'thread_process_exit.cpp', 'lifecycle.cpp', 'main_thread.cpp')]
+sources.append(libc/'src/errno/libc_errno.cpp')
+for opt in ('0', '2'):
+    objects = []
+    for i, source in enumerate(sources):
+        obj = root/(str(i)+'-O'+opt+'.o')
+        subprocess.run(['clang', '-cc1', '-triple', 'mmix-unknown-linux',
+            '-mrelocation-model', 'static', '-ftls-model=local-exec',
+            '-internal-isystem', resource+'/include', *common, '-O'+opt,
+            '-emit-obj', str(source), '-o', str(obj)], check=True)
+        objects.append(str(obj))
+    linked = root/('linked-O'+opt+'.o')
+    subprocess.run(['ld.lld', '-m', 'elf64mmix_linux', '-r', *objects,
+                    '-o', str(linked)], check=True)
+    undefined = subprocess.check_output(['llvm-nm', '-u', str(linked)], text=True)
+    assert '__cxa_finalize' in undefined and '__llvm_libc_mmix_thread_exit' in undefined
+    assert 'terminate_after_thread_cleanup' not in undefined
+    assert 'cleanup_main_thread' not in undefined and 'termination_action' not in undefined
+    for name in ('pthread_', 'munmap', 'release_tls', '__tls_get_addr'):
+        assert name not in undefined, undefined
+    if len(sys.argv) == 4:
+        exe = root/('host-O'+opt)
+        subprocess.run([sys.argv[3], *common, '-D__mmix__', '-O'+opt,
+            '-D__cxa_finalize=test_finalize', '-include', str(root/'finish/transport.h'),
+            *map(str,sources), str(root/'test.cpp'), '-o', str(exe)], check=True)
+        for mode in range(10):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=15)
+        print('Native process completion: 10 scenarios passed at O'+opt, flush=True)
+
+#--- headers/sys/syscall.h
+#define SYS_futex 98
+#define SYS_write 64
+#define SYS_rt_sigprocmask 135
+#define SYS_clock_gettime 113
+#define SYS_set_tid_address 96
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/thread_finish.h"
+#include "src/__support/threads/linux/mmix/main_thread.h"
+#include "src/__support/threads/thread.h"
+#include "hdr/errno_macros.h"
+#include "hdr/signal_macros.h"
+#include <linux/futex.h>
+#include <sys/syscall.h>
+using namespace process_test;
+using namespace process_test::mmix;
+static void require(bool b) { if (!b) __builtin_abort(); }
+static unsigned mode, clean_main, clean_worker, finalizers, groups, terminals, waits;
+static uint64_t mask = 0x1234;
+static ThreadControl main_control, worker, helper, pending;
+struct Done { bool group; };
+namespace process_test { namespace internal {
+ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
+  return reinterpret_cast<ThreadAtExitCallbackMgr *>(0x1000);
+}
+void call_atexit_callbacks(ThreadAttributes *a) {
+  require(a == self.attrib && mask == 0x1234);
+  if (a == &main_control.attributes) {
+    require(!clean_main++);
+    cleanup_main_thread(); // Recursive main cleanup remains idempotent.
+  } else {
+    require(a == &worker.attributes && !clean_worker++);
+  }
+}
+[[noreturn]] void exit(int status) {
+  require(status == 0 && finalizers == 1 && !groups++);
+  throw Done{true};
+}
+} }
+extern "C" void test_finalize(void *dso) {
+  require(!dso && !finalizers++ && clean_main == 1);
+  require(internal::self.attrib == (mode == 0 || mode == 1 || mode == 6 || mode == 7 || mode == 9 ?
+      &main_control.attributes : &worker.attributes));
+  ThreadRegistryLock lock(thread_registry);
+  require(lock.process_exiting() && !lock.reserve());
+  require(!lock.live_threads() && !lock.pending_creations());
+  require(!lock.claim_process_exit());
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
+  require(mask == UINT64_MAX && !groups);
+  ++terminals;
+  throw Done{false};
+}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                        long c, long d, long e, long f) {
+  if (n == SYS_set_tid_address) {
+    require(a == reinterpret_cast<long>(&main_control.clear_tid.value.val));
+    return 10;
+  }
+  if (n == SYS_rt_sigprocmask) {
+    require(a == SIG_SETMASK && d == 8 && !e && !f);
+    if (c) *reinterpret_cast<uint64_t *>(c) = mask;
+    mask = *reinterpret_cast<uint64_t *>(b);
+    return 0;
+  }
+  if (n == SYS_clock_gettime) {
+    *reinterpret_cast<timespec *>(b) = {100, 0};
+    return 0;
+  }
+  require(n == SYS_futex);
+  if (b == FUTEX_WAKE_PRIVATE) return 0;
+  require(b == FUTEX_WAIT_BITSET_PRIVATE && !groups && !finalizers);
+  ++waits;
+  if (waits == 1) return -EINTR;
+  if (waits == 2) return -EAGAIN;
+  if (waits == 3) return -ETIMEDOUT;
+  ThreadRegistryLock lock(thread_registry);
+  require(lock.pending_creations() == 1 && !lock.live_threads());
+  if (mode == 5) {
+    require(lock.insert(pending, false) && lock.start(pending));
+  } else {
+    require(mode == 4 || mode == 7);
+    require(lock.cancel_reservation());
+  }
+  return 0;
+}
+static void leave(ThreadControl &c, bool group) {
+  internal::self.attrib = &c.attributes;
+  mask = 0x1234;
+  try { exit_thread(c, ThreadReturnValue(42)); }
+  catch (Done d) { require(d.group == group); }
+}
+extern "C" int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = unsigned(argv[1][0]-'0');
+  main_control.attributes.tid = 10;
+  require(internal::activate_main_thread(main_control));
+  {
+    ThreadRegistryLock lock(thread_registry);
+    if (mode == 1) require(lock.insert(helper, true, true) && lock.start(helper));
+    if (mode >= 2 && mode != 7)
+      require(lock.reserve() && lock.insert(worker, mode == 3) && lock.start(worker));
+    if (mode == 4 || mode == 5 || mode == 7) require(lock.reserve());
+  }
+  if (mode == 8 || mode == 9) {
+    // Both cleanup publications precede either termination decision. Exercise
+    // both lock orders without depending on host scheduling.
+    ThreadControl *controls[] = {&main_control, &worker};
+    for (ThreadControl *c : controls) {
+      internal::self.attrib = &c->attributes;
+      {
+        ThreadRegistryLock lock(thread_registry);
+        require(lock.begin_cleanup(*c));
+      }
+      if (c == &main_control) internal::cleanup_main_thread();
+      else internal::call_atexit_callbacks(&c->attributes);
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.close_leases(*c) && lock.exit_ready(*c, 0));
+    }
+    ThreadControl &winner = mode == 8 ? worker : main_control;
+    ThreadControl &loser = mode == 8 ? main_control : worker;
+    {
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.termination_action(winner) == ThreadTermination::Process);
+      require(lock.termination_action(loser) == ThreadTermination::ThreadOnly);
+    }
+    internal::self.attrib = &winner.attributes;
+    try { terminate_after_thread_cleanup(); }
+    catch (Done d) { require(d.group && groups == 1 && finalizers == 1); }
+    return 0;
+  }
+  if (mode == 6) {
+    // A worker finishes before main and cannot terminate the process.
+    {
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.begin_cleanup(worker) && lock.close_leases(worker));
+      require(lock.exit_ready(worker, 0));
+      require(lock.termination_action(worker) == ThreadTermination::ThreadOnly);
+    }
+    leave(main_control, true);
+    return 0;
+  }
+  leave(main_control, mode < 2 || mode == 7);
+  if (mode >= 2 && mode != 7) {
+    require(!finalizers && terminals == 1 && !clean_worker);
+    {
+      ThreadRegistryLock lock(thread_registry);
+      require(!lock.begin_reaping(main_control));
+    }
+    leave(worker, mode != 5);
+    if (mode == 5) {
+      // Creation committed: the parked finisher exits only its own task.
+      ThreadRegistryLock lock(thread_registry);
+      require(!finalizers && terminals == 2 && lock.live_threads() == 1);
+      require(lock.begin_cleanup(pending) && lock.close_leases(pending));
+      require(lock.exit_ready(pending, 0));
+      require(lock.termination_action(pending) == ThreadTermination::Process);
+      require(lock.termination_action(worker) == ThreadTermination::ThreadOnly);
+    }
+  }
+  require(mode == 5 ? groups == 0 : groups == 1);
+  require((mode == 4 || mode == 5 || mode == 7) ? waits == 4 : waits == 0);
+  require(clean_main == 1);
+  internal::cleanup_main_thread();
+  require(clean_main == 1);
+  return 0;
+}

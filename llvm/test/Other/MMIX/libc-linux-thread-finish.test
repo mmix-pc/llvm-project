@@ -91,11 +91,15 @@ static void *run(void *p) {
 }
 static int run_int(void *p) { run(p); return -37; }
 namespace finish_test { namespace internal {
+void cleanup_main_thread() { __builtin_trap(); }
 void call_atexit_callbacks(ThreadAttributes *a) {
   require(a == &control.attributes && self.attrib == a);
   require(mask == 0x5678 && runners == 1 && !callbacks++ && masks == 3);
   mask = 0x9abc; // Final blocking must not restore a stale callback mask.
 }
+} }
+namespace finish_test { namespace mmix {
+[[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
 } }
 extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
     long c, long d, long e, long f) {

@@ -9,6 +9,7 @@
 #include "thread_finish.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
+#include "main_thread.h"
 #include "src/__support/CPP/limits.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/threads/thread.h"
@@ -45,6 +46,8 @@ static Futex::Timeout lease_deadline() {
                                 ThreadReturnValue result) {
   // Cancellation must remain suppressed through terminal entry. No public
   // cancellation/forced-unwind admission is implied by this internal boundary.
+  if (internal::self.attrib != &control.attributes)
+    __builtin_trap();
   set_mask(UINT64_MAX);
   {
     ThreadRegistryLock lock(thread_registry);
@@ -62,6 +65,22 @@ static Futex::Timeout lease_deadline() {
       sequence = lock.sequence();
     }
     if (ready)
+      break;
+    auto waited = thread_registry.wait(sequence, lease_deadline());
+    if (!waited && waited.error() != ETIMEDOUT)
+      __builtin_trap();
+  }
+  for (;;) {
+    ThreadTermination action;
+    uint32_t sequence;
+    {
+      ThreadRegistryLock lock(thread_registry);
+      action = lock.termination_action(control);
+      sequence = lock.sequence();
+    }
+    if (action == ThreadTermination::Process)
+      terminate_after_thread_cleanup();
+    if (action == ThreadTermination::ThreadOnly)
       break;
     auto waited = thread_registry.wait(sequence, lease_deadline());
     if (!waited && waited.error() != ETIMEDOUT)
@@ -90,18 +109,28 @@ __llvm_libc_mmix_thread_run(ThreadControl *control) {
   else
     __builtin_trap();
 
+  exit_thread(*control, result);
+}
+
+[[noreturn]] void exit_thread(ThreadControl &control,
+                              ThreadReturnValue result) {
+  if (internal::self.attrib != &control.attributes)
+    __builtin_trap();
   uint64_t callback_mask;
   set_mask(UINT64_MAX, &callback_mask);
   {
     ThreadRegistryLock lock(thread_registry);
-    if (!lock.begin_cleanup(*control))
+    if (!lock.begin_cleanup(control))
       __builtin_trap();
   }
   set_mask(callback_mask);
   // Reuse only the selected internal callback/TSS manager. Full public TLS
   // destruction, cancellation and explicit exit need their own integration.
-  internal::call_atexit_callbacks(&control->attributes);
-  finish_thread(*control, result);
+  if (control.retains_resources_until_process_exit())
+    internal::cleanup_main_thread();
+  else
+    internal::call_atexit_callbacks(&control.attributes);
+  finish_thread(control, result);
 }
 
 extern "C" [[clang::disable_tail_calls]] void

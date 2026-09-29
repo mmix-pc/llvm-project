@@ -338,5 +338,21 @@ bool ThreadRegistryLock::claim_process_exit() {
   return true;
 }
 
+ThreadTermination
+ThreadRegistryLock::termination_action(const ThreadControl &c) {
+  if (!belongs(c) || c.internal_helper || c.counted ||
+      c.execution != ThreadExecution::ExitReady)
+    __builtin_trap();
+  if (registry.exiting || registry.live)
+    return ThreadTermination::ThreadOnly;
+  // Keep this application context alive until a pending creation either
+  // contributes a live peer or rolls back its reservation.
+  if (registry.reservations)
+    return ThreadTermination::WaitForCreation;
+  if (!claim_process_exit())
+    __builtin_trap();
+  return ThreadTermination::Process;
+}
+
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

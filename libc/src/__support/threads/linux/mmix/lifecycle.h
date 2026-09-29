@@ -38,6 +38,7 @@ enum class ThreadOwner {
   Reaped
 };
 enum class ThreadExecution { Starting, Running, Cleaning, ExitReady };
+enum class ThreadTermination { ThreadOnly, WaitForCreation, Process };
 enum class ChildStatus : uint32_t { Starting, Ready, Failed };
 enum class CreatorDecision : uint32_t { Hold, Go, Abort };
 
@@ -188,6 +189,7 @@ public:
   size_t pending_creations() const { return registry.reservations; }
   bool process_exiting() const { return registry.exiting; }
   bool claim_process_exit();
+  ThreadTermination termination_action(const ThreadControl &control);
 };
 
 } // namespace mmix

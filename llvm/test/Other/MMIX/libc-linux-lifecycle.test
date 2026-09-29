@@ -201,7 +201,7 @@ namespace startup_test::internal {
 }
 }
 static void unused() {}
-int main(int argc, char **argv) {
+extern "C" int main(int argc, char **argv) {
   require(argc == 2);
   mode = argv[1][0] == 't' ? 1 : argv[1][0] == 'r' ? 2 :
          argv[1][0] == 'e' ? 3 : argv[1][0] == 'c' ? 4 :

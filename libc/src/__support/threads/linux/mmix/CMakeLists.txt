@@ -82,11 +82,14 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   )
   add_object_library(
     thread_finish
-    SRCS thread_finish.cpp
+    SRCS thread_finish.cpp thread_process_exit.cpp
     HDRS thread_finish.h
     DEPENDS
       .thread_start
+      .main_thread
       .lifecycle
+      libc.src.__support.OSUtil.osutil
+      libc.src.stdlib.atexit
       libc.hdr.signal_macros
       libc.src.__support.threads.thread_common
       libc.src.__support.CPP.limits
