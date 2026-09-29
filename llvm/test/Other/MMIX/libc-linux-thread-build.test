@@ -1,0 +1,40 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+base = ['cmake', '-S', str(root), '-DLIBC_SOURCE='+str(libc.resolve())]
+cases = [([], True), (['-DTLS=OFF'], False), (['-DSTATE=OFF'], False),
+         (['-DTHREADS=LIBC_THREAD_MODE_SINGLE'], False),
+         (['-DERRNO=LIBC_ERRNO_MODE_SHARED'], False),
+         (['-DOPTIONS=-fno-lto'], False), (['-DOPTIONS=-ftls-model=local-exec'], False),
+         (['-DLIBC_MMIX_INSTALL_RUNTIME=ON'], False)]
+for name in ('ALLOCATION', 'STDIO', 'FORK', 'SPAWN', 'SIGNAL_RUNTIME', 'C_RUNTIME'):
+    cases.append((['-DLIBC_MMIX_BUILD_'+name+'=ON'], False))
+for i, (args, success) in enumerate(cases):
+    result = subprocess.run([*base, '-B', str(root/str(i)), *args], capture_output=True, text=True)
+    assert (result.returncode == 0) == success, result.stdout+result.stderr
+    if not success:
+        assert 'MMIX' in result.stderr and ('requires' in result.stderr or 'not' in result.stderr)
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(InternalThreadMode NONE)
+set(TLS ON CACHE BOOL "")
+set(STATE ON CACHE BOOL "")
+set(THREADS LIBC_THREAD_MODE_PLATFORM CACHE STRING "")
+set(ERRNO LIBC_ERRNO_MODE_THREAD_LOCAL CACHE STRING "")
+set(OPTIONS "-ftls-model=local-exec;-fno-lto" CACHE STRING "")
+set(LIBC_MMIX_ENABLE_STATIC_TLS ${TLS})
+set(LIBC_MMIX_BUILD_RUNTIME_STATE ${STATE})
+set(LIBC_MMIX_BUILD_THREAD_LIFECYCLE ON)
+set(LIBC_CONF_THREAD_MODE ${THREADS})
+set(LIBC_CONF_ERRNO_MODE ${ERRNO})
+set(LIBC_COMPILE_OPTIONS_DEFAULT ${OPTIONS})
+include(${LIBC_SOURCE}/config/linux/mmix/RuntimeMode.cmake)
+mmix_check_runtime_mode()
