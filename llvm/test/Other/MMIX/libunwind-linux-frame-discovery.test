@@ -12,7 +12,7 @@
 
 struct Image {
   Elf64_Ehdr elf;
-  Elf64_Phdr phdr[3];
+  Elf64_Phdr phdr[4];
   unsigned char index[20];
   uint32_t frames[4];
   char text[8];
@@ -70,6 +70,28 @@ int main() {
   CHECK(info.dso_base == base && info.dwarf_section == frames);
   CHECK(info.dwarf_section_length == base + sizeof(image) - frames);
   CHECK(info.dwarf_index_section == index && info.dwarf_index_section_length == 20);
+  // Static TLS metadata is independent of the mapped EH index, including an
+  // empty or zero-only template. No section table or dynamic loader is needed.
+  auto &tls = image.phdr[3];
+  elf.e_phnum = 4;
+  tls.p_type = PT_TLS;
+  tls.p_flags = PF_R;
+  tls.p_vaddr = frames;
+  tls.p_offset = frames - base;
+  tls.p_filesz = 8;
+  tls.p_memsz = 16;
+  tls.p_align = 8;
+  CHECK(find());
+  tls.p_filesz = 0;
+  CHECK(find());
+  tls.p_memsz = 0;
+  CHECK(find());
+  const unsigned dynamicTypes[] = {PT_INTERP, PT_DYNAMIC};
+  for (unsigned type : dynamicTypes) {
+    tls.p_type = type;
+    CHECK(!find());
+  }
+  elf.e_phnum = 3;
   // Both ends of the executable file-backed range are exclusive as appropriate.
   pc -= 1;
   CHECK(!find());

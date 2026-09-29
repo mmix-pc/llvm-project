@@ -53,8 +53,9 @@ bool findMMIXLinuxUnwindSections(A &addressSpace, const Elf64_Ehdr &elf,
   bool foundPC = false, foundHeaders = false;
   for (unsigned i = 0; i < elf.e_phnum; ++i) {
     const auto &p = phdr[i];
-    if (p.p_type == PT_INTERP || p.p_type == PT_DYNAMIC || p.p_type == PT_TLS)
+    if (p.p_type == PT_INTERP || p.p_type == PT_DYNAMIC)
       return false;
+    // Static TLS is initialized by the CRT; it does not change frame discovery.
     if (p.p_type == PT_GNU_EH_FRAME) {
       if (eh)
         return false;
