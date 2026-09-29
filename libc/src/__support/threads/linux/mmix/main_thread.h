@@ -10,9 +10,23 @@
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_MAIN_THREAD_H
 
 #include "src/__support/macros/config.h"
+#include "src/__support/threads/thread_attributes.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
+
+struct MainThreadState {
+  ThreadAttributes attributes;
+  // Reserve the entire octa: the kernel writes only the native 32-bit word.
+  struct alignas(8) ClearTID {
+    uint32_t value = UINT32_MAX;
+    uint32_t reserved = 0;
+  } clear_tid;
+};
+static_assert(sizeof(MainThreadState::ClearTID) == 8);
+
+// Post-TP only. The caller prepared the identity, mapping and non-owned stacks.
+bool activate_main_thread(MainThreadState &state);
 
 // Called by Linux CRT before constructors or any current_thread() consumer.
 // Failure leaves state unpublished. Repeated initialization while active is

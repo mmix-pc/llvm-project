@@ -1,0 +1,201 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-process-args.test %t/args
+# RUN: split-file %S/libc-linux-synchronization.test %t/args/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+args = root / "args"
+subprocess.run([sys.executable, str(args / "run.py"), str(libc), str(args)], check=True)
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=startup_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+          "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL", "-DSYS_gettid=178",
+          "-DSYS_set_tid_address=96", "-I", str(args / "headers"),
+          "-I", str(args / "sync"), "-I", str(libc), "-I", str(libc / "include")]
+sources = [libc / "startup/linux/mmix" / (name + ".cpp")
+           for name in ("tls_prepare", "tls_post", "bootstrap", "lifecycle")]
+sources += [libc / "src/__support/threads/linux/mmix/main_thread.cpp",
+            libc / "src/errno/libc_errno.cpp"]
+renames = ["-Dmain=program_main"]
+for kind in ("preinit", "init", "fini"):
+    for bound in ("start", "end"):
+        name = "__" + kind + "_array_" + bound
+        renames.append("-D" + name + "=test" + name)
+for opt in ("0", "2"):
+    for source in sources:
+        obj = root / (source.stem + "-O" + opt + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+            "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+            "-ftls-model=local-exec", *common, "-O" + opt, "-emit-obj", "-o", str(obj), str(source)], check=True)
+        report = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
+        assert ".init_array" not in report, report
+        if source.stem == "bootstrap":
+            assert "SHF_TLS" not in report and "R_MMIX_TPREL" not in report, report
+        if source.stem == "tls_prepare":
+            assert "SHF_TLS" not in report and "R_MMIX_TPREL" not in report, report
+            undefined = subprocess.check_output(["llvm-nm", "-u", "--demangle", str(obj)], text=True)
+            for line in undefined.splitlines():
+                assert any(name in line for name in ("parse_process_args(", "allocate_tls(",
+                                                    "__llvm_libc_mmix_syscall")), line
+        if source.stem in ("main_thread", "libc_errno"):
+            assert "SHF_TLS" in report and "R_MMIX_TPREL" in report, report
+    if len(sys.argv) == 4:
+        objects = []
+        for source in sources:
+            obj = root / (source.stem + "-native-O" + opt + ".o")
+            subprocess.run([sys.argv[3], "-include", str(root / "transport.h"), *common, "-D__mmix__", "-fno-stack-protector",
+                *(renames if source.stem == "lifecycle" else []), "-O" + opt,
+                "-c", str(source), "-o", str(obj)], check=True)
+            objects.append(str(obj))
+        exe = root / ("native-O" + opt)
+        subprocess.run([sys.argv[3], "-include", str(root / "transport.h"), *common, "-D__mmix__", "-O" + opt, *objects,
+                        str(root / "test.cpp"), "-o", str(exe)], check=True)
+        for mode in range(9):
+            subprocess.run([str(exe), str(mode)], check=True)
+
+# Host execution uses real startup, TLS errno/self and lifecycle code, with
+# injected metadata/allocation/syscalls/callback registration. It does not
+# execute the MMIX TP handoff or qualify Linux guest startup.
+#--- transport.h
+// Inject the MMIX syscall transport while retaining generic checked wrappers.
+#define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_X86_64_SYSCALL_H
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
+#--- test.cpp
+#include "startup/linux/mmix/tls_startup.h"
+#include "startup/linux/mmix/tls_handoff.h"
+#include "src/__support/threads/linux/mmix/tls.h"
+#include "src/__support/threads/thread.h"
+#include "src/__support/libc_errno.h"
+#include "src/unistd/environ.h"
+#include "src/errno/program_invocation_name.h"
+#include "src/errno/program_invocation_short_name.h"
+#include <sys/syscall.h>
+using namespace startup_test;
+using namespace startup_test::mmix;
+static void require(bool b) { if (!b) __builtin_abort(); }
+static int mode, step, drains, finis;
+static StartupState *prepared;
+static Args arguments{0, {0}};
+static uintptr_t environment[1];
+static auxv::Entry auxiliary[] = {{0, 0}};
+static unsigned char random_bytes[8];
+static thread_local int constructor_tls;
+static void (*registered_fini)();
+struct Done { bool failed; };
+namespace startup_test {
+char **environ;
+char *program_invocation_name;
+char *program_invocation_short_name;
+namespace mmix {
+bool parse_process_args(uintptr_t *, ProcessArgs &out) {
+  require(step++ == 0 && !internal::self.attrib && !app.args);
+  out = {&arguments, environment, auxiliary, random_bytes, 8192, nullptr, 0,
+         {4096, 80, 8, 64}, true};
+  return mode != 1;
+}
+TLSResult allocate_tls(const TLSImage &, uintptr_t page, void *control, TLSDescriptor &out) {
+  require(step++ == 2 && page == 8192 && !internal::self.attrib && !app.args);
+  auto &thread = *static_cast<internal::MainThreadState *>(control);
+  require(thread.attributes.tid == 321 && thread.clear_tid.value == UINT32_MAX);
+  require(reinterpret_cast<uintptr_t>(&thread.clear_tid) % 8 == 0);
+  if (mode == 4) return {TLSError::MapFailed};
+  out = {8192, 16384, 16448};
+  return {};
+}
+}
+namespace internal {
+ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
+  require(step++ == 5 && self.attrib == &prepared->thread.attributes && int(libc_errno) == 0);
+  require(!app.args && !environ);
+  return mode == 5 ? nullptr : reinterpret_cast<ThreadAtExitCallbackMgr *>(1);
+}
+void call_atexit_callbacks(ThreadAttributes *attributes) {
+  require(attributes == self.attrib && attributes->tls == 16384 && ++drains == 1);
+  cleanup_main_thread(); // Reentrant cleanup must not drain twice.
+}
+}
+int atexit(void (*fn)()) {
+  require(step++ == 7 && internal::initialize_main_thread());
+  require(app.args == &arguments && app.env_ptr == environment && app.page_size == 8192);
+  require(app.tls.address == 4096 && app.tls.size == 80 && app.tls.align == 64);
+  require(environ == reinterpret_cast<char **>(environment));
+  require(&*auxv::Vector::begin() == auxiliary);
+  registered_fini = fn;
+  return mode == 7 ? -1 : 0;
+}
+[[noreturn]] void exit(int status) {
+  require(status == 42 && step == 11);
+  internal::cleanup_main_thread();
+  internal::cleanup_main_thread();
+  registered_fini();
+  require(drains == 1 && finis == 1 && constructor_tls == 9);
+  require(!internal::initialize_main_thread());
+  throw Done{false};
+}
+}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c,
+                                        long d, long e, long f) {
+  require(!(b | c | d | e | f));
+  if (n == SYS_gettid) {
+    require(step++ == 1 && !a && !internal::self.attrib);
+    return mode == 2 ? 0 : mode == 3 ? 2147483648L : 321;
+  }
+  require(n == SYS_set_tid_address && step++ == 6);
+  require(a == reinterpret_cast<long>(&prepared->thread.clear_tid.value));
+  require(internal::self.attrib == &prepared->thread.attributes && !app.args);
+  return mode == 6 ? -22 : mode == 8 ? 322 : 321;
+}
+extern "C" void __llvm_libc_mmix_linux_init_guard(const unsigned char *p) {
+  require(step++ == 3 && p == random_bytes && !internal::self.attrib && !app.args);
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start_fail() {
+  require(!drains && !finis && !constructor_tls);
+  if (mode != 7) require(!app.args && !internal::self.attrib);
+  throw Done{true};
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_tls_handoff(uintptr_t tp, StartupState *state) {
+  require(step++ == 4 && tp == 16448 && !internal::self.attrib);
+  prepared = state;
+  auto &a = state->thread.attributes;
+  require(a.tls == 16384 && a.tls_size == 8192 && !a.stack && !a.stacksize && !a.owned_stack);
+  require(a.platform_data == &state->thread.clear_tid.value);
+  libc_errno = 37;
+  __llvm_libc_mmix_linux_post_tls(state);
+}
+extern "C" void pre(int, char **, char **) {
+  require(step++ == 8 && !constructor_tls && int(libc_errno) == 0);
+  require(internal::initialize_main_thread());
+  constructor_tls = 8;
+}
+extern "C" void init(int, char **, char **) {
+  require(step++ == 9 && constructor_tls == 8);
+  constructor_tls = 9;
+}
+extern "C" void fini() { require(constructor_tls == 9); ++finis; }
+// Adjacent bounds are supplied by assembly, not by host constructor sections.
+asm(".data\n"
+    ".global test__preinit_array_start,test__preinit_array_end\n"
+    "test__preinit_array_start: .quad pre\n test__preinit_array_end:\n"
+    ".global test__init_array_start,test__init_array_end\n"
+    "test__init_array_start: .quad init\n test__init_array_end:\n"
+    ".global test__fini_array_start,test__fini_array_end\n"
+    "test__fini_array_start: .quad fini\n test__fini_array_end:\n");
+extern "C" int program_main(int, char **, char **) {
+  require(step++ == 10 && constructor_tls == 9 && int(libc_errno) == 0);
+  return 42;
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start(uintptr_t *);
+extern "C" int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = argv[1][0] - '0';
+  try { __llvm_libc_mmix_linux_start(nullptr); }
+  catch (Done result) { require(result.failed == (mode != 0)); }
+  require(prepare_tls_startup(nullptr) == nullptr);
+  return 0;
+}
