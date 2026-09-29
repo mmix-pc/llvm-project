@@ -93,6 +93,8 @@ private:
   friend class ThreadRegistryLock;
   ThreadRegistry *registry = nullptr;
   ThreadControl *next = nullptr;
+  ThreadControl *reap_next = nullptr;
+  bool queued = false;
   ThreadOwner owner = ThreadOwner::Unpublished;
   ThreadExecution execution = ThreadExecution::Starting;
   bool creator_pin = true, lifecycle_pin = true;
@@ -111,6 +113,8 @@ class ThreadRegistry {
   } mutex;
   LifecycleWord event;
   ThreadControl *head = nullptr;
+  ThreadControl *reap_head = nullptr, *reap_tail = nullptr;
+  size_t reap_count = 0;
   size_t live = 0, reservations = 0;
   bool exiting = false;
   bool main_registered = false;
@@ -133,6 +137,8 @@ class ThreadRegistryLock {
   ThreadRegistry &registry;
   bool changed = false;
   bool belongs(const ThreadControl &control) const;
+  void enqueue_completed(ThreadControl &control);
+  void remove_queued(ThreadControl &control);
   void change() { changed = true; }
 
 public:
@@ -170,6 +176,11 @@ public:
   // Normal completion additionally requires cleanup/result publication.
   bool begin_reaping(ThreadControl &control);
   bool finish_reaping(ThreadControl &control);
+  // The sole reaper borrows lifecycle ownership when taking a candidate.
+  // Rotation alone does not notify the event and cannot create a busy loop.
+  size_t queued_reclaims() const { return registry.reap_count; }
+  ThreadControl *take_reap_candidate();
+  bool requeue_candidate(ThreadControl &control);
   ThreadOwner owner(const ThreadControl &control) const {
     return control.owner;
   }

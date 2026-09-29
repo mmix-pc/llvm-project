@@ -38,6 +38,17 @@ for opt in ('0','2'):
         assert name not in undef, undef
     report = subprocess.check_output(['llvm-readobj','--sections','--relocations',str(obj)],text=True)
     assert '.init_array' not in report and 'R_MMIX_TPREL' in report
+    service = root/('service-O'+opt+'.o')
+    subprocess.run(['clang', '-cc1', '-triple', 'mmix-unknown-linux',
+        '-mrelocation-model', 'static', '-internal-isystem', resource+'/include',
+        *common, '-O'+opt, '-emit-obj',
+        str(libc/'src/__support/threads/linux/mmix/thread_reaper_loop.cpp'),
+        '-o', str(service)], check=True)
+    complete = root/('service-linked-O'+opt+'.o')
+    subprocess.run(['ld.lld', '-m', 'elf64mmix_linux', '-r', str(obj), str(service),
+                    '-o', str(complete)], check=True)
+    assert '__llvm_libc_mmix_reaper_loop' not in subprocess.check_output(
+        ['llvm-nm', '-u', str(complete)], text=True)
     if len(sys.argv) == 4:
         import resource as limits
         limits.setrlimit(limits.RLIMIT_CORE,(0,0))

@@ -20,8 +20,11 @@ namespace mmix {
 ThreadCreationResult ensure_thread_reaper(const TLSImage &image,
                                          uintptr_t page_size);
 
-// The native queue service owns this endpoint. No idle/success stub is a valid
-// provider; a returning service is a fatal loss of detached cleanup.
+// Sole reaper only, with signals/cancellation blocked. One pass handles only
+// the initial queue length; delayed clear or references rotate to its tail.
+bool reap_detached_pass();
+
+// A returning service is a fatal loss of detached cleanup.
 extern "C" __attribute__((visibility("hidden"))) void
 __llvm_libc_mmix_reaper_loop();
 

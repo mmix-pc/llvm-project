@@ -167,6 +167,7 @@ bool ThreadRegistryLock::detach(ThreadControl &c) {
   if (!belongs(c) || !c.api_pins || c.owner != ThreadOwner::Joinable)
     return false;
   c.owner = ThreadOwner::Detached;
+  enqueue_completed(c);
   change();
   return true;
 }
@@ -193,6 +194,7 @@ bool ThreadRegistryLock::exit_ready(ThreadControl &c,
     return false;
   c.attributes.retval = result;
   c.execution = ThreadExecution::ExitReady;
+  enqueue_completed(c);
   if (c.counted) {
     --registry.live;
     c.counted = false;
@@ -234,6 +236,7 @@ bool ThreadRegistryLock::begin_reaping(ThreadControl &c) {
         c.owner != ThreadOwner::Detached) ||
        c.execution != ThreadExecution::ExitReady))
     return false;
+  remove_queued(c);
   if (c.listed) {
     ThreadControl **link = &registry.head;
     while (*link != &c)
@@ -261,7 +264,7 @@ bool ThreadRegistryLock::abort_ready(ThreadControl &c) {
 }
 
 bool ThreadRegistryLock::finish_reaping(ThreadControl &c) {
-  if (!belongs(c) || c.owner != ThreadOwner::Reaping || c.creator_pin ||
+  if (!belongs(c) || c.queued || c.owner != ThreadOwner::Reaping || c.creator_pin ||
       c.api_pins || c.leases)
     return false;
   c.owner = ThreadOwner::Reaped;
@@ -270,6 +273,61 @@ bool ThreadRegistryLock::finish_reaping(ThreadControl &c) {
   // The exclusive reclaimer copies descriptors before this transfer. It may
   // unmap only after unlocking, and must retain failed-unmap ownership itself.
   return true;
+}
+
+void ThreadRegistryLock::enqueue_completed(ThreadControl &c) {
+  if (c.owner != ThreadOwner::Detached ||
+      c.execution != ThreadExecution::ExitReady || c.queued ||
+      c.process_lifetime || c.internal_helper)
+    return;
+  if (!requeue_candidate(c))
+    __builtin_trap();
+  change();
+}
+
+bool ThreadRegistryLock::requeue_candidate(ThreadControl &c) {
+  if (!belongs(c) || c.queued || c.process_lifetime || c.internal_helper ||
+      c.execution != ThreadExecution::ExitReady ||
+      (c.owner != ThreadOwner::Detached && c.owner != ThreadOwner::Reaping))
+    return false;
+  c.queued = true;
+  c.reap_next = nullptr;
+  if (registry.reap_tail)
+    registry.reap_tail->reap_next = &c;
+  else
+    registry.reap_head = &c;
+  registry.reap_tail = &c;
+  ++registry.reap_count;
+  return true;
+}
+
+ThreadControl *ThreadRegistryLock::take_reap_candidate() {
+  ThreadControl *c = registry.reap_head;
+  if (!c)
+    return nullptr;
+  registry.reap_head = c->reap_next;
+  if (!registry.reap_head)
+    registry.reap_tail = nullptr;
+  c->reap_next = nullptr;
+  c->queued = false;
+  --registry.reap_count;
+  return c;
+}
+
+void ThreadRegistryLock::remove_queued(ThreadControl &c) {
+  if (!c.queued)
+    return;
+  ThreadControl **link = &registry.reap_head, *previous = nullptr;
+  while (*link != &c) {
+    previous = *link;
+    link = &(*link)->reap_next;
+  }
+  *link = c.reap_next;
+  if (registry.reap_tail == &c)
+    registry.reap_tail = previous;
+  c.reap_next = nullptr;
+  c.queued = false;
+  --registry.reap_count;
 }
 
 bool ThreadRegistryLock::claim_process_exit() {

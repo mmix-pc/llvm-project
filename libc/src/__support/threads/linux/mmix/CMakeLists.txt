@@ -67,6 +67,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     SRCS thread_create.cpp thread_reaper.cpp
     HDRS thread_create.h thread_reaper.h
     DEPENDS
+      .thread_reaper_service
       .thread_reclaim
       .resources
       .thread_entry
@@ -112,6 +113,22 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       .thread_reclaim
       libc.hdr.errno_macros
       libc.src.__support.threads.thread_common
+    COMPILE_OPTIONS -fno-lto
+  )
+  add_object_library(
+    thread_detach
+    SRCS thread_detach.cpp
+    HDRS thread_detach.h
+    DEPENDS .lifecycle libc.hdr.errno_macros
+  )
+  add_object_library(
+    thread_reaper_service
+    SRCS thread_reaper_loop.cpp
+    DEPENDS
+      .resources
+      libc.src.__support.CPP.limits
+      libc.src.__support.OSUtil.linux.mmix.syscall
+      libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto
   )
 endif()
