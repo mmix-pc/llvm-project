@@ -40,6 +40,12 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.OSUtil.linux.mmix.syscall
       libc.include.sys_syscall
   )
+  add_object_library(
+    thread_entry
+    SRCS thread_entry.S
+    HDRS thread_entry.h
+    DEPENDS .tls_h libc.include.sys_syscall
+  )
 endif()
 
 add_object_library(

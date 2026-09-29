@@ -1,0 +1,151 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+# RUN: llvm-objdump -dr %t/entry.o | FileCheck %s --check-prefix=ENTRY
+# RUN: llvm-readobj --symbols %t/entry.o | FileCheck %s --check-prefix=SYMBOL
+
+# Exact instruction sequences are the syscall/dual-stack boundary, not a
+# compiler prologue preference. Nonzero parent results skip all child code.
+# ENTRY-LABEL: <__llvm_libc_mmix_clone_thread>:
+# ENTRY-NEXT: {{.*}} SETL r237, 0xdc
+# ENTRY-NEXT: {{.*}} TRAP 0x1, 0x0, 0x0
+# ENTRY-NEXT: {{.*}} BNZ r231, 0x5
+# ENTRY-NEXT: {{.*}} LDOU r231, r230, 0x8
+# ENTRY-NEXT: {{.*}} PUSHJ r31, 0x0
+# ENTRY-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE{{.*}}__llvm_libc_mmix_thread_start
+# ENTRY-NEXT: {{.*}} TRAP 0xff, 0x0, 0x0
+# ENTRY-NEXT: {{.*}} JMPB -0x1
+# ENTRY-NEXT: {{.*}} POP 0x0, 0x0
+# ENTRY-NOT: {{[0-9a-f]+:}}
+# ENTRY-LABEL: <__llvm_libc_mmix_thread_exit>:
+# ENTRY-NEXT: {{.*}} SETL r231, 0x0
+# ENTRY-NEXT: {{.*}} SETL r237, 0x5d
+# ENTRY-NEXT: {{.*}} TRAP 0x1, 0x0, 0x0
+# ENTRY-NEXT: {{.*}} TRAP 0xff, 0x0, 0x0
+# ENTRY-NEXT: {{.*}} JMPB -0x1
+# ENTRY-NOT: {{[0-9a-f]+:}}
+# SYMBOL: Name: __llvm_libc_mmix_clone_thread
+# SYMBOL: Size: 32
+# SYMBOL: Binding: Global
+# SYMBOL: Type: Function
+# SYMBOL: STV_HIDDEN
+# SYMBOL: Name: __llvm_libc_mmix_thread_start
+# SYMBOL: STV_HIDDEN
+# SYMBOL: Section: Undefined
+# SYMBOL: Name: __llvm_libc_mmix_thread_exit
+# SYMBOL: Size: 20
+# SYMBOL: Binding: Global
+# SYMBOL: Type: Function
+# SYMBOL: STV_HIDDEN
+
+#--- run.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+def run(*args):
+    subprocess.run(list(map(str, args)), check=True)
+def output(*args):
+    return subprocess.check_output(list(map(str, args)), text=True)
+def undefined(path):
+    return {line.split()[-1] for line in output("llvm-nm", "-u", path).splitlines()}
+def body(disasm, name):
+    return disasm.split("<" + name + ">:\n", 1)[1].split("\n\n", 1)[0]
+
+# Generate the real libc syscall adapter header; the fixture supplies only UAPI
+# numbers. Actual MMIX UAPI is used by the separate CMake provider build.
+headers = root / "headers"
+run(sys.executable, libc / "utils/hdrgen/main.py", "-o", headers / "sys/syscall.h",
+    libc / "include/sys/syscall.yaml")
+common = ["clang", "--target=mmix-unknown-linux", "-ffreestanding", "-fno-builtin",
+          "-fno-exceptions", "-fno-stack-protector", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=entry_test", "-I", libc, "-I", headers]
+source = libc / "src/__support/threads/linux/mmix/thread_entry.S"
+entry = root / "entry.o"
+# .S remains a native, opaque provider even when the caller enables Full LTO.
+run(*common, "-flto=full", "-c", source, "-o", entry)
+assert entry.read_bytes().startswith(b"\x7fELF")
+assert undefined(entry) == {"__llvm_libc_mmix_thread_start"}
+sections = output("llvm-readobj", "--sections", entry)
+assert ".note.GNU-stack" in sections and "SHF_TLS" not in sections
+assert ".init_array" not in sections
+
+# Prove syscall values come from the selected UAPI, not private literals.
+alternate = root / "alternate.o"
+run(*common, "-D__NR_clone=321", "-D__NR_exit=322", "-c", source, "-o", alternate)
+alternate_text = output("llvm-objdump", "-d", alternate)
+assert "SETL r237, 0x141" in alternate_text
+assert "SETL r237, 0x142" in alternate_text
+
+for mode, flags in (("o0", ["-O0"]), ("o2", ["-O2"]),
+                    ("lto-o0", ["-O0", "-flto=full"]),
+                    ("lto-o2", ["-O2", "-flto=full"])):
+    objects = []
+    for name in ("parent", "child"):
+        obj = root / (mode + "-" + name + ".o")
+        run(*common, *flags, "-c", root / (name + ".cpp"), "-o", obj)
+        objects.append(obj)
+        ir = root / (mode + "-" + name + ".ll")
+        run(*common, *flags, "-S", "-emit-llvm", root / (name + ".cpp"), "-o", ir)
+        text = ir.read_text()
+        if name == "parent":
+            assert re.search(r"call i64 @__llvm_libc_mmix_clone_thread\(i64[^,]* 4001536, i64[^,]* 1048576, ptr[^,]*inttoptr \(i64 2097152 to ptr\), ptr[^,]*inttoptr \(i64 3145728 to ptr\), i64[^)]* 4194304\)", text), text
+        else:
+            assert re.search(r"call void @__llvm_libc_mmix_thread_exit\(\)[^\n]*\n\s*unreachable", text), text
+    elf = root / (mode + ".elf")
+    run(*common, *flags, "-nostdlib", "-Wl,--threads=1,-e,_start", *objects,
+        entry, "-o", elf)
+    assert not undefined(elf)
+    disasm = output("llvm-objdump", "-d", elf)
+    symbols = {line.split()[-1]: int(line.split()[0], 16)
+               for line in output("llvm-nm", "--defined-only", elf).splitlines()}
+    clone = body(disasm, "__llvm_libc_mmix_clone_thread")
+    terminal = body(disasm, "__llvm_libc_mmix_thread_exit")
+    parent = body(disasm, "_start")
+    # Ordinary compiled callers pass all five arguments in globals. The opaque
+    # native helper neither redirects TP nor returns the child into this body.
+    for reg in range(231, 236):
+        assert re.search(r"\br" + str(reg) + r"\b", parent), parent
+    assert "r230" not in parent, parent
+    assert "LDOU r231, r230, 0x8" in clone and "BNZ r231, 0x5" in clone
+    pc, disp = re.search(r"([0-9a-f]+):[^\n]*\tPUSHJB? r31, (-?0x[0-9a-f]+)", clone).groups()
+    assert int(pc, 16) + 4 * int(disp, 16) == symbols["__llvm_libc_mmix_thread_start"]
+    assert len(re.findall(r"\bPOP\b", clone)) == 1
+    assert not re.search(r"\b(?:GET|PUT)\b|\br25[34]\b", clone), clone
+    assert not re.search(r"\b(?:POP|PUSHJ|PUSHGO|GET|PUT|LDOU|STOU)\b|\br230\b|\br25[34]\b", terminal), terminal
+    assert "SETL r231, 0x0" in terminal and "SETL r237, 0x5d" in terminal
+    assert "TRAP 0xff, 0x0, 0x0" in terminal
+    assert "JMPB -0x1" in terminal
+    program = output("llvm-readobj", "--program-headers", elf)
+    assert "PT_INTERP" not in program and "PT_DYNAMIC" not in program
+
+#--- headers/asm/unistd.h
+#ifndef __NR_clone
+#define __NR_clone 220
+#endif
+#ifndef __NR_exit
+#define __NR_exit 93
+#endif
+
+#--- parent.cpp
+#include "src/__support/threads/linux/mmix/thread_entry.h"
+using namespace entry_test::mmix;
+extern "C" long _start() {
+  return __llvm_libc_mmix_clone_thread(0x3d0f00, 0x100000,
+      reinterpret_cast<uint32_t *>(0x200000),
+      reinterpret_cast<uint32_t *>(0x300000), 0x400000);
+}
+
+#--- child.cpp
+// Only a test endpoint, not the runtime's future startup/cleanup implementation.
+// These links inspect boundary composition and are never executed.
+#include "src/__support/threads/linux/mmix/thread_entry.h"
+namespace entry_test { namespace mmix {
+volatile uintptr_t observed_control;
+extern "C" [[noreturn]] void __llvm_libc_mmix_thread_start(ThreadControl *control) {
+  observed_control = reinterpret_cast<uintptr_t>(control);
+  __llvm_libc_mmix_thread_exit();
+}
+} }
