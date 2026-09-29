@@ -28,6 +28,18 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.threads.raw_mutex
       libc.src.__support.threads.thread_attributes
   )
+  add_object_library(
+    resources
+    SRCS resources.cpp
+    HDRS resources.h
+    DEPENDS
+      .lifecycle
+      .tls
+      libc.hdr.pthread_macros
+      libc.src.__support.CPP.new
+      libc.src.__support.OSUtil.linux.mmix.syscall
+      libc.include.sys_syscall
+  )
 endif()
 
 add_object_library(
