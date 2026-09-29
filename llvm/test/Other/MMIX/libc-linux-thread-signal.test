@@ -1,0 +1,243 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: split-file %S/libc-linux-thread-finish.test %t/finish
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import resource as limits
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(['clang', '-print-resource-dir'], text=True).strip()
+common = ['-std=c++17', '-ffreestanding', '-fno-builtin', '-DLIBC_FULL_BUILD',
+          '-DLIBC_NAMESPACE=signal_test', '-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM',
+          '-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL',
+          '-I', str(root/'headers'), '-I', str(root/'finish/headers'),
+          '-I', str(root/'sync'), '-I', str(libc), '-I', str(libc/'include')]
+sources = [libc/'src/__support/threads/linux/mmix'/n for n in
+           ('thread_signal.cpp', 'lifecycle.cpp', 'thread_finish.cpp', 'thread_start.cpp')]
+sources.append(libc/'src/errno/libc_errno.cpp')
+for opt in ('0', '2'):
+    objects = []
+    for i, source in enumerate(sources):
+        obj = root/(str(i)+'-O'+opt+'.o')
+        subprocess.run(['clang', '-cc1', '-triple', 'mmix-unknown-linux',
+            '-mrelocation-model', 'static', '-ftls-model=local-exec',
+            '-internal-isystem', resource+'/include', *common, '-O'+opt,
+            '-emit-obj', str(source), '-o', str(obj)], check=True)
+        objects.append(str(obj))
+    linked = root/('linked-O'+opt+'.o')
+    subprocess.run(['ld.lld', '-m', 'elf64mmix_linux', '-r', *objects,
+                    '-o', str(linked)], check=True)
+    undefined = subprocess.check_output(['llvm-nm', '-u', str(linked)], text=True)
+    for name in ('pthread_kill', 'acquire_lease', 'release_lease', 'libc_errno', '__tls_get_addr'):
+        assert name not in undefined, undefined
+    if len(sys.argv) == 4:
+        limits.setrlimit(limits.RLIMIT_CORE, (0, 0))
+        exe = root/('host-O'+opt)
+        subprocess.run([sys.argv[3], *common, '-D__mmix__', '-O'+opt,
+            '-include', str(root/'finish/transport.h'), *map(str,sources),
+            str(root/'test.cpp'), '-o', str(exe)], check=True)
+        for mode in range(16):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=15)
+        print('Native thread signals: 16 scenarios passed at O'+opt, flush=True)
+
+#--- headers/sys/syscall.h
+#define SYS_getpid 172
+#define SYS_gettid 178
+#define SYS_tgkill 131
+#define SYS_rt_sigprocmask 135
+#define SYS_futex 98
+#define SYS_write 64
+#define SYS_clock_gettime 113
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/thread_signal.h"
+#include "src/__support/threads/linux/mmix/thread_finish.h"
+#include "src/__support/threads/linux/mmix/thread_start.h"
+#include "src/__support/threads/thread.h"
+#include "src/__support/libc_errno.h"
+#include "hdr/errno_macros.h"
+#include "hdr/signal_macros.h"
+#include <linux/futex.h>
+#include <sys/syscall.h>
+using namespace signal_test;
+using namespace signal_test::mmix;
+extern "C" int fork();
+extern "C" int waitpid(int, int *, int);
+static void require(bool b) { if (!b) __builtin_abort(); }
+static unsigned mode, sends, masks, pids;
+static unsigned ready_wakes, startup_waits, delivered, runners;
+static bool pending;
+static uint64_t mask = 0x1234;
+static ThreadControl main_control, target;
+struct Done {};
+namespace signal_test { namespace internal {
+ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
+  require(mode == 15 && mask == UINT64_MAX && !delivered);
+  require(self.attrib == &target.attributes && int(libc_errno) == 0);
+  return reinterpret_cast<ThreadAtExitCallbackMgr *>(1);
+}
+void cleanup_main_thread() { __builtin_trap(); }
+void call_atexit_callbacks(ThreadAttributes *a) {
+  require(mode == 15 && a == &target.attributes && mask == 0x1234);
+  pending = true; // Teardown must not restore the application mask again.
+}
+} namespace mmix {
+[[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
+} }
+extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
+  require((mode == 12 || mode == 15) && mask == UINT64_MAX);
+  if (mode == 15) require(pending && delivered == 1 && runners == 1);
+  ThreadRegistryLock lock(thread_registry);
+  require(lock.leases_drained(target) && lock.live_threads() == 1);
+  throw Done{};
+}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                        long c, long d, long e, long f) {
+  if (n == SYS_futex) {
+    if (mode == 15 && a == reinterpret_cast<long>(&target.child_status.value.val)) {
+      require(b == FUTEX_WAKE_PRIVATE && mask == UINT64_MAX && !delivered);
+      require(target.acquire_child() == ChildStatus::Ready);
+      ++ready_wakes;
+      return 0;
+    }
+    if (mode == 15 && b == FUTEX_WAIT_BITSET_PRIVATE) {
+      require(a == reinterpret_cast<long>(&target.creator_decision.value.val));
+      require(mask == UINT64_MAX && pending && !delivered && !runners && ready_wakes == 1);
+      if (++startup_waits == 1) return -EINTR;
+      require(startup_waits == 2);
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.insert(target, false) && lock.start(target));
+      target.publish_decision(CreatorDecision::Go);
+      return 0;
+    }
+    require(b == FUTEX_WAKE_PRIVATE); // No self-exit lease wait is permitted.
+    return 0;
+  }
+  if (n == SYS_rt_sigprocmask) {
+    require(a == SIG_SETMASK && d == 8 && !e && !f);
+    ++masks;
+    if (mode == 10) return -EINVAL;
+    if (mode == 11 && !c) return -EINVAL;
+    if (c) *reinterpret_cast<uint64_t *>(c) = mask;
+    mask = *reinterpret_cast<uint64_t *>(b);
+    if (mode == 15 && pending && mask == 0x1234) {
+      require(target.acquire_decision() == CreatorDecision::Go && !runners);
+      require(internal::self.attrib == &target.attributes && int(libc_errno) == 0);
+      require(target.attributes.atexit_callback_mgr && startup_waits == 2);
+      pending = false;
+      ++delivered;
+    }
+    if (mode == 14 && mask == 0x1234) {
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.leases_drained(target) && lock.exit_ready(target, 0));
+      require(lock.drop_creator(target));
+      target.clear_tid.value.store(0);
+      require(lock.pin(&target.attributes) == &target);
+      require(lock.claim_join(target) && lock.begin_reaping(target));
+      require(lock.unpin(target));
+      require(lock.finish_reaping(target)); // No sender pin survives unmask.
+      target.attributes.tid = 999; // Storage/TID reuse cannot redirect a send.
+    }
+    return 0;
+  }
+  if (n == SYS_gettid) {
+    require(mode == 15 && mask == UINT64_MAX && !ready_wakes);
+    return 20;
+  }
+  if (n == SYS_getpid) {
+    ++pids;
+    if (mode == 9) return -EAGAIN;
+    return 10;
+  }
+  require(n == SYS_tgkill && a == 10 && b == 20 && !d && !e && !f);
+  require(c == (mode == 1 ? 0 : SIGUSR1));
+  ++sends;
+  {
+    ThreadRegistryLock lock(thread_registry); // No lock across delivery.
+    require(lock.close_leases(target));
+    if (mode == 12 || mode == 13) {
+      require(mask == 0x1234 && lock.leases_drained(target));
+    } else {
+      require(mask == UINT64_MAX && !lock.leases_drained(target));
+    }
+    if (mode == 12 || mode == 14) {
+      require(lock.begin_cleanup(target) && lock.close_leases(target));
+      require(!lock.acquire_lease(target));
+      if (mode == 14) require(!lock.exit_ready(target, 0));
+    }
+  }
+  if (mode == 12) finish_thread(target, 0); // Nonreturning self handler.
+  return mode == 7 ? -ESRCH : mode == 8 ? -EPERM : 0;
+}
+static void *runner(void *) {
+  require(mode == 15 && delivered == 1 && !pending && mask == 0x1234);
+  ++runners;
+  return nullptr;
+}
+extern "C" int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = unsigned(argv[1][0]-'0');
+  if (argv[1][1]) mode = 10*mode + unsigned(argv[1][1]-'0');
+  main_control.attributes.tid = 10;
+  target.attributes.tid = 20;
+  {
+    ThreadRegistryLock lock(thread_registry);
+    require(lock.register_main(main_control));
+    require(lock.reserve());
+    if (mode != 15) require(lock.insert(target, false) && lock.start(target));
+    if (mode == 6) require(lock.close_leases(target));
+  }
+  if (mode == 15) {
+    target.publish_prepared();
+    target.saved_signal_mask = 0x1234;
+    target.attributes.style = ThreadStyle::POSIX;
+    target.runner.posix_runner = runner;
+    pending = true;
+    mask = UINT64_MAX;
+    try { __llvm_libc_mmix_thread_start(&target); }
+    catch (Done) { require(delivered == 1 && pending && masks == 4); }
+    return 0;
+  }
+  internal::self.attrib = mode == 12 || mode == 13 ? &target.attributes : &main_control.attributes;
+  auto *handle = mode == 4 ? nullptr : mode == 5 ? reinterpret_cast<ThreadAttributes *>(1) : &target.attributes;
+  int signal = mode == 2 ? NSIG : mode == 3 ? -1 : mode == 1 ? 0 : SIGUSR1;
+  libc_errno = 77;
+  int child = mode == 11 ? fork() : 0;
+  require(child >= 0);
+  if (child) {
+    int status;
+    require(waitpid(child, &status, 0) == child && (status & 127) == 4);
+    return 0;
+  }
+  try {
+    int error = signal_thread(handle, signal);
+    require(mode != 11 && mode != 12);
+    require(error == (mode == 2 || mode == 3 || mode == 10 ? EINVAL :
+        mode >= 4 && mode <= 7 ? ESRCH : mode == 8 ? EPERM : mode == 9 ? EAGAIN : 0));
+    require(mask == 0x1234);
+    require(int(libc_errno) == 77);
+    if (mode >= 2 && mode <= 6 || mode == 9 || mode == 10) require(!sends);
+    else require(sends == 1);
+    if (mode == 2 || mode == 3 || mode == 4 || mode == 13) require(!masks);
+    if (mode == 2 || mode == 3 || mode == 4 || mode == 5 || mode == 6 || mode == 10)
+      require(!pids);
+  } catch (Done) { require(mode == 12 && sends == 1 && masks == 1); }
+  if (mode != 14) {
+    ThreadRegistryLock lock(thread_registry);
+    require(lock.close_leases(target));
+    require(lock.leases_drained(target));
+    if (mode != 12)
+      require(lock.begin_cleanup(target) && lock.exit_ready(target, 0));
+    require(lock.drop_creator(target));
+    target.clear_tid.value.store(0);
+    require(lock.pin(&target.attributes) == &target && lock.claim_join(target));
+    require(lock.begin_reaping(target) && lock.unpin(target));
+    require(lock.finish_reaping(target)); // Errors must not leak API pins.
+  }
+  return 0;
+}

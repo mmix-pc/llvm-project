@@ -125,6 +125,19 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     DEPENDS .lifecycle libc.hdr.errno_macros
   )
   add_object_library(
+    thread_signal
+    SRCS thread_signal.cpp
+    HDRS thread_signal.h
+    DEPENDS
+      .lifecycle
+      libc.hdr.errno_macros
+      libc.hdr.signal_macros
+      libc.src.__support.threads.thread_common
+      libc.src.__support.OSUtil.linux.mmix.syscall
+      libc.include.sys_syscall
+    COMPILE_OPTIONS -fno-lto
+  )
+  add_object_library(
     thread_reaper_service
     SRCS thread_reaper_loop.cpp
     DEPENDS
