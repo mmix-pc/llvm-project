@@ -6,13 +6,22 @@
 // RUN: llvm-readobj -r %t.o2.o | FileCheck %s --check-prefix=OBJ
 
 // Generated guards must use the selected model too, not merely named variables.
-// These are artifact tests: destructor registration and startup need providers.
+// Trivial destruction needs no thread-exit registration provider.
 // CHECK-DAG: @constant = {{.*}}thread_local(localexec) global i64 7
 // CHECK-DAG: @external = external thread_local(localexec) global i64
 // CHECK-DAG: @_ZZ6objectvE5value = internal thread_local(localexec) global
 // CHECK-DAG: @_ZGVZ6objectvE5value = internal thread_local(localexec) global i8 0
 // CHECK-DAG: @__tls_guard = internal thread_local(localexec) global i8 0
-// CHECK: @__cxa_thread_atexit
+// CHECK-LABEL: define {{.*}} @_Z6objectv(
+// CHECK: load i8, ptr @_ZGVZ6objectvE5value
+// CHECK: br i1
+// CHECK: call void @_ZN6ObjectC1Ev
+// CHECK: store i8 1, ptr @_ZGVZ6objectvE5value
+// CHECK-LABEL: define internal void @__tls_init()
+// CHECK: load i8, ptr @__tls_guard
+// CHECK: br i1
+// CHECK: store i8 1, ptr @__tls_guard
+// CHECK: call void @__cxx_global_var_init
 // OBJ: R_MMIX_TPREL_LO16
 // OBJ: R_MMIX_TPREL_ML16
 // OBJ: R_MMIX_TPREL_MH16
@@ -22,7 +31,6 @@ thread_local long constant = 7;
 extern thread_local long external;
 struct Object {
   Object();
-  ~Object();
   long value;
 };
 thread_local Object global_object;
