@@ -1,0 +1,257 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=create_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+          "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL", "-I", str(root / "headers"),
+          "-I", str(root / "sync"), "-I", str(libc), "-I", str(libc / "include")]
+sources = [libc / "src/__support/threads/linux/mmix" / name
+           for name in ("thread_create.cpp", "lifecycle.cpp")]
+for opt in ("0", "2"):
+    for index, source in enumerate(sources):
+        obj = root / (str(index) + "-O" + opt + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+            "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+            *common, "-O" + opt, "-emit-obj", str(source), "-o", str(obj)], check=True)
+        report = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
+        assert '.init_array' not in report and 'SHF_TLS' not in report
+        symbols = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+        assert all(name not in symbols for name in ('pthread_', '__atomic_', '__emutls', 'thread_errno', 'malloc', 'free'))
+        if index == 0:
+            assert '__llvm_libc_mmix_clone_thread' in symbols
+            assert '__llvm_libc_mmix_reclaim_failed_thread' in symbols
+    if len(sys.argv) == 4:
+        import resource as limits
+        limits.setrlimit(limits.RLIMIT_CORE, (0, 0))
+        exe = root / ("host-O" + opt)
+        subprocess.run([sys.argv[3], *common, "-D__mmix__", "-O" + opt,
+            "-include", str(root / "transport.h"), *map(str, sources),
+            str(root / "test.cpp"), "-o", str(exe)], check=True)
+        for mode in range(19):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=10)
+        print('Native creator handshake: 19 scenarios passed at O' + opt, flush=True)
+
+# Test transport constants, not an installed MMIX UAPI package.
+#--- headers/sys/syscall.h
+#define SYS_futex 98
+#define SYS_write 64
+#define SYS_rt_sigprocmask 135
+#define SYS_clock_gettime 113
+#--- headers/linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#define EWOULDBLOCK EAGAIN
+#define ETIMEDOUT 110
+#define EOVERFLOW 75
+#define ENOSYS 38
+#--- headers/linux/sched.h
+#define CLONE_VM 0x100
+#define CLONE_FS 0x200
+#define CLONE_FILES 0x400
+#define CLONE_SIGHAND 0x800
+#define CLONE_THREAD 0x10000
+#define CLONE_SYSVSEM 0x40000
+#define CLONE_SETTLS 0x80000
+#define CLONE_PARENT_SETTID 0x100000
+#define CLONE_CHILD_CLEARTID 0x200000
+#--- transport.h
+#define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_X86_64_SYSCALL_H
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/thread_create.h"
+#include "src/__support/threads/linux/mmix/thread_entry.h"
+#include "hdr/errno_macros.h"
+#include "hdr/signal_macros.h"
+#include "hdr/time_macros.h"
+#include "hdr/types/struct_timespec.h"
+#include <linux/futex.h>
+#include <sys/syscall.h>
+using namespace create_test;
+using namespace create_test::mmix;
+extern "C" int fork();
+extern "C" int waitpid(int, int *, int);
+static void require(bool value) { if (!value) __builtin_abort(); }
+static unsigned mode, masks, preparations, clones, waits, clocks, wakes, releases, reclaims;
+static bool blocked;
+static ThreadControl control, main_control;
+static ThreadAttributes *output = reinterpret_cast<ThreadAttributes *>(1);
+static constexpr uint64_t original_mask = 0x123456789abcdef0;
+
+namespace create_test { namespace mmix {
+ThreadPreparationResult prepare_thread(const ThreadPreparation &r, ThreadControl *&out) {
+  require(blocked && masks == 1 && r.saved_signal_mask == original_mask);
+  ++preparations;
+  if (mode == 2) return {ThreadPrepareError::ControlMapFailed, ENOMEM};
+  if (mode == 10) return {ThreadPrepareError::Overflow};
+  control.saved_signal_mask = r.saved_signal_mask;
+  control.stack_top = 0x100000;
+  control.tls = {8192, 0x200000, 0x200000};
+  control.publish_prepared();
+  out = &control;
+  return {};
+}
+ThreadResources thread_resources(const ThreadControl &c) {
+  require(&c == &control && clones == 1);
+  return {{8192, 8192}, {}, {}};
+}
+long release_thread_resources(ThreadResources &r) {
+  require(blocked && (mode == 3 || mode == 4) && clones == 1);
+  require(!reclaims && output == reinterpret_cast<ThreadAttributes *>(1));
+  ++releases;
+  control.saved_signal_mask = 0; // Restoration must use the creator's copy.
+  if (mode == 4) return EBUSY;
+  r = {};
+  return 0;
+}
+} }
+
+extern "C" long __llvm_libc_mmix_clone_thread(unsigned long flags, uintptr_t stack,
+    uint32_t *parent_tid, uint32_t *clear_tid, uintptr_t tp) {
+  require(blocked && masks == 1 && preparations == 1 && control.is_prepared());
+  require(flags == 0x3d0f00 && stack == control.stack_top && tp == control.tls.tp);
+  require(parent_tid == &control.parent_tid.value.val && clear_tid == &control.clear_tid.value.val);
+  require(*clear_tid == UINT32_MAX && control.saved_signal_mask == original_mask);
+  { ThreadRegistryLock lock(thread_registry); require(lock.pending_creations() == 1); }
+  ++clones;
+  if (mode == 3 || mode == 4) return -EAGAIN;
+  *parent_tid = mode == 12 ? 322 : 321;
+  control.attributes.tid = mode == 13 ? 322 : 321;
+  if (mode == 5 || mode == 18) {
+    control.publish_child(ChildStatus::Failed, ENOMEM);
+    if (mode == 18) control.clear_tid.value.store(0);
+  }
+  else if (mode == 7) control.clear_tid.value.store(0); // No user entry at all.
+  else if (mode != 6 && mode != 8 && mode != 15 && mode != 16)
+    control.publish_child(ChildStatus::Ready); // Child before parent return.
+  return 321;
+}
+
+extern "C" void __llvm_libc_mmix_reclaim_failed_thread(ThreadControl *c) {
+  require(c == &control && blocked && !releases && !reclaims++);
+  require(output == reinterpret_cast<ThreadAttributes *>(1));
+  require(c->acquire_decision() == CreatorDecision::Abort && wakes == 1);
+  // Test-only terminal observer. The production delegate must await real
+  // kernel clear and all references; this injection never qualifies reaping.
+  c->clear_tid.value.store(0);
+  ThreadRegistryLock lock(thread_registry);
+  require(lock.owner(*c) == ThreadOwner::AbortOwner && lock.pending_creations() == 1);
+  require(lock.begin_reaping(*c) && lock.drop_creator(*c) && lock.finish_reaping(*c));
+  c->saved_signal_mask = 0;
+}
+
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+    long c, long d, long e, long f) {
+  if (n == SYS_rt_sigprocmask) {
+    require(a == SIG_SETMASK && d == 8 && !e && !f);
+    if (!masks++) {
+      require(*reinterpret_cast<uint64_t *>(b) == UINT64_MAX && c);
+      if (mode == 1) return -EPERM;
+      *reinterpret_cast<uint64_t *>(c) = original_mask;
+      blocked = true;
+    } else {
+      require(blocked && !c && *reinterpret_cast<uint64_t *>(b) == original_mask);
+      if (mode == 14) return -EINVAL;
+      blocked = false;
+    }
+    return 0;
+  }
+  if (n == SYS_clock_gettime) {
+    require(blocked && a == CLOCK_MONOTONIC && !(c | d | e | f));
+    if (mode == 16) return -ENOSYS;
+    ++clocks;
+    *reinterpret_cast<timespec *>(b) = {42, 995000000};
+    return 0;
+  }
+  require(n == SYS_futex);
+  if (a == reinterpret_cast<long>(&control.creator_decision.value.val)) {
+    require(blocked && b == FUTEX_WAKE_PRIVATE && c == 2147483647 && !(d | e | f));
+    require(!wakes++);
+    if (mode == 11) return -EFAULT;
+    if (control.acquire_decision() == CreatorDecision::Go) {
+      require(output == &control.attributes);
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.live_threads() == 2 && !lock.pending_creations());
+      require(lock.pin(output) == &control && lock.unpin(control));
+      require(!lock.start(control)); // Already running before GO.
+      if (mode == 17) {
+        require(lock.begin_cleanup(control) && lock.close_leases(control));
+        require(lock.exit_ready(control, 42));
+        control.clear_tid.value.store(0);
+        require(lock.begin_reaping(control));
+        require(!lock.finish_reaping(control)); // Creator still owns wake access.
+      }
+    } else require(control.acquire_decision() == CreatorDecision::Abort);
+    control.saved_signal_mask = 0;
+    return 0;
+  }
+  if (a == reinterpret_cast<long>(&control.child_status.value.val)) {
+    require(blocked && b == FUTEX_WAIT_BITSET_PRIVATE && c == 0 && !e && f == 0xffffffffu);
+    auto *ts = reinterpret_cast<timespec *>(d);
+    require(ts && ts->tv_sec == 43 && ts->tv_nsec == 5000000);
+    require(clocks == ++waits && !wakes && !reclaims);
+    if (mode == 15) return -EFAULT;
+    if (mode == 8) {
+      control.clear_tid.value.store(0);
+      return -ETIMEDOUT; // Kernel clear without a private startup wake.
+    }
+    require(mode == 6);
+    if (waits == 1) return -ETIMEDOUT; // Live child: not failure.
+    if (waits == 2) return -EINTR;
+    if (waits == 3) return -EAGAIN;
+    if (waits == 4) return 0; // Spurious wake.
+    require(waits == 5);
+    control.publish_child(ChildStatus::Ready);
+    return -EAGAIN; // Publication won the predicate-to-wait race.
+  }
+  require(b == FUTEX_WAKE_PRIVATE && !d && !e && !f); // Stable registry event.
+  return 0;
+}
+
+extern "C" int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = unsigned(argv[1][0] - '0');
+  if (argv[1][1]) mode = 10 * mode + unsigned(argv[1][1] - '0');
+  main_control.attributes.tid = 123;
+  { ThreadRegistryLock lock(thread_registry); require(lock.register_main(main_control)); }
+  bool fatal = mode >= 11 && mode <= 16;
+  int child = fatal ? fork() : 0;
+  require(child >= 0);
+  if (child) {
+    int status;
+    require(waitpid(child, &status, 0) == child && (status & 127) == 4);
+    return 0;
+  }
+  ThreadPreparation request;
+  request.detached = mode == 9 || mode == 17;
+  auto result = create_thread(request, output);
+  require(!fatal && !blocked);
+  if (mode == 1) require(result.error == -EPERM && masks == 1 && !preparations);
+  else require(masks == 2 && preparations == 1);
+  bool success = mode == 0 || mode == 6 || mode == 9 || mode == 17;
+  ThreadRegistryLock lock(thread_registry);
+  require(!lock.pending_creations());
+  if (success) {
+    require(!result.error && output == &control.attributes && clones == 1 && wakes == 1);
+    require(lock.live_threads() == (mode == 17 ? 1u : 2u) && !lock.drop_creator(control));
+    if (mode == 17) require(lock.finish_reaping(control));
+    else require(lock.owner(control) == (mode == 9 ? ThreadOwner::Detached : ThreadOwner::Joinable));
+    require(!reclaims && !releases);
+  } else {
+    require(result.error < 0 && output == reinterpret_cast<ThreadAttributes *>(1));
+    require(lock.live_threads() == 1);
+    if (mode == 2 || mode == 5 || mode == 18) require(result.error == -ENOMEM);
+    if (mode == 10) require(result.error == -EOVERFLOW && !clones);
+    if (mode == 3 || mode == 4) require(releases == 1 && !reclaims);
+    if (mode == 4) require(result.preparation.rollback_error == EBUSY && result.preparation.retained.control.size == 8192);
+    if (mode == 5 || mode == 7 || mode == 8 || mode == 18) require(reclaims == 1 && !releases);
+  }
+  return 0;
+}
