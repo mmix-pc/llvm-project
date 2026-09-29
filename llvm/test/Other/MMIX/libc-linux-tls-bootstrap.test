@@ -1,0 +1,224 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-process-args.test %t/args
+# RUN: split-file %S/libc-linux-synchronization.test %t/args/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+args = root / "args"
+subprocess.run([sys.executable, str(args / "run.py"), str(libc), str(args)], check=True)
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin",
+    "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=startup_test",
+    "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+    "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
+    "-DSYS_gettid=178", "-DSYS_set_tid_address=96", "-DSYS_exit=93", "-DSYS_exit_group=94",
+    "-I", str(args / "headers"), "-I", str(args / "sync"),
+    "-I", str(libc), "-I", str(libc / "include")]
+startup = libc / "startup/linux/mmix"
+pre = [startup / (name + ".cpp") for name in
+       ("start", "process_args", "tls_prepare", "bootstrap", "stack_guard")]
+pre.append(libc / "src/__support/threads/linux/mmix/tls.cpp")
+post = [startup / (name + ".cpp") for name in ("tls_post", "lifecycle")]
+post += [libc / "src/__support/threads/linux/mmix/main_thread.cpp",
+         libc / "src/errno/libc_errno.cpp"]
+for opt in ("0", "2"):
+    objects = []
+    for source in pre + post:
+        obj = root / (source.stem + "-O" + opt + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+            "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
+            "-ftls-model=local-exec", *common, "-O" + opt, "-emit-obj",
+            str(source), "-o", str(obj)], check=True)
+        if source in pre:
+            objects.append(str(obj))
+            report = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
+            assert all(s not in report for s in ("SHF_TLS", "R_MMIX_TPREL", ".init_array")), report
+            disasm = subprocess.check_output(["llvm-objdump", "-d", str(obj)], text=True)
+            assert "r230" not in disasm, disasm
+        elif source.stem in ("main_thread", "libc_errno"):
+            report = subprocess.check_output(["llvm-readobj", "--sections", "--relocations", str(obj)], text=True)
+            assert "SHF_TLS" in report and "R_MMIX_TPREL" in report, report
+    combined = root / ("pre-O" + opt + ".o")
+    subprocess.run(["ld.lld", "-r", *objects, "-o", str(combined)], check=True)
+    undefined = subprocess.check_output(["llvm-nm", "-u", str(combined)], text=True)
+    # The only outgoing call edges are raw syscalls and the opaque handoff.
+    # Publication shares bootstrap.cpp but is entered only after the handoff.
+    assert {line.split()[-1] for line in undefined.splitlines()} == {
+        "__llvm_libc_mmix_syscall", "__llvm_libc_mmix_linux_tls_handoff",
+        "_ZN12startup_test7environE", "_ZN12startup_test23program_invocation_nameE",
+        "_ZN12startup_test29program_invocation_short_nameE"}, undefined
+    if len(sys.argv) == 4:
+        renames = ["-Dmain=program_main"]
+        for kind in ("preinit", "init", "fini"):
+            for bound in ("start", "end"):
+                name = "__" + kind + "_array_" + bound
+                renames.append("-D" + name + "=test" + name)
+        objects = []
+        for source in pre[1:] + post:
+            obj = root / (source.stem + "-host-O" + opt + ".o")
+            subprocess.run([sys.argv[3], "-include", str(root / "transport.h"),
+                *common, "-D__mmix__", "-fno-stack-protector", "-O" + opt,
+                *(renames if source.stem == "lifecycle" else []),
+                "-c", str(source), "-o", str(obj)], check=True)
+            objects.append(str(obj))
+        exe = root / ("host-O" + opt)
+        subprocess.run([sys.argv[3], "-include", str(root / "transport.h"),
+            *common, "-D__mmix__", "-fno-stack-protector", "-O" + opt, *objects,
+            str(root / "test.cpp"), "-o", str(exe)], check=True)
+        for mode in range(13):
+            subprocess.run([str(exe), str(mode)], check=True)
+        print("Host bootstrap injection: 13 outcomes passed at O" + opt, flush=True)
+print("MMIX pre-TP graph audit: O0/O2 passed; guest execution not run", flush=True)
+
+# Real parser, allocator, guard, bootstrap, publication, errno/self and lifecycle.
+# Only host syscall transport, architecture handoff and callback sinks are
+# injected. This cannot qualify MMIX register transitions or guest execution.
+#--- transport.h
+#define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_X86_64_SYSCALL_H
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
+
+#--- test.cpp
+#include "startup/linux/mmix/tls_startup.h"
+#include "startup/linux/mmix/tls_handoff.h"
+#include "src/__support/threads/linux/mmix/tls.h"
+#include "hdr/elf_proxy.h"
+#include "src/__support/libc_errno.h"
+#include "src/__support/threads/thread.h"
+#include <sys/syscall.h>
+using namespace startup_test;
+using namespace startup_test::mmix;
+static void require(bool b) { if (!b) __builtin_abort(); }
+static unsigned mode, maps, unmaps, identities, registrations, callbacks, finals;
+static bool handed;
+static StartupState *prepared;
+alignas(8192) static unsigned char memory[8192];
+alignas(8192) static Elf64_Phdr phdrs[4];
+alignas(64) static unsigned char image[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+static unsigned char random_bytes[16] = {1, 2, 3, 4, 5, 6, 7, 8};
+static uintptr_t stack[32];
+static void (*finish)();
+static thread_local int consumer_tls;
+extern "C" unsigned long __stack_chk_guard;
+struct Done { bool failed; };
+namespace startup_test {
+char **environ;
+char *program_invocation_name;
+char *program_invocation_short_name;
+namespace internal {
+ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
+  require(handed && self.attrib == &prepared->thread.attributes && int(libc_errno) == 0);
+  require(!app.args);
+  return mode == 7 ? nullptr : reinterpret_cast<ThreadAtExitCallbackMgr *>(1);
+}
+void call_atexit_callbacks(ThreadAttributes *) {
+  require(handed && !unmaps);
+}
+}
+int atexit(void (*fn)()) {
+  require(handed && app.args == reinterpret_cast<Args *>(stack) && !callbacks);
+  finish = fn;
+  return mode == 10 ? -1 : 0;
+}
+[[noreturn]] void exit(int code) {
+  require(code == 42 && callbacks == 3 && !unmaps);
+  internal::cleanup_main_thread();
+  finish();
+  require(finals == 1 && consumer_tls == 9);
+  throw Done{false};
+}
+}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c,
+                                        long d, long e, long f) {
+  if (n == SYS_gettid) {
+    require(!handed && !app.args && !(a | b | c | d | e | f));
+    ++identities;
+    return mode == 2 ? 0 : mode == 3 ? 2147483648L : 321;
+  }
+  if (n == SYS_mmap) {
+    require(!handed && identities == 1 && !a && b == 8192);
+    ++maps;
+    if (mode == 4) return -12;
+    return reinterpret_cast<long>(memory) + ((mode == 5 || mode == 6) ? 1 : 0);
+  }
+  if (n == SYS_munmap) {
+    require(!handed && maps == 1 && a == reinterpret_cast<long>(memory) + 1 && b == 8192);
+    ++unmaps;
+    return mode == 6 ? -22 : 0;
+  }
+  if (n == SYS_set_tid_address) {
+    require(handed && !app.args && internal::self.attrib == &prepared->thread.attributes);
+    require(a == reinterpret_cast<long>(&prepared->thread.clear_tid.value));
+    require(prepared->thread.clear_tid.value == UINT32_MAX);
+    ++registrations;
+    return mode == 8 ? -22 : mode == 9 ? 322 : 321;
+  }
+  require(n == SYS_exit_group || (mode == 12 && n == SYS_exit));
+  require(a == 1 && !(b | c | d | e | f) && !callbacks && !finals && !consumer_tls);
+  if (mode == 12 && n == SYS_exit_group) return -38;
+  throw Done{true};
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_tls_handoff(uintptr_t tp, StartupState *state) {
+  require(!handed && maps == 1 && !unmaps && !app.args);
+  require(__stack_chk_guard == 0x0102030405060708UL);
+  require(tp == reinterpret_cast<uintptr_t>(memory) && state->tls.tp == tp);
+  auto *header = reinterpret_cast<TLSHeader *>(tp);
+  require(!header->dtv && header->thread_state == reinterpret_cast<uintptr_t>(&state->thread));
+  for (unsigned i = 0; i < 80; ++i)
+    require(memory[64 + i] == (i < 8 ? image[i] : 0));
+  require(memory[144] == 0xa5);
+  prepared = state;
+  handed = true;
+  libc_errno = 99;
+  __llvm_libc_mmix_linux_post_tls(mode == 11 ? nullptr : state);
+}
+extern "C" void pre(int, char **, char **) {
+  require(handed && registrations == 1 && !unmaps && !consumer_tls && int(libc_errno) == 0);
+  ++callbacks;
+  consumer_tls = 8;
+}
+extern "C" void init(int, char **, char **) { require(consumer_tls == 8); ++callbacks; consumer_tls = 9; }
+extern "C" void fini() { require(!unmaps && consumer_tls == 9); ++finals; }
+asm(".data\n"
+    ".global test__preinit_array_start,test__preinit_array_end\n"
+    "test__preinit_array_start: .quad pre\n test__preinit_array_end:\n"
+    ".global test__init_array_start,test__init_array_end\n"
+    "test__init_array_start: .quad init\n test__init_array_end:\n"
+    ".global test__fini_array_start,test__fini_array_end\n"
+    "test__fini_array_start: .quad fini\n test__fini_array_end:\n");
+extern "C" int program_main(int, char **, char **) { require(callbacks == 2); ++callbacks; return 42; }
+extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start(uintptr_t *);
+extern "C" int main(int argc, char **argv) {
+  require(argc == 2);
+  for (char *p = argv[1]; *p; ++p) mode = mode * 10 + *p - '0';
+  for (auto &b : memory) b = 0xa5;
+  phdrs[0] = {PT_LOAD, PF_R, 0, reinterpret_cast<uintptr_t>(phdrs), 0, sizeof(phdrs), sizeof(phdrs), 8192};
+  phdrs[1] = {PT_PHDR, PF_R, 0, reinterpret_cast<uintptr_t>(phdrs), 0, sizeof(phdrs), sizeof(phdrs), 8};
+  auto address = reinterpret_cast<uintptr_t>(image);
+  phdrs[2] = {PT_TLS, PF_R, address, address, 0, 8, 80, 64};
+  phdrs[3] = {PT_LOAD, PF_R, address, address, 0, 8, 8, 1};
+  auto *aux = reinterpret_cast<auxv::Entry *>(stack + 3);
+  aux[0] = {AT_PHDR, reinterpret_cast<uintptr_t>(phdrs)};
+  aux[1] = {AT_PHNUM, 4};
+  aux[2] = {AT_PHENT, sizeof(Elf64_Phdr)};
+  aux[3] = {AT_PAGESZ, (mode == 1 || mode == 12) ? 4096UL : 8192UL};
+  aux[4] = {AT_RANDOM, reinterpret_cast<uintptr_t>(random_bytes)};
+  bool completed = false;
+  try { __llvm_libc_mmix_linux_start(stack); }
+  catch (Done result) { require(result.failed == (mode != 0)); completed = true; }
+  require(completed);
+  require(identities == ((mode == 1 || mode == 12) ? 0U : 1U));
+  require(maps == ((mode >= 4 && mode <= 11) || mode == 0 ? 1U : 0U));
+  require(unmaps == (mode == 5 || mode == 6 ? 1U : 0U));
+  require(handed == (mode == 0 || (mode >= 7 && mode <= 11)));
+  require(registrations == (mode == 0 || (mode >= 8 && mode <= 10) ? 1U : 0U));
+  if (mode != 0) require(!callbacks && !finals && !consumer_tls);
+  if (mode != 0 && mode != 10) require(!app.args && !internal::self.attrib);
+  require(prepare_tls_startup(stack) == nullptr);
+  return 0;
+}

@@ -115,7 +115,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long status,
     throw 7;
   return -1; // Exercise both unexpected-return paths and the retry loop.
 }
-int main() {
+extern "C" int main() {
   alignas(8) unsigned char bytes[17];
   for (unsigned i = 0; i != 17; ++i)
     bytes[i] = static_cast<unsigned char>(i);
