@@ -25,7 +25,8 @@ add_header_library(
 )
 
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
-   LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE")
+   (LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE" OR
+    LIBC_MMIX_ENABLE_STATIC_TLS))
   add_subdirectory(mmix)
   add_object_library(thread ALIAS DEPENDS .mmix.main_thread)
 else()

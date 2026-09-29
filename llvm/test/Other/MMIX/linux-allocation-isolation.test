@@ -65,7 +65,8 @@ for key, value in (("LIBC_MMIX_BUILD_RUNTIME_STATE", "OFF"),
                    ("CMAKE_SYSTEM_PROCESSOR", "x86_64"), ("CMAKE_BUILD_TYPE", "Debug"),
                    ("LIBC_CONF_ERRNO_MODE", "LIBC_ERRNO_MODE_THREAD_LOCAL"),
                    ("LIBC_CONF_THREAD_MODE", "LIBC_THREAD_MODE_POSIX")):
-    check("profile.cmake", key, value, "requires cross Release")
+    error = "explicit static TLS" if key.startswith("LIBC_CONF_") else "requires cross Release"
+    check("profile.cmake", key, value, error)
 for archive in ("", "libclang_rt.builtins.a", str(root / "missing.a"), str(root)):
     check("profile.cmake", error="explicit compiler-rt archive",
           extra=["-DLIBC_MMIX_COMPILER_RT_BUILTINS=" + archive])
@@ -75,4 +76,5 @@ check("entries.cmake")
 for key, value in (("LLVM_LIBC_FULL_BUILD", "OFF"), ("LLVM_LIBC_INCLUDE_SCUDO", "ON"),
                    ("LIBC_CONF_THREAD_MODE", "LIBC_THREAD_MODE_POSIX"),
                    ("LIBC_CONF_ERRNO_MODE", "LIBC_ERRNO_MODE_THREAD_LOCAL")):
-    check("entries.cmake", key, value, "without Scudo")
+    error = "explicit static TLS" if key.startswith("LIBC_CONF_") else "without Scudo"
+    check("entries.cmake", key, value, error)

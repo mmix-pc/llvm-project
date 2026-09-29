@@ -1,7 +1,7 @@
-if(LLVM_LIBC_INCLUDE_SCUDO OR NOT LLVM_LIBC_FULL_BUILD OR
-   NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE" OR
-   NOT LIBC_CONF_ERRNO_MODE STREQUAL "LIBC_ERRNO_MODE_SHARED")
-  message(FATAL_ERROR "MMIX Linux allocation requires full LLVM libc with SINGLE mode and shared errno, without Scudo")
+include(${CMAKE_CURRENT_LIST_DIR}/../../../../config/linux/mmix/RuntimeMode.cmake)
+mmix_check_runtime_mode()
+if(LLVM_LIBC_INCLUDE_SCUDO OR NOT LLVM_LIBC_FULL_BUILD)
+  message(FATAL_ERROR "MMIX Linux allocation requires full LLVM libc without Scudo")
 endif()
 
 add_subdirectory(linux/mmix)

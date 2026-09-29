@@ -24,10 +24,10 @@ import sys
 
 source, root = map(pathlib.Path, sys.argv[1:])
 cases = [
-    ("libc", "LIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL", "shared errno"),
-    ("libc", "LIBC_CONF_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM", "shared errno"),
-    ("libc", "LIBC_CONF_TIMEOUT_ENSURE_MONOTONICITY=ON", "shared errno"),
-    ("libc", "CMAKE_BUILD_TYPE=Debug", "shared errno"),
+    ("libc", "LIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL", "explicit static TLS"),
+    ("libc", "LIBC_CONF_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM", "explicit static TLS"),
+    ("libc", "LIBC_CONF_TIMEOUT_ENSURE_MONOTONICITY=ON", "untimed storage"),
+    ("libc", "CMAKE_BUILD_TYPE=Debug", "untimed storage"),
     ("cxx", "LIBCXXABI_ENABLE_THREADS=ON", "single-thread LIBCXXABI"),
     ("cxx", "LIBUNWIND_ENABLE_THREADS=ON", "single-thread LIBUNWIND"),
     ("cxx", "LIBCXXABI_INSTALL_LIBRARY=ON", "single-thread LIBCXXABI"),

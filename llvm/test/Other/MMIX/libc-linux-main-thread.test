@@ -49,6 +49,9 @@ function(add_header_library)
 endfunction()
 function(add_object_library name)
   cmake_parse_arguments(ARG "ALIAS" "" "DEPENDS;SRCS" ${ARGN})
+  if(name STREQUAL "main_thread")
+    set_property(GLOBAL PROPERTY main_thread_deps "${ARG_DEPENDS}")
+  endif()
   if(name STREQUAL "thread")
     set(selected_alias "${ARG_ALIAS}" PARENT_SCOPE)
     set(selected_deps "${ARG_DEPENDS}" PARENT_SCOPE)
@@ -75,6 +78,18 @@ foreach(LIBC_TARGET_ARCHITECTURE mmix x86_64)
     endif()
   endforeach()
 endforeach()
+# The TLS profile keeps the target-owned main provider and its real errno dependency.
+set(LIBC_TARGET_ARCHITECTURE mmix)
+set(LIBC_MMIX_ENABLE_STATIC_TLS ON)
+set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_PLATFORM)
+set(LIBC_CONF_ERRNO_MODE LIBC_ERRNO_MODE_THREAD_LOCAL)
+set(LIBC_COMPILE_OPTIONS_DEFAULT -ftls-model=local-exec -fno-lto)
+include(${LIBC_SOURCE}/src/__support/threads/linux/CMakeLists.txt)
+get_property(main_thread_deps GLOBAL PROPERTY main_thread_deps)
+if(NOT selected_alias OR NOT selected_deps STREQUAL ".mmix.main_thread" OR
+   NOT "libc.src.errno.errno" IN_LIST main_thread_deps)
+  message(FATAL_ERROR "incoherent static TLS main-thread provider")
+endif()
 #--- linux/param.h
 #define EXEC_PAGESIZE 4096
 #--- linux/errno.h

@@ -75,10 +75,24 @@ base = ["cmake", "-S", str(root), "-DLIBC_SOURCE=" + str(source),
         "-DLIBC_MMIX_COMPILER_RT_CRTBEGIN=" + str(resources / "begin"),
         "-DLIBC_MMIX_COMPILER_RT_CRTEND=" + str(resources / "end")]
 cases = [([], None),
+         (["-DPROFILE=mmix-linux-static-tls"], None),
          (["-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON"], None),
          (["-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON", "-DLIBC_MMIX_BUILD_FORK=ON"], None),
          (["-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON", "-DLIBC_MMIX_BUILD_FORK=ON",
            "-DLIBC_MMIX_BUILD_SPAWN=ON"], None)]
+for option in ("LIBC_CONF_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
+               "LIBC_CONF_THREAD_MODE=LIBC_THREAD_MODE_EXTERNAL",
+               "LIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED"):
+    cases.append((["-DPROFILE=mmix-linux-static-tls", "-D" + option],
+                  "requires PLATFORM storage and THREAD_LOCAL errno"))
+cases.append((["-DPROFILE=mmix-linux-static-tls", "-DLIBC_COMPILE_OPTIONS_DEFAULT="],
+              "requires native local-exec runtime providers"))
+for component in ("FORK", "VFORK", "SPAWN", "ACCOUNT_MANAGEMENT",
+                  "SIGNAL_RUNTIME", "COMMAND_ENVIRONMENT_RUNTIME"):
+    cases.append((["-DPROFILE=mmix-linux-static-tls", f"-DLIBC_MMIX_BUILD_{component}=ON"],
+                  "does not yet support " + component))
+cases.append((["-DPROFILE=mmix-linux-static-tls", "-DLIBC_MMIX_INSTALL_RUNTIME=ON"],
+              "not an installed runtime profile"))
 for component in ("CORE", "DESCRIPTORS", "STDIO", "FILESYSTEM", "VM", "TIME",
                   "PROCESS_BASE", "RUNTIME_STATE", "ALLOCATION"):
     cases.append(([f"-DLIBC_MMIX_BUILD_{component}=OFF"], "requires " + component))
@@ -87,7 +101,8 @@ for option in ("CMAKE_SYSTEM_NAME=Generic", "CMAKE_SYSTEM_PROCESSOR=x86_64",
                "LIBC_CONF_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
                "LIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
                "LIBC_CONF_TIMEOUT_ENSURE_MONOTONICITY=ON", "LLVM_LIBC_INCLUDE_SCUDO=ON"):
-    cases.append((["-D" + option], "requires cross Linux Release"))
+    error = "explicit static TLS" if option.startswith(("LIBC_CONF_THREAD_MODE=", "LIBC_CONF_ERRNO_MODE=")) else "requires cross Linux Release"
+    cases.append((["-D" + option], error))
 for language in ("C", "CXX", "ASM"):
     cases.append(([f"-DCMAKE_{language}_COMPILER_TARGET=mmix-unknown-unknown"],
                   "requires Linux compiler targets"))
@@ -120,6 +135,12 @@ for index, (options, error) in enumerate(cases):
                     "HEADERS", "ENTRYPOINTS", "SYSROOT", "EXCLUDED"):
             assert "set(MMIX_C_RUNTIME_" + key + " " in manifest, key
         excluded = ["fork", "spawn", "signals", "pthread", "TLS", "dynamic-linking"]
+        if "-DPROFILE=mmix-linux-static-tls" in options:
+            excluded.remove("TLS")
+            excluded += ["concurrent-libc", "dynamic-TLS"]
+            assert 'set(MMIX_C_RUNTIME_STATIC_TLS "ON")' in manifest
+            assert 'set(MMIX_C_RUNTIME_THREAD_MODE "LIBC_THREAD_MODE_PLATFORM")' in manifest
+            assert 'set(MMIX_C_RUNTIME_ERRNO_MODE "LIBC_ERRNO_MODE_THREAD_LOCAL")' in manifest
         if "-DLIBC_MMIX_BUILD_FORK=ON" in options:
             excluded.remove("fork")
         if "-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON" in options:

@@ -3,6 +3,8 @@ if(NOT LIBC_MMIX_BUILD_C_RUNTIME)
   return()
 endif()
 include(${CMAKE_CURRENT_LIST_DIR}/../../../cmake/caches/mmix-linux.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/RuntimeMode.cmake)
+mmix_check_runtime_mode()
 
 if(NOT CMAKE_CROSSCOMPILING OR NOT LLVM_LIBC_FULL_BUILD OR
    NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
@@ -10,10 +12,8 @@ if(NOT CMAKE_CROSSCOMPILING OR NOT LLVM_LIBC_FULL_BUILD OR
    NOT LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" OR
    NOT LIBC_TARGET_OS STREQUAL "linux" OR
    NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR LLVM_LIBC_INCLUDE_SCUDO OR
-   NOT LIBC_CONF_ERRNO_MODE STREQUAL "LIBC_ERRNO_MODE_SHARED" OR
-   NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE" OR
    LIBC_CONF_TIMEOUT_ENSURE_MONOTONICITY)
-  message(FATAL_ERROR "MMIX C runtime requires cross Linux Release, full libc, SINGLE/shared state and no Scudo")
+  message(FATAL_ERROR "MMIX C runtime requires cross Linux Release, full libc and no Scudo")
 endif()
 foreach(language C CXX ASM)
   if(NOT CMAKE_${language}_COMPILER_TARGET STREQUAL "mmix-unknown-linux")
@@ -80,6 +80,10 @@ add_custom_target(mmix_libc_c_runtime
 # Describe provider selection, not runtime qualification or execution evidence.
 # FIXME: Replace this transitional manual list with complete provider accounting.
 set(mmix_runtime_excluded "fork;spawn;signals;pthread;TLS;dynamic-linking")
+if(LIBC_MMIX_ENABLE_STATIC_TLS)
+  list(REMOVE_ITEM mmix_runtime_excluded TLS)
+  list(APPEND mmix_runtime_excluded concurrent-libc dynamic-TLS)
+endif()
 if(LIBC_MMIX_BUILD_FORK)
   list(REMOVE_ITEM mmix_runtime_excluded fork)
 endif()
@@ -103,6 +107,9 @@ set(MMIX_C_RUNTIME_KERNEL_HEADERS \"${LIBC_KERNEL_HEADERS}\")
 set(MMIX_C_RUNTIME_COMPILER \"${CMAKE_CXX_COMPILER}\")
 set(MMIX_C_RUNTIME_SOURCE \"${LIBC_SOURCE_DIR}\")
 set(MMIX_C_RUNTIME_NAMESPACE \"${LIBC_NAMESPACE}\")
+set(MMIX_C_RUNTIME_STATIC_TLS \"${LIBC_MMIX_ENABLE_STATIC_TLS}\")
+set(MMIX_C_RUNTIME_THREAD_MODE \"${LIBC_CONF_THREAD_MODE}\")
+set(MMIX_C_RUNTIME_ERRNO_MODE \"${LIBC_CONF_ERRNO_MODE}\")
 # Future publication destinations; this target does not install resources.
 set(MMIX_C_RUNTIME_HEADER_DESTINATION \"usr/include\")
 set(MMIX_C_RUNTIME_LIBRARY_DESTINATION \"usr/lib\")

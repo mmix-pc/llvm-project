@@ -8,6 +8,7 @@
 # RUN: llvm-readobj --symbols --sections %t.O2.o | FileCheck %s --check-prefix=ELF --implicit-check-not=.MMIX.reg_contents --implicit-check-not=.tdata --implicit-check-not=.tbss
 # RUN: split-file %s %t.dir
 # RUN: cmake -S %t.dir -B %t.dir/build -DLIBC_SOURCE=%S/../../../../libc
+# RUN: cmake -S %t.dir -B %t.dir/tls-build -DLIBC_SOURCE=%S/../../../../libc -DLIBC_MMIX_ENABLE_STATIC_TLS=ON -DLIBC_CONF_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM -DLIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL "-DLIBC_COMPILE_OPTIONS_DEFAULT=-ftls-model=local-exec;-fno-lto"
 
 # The entire entry is checked: no prologue, SP adjustment, GREG initialization,
 # TP write, incoming-rJ access or semihosting. The kernel's octa alignment is
@@ -61,6 +62,9 @@ endfunction()
 function(add_object_library name)
   cmake_parse_arguments(ARG "" "" "SRCS;DEPENDS;COMPILE_OPTIONS" ${ARGN})
   set(expected start process_args bootstrap stack_guard lifecycle tls_handoff)
+  if(LIBC_MMIX_ENABLE_STATIC_TLS)
+    list(APPEND expected tls_prepare tls_post)
+  endif()
   if(NOT name IN_LIST expected)
     message(FATAL_ERROR "unexpected common startup or provider dependency")
   endif()
@@ -72,7 +76,7 @@ function(add_object_library name)
   else()
     list(APPEND options -fno-stack-protector)
   endif()
-  if(name STREQUAL "tls_handoff")
+  if(NOT name STREQUAL "lifecycle")
     list(APPEND options -fno-lto)
   endif()
   foreach(option IN LISTS options)
