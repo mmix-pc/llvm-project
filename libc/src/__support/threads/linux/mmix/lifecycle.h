@@ -162,6 +162,8 @@ public:
   bool acquire_lease(ThreadControl &control);
   bool release_lease(ThreadControl &control);
   bool close_leases(ThreadControl &control);
+  bool leases_drained(const ThreadControl &control) const;
+  bool abort_ready(ThreadControl &control);
   // The exclusive owner calls this only after the terminal observation.
   // Normal completion additionally requires cleanup/result publication.
   bool begin_reaping(ThreadControl &control);

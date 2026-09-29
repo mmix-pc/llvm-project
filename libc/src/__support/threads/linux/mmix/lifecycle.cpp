@@ -228,6 +228,19 @@ bool ThreadRegistryLock::begin_reaping(ThreadControl &c) {
   return true;
 }
 
+bool ThreadRegistryLock::leases_drained(const ThreadControl &c) const {
+  return belongs(c) && !c.leases_open && !c.leases;
+}
+
+bool ThreadRegistryLock::abort_ready(ThreadControl &c) {
+  if (!belongs(c) || c.owner != ThreadOwner::AbortOwner ||
+      c.execution != ThreadExecution::Starting || !leases_drained(c))
+    return false;
+  c.execution = ThreadExecution::ExitReady;
+  change();
+  return true;
+}
+
 bool ThreadRegistryLock::finish_reaping(ThreadControl &c) {
   if (!belongs(c) || c.owner != ThreadOwner::Reaping || c.creator_pin ||
       c.api_pins || c.leases)

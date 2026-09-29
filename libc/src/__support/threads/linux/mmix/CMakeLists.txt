@@ -77,6 +77,20 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto
   )
+  add_object_library(
+    thread_finish
+    SRCS thread_finish.cpp
+    HDRS thread_finish.h
+    DEPENDS
+      .thread_start
+      .lifecycle
+      libc.hdr.signal_macros
+      libc.src.__support.threads.thread_common
+      libc.src.__support.CPP.limits
+      libc.src.__support.OSUtil.linux.mmix.syscall
+      libc.include.sys_syscall
+    COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls
+  )
 endif()
 
 add_object_library(

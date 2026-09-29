@@ -1,0 +1,199 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=finish_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+          "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL", "-I", str(root / "headers"),
+          "-I", str(root / "sync"), "-I", str(libc), "-I", str(libc / "include")]
+sources = [libc / "src/__support/threads/linux/mmix" / name
+           for name in ("thread_finish.cpp", "lifecycle.cpp")]
+for opt in ("0", "2"):
+    for index, source in enumerate(sources):
+        obj, ir = root / (str(index) + '-O' + opt + '.o'), root / (str(index) + '-O' + opt + '.ll')
+        base = ['clang', '-cc1', '-triple', 'mmix-unknown-linux',
+                '-mrelocation-model', 'static', '-internal-isystem', resource + '/include',
+                '-ftls-model=local-exec', '-fno-optimize-sibling-calls', *common, '-O' + opt]
+        subprocess.run(base + ['-emit-obj', str(source), '-o', str(obj)], check=True)
+        subprocess.run(base + ['-emit-llvm', str(source), '-o', str(ir)], check=True)
+        undefined = subprocess.check_output(['llvm-nm', '-u', str(obj)], text=True)
+        for name in ('munmap', 'release_tls', 'release_thread_resources', 'free', 'pthread_', '__tls_get_addr'):
+            assert name not in undefined, undefined
+        if index == 0:
+            assert '__llvm_libc_mmix_thread_exit' in undefined
+            assert 'call_atexit_callbacks' in undefined
+            text = ir.read_text()
+            lines = text.splitlines()
+            calls = [i for i, line in enumerate(lines) if 'call void @__llvm_libc_mmix_thread_exit(' in line]
+            assert len(calls) >= 2
+            for i in calls:
+                assert lines[i+1].strip() == 'unreachable'
+            assert '"disable-tail-calls"="true"' in text
+            disasm = subprocess.check_output(['llvm-objdump', '-dr', str(obj)], text=True)
+            assert 'r230' in disasm and 'PUSHGO r31' in disasm
+            report = subprocess.check_output(['llvm-readobj', '--sections', '--relocations', str(obj)], text=True)
+            assert 'R_MMIX_TPREL' in report and '.init_array' not in report
+    if len(sys.argv) == 4:
+        import resource as limits
+        limits.setrlimit(limits.RLIMIT_CORE, (0, 0))
+        exe = root / ('host-O' + opt)
+        subprocess.run([sys.argv[3], *common, '-D__mmix__', '-O'+opt,
+            '-include', str(root/'transport.h'), *map(str,sources),
+            str(root/'test.cpp'), '-o', str(exe)], check=True)
+        for mode in range(15):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=10)
+        print('Native thread completion: 15 scenarios passed at O'+opt, flush=True)
+
+#--- headers/sys/syscall.h
+#define SYS_futex 98
+#define SYS_write 64
+#define SYS_rt_sigprocmask 135
+#define SYS_clock_gettime 113
+#--- headers/linux/param.h
+#define EXEC_PAGESIZE 8192
+#--- headers/linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#define EWOULDBLOCK EAGAIN
+#define ETIMEDOUT 110
+#define ENOSYS 38
+#--- transport.h
+#define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_X86_64_SYSCALL_H
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/thread_finish.h"
+#include "src/__support/threads/linux/mmix/thread_start.h"
+#include "src/__support/threads/thread.h"
+#include "hdr/errno_macros.h"
+#include "hdr/signal_macros.h"
+#include <linux/futex.h>
+#include <sys/syscall.h>
+using namespace finish_test;
+using namespace finish_test::mmix;
+extern "C" int fork();
+extern "C" int waitpid(int, int *, int);
+static void require(bool b) { if (!b) __builtin_abort(); }
+static unsigned mode, masks, runners, callbacks, waits, terminals;
+static uint64_t mask = UINT64_MAX;
+static ThreadControl control, main_control;
+struct Done {};
+static void *run(void *p) {
+  require(p == &control && mask == 0x1234 && masks == 1 && !runners++);
+  mask = 0x5678; // User changed its mask before returning.
+  return reinterpret_cast<void *>(0xabcdef00);
+}
+static int run_int(void *p) { run(p); return -37; }
+namespace finish_test { namespace internal {
+void call_atexit_callbacks(ThreadAttributes *a) {
+  require(a == &control.attributes && self.attrib == a);
+  require(mask == 0x5678 && runners == 1 && !callbacks++ && masks == 3);
+  mask = 0x9abc; // Final blocking must not restore a stale callback mask.
+}
+} }
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+    long c, long d, long e, long f) {
+  if (n == SYS_rt_sigprocmask) {
+    require(a == SIG_SETMASK && d == 8 && !e && !f);
+    ++masks;
+    if ((mode == 5 && masks == 1) || (mode == 6 && masks == 4)) return -EINVAL;
+    if (c) *reinterpret_cast<uint64_t *>(c) = mask;
+    mask = *reinterpret_cast<uint64_t *>(b);
+    return 0;
+  }
+  if (n == SYS_clock_gettime) {
+    require(a == CLOCK_MONOTONIC && mask == UINT64_MAX && callbacks == 1);
+    if (mode == 14) return -ENOSYS;
+    *reinterpret_cast<timespec *>(b) = {42, 1234};
+    return 0;
+  }
+  require(n == SYS_futex);
+  if (b == FUTEX_WAKE_PRIVATE) return 0;
+  require(b == FUTEX_WAIT_BITSET_PRIVATE && mask == UINT64_MAX);
+  auto *ts = reinterpret_cast<timespec *>(d);
+  require(ts && ts->tv_sec == 43 && ts->tv_nsec == 1234 && !e && f == 0xffffffffu);
+  ++waits;
+  require(!terminals);
+  if (mode == 7) return -EFAULT;
+  require(mode == 2);
+  if (waits == 1) return -EINTR;
+  if (waits == 2) return -EAGAIN;
+  if (waits == 3) return -ETIMEDOUT;
+  if (waits == 4) return 0;
+  require(waits == 5);
+  ThreadRegistryLock lock(thread_registry); // No registry lock held while waiting.
+  require(!lock.acquire_lease(control));
+  require(lock.release_lease(control) && lock.unpin(control));
+  return 0;
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
+  require(mask == UINT64_MAX && !terminals++);
+  ThreadRegistryLock lock(thread_registry); // Unlocked before terminal call.
+  require(lock.leases_drained(control) && !lock.begin_reaping(control));
+  require(control.clear_tid.value.load() == UINT32_MAX);
+  require(control.tls.addr == 0x200000 && control.control_mapping.base == 0x300000);
+  require(lock.live_threads() == 1);
+  if (mode == 3 || mode == 4) {
+    require(!callbacks && !runners && masks == 1);
+    require(!lock.abort_ready(control));
+  } else {
+    require(callbacks == 1 && runners == 1 && masks == 4);
+    if (mode == 1) require(control.attributes.retval.stdc_retval == -37);
+    else require(control.attributes.retval.posix_retval == reinterpret_cast<void *>(0xabcdef00));
+    require(!lock.begin_cleanup(control) && !lock.exit_ready(control, 0));
+  }
+  throw Done{};
+}
+extern "C" int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = unsigned(argv[1][0]-'0');
+  if (argv[1][1]) mode = 10*mode + unsigned(argv[1][1]-'0');
+  main_control.attributes.tid = 123;
+  control.saved_signal_mask = 0x1234;
+  control.tls = {8192, 0x200000, 0x200000};
+  control.control_mapping = {0x300000, 8192};
+  control.attributes.style = mode == 1 ? ThreadStyle::STDC : ThreadStyle::POSIX;
+  if (mode == 1) control.runner.stdc_runner = run_int;
+  else control.runner.posix_runner = mode == 9 ? nullptr : run;
+  control.argument = &control;
+  bool aborted = mode == 3 || mode == 4 || mode == 12 || mode == 13;
+  {
+    ThreadRegistryLock lock(thread_registry);
+    require(lock.register_main(main_control));
+    if (aborted && mode != 12) require(lock.adopt_abort(control));
+    else require(lock.reserve() && lock.insert(control, false) && lock.start(control));
+    if (mode == 10) require(lock.begin_cleanup(control));
+    if (mode == 2 || mode == 7 || mode == 14) {
+      require(lock.pin(&control.attributes) == &control && lock.acquire_lease(control));
+    }
+  }
+  control.publish_child(mode == 3 ? ChildStatus::Failed : ChildStatus::Ready, mode == 3 ? ENOMEM : 0);
+  control.publish_decision(aborted ? CreatorDecision::Abort : CreatorDecision::Go);
+  if (mode == 8) control.publish_decision(CreatorDecision::Hold);
+  if (mode == 13) control.publish_decision(CreatorDecision::Go);
+  if (mode != 3) internal::self.attrib = &control.attributes;
+  bool fatal = mode >= 5;
+  int child = fatal ? fork() : 0;
+  require(child >= 0);
+  if (child) {
+    int status;
+    require(waitpid(child, &status, 0) == child && (status & 127) == 4);
+    return 0;
+  }
+  try {
+    if (mode == 11) finish_thread(control, 0); // RUNNING is not CLEANING.
+    if (aborted) __llvm_libc_mmix_thread_abort(&control);
+    else __llvm_libc_mmix_thread_run(&control);
+    __builtin_abort();
+  } catch (Done) {
+    require(!fatal && terminals == 1);
+    require(mode == 2 ? waits == 5 : waits == 0);
+  }
+  return 0;
+}
