@@ -112,8 +112,10 @@ LIBC_INLINE ErrorOr<void *> alloc_stack(size_t stacksize, size_t guardsize) {
     auto result =
         linux_syscalls::mprotect(stack, stacksize, PROT_READ | PROT_WRITE);
 
-    if (!result)
+    if (!result) {
+      linux_syscalls::munmap(mmap_result.value(), size);
       return Error{result.error()};
+    }
   }
   return stack;
 }

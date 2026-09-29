@@ -5,6 +5,24 @@ endif()
 
 add_libc_integration_test_suite(libc-support-threads-integration-tests)
 
+if(LIBC_TARGET_OS STREQUAL "linux")
+  add_integration_test(
+    thread_stack_test
+    SUITE
+      libc-support-threads-integration-tests
+    SRCS
+      thread_stack_test.cpp
+    DEPENDS
+      libc.src.__support.threads.thread
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.OSUtil.linux.syscall_wrappers.mmap
+      libc.src.__support.OSUtil.linux.syscall_wrappers.munmap
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.hdr.sys_mman_macros
+  )
+endif()
+
 add_integration_test(
   thread_detach_test
   SUITE
