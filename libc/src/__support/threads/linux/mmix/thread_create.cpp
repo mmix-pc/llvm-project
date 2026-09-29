@@ -14,6 +14,7 @@
 #include "src/__support/CPP/limits.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "thread_entry.h"
+#include "thread_reaper.h"
 #include <linux/futex.h>
 #include <linux/sched.h>
 #include <sys/syscall.h>
@@ -32,7 +33,9 @@ static void restore_mask(uint64_t mask) {
     __builtin_trap();
 }
 
-static void cancel_reservation() {
+static void cancel_reservation(bool helper) {
+  if (helper)
+    return;
   ThreadRegistryLock lock(thread_registry);
   if (!lock.cancel_reservation())
     __builtin_trap();
@@ -85,8 +88,9 @@ static long await_startup(ThreadControl &control) {
   }
 }
 
-ThreadCreationResult create_thread(const ThreadPreparation &request,
-                                   ThreadAttributes *&output) {
+static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
+                                               ThreadAttributes *&output,
+                                               bool helper) {
   ThreadPreparation input = request;
   uint64_t blocked = UINT64_MAX, saved_mask = 0;
   long ret = syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
@@ -96,8 +100,8 @@ ThreadCreationResult create_thread(const ThreadPreparation &request,
     return {ret};
   if (ret != 0)
     __builtin_trap();
-  bool reserved;
-  {
+  bool reserved = true;
+  if (!helper) {
     ThreadRegistryLock lock(thread_registry);
     reserved = lock.reserve();
   }
@@ -106,10 +110,21 @@ ThreadCreationResult create_thread(const ThreadPreparation &request,
     return {-EAGAIN};
   }
   input.saved_signal_mask = saved_mask;
+  if (!helper) {
+    ThreadCreationResult initialized =
+        ensure_thread_reaper(input.image, input.page_size);
+    if (initialized.error) {
+      cancel_reservation(false);
+      restore_mask(saved_mask);
+      return initialized;
+    }
+  } else {
+    input.saved_signal_mask = UINT64_MAX;
+  }
   ThreadControl *control = nullptr;
   ThreadPreparationResult prepared = prepare_thread(input, control);
   if (prepared.error != ThreadPrepareError::None) {
-    cancel_reservation();
+    cancel_reservation(helper);
     restore_mask(saved_mask);
     long error = prepared.syscall_error ? prepared.syscall_error
                  : prepared.error == ThreadPrepareError::Overflow ? EOVERFLOW
@@ -127,7 +142,7 @@ ThreadCreationResult create_thread(const ThreadPreparation &request,
     ThreadResources resources = thread_resources(*control);
     prepared.rollback_error = release_thread_resources(resources);
     prepared.retained = resources;
-    cancel_reservation();
+    cancel_reservation(helper);
     restore_mask(saved_mask);
     return {ret, prepared};
   }
@@ -147,7 +162,7 @@ ThreadCreationResult create_thread(const ThreadPreparation &request,
     // The delegate consumes the creator pin. Copy all caller state first;
     // no control access is permitted after it returns.
     __llvm_libc_mmix_reclaim_failed_thread(control);
-    cancel_reservation();
+    cancel_reservation(helper);
     restore_mask(saved_mask);
     return {error};
   }
@@ -155,7 +170,7 @@ ThreadCreationResult create_thread(const ThreadPreparation &request,
     __builtin_trap();
   {
     ThreadRegistryLock lock(thread_registry);
-    if (!lock.insert(*control, input.detached) || !lock.start(*control))
+    if (!lock.insert(*control, input.detached, helper) || !lock.start(*control))
       __builtin_trap();
     output = &control->attributes;
   }
@@ -168,6 +183,18 @@ ThreadCreationResult create_thread(const ThreadPreparation &request,
   }
   restore_mask(saved_mask);
   return {};
+}
+
+ThreadCreationResult create_thread(const ThreadPreparation &request,
+                                   ThreadAttributes *&output) {
+  return create_thread_impl(request, output, false);
+}
+
+ThreadCreationResult create_thread_helper(const ThreadPreparation &request,
+                                          ThreadAttributes *&output) {
+  if (!request.detached || request.stack)
+    __builtin_trap();
+  return create_thread_impl(request, output, true);
 }
 
 } // namespace mmix

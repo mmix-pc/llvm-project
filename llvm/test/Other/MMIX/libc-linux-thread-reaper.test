@@ -1,0 +1,210 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: split-file %S/libc-linux-thread-resources.test %t/resources
+# RUN: split-file %S/libc-linux-thread-create.test %t/create
+# RUN: split-file %S/libc-linux-thread-reclaim.test %t/reclaim
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(['clang', '-print-resource-dir'], text=True).strip()
+common = ['-std=c++17', '-ffreestanding', '-fno-builtin', '-DLIBC_FULL_BUILD',
+    '-DLIBC_NAMESPACE=reaper_test', '-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM',
+    '-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL', '-I', str(root/'headers'),
+    '-I', str(root/'reclaim/headers'), '-I', str(root/'create/headers'),
+    '-I', str(root/'resources/headers'), '-I', str(root/'sync'), '-I', str(libc),
+    '-I', str(libc/'include')]
+sources = [libc/'src/__support/threads/linux/mmix'/n for n in
+    ('thread_create.cpp', 'thread_reaper.cpp', 'thread_reclaim.cpp', 'thread_finish.cpp',
+     'resources.cpp', 'tls.cpp', 'lifecycle.cpp')]
+for opt in ('0','2'):
+    objects = []
+    for i, src in enumerate(sources):
+        obj = root/(str(i)+'-O'+opt+'.o'); objects.append(str(obj))
+        subprocess.run(['clang', '-cc1', '-triple', 'mmix-unknown-linux',
+            '-mrelocation-model', 'static', '-ftls-model=local-exec',
+            '-internal-isystem', resource+'/include', *common, '-O'+opt,
+            '-emit-obj', str(src), '-o', str(obj)], check=True)
+    obj = root/('bootstrap-O'+opt+'.o')
+    subprocess.run(['ld.lld', '-m', 'elf64mmix_linux', '-r', *objects, '-o', str(obj)], check=True)
+    undef = subprocess.check_output(['llvm-nm', '-u', str(obj)], text=True)
+    assert '__llvm_libc_mmix_reaper_loop' in undef
+    assert 'ensure_thread_reaper' not in undef and 'create_thread_helper' not in undef
+    for name in ('pthread_', 'malloc', '__tls_get_addr'):
+        assert name not in undef, undef
+    report = subprocess.check_output(['llvm-readobj','--sections','--relocations',str(obj)],text=True)
+    assert '.init_array' not in report and 'R_MMIX_TPREL' in report
+    if len(sys.argv) == 4:
+        import resource as limits
+        limits.setrlimit(limits.RLIMIT_CORE,(0,0))
+        bridge = root/('bridge-O'+opt+'.o')
+        subprocess.run([sys.argv[3], '-std=c++17', '-pthread', '-O'+opt,
+            '-c', str(root/'bridge.cpp'), '-o', str(bridge)], check=True)
+        exe = root/('host-O'+opt)
+        subprocess.run([sys.argv[3], *common, '-D__mmix__', '-pthread', '-O'+opt,
+            '-include', str(root/'reclaim/transport.h'), *map(str,sources),
+            str(root/'test.cpp'), str(bridge), '-o', str(exe)], check=True)
+        for mode in range(14):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=15)
+        print('Native reaper bootstrap: 14 scenarios passed at O'+opt, flush=True)
+
+#--- headers/linux/param.h
+#define EXEC_PAGESIZE 8192
+#--- bridge.cpp
+#include <atomic>
+#include <cerrno>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <thread>
+extern "C" long host_futex(long a,long b,long c,long d,long e,long f) {
+  long result = syscall(SYS_futex,a,b,c,d,e,f);
+  return result == -1 ? -errno : result;
+}
+extern "C" void concurrent(void (*fn)()) {
+  std::atomic<unsigned> ready{0};
+  auto run = [&] { ++ready; while (ready.load()!=3) std::this_thread::yield(); fn(); };
+  std::thread a(run), b(run), c(run);
+  a.join(); b.join(); c.join();
+}
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/thread_reaper.h"
+#include "src/__support/threads/linux/mmix/thread_start.h"
+#include "src/__support/threads/thread.h"
+#include "hdr/errno_macros.h"
+#include <linux/futex.h>
+#include <sys/syscall.h>
+using namespace reaper_test;
+using namespace reaper_test::mmix;
+extern "C" long host_futex(long,long,long,long,long,long);
+extern "C" void concurrent(void (*)());
+extern "C" int fork();
+extern "C" int waitpid(int,int*,int);
+extern "C" int printf(const char*,...);
+static void check(bool ok, unsigned line) {
+  if (!ok) { printf("bootstrap check failed at %u\n",line); __builtin_abort(); }
+}
+#define require(x) check(bool(x),__LINE__)
+alignas(8192) static unsigned char memory[16][81920];
+static size_t sizes[16];
+static bool freed[16];
+static cpp::Atomic<unsigned> maps{0}, clones{0}, helper_clones{0}, workers{0}, unmaps{0};
+static cpp::Atomic<unsigned> failures{0};
+static unsigned mode;
+static bool inject = true;
+static thread_local uint64_t mask = 0x1234;
+static ThreadControl main_control, *helper;
+static void *user_runner(void *p) { return p; }
+struct Done {};
+namespace reaper_test { namespace internal {
+void call_atexit_callbacks(ThreadAttributes *) { __builtin_trap(); }
+} }
+extern "C" void __llvm_libc_mmix_reaper_loop() {
+  require(mask == UINT64_MAX && internal::self.attrib == &helper->attributes);
+  if (mode == 11) throw Done{};
+  require(mode == 10); // A returning service must be fatal.
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() { __builtin_trap(); }
+extern "C" long __llvm_libc_mmix_clone_thread(unsigned long,uintptr_t sp,
+    uint32_t *parent,uint32_t *clear,uintptr_t tp) {
+  unsigned clone_index = clones.fetch_add(1);
+  auto *c = reinterpret_cast<ThreadControl *>(reinterpret_cast<TLSHeader *>(tp)->thread_state);
+  require(c->is_prepared() && sp == c->stack_top && tp == c->tls.tp && mask == UINT64_MAX);
+  bool is_helper = c->runner.posix_runner != user_runner;
+  if (is_helper) { helper_clones.fetch_add(1); helper = c; require(c->saved_signal_mask == UINT64_MAX); }
+  else { workers.fetch_add(1); require(helper && helper->acquire_decision() == CreatorDecision::Go); }
+  if (inject && mode == 5) return -EAGAIN;
+  int tid = 100 + clone_index;
+  *parent = tid; c->attributes.tid = tid;
+  require(clear == &c->clear_tid.value.val);
+  if (inject && (mode == 6 || mode == 7 || mode == 8)) {
+    if (mode != 7) c->publish_child(ChildStatus::Failed, mode == 6 ? ENOMEM : EIO);
+    c->clear_tid.value.store(0,cpp::MemoryOrder::RELEASE);
+  } else c->publish_child(ChildStatus::Ready);
+  return tid;
+}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n,long a,long b,long c,long d,long e,long f) {
+  if (n == SYS_rt_sigprocmask) {
+    if (c) *reinterpret_cast<uint64_t *>(c) = mask;
+    mask = *reinterpret_cast<uint64_t *>(b); return 0;
+  }
+  if (n == SYS_mmap) {
+    unsigned i = maps.fetch_add(1); require(i < 16 && b <= 81920);
+    if (mode == 13 && i == 0) { inject = false; return -ENOMEM; }
+    if (inject && mode >= 1 && mode <= 3 && i+1 == mode) return -ENOMEM;
+    sizes[i] = b;
+    return reinterpret_cast<long>(memory[i]);
+  }
+  if (n == SYS_mprotect) return inject && (mode == 4 || mode == 12) ? -EINVAL : 0;
+  if (n == SYS_munmap) {
+    require(mask == UINT64_MAX);
+    unsigned i = (reinterpret_cast<unsigned char *>(a)-memory[0])/sizeof(memory[0]);
+    require(i < maps.load() && !freed[i] && sizes[i] == size_t(b));
+    if (mode == 12) return -EINVAL;
+    freed[i] = true; unmaps.fetch_add(1); return 0;
+  }
+  if (n == SYS_futex) return host_futex(a,b,c,d,e,f);
+  if (n == SYS_clock_gettime) { *reinterpret_cast<timespec *>(b)={10,0}; return 0; }
+  __builtin_trap();
+}
+static void create_worker() {
+  ThreadPreparation r; r.runner.posix_runner = user_runner;
+  ThreadAttributes *out = nullptr;
+  auto result = create_thread(r,out);
+  if (mode == 13 && result.error) {
+    require(result.error == -ENOMEM && !out && mask == 0x1234);
+    failures.fetch_add(1); return;
+  }
+  require(!result.error && out && mask == 0x1234);
+  { ThreadRegistryLock lock(thread_registry);
+    require(!lock.pin(&helper->attributes));
+    ThreadControl *c = lock.pin(out); require(c && lock.unpin(*c)); }
+}
+extern "C" int main(int argc,char **argv) {
+  require(argc==2);
+  for (auto p=argv[1];*p;++p) mode=mode*10+*p-'0';
+  { ThreadRegistryLock lock(thread_registry);
+    main_control.attributes.tid=1; require(lock.register_main(main_control)); }
+  bool fatal=mode==9 || mode==10 || mode==12;
+  if (fatal) {
+    int child=fork(); require(child>=0);
+    if (child) { int status; require(waitpid(child,&status,0)==child); require((status&127)==4); return 0; }
+  }
+  if (mode==0 || mode==13) {
+    concurrent(create_worker);
+    require(helper_clones.load()==1 && workers.load()==(mode==0 ? 3 : 2));
+    require(maps.load()==(mode==0 ? 12 : 10) && failures.load()==(mode==0 ? 0 : 1));
+  } else if (mode>=1 && mode<=8) {
+    ThreadPreparation r; r.runner.posix_runner=user_runner;
+    ThreadAttributes *out=reinterpret_cast<ThreadAttributes *>(1);
+    auto result=create_thread(r,out);
+    require(result.error && out==reinterpret_cast<ThreadAttributes *>(1) && mask==0x1234);
+    require(!workers.load());
+    { ThreadRegistryLock lock(thread_registry); require(lock.live_threads()==1 && !lock.pending_creations()); }
+    unsigned acquired=0;
+    for(unsigned i=0;i<maps.load();++i) if(sizes[i]) { ++acquired; require(freed[i]); }
+    require(unmaps.load()==acquired);
+    inject=false;
+    create_worker();
+    unsigned previous=helper_clones.load();
+    create_worker();
+    require(helper_clones.load()==previous && workers.load()==2);
+  } else {
+    create_worker();
+    if(mode==9) { helper->clear_tid.value.store(0); create_worker(); }
+    if(mode==10 || mode==11) {
+      internal::self.attrib=&helper->attributes;
+      mask=UINT64_MAX;
+      try { __llvm_libc_mmix_thread_run(helper); __builtin_abort(); }
+      catch(Done &) { require(mode==11 && mask==UINT64_MAX); }
+    }
+    require(!fatal);
+  }
+  { ThreadRegistryLock lock(thread_registry);
+    require(lock.live_threads()==1+workers.load() && !lock.pending_creations());
+    require(!lock.pin(&helper->attributes)); }
+  return 0;
+}

@@ -64,12 +64,13 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   )
   add_object_library(
     thread_create
-    SRCS thread_create.cpp
-    HDRS thread_create.h
+    SRCS thread_create.cpp thread_reaper.cpp
+    HDRS thread_create.h thread_reaper.h
     DEPENDS
       .thread_reclaim
       .resources
       .thread_entry
+      libc.src.__support.threads.thread_common
       libc.hdr.signal_macros
       libc.hdr.time_macros
       libc.hdr.types.struct_timespec

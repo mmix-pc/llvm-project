@@ -98,6 +98,7 @@ private:
   bool creator_pin = true, lifecycle_pin = true;
   bool listed = false, leases_open = false, counted = false;
   bool process_lifetime = false;
+  bool internal_helper = false;
   size_t api_pins = 0, leases = 0;
 };
 

@@ -26,6 +26,12 @@ struct ThreadCreationResult {
 __attribute__((visibility("hidden"))) ThreadCreationResult
 create_thread(const ThreadPreparation &request, ThreadAttributes *&output);
 
+// Runtime bootstrap only: bypasses reaper initialization, creates no public
+// registry handle or application reservation, and inherits blocked signals.
+// The internal runner must never return or invoke application callbacks.
+ThreadCreationResult create_thread_helper(const ThreadPreparation &request,
+                                         ThreadAttributes *&output);
+
 // Consume the abort owner's creator pin and reclaim only after kernel clear
 // and reference drain. Return only after safe reclamation, otherwise terminate.
 // The native reclaimer retains failed-release descriptors until fatal handling.

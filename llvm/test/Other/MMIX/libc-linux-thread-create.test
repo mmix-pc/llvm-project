@@ -86,6 +86,8 @@ static ThreadAttributes *output = reinterpret_cast<ThreadAttributes *>(1);
 static constexpr uint64_t original_mask = 0x123456789abcdef0;
 
 namespace create_test { namespace mmix {
+// Isolate creator handshake; the dedicated reaper test executes bootstrap.
+ThreadCreationResult ensure_thread_reaper(const TLSImage &, uintptr_t) { return {}; }
 ThreadPreparationResult prepare_thread(const ThreadPreparation &r, ThreadControl *&out) {
   require(blocked && masks == 1 && r.saved_signal_mask == original_mask);
   ++preparations;

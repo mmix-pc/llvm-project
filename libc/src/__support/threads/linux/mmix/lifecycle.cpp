@@ -59,11 +59,14 @@ bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
     return false;
   c.registry = &registry;
   c.owner = detached ? ThreadOwner::Detached : ThreadOwner::Joinable;
-  c.listed = true;
-  c.leases_open = true;
+  c.internal_helper = helper;
+  c.listed = !helper;
+  c.leases_open = !helper;
   c.counted = !helper;
-  c.next = registry.head;
-  registry.head = &c;
+  if (!helper) {
+    c.next = registry.head;
+    registry.head = &c;
+  }
   if (!helper) {
     --registry.reservations;
     ++registry.live;
@@ -169,7 +172,8 @@ bool ThreadRegistryLock::detach(ThreadControl &c) {
 }
 
 bool ThreadRegistryLock::start(ThreadControl &c) {
-  if (!belongs(c) || !c.listed || c.execution != ThreadExecution::Starting)
+  if (!belongs(c) || (!c.listed && !c.internal_helper) ||
+      c.execution != ThreadExecution::Starting)
     return false;
   c.execution = ThreadExecution::Running;
   return true;
