@@ -65,8 +65,9 @@ ThreadPreparationResult prepare_thread(const ThreadPreparation &request,
 // Copy descriptors while the control is still pinned, before releasing it.
 ThreadResources thread_resources(const ThreadControl &control);
 
-// Preclone rollback only: no child/kernel/registry user may reference these
-// resources. Each successful release clears its descriptor; failure retains it.
+// Release only after preclone failure or proven terminal/reference drain:
+// no child/kernel/registry user may reference these resources. Each successful
+// release clears its descriptor; failure retains it.
 // Do not dereference the control after calling this, even on partial failure.
 long release_thread_resources(ThreadResources &resources);
 

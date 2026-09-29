@@ -47,7 +47,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     HDRS thread_entry.h
     DEPENDS .tls_h libc.include.sys_syscall
   )
-  # Remains unselected until creator and terminal lifecycle providers exist.
+  # Remains unselected until worker lifecycle integration is complete.
   add_object_library(
     thread_start
     SRCS thread_start.cpp
@@ -67,6 +67,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     SRCS thread_create.cpp
     HDRS thread_create.h
     DEPENDS
+      .thread_reclaim
       .resources
       .thread_entry
       libc.hdr.signal_macros
@@ -90,6 +91,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.OSUtil.linux.mmix.syscall
       libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls
+  )
+  add_object_library(
+    thread_reclaim
+    SRCS thread_reclaim.cpp
+    HDRS thread_reclaim.h
+    DEPENDS
+      .resources
+      libc.src.__support.CPP.limits
+      libc.src.__support.OSUtil.linux.mmix.syscall
+      libc.include.sys_syscall
+    COMPILE_OPTIONS -fno-lto
   )
 endif()
 

@@ -28,7 +28,7 @@ create_thread(const ThreadPreparation &request, ThreadAttributes *&output);
 
 // Consume the abort owner's creator pin and reclaim only after kernel clear
 // and reference drain. Return only after safe reclamation, otherwise terminate.
-// No production fallback is supplied before the reclaimer is implemented.
+// The native reclaimer retains failed-release descriptors until fatal handling.
 extern "C" __attribute__((visibility("hidden"))) void
 __llvm_libc_mmix_reclaim_failed_thread(ThreadControl *control);
 
