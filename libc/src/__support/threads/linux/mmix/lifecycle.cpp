@@ -145,6 +145,21 @@ bool ThreadRegistryLock::release_join(ThreadControl &c) {
   return true;
 }
 
+bool ThreadRegistryLock::join_result(ThreadControl &c,
+                                    ThreadReturnValue &result) const {
+  if (!belongs(c) || c.owner != ThreadOwner::JoinOwner || !c.api_pins ||
+      c.execution != ThreadExecution::ExitReady || c.leases_open || c.leases ||
+      c.clear_tid.value.load(cpp::MemoryOrder::ACQUIRE) != 0)
+    return false;
+  if (c.attributes.style == ThreadStyle::POSIX)
+    result = ThreadReturnValue(c.attributes.retval.posix_retval);
+  else if (c.attributes.style == ThreadStyle::STDC)
+    result = ThreadReturnValue(c.attributes.retval.stdc_retval);
+  else
+    return false;
+  return true;
+}
+
 bool ThreadRegistryLock::detach(ThreadControl &c) {
   if (!belongs(c) || !c.api_pins || c.owner != ThreadOwner::Joinable)
     return false;

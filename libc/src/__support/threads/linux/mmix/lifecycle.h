@@ -155,6 +155,7 @@ public:
   bool drop_creator(ThreadControl &control);
   bool claim_join(ThreadControl &control);
   bool release_join(ThreadControl &control);
+  bool join_result(ThreadControl &control, ThreadReturnValue &result) const;
   bool detach(ThreadControl &control);
   bool start(ThreadControl &control);
   bool begin_cleanup(ThreadControl &control);

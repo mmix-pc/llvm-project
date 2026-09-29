@@ -103,6 +103,16 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto
   )
+  add_object_library(
+    thread_join
+    SRCS thread_join.cpp
+    HDRS thread_join.h
+    DEPENDS
+      .thread_reclaim
+      libc.hdr.errno_macros
+      libc.src.__support.threads.thread_common
+    COMPILE_OPTIONS -fno-lto
+  )
 endif()
 
 add_object_library(

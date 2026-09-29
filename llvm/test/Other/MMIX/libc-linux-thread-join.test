@@ -1,0 +1,217 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: split-file %S/libc-linux-thread-resources.test %t/resources
+# RUN: split-file %S/libc-linux-thread-reclaim.test %t/reclaim
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(['clang', '-print-resource-dir'], text=True).strip()
+common = ['-std=c++17', '-ffreestanding', '-fno-builtin', '-DLIBC_FULL_BUILD',
+          '-DLIBC_NAMESPACE=join_test', '-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM',
+          '-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL', '-I', str(root/'headers'),
+          '-I', str(root/'reclaim/headers'), '-I', str(root/'resources/headers'),
+          '-I', str(root/'sync'), '-I', str(libc), '-I', str(libc/'include')]
+sources = [libc/'src/__support/threads/linux/mmix'/n for n in
+           ('thread_join.cpp', 'thread_reclaim.cpp', 'resources.cpp', 'tls.cpp', 'lifecycle.cpp')]
+for opt in ('0', '2'):
+    objects = []
+    for index, source in enumerate(sources):
+        obj = root / (str(index)+'-O'+opt+'.o')
+        subprocess.run(['clang', '-cc1', '-triple', 'mmix-unknown-linux',
+            '-mrelocation-model', 'static', '-ftls-model=local-exec',
+            '-internal-isystem', resource+'/include', *common, '-O'+opt,
+            '-emit-obj', str(source), '-o', str(obj)], check=True)
+        objects.append(str(obj))
+    combined = root/('join-O'+opt+'.o')
+    subprocess.run(['ld.lld', '-m', 'elf64mmix_linux', '-r', *objects, '-o', str(combined)], check=True)
+    undefined = subprocess.check_output(['llvm-nm', '-u', str(combined)], text=True)
+    assert {l.split()[-1] for l in undefined.splitlines()} <= {
+        '__llvm_libc_mmix_syscall', 'memcpy', 'memset'}, undefined
+    report = subprocess.check_output(['llvm-readobj', '--sections', '--relocations', str(combined)], text=True)
+    assert 'R_MMIX_TPREL' in report and '.init_array' not in report
+    if len(sys.argv) == 4:
+        import resource as limits
+        limits.setrlimit(limits.RLIMIT_CORE, (0, 0))
+        exe = root/('host-O'+opt)
+        subprocess.run([sys.argv[3], *common, '-D__mmix__',
+            '-include', str(root/'reclaim/transport.h'), '-O'+opt,
+            *map(str, sources), str(root/'test.cpp'), '-o', str(exe)], check=True)
+        for mode in range(20):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=10)
+        print('Native join: 20 scenarios passed at O'+opt, flush=True)
+
+#--- headers/linux/param.h
+#define EXEC_PAGESIZE 8192
+#--- headers/linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#define EWOULDBLOCK EAGAIN
+#define ETIMEDOUT 110
+#define ENOSYS 38
+#define EDEADLK 35
+#define ENOTSUP 95
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/thread_join.h"
+#include "src/__support/threads/linux/mmix/resources.h"
+#include "src/__support/threads/thread.h"
+#include "hdr/errno_macros.h"
+#include <linux/futex.h>
+#include <sys/syscall.h>
+using namespace join_test;
+using namespace join_test::mmix;
+extern "C" int fork();
+extern "C" int waitpid(int, int *, int);
+extern "C" void *memset(void *, int, __SIZE_TYPE__);
+extern "C" int printf(const char *, ...);
+static void check(bool ok, unsigned line) {
+  if (!ok) { printf("join check failed: %u\n", line); __builtin_abort(); }
+}
+#define require(x) check(bool(x), __LINE__)
+alignas(8192) static unsigned char control_mem[8192], stack_mem[73728], tls_mem[8192];
+alignas(8) static unsigned char caller_stack[65536];
+static ThreadControl *control;
+static ThreadControl main_control;
+static unsigned mode, maps, unmaps, shared_waits, private_waits;
+static uintptr_t bases[3];
+static size_t sizes[3];
+static ThreadReturnValue output(reinterpret_cast<void *>(0x1234));
+static void *runner(void *p) { return p; }
+static int int_runner(void *) { return -73; }
+static void complete() {
+  ThreadRegistryLock lock(thread_registry);
+  require(lock.begin_cleanup(*control));
+  require(lock.close_leases(*control));
+  ThreadReturnValue value = mode == 1 ? ThreadReturnValue(-73)
+      : ThreadReturnValue(reinterpret_cast<void *>(0xfedcba9876543210UL));
+  require(lock.exit_ready(*control, value));
+}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+    long c, long d, long e, long f) {
+  if (n == SYS_mmap) {
+    unsigned i = maps++; require(i < 3);
+    auto *p = i == 0 ? control_mem : (mode == 19 || i == 2) ? tls_mem : stack_mem;
+    bases[i] = reinterpret_cast<uintptr_t>(p); sizes[i] = b;
+    return bases[i];
+  }
+  if (n == SYS_mprotect) return 0;
+  if (n == SYS_clock_gettime) {
+    require(a == CLOCK_MONOTONIC);
+    *reinterpret_cast<timespec *>(b) = {20, 0}; return 0;
+  }
+  if (n == SYS_futex) {
+    if (b == FUTEX_WAKE_PRIVATE) {
+      require(!control || a != reinterpret_cast<long>(&control->clear_tid.value.val));
+      return 0;
+    }
+    require(!unmaps && e == 0 && f == FUTEX_BITSET_MATCH_ANY);
+    auto *ts = reinterpret_cast<timespec *>(d);
+    require(ts && ts->tv_sec == 21 && ts->tv_nsec == 0);
+    require(output.posix_retval == reinterpret_cast<void *>(0x1234));
+    if (b == FUTEX_WAIT_BITSET) {
+      require(mode == 2 && c == UINT32_MAX);
+      require(a == reinterpret_cast<long>(&control->clear_tid.value.val));
+      ++shared_waits;
+      if (shared_waits == 1) return -EINTR;
+      if (shared_waits == 2) return -EAGAIN;
+      if (shared_waits == 3) return -ETIMEDOUT;
+      if (shared_waits == 4) return 0;
+      require(shared_waits == 5);
+      complete();
+      control->clear_tid.value.store(0, cpp::MemoryOrder::RELEASE);
+      return 0;
+    }
+    require(mode == 3 && b == FUTEX_WAIT_BITSET_PRIVATE);
+    ++private_waits;
+    ThreadRegistryLock lock(thread_registry);
+    require(!lock.pin(&control->attributes));
+    require(lock.drop_creator(*control));
+    return 0;
+  }
+  if (n == SYS_munmap) {
+    require(unmaps < maps);
+    unsigned i = maps - 1 - unmaps++;
+    require(uintptr_t(a) == bases[i] && size_t(b) == sizes[i]);
+    require(output.posix_retval == reinterpret_cast<void *>(0x1234));
+    { ThreadRegistryLock lock(thread_registry);
+      require(!lock.pin(&control->attributes)); }
+    if (mode == 11 && i == maps-1) return -EINVAL;
+    memset(reinterpret_cast<void *>(a), 0xa5, b);
+    return 0;
+  }
+  __builtin_trap();
+}
+extern "C" int main(int argc, char **argv) {
+  require(argc == 2);
+  for (auto p = argv[1]; *p; ++p) mode = mode*10 + *p-'0';
+  ThreadPreparation request;
+  request.runner.posix_runner = runner;
+  if (mode == 1) { request.style = ThreadStyle::STDC; request.runner.stdc_runner = int_runner; }
+  if (mode == 19) { request.stack = caller_stack; request.guard_size = 0; }
+  require(prepare_thread(request, control).error == ThreadPrepareError::None);
+  { ThreadRegistryLock lock(thread_registry);
+    main_control.attributes.tid = 1;
+    require(lock.register_main(main_control));
+    require(lock.reserve() && lock.insert(*control, mode == 7) && lock.start(*control));
+    if (mode != 3) require(lock.drop_creator(*control)); }
+  internal::self.attrib = &main_control.attributes;
+  if (mode != 2 && mode != 10 && mode != 14) complete();
+  if (mode != 2) control->clear_tid.value.store(0, cpp::MemoryOrder::RELEASE);
+  bool fatal = mode == 10 || mode == 11 || (mode >= 14 && mode <= 18);
+  if (fatal) {
+    int child = fork(); require(child >= 0);
+    if (child) { int status; require(waitpid(child, &status, 0) == child);
+      require((status & 127) == 4); return 0; }
+  }
+  ThreadAttributes *handle = &control->attributes;
+  int expected = 0;
+  if (mode == 4) { handle = &main_control.attributes; expected = EDEADLK; }
+  if (mode == 5) { main_control.attributes.joiner.store(handle); expected = EDEADLK; }
+  if (mode == 6) { handle = reinterpret_cast<ThreadAttributes *>(1); expected = ESRCH; }
+  if (mode == 7) expected = EINVAL;
+  if (mode == 12) { internal::self.attrib = handle; handle = &main_control.attributes; expected = ENOTSUP; }
+  if (mode == 13) { internal::self.attrib = nullptr; expected = EINVAL; }
+  ThreadJoinClaim claim;
+  if (mode == 8 || mode == 9) {
+    require(claim_thread_join(handle, claim) == 0);
+    if (mode == 8) {
+      ThreadJoinClaim other;
+      require(claim_thread_join(handle, other) == EINVAL);
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.pin(handle) == control && !lock.detach(*control));
+      require(lock.unpin(*control));
+    }
+    abandon_thread_join(claim);
+    require(!unmaps && !control->attributes.joiner.load());
+    { ThreadRegistryLock lock(thread_registry);
+      require(lock.owner(*control) == ThreadOwner::Joinable); }
+    // The same claim storage can be reused only after explicit abandonment.
+    require(claim_thread_join(handle, claim) == 0);
+    commit_thread_join(claim, output);
+  } else if (mode >= 15 && mode <= 18) {
+    if (mode != 17) require(claim_thread_join(handle, claim) == 0);
+    if (mode == 15) { commit_thread_join(claim, output); commit_thread_join(claim, output); }
+    if (mode == 16) claim_thread_join(handle, claim);
+    if (mode == 17) commit_thread_join(claim, output);
+    if (mode == 18) { internal::self.attrib = &control->attributes; abandon_thread_join(claim); }
+    __builtin_abort();
+  } else {
+    require(join_thread(handle, output) == expected);
+    if (expected) {
+      require(!unmaps && output.posix_retval == reinterpret_cast<void *>(0x1234));
+      return 0;
+    }
+  }
+  require(!fatal && unmaps == maps);
+  if (mode == 1) require(output.stdc_retval == -73);
+  else require(output.posix_retval == reinterpret_cast<void *>(0xfedcba9876543210UL));
+  require(shared_waits == (mode == 2 ? 5 : 0));
+  require(private_waits == (mode == 3 ? 1 : 0));
+  for (auto c : caller_stack) require(c == 0);
+  return 0;
+}
