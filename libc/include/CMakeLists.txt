@@ -602,6 +602,7 @@ add_header_macro(
     .llvm-libc-types.pthread_spinlock_t
     .llvm-libc-types.pthread_t
     .llvm-libc-types.pthread_id_np_t
+    .llvm-libc-types.struct_sched_param
     .llvm-libc-types.struct_timespec
     .llvm_libc_common_h
 )

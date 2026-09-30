@@ -23,8 +23,8 @@ LLVM_LIBC_FUNCTION(int, pthread_attr_setstack,
                    (pthread_attr_t *__restrict attr, void *stack,
                     size_t stacksize)) {
   uintptr_t stackaddr = reinterpret_cast<uintptr_t>(stack);
-  // TODO: Do we need to check for overflow on stackaddr + stacksize?
-  if ((stackaddr % STACK_ALIGNMENT != 0) ||
+  if (stacksize > UINTPTR_MAX - stackaddr ||
+      (stackaddr % STACK_ALIGNMENT != 0) ||
       ((stackaddr + stacksize) % STACK_ALIGNMENT != 0))
     return EINVAL;
 

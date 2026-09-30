@@ -115,5 +115,10 @@ TEST(LlvmLibcPThreadattrTest, SetAndGetStack) {
       LIBC_NAMESPACE::pthread_attr_setstack(&attr, 0, PTHREAD_STACK_MIN / 2),
       EINVAL);
 
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_setstack(
+                &attr, reinterpret_cast<void *>(uintptr_t(-1) - 15),
+                PTHREAD_STACK_MIN),
+            EINVAL);
+
   ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_destroy(&attr), 0);
 }

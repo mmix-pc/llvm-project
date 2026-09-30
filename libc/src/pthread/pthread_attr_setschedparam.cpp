@@ -17,8 +17,8 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, pthread_attr_setschedparam,
-                   (pthread_attr_t * attr,
-                    const struct sched_param *schedparam)) {
+                   (pthread_attr_t * /*attr*/,
+                    const struct sched_param * /*schedparam*/)) {
   return ENOTSUP;
 }
 
