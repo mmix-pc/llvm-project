@@ -72,6 +72,9 @@ for opt in ("0", "2"):
 #include <linux/futex.h>
 using namespace entry_test;
 using namespace entry_test::mmix;
+namespace entry_test::mmix {
+thread_local ThreadControl *current_control = nullptr;
+}
 extern "C" int fork();
 extern "C" int waitpid(int, int *, int);
 static void require(bool value) { if (!value) __builtin_abort(); }
@@ -125,6 +128,7 @@ extern "C" void __llvm_libc_mmix_thread_run(ThreadControl *c) {
   require(c == &control && c->acquire_decision() == CreatorDecision::Go);
   require(c->acquire_child() == ChildStatus::Ready && managers == 1);
   require(internal::self.attrib == &c->attributes && int(libc_errno) == 0);
+  require(current_control == c);
   require(c->attributes.tls == 8192 && c->attributes.tls_size == 8192);
   require(c->attributes.stack == reinterpret_cast<void *>(32768));
   require(c->attributes.stacksize == 16384 && c->attributes.guardsize == 8192);

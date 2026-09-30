@@ -85,8 +85,13 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     SRCS thread_adapter.cpp
     DEPENDS
       .thread_create
+      .thread_join
+      .thread_finish
       libc.config.app_h
+      libc.hdr.signal_macros
+      libc.src.__support.OSUtil.linux.mmix.syscall
       libc.src.__support.threads.thread_common
+      libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto
   )
   add_object_library(

@@ -526,15 +526,26 @@ add_entrypoint_object(
     libc.src.__support.threads.thread
 )
 
+set(pthread_detach_source pthread_detach.cpp)
+set(pthread_detach_dependencies libc.src.__support.threads.thread)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(pthread_detach_source linux/mmix/pthread_detach.cpp)
+  set(pthread_detach_dependencies
+    libc.src.__support.threads.linux.mmix.thread_detach
+    libc.src.__support.OSUtil.linux.mmix.syscall
+    libc.hdr.signal_macros
+    libc.include.sys_syscall)
+endif()
+
 add_entrypoint_object(
   pthread_detach
   SRCS
-    pthread_detach.cpp
+    ${pthread_detach_source}
   HDRS
     pthread_detach.h
   DEPENDS
     libc.include.pthread
-    libc.src.__support.threads.thread
+    ${pthread_detach_dependencies}
 )
 
 add_entrypoint_object(

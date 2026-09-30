@@ -105,6 +105,9 @@ private:
   size_t api_pins = 0, leases = 0;
 };
 
+// Set only after the current task has published its native thread state.
+extern LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control;
+
 // These objects outlive every control mapping, including the reaper's.
 class ThreadRegistry {
   friend class ThreadRegistryLock;

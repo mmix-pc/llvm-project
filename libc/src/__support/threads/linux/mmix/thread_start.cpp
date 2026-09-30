@@ -43,7 +43,10 @@ static int initialize_child(ThreadControl &control) {
   attributes.platform_data = &control.clear_tid.value.val;
   internal::self.attrib = &attributes;
   attributes.atexit_callback_mgr = internal::get_thread_atexit_callback_mgr();
-  return attributes.atexit_callback_mgr ? 0 : ENOMEM;
+  if (!attributes.atexit_callback_mgr)
+    return ENOMEM;
+  current_control = &control;
+  return 0;
 }
 
 extern "C" [[noreturn, clang::noinline, clang::disable_tail_calls]] void

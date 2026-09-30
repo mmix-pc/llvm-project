@@ -125,7 +125,7 @@ __llvm_libc_mmix_thread_run(ThreadControl *control) {
   }
   set_mask(callback_mask);
   // Reuse only the selected internal callback/TSS manager. Full public TLS
-  // destruction, cancellation and explicit exit need their own integration.
+  // destruction and cancellation need their own integration.
   if (control.retains_resources_until_process_exit())
     internal::cleanup_main_thread();
   else

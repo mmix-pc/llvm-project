@@ -20,6 +20,11 @@
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+namespace mmix {
+LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control = nullptr;
+}
+#endif
 namespace internal {
 namespace {
 
@@ -78,6 +83,7 @@ bool activate_main_thread(MainThreadState &state) {
     }
   }
   active_attributes = &state.attributes;
+  mmix::current_control = &state;
   phase = Phase::Active;
   return true;
 }

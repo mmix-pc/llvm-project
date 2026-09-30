@@ -26,6 +26,12 @@ if(LIBC_MMIX_BUILD_PTHREAD_CREATION)
     libc.src.pthread.pthread_attr_getstacksize
     libc.src.pthread.pthread_attr_setstacksize)
 endif()
+if(LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.pthread.pthread_join
+    libc.src.pthread.pthread_detach
+    libc.src.pthread.pthread_exit)
+endif()
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 if(NOT LLVM_LIBC_FULL_BUILD OR NOT CMAKE_CROSSCOMPILING OR
    NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR LLVM_LIBC_INCLUDE_SCUDO OR
@@ -77,6 +83,14 @@ function(mmix_configure_thread_lifecycle)
   else()
     set(mmix_lifecycle_excluded
       "pthread;concurrent-libc;malloc;stdio;TSS;nontrivial-TLS;cancellation;fork;dynamic-linking")
+  endif()
+  if(LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE)
+    list(APPEND mmix_lifecycle_objects
+      libc.src.pthread.pthread_join
+      libc.src.pthread.pthread_detach
+      libc.src.pthread.pthread_exit)
+    set(mmix_lifecycle_excluded
+      "concurrent-libc;malloc;stdio;TSS;nontrivial-TLS;cancellation;fork;dynamic-linking")
   endif()
   add_library(mmix_libc_thread_lifecycle STATIC)
   foreach(provider IN LISTS mmix_lifecycle_objects)

@@ -22,7 +22,7 @@ finish_thread(ThreadControl &control, ThreadReturnValue result);
 
 // Internal explicit exit, including main while peers survive. Caller supplies
 // its own control and suppresses cancellation. Automatic-object unwinding and
-// complete public TLS/TSS destruction require the later public exit path.
+// complete public TLS/TSS destruction require later cleanup integration.
 [[noreturn]] void exit_thread(ThreadControl &control, ThreadReturnValue result);
 
 // Selected thread cleanup has already completed. Run normal process callbacks

@@ -7,8 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "config/app.h"
+#include "hdr/signal_macros.h"
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/threads/linux/mmix/thread_create.h"
+#include "src/__support/threads/linux/mmix/thread_finish.h"
+#include "src/__support/threads/linux/mmix/thread_join.h"
 #include "src/__support/threads/thread.h"
+#include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -42,6 +47,28 @@ int Thread::run(ThreadStyle style, ThreadRunner runner, void *arg, void *stack,
 
 bool Thread::operator==(const Thread &other) const {
   return attrib == other.attrib;
+}
+
+int Thread::join(ThreadReturnValue &retval) {
+  uint64_t blocked = UINT64_MAX, saved = 0;
+  if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
+                   reinterpret_cast<long>(&blocked),
+                   reinterpret_cast<long>(&saved), sizeof(saved)) != 0)
+    __builtin_trap();
+  int error = mmix::join_thread(attrib, retval);
+  if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
+                   reinterpret_cast<long>(&saved), 0, sizeof(saved)) != 0)
+    __builtin_trap();
+  return error;
+}
+
+[[noreturn]] void thread_exit(ThreadReturnValue retval, ThreadStyle style) {
+  auto *control = mmix::current_control;
+  if (!control || internal::self.attrib != &control->attributes ||
+      (style != ThreadStyle::POSIX && style != ThreadStyle::STDC))
+    __builtin_trap();
+  // FIXME: Add forced unwinding when C++ pthread_exit cleanup is admitted.
+  mmix::exit_thread(*control, retval);
 }
 
 } // namespace LIBC_NAMESPACE_DECL
