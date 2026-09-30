@@ -2,7 +2,12 @@
 option(LIBC_MMIX_ENABLE_STATIC_TLS "Build the main-thread static TLS profile" OFF)
 option(LIBC_MMIX_BUILD_THREAD_LIFECYCLE
   "Build the non-installed internal Linux thread lifecycle archive" OFF)
+option(LIBC_MMIX_BUILD_PTHREAD_CREATION
+  "Add public pthread creation and identity to the lifecycle archive" OFF)
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_PTHREAD_CREATION AND NOT LIBC_MMIX_BUILD_THREAD_LIFECYCLE)
+    message(FATAL_ERROR "MMIX pthread creation requires the internal lifecycle")
+  endif()
   if(LIBC_MMIX_BUILD_THREAD_LIFECYCLE)
     if(NOT LIBC_MMIX_ENABLE_STATIC_TLS OR NOT LIBC_MMIX_BUILD_RUNTIME_STATE)
       message(FATAL_ERROR "MMIX internal lifecycle requires static TLS and runtime state")
@@ -12,7 +17,7 @@ function(mmix_check_runtime_mode)
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
-         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE)$")
+         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
       endif()
     endforeach()

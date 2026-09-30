@@ -81,6 +81,15 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     COMPILE_OPTIONS -fno-lto
   )
   add_object_library(
+    thread_adapter
+    SRCS thread_adapter.cpp
+    DEPENDS
+      .thread_create
+      libc.config.app_h
+      libc.src.__support.threads.thread_common
+    COMPILE_OPTIONS -fno-lto
+  )
+  add_object_library(
     thread_finish
     SRCS thread_finish.cpp thread_process_exit.cpp
     HDRS thread_finish.h

@@ -1,0 +1,35 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+cases = [(['-DPUBLIC=ON'], True), (['-DPUBLIC=OFF'], True),
+         (['-DPUBLIC=ON', '-DLIFECYCLE=OFF'], False),
+         (['-DPUBLIC=ON', '-DLIBC_MMIX_BUILD_STDIO=ON'], False)]
+for i, (options, accepted) in enumerate(cases):
+    result = subprocess.run(['cmake', '-S', str(root), '-B', str(root / str(i)),
+                             '-DLIBC_SOURCE=' + str(libc.resolve()), *options],
+                            capture_output=True, text=True)
+    assert (result.returncode == 0) == accepted, result.stdout + result.stderr
+    if not accepted:
+        assert 'MMIX' in result.stderr
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(PublicThreadCreation NONE)
+set(LIFECYCLE ON CACHE BOOL "")
+set(PUBLIC ON CACHE BOOL "")
+set(LIBC_MMIX_BUILD_THREAD_LIFECYCLE ${LIFECYCLE})
+set(LIBC_MMIX_BUILD_PTHREAD_CREATION ${PUBLIC})
+set(LIBC_MMIX_ENABLE_STATIC_TLS ON)
+set(LIBC_MMIX_BUILD_RUNTIME_STATE ON)
+set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_PLATFORM)
+set(LIBC_CONF_ERRNO_MODE LIBC_ERRNO_MODE_THREAD_LOCAL)
+set(LIBC_COMPILE_OPTIONS_DEFAULT "-ftls-model=local-exec;-fno-lto")
+include(${LIBC_SOURCE}/config/linux/mmix/RuntimeMode.cmake)
+mmix_check_runtime_mode()

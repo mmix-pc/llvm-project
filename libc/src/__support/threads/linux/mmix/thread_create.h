@@ -19,10 +19,9 @@ struct ThreadCreationResult {
   ThreadPreparationResult preparation{};
 };
 
-// Internal only. Main must be registered and caller cancellation suppressed
-// through return. Public creation remains unavailable until cleanup/reaping
-// and cancellation integration are complete. Failure leaves output unchanged;
-// a failed preclone rollback transfers retained descriptors to the caller.
+// Main must be registered and caller cancellation suppressed through return.
+// Failure leaves output unchanged; a failed preclone rollback transfers
+// retained descriptors to the caller.
 __attribute__((visibility("hidden"))) ThreadCreationResult
 create_thread(const ThreadPreparation &request, ThreadAttributes *&output);
 

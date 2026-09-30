@@ -10,6 +10,22 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.errno.program_invocation_name
   libc.src.errno.program_invocation_short_name
   libc.src.compiler.__stack_chk_fail)
+if(LIBC_MMIX_BUILD_PTHREAD_CREATION)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.pthread.pthread_create
+    libc.src.pthread.pthread_self
+    libc.src.pthread.pthread_equal
+    libc.src.pthread.pthread_attr_init
+    libc.src.pthread.pthread_attr_destroy
+    libc.src.pthread.pthread_attr_getdetachstate
+    libc.src.pthread.pthread_attr_setdetachstate
+    libc.src.pthread.pthread_attr_getguardsize
+    libc.src.pthread.pthread_attr_setguardsize
+    libc.src.pthread.pthread_attr_getstack
+    libc.src.pthread.pthread_attr_setstack
+    libc.src.pthread.pthread_attr_getstacksize
+    libc.src.pthread.pthread_attr_setstacksize)
+endif()
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 if(NOT LLVM_LIBC_FULL_BUILD OR NOT CMAKE_CROSSCOMPILING OR
    NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR LLVM_LIBC_INCLUDE_SCUDO OR
@@ -43,6 +59,25 @@ function(mmix_configure_thread_lifecycle)
     list(APPEND mmix_lifecycle_objects
       libc.src.__support.threads.linux.mmix.${provider})
   endforeach()
+  if(LIBC_MMIX_BUILD_PTHREAD_CREATION)
+    list(APPEND mmix_lifecycle_objects
+      libc.src.__support.threads.linux.mmix.thread_adapter
+      libc.src.pthread.pthread_create
+      libc.src.pthread.pthread_self
+      libc.src.pthread.pthread_equal)
+    foreach(provider pthread_attr_init pthread_attr_destroy
+                     pthread_attr_getdetachstate pthread_attr_setdetachstate
+                     pthread_attr_getguardsize pthread_attr_setguardsize
+                     pthread_attr_getstack pthread_attr_setstack
+                     pthread_attr_getstacksize pthread_attr_setstacksize)
+      list(APPEND mmix_lifecycle_objects libc.src.pthread.${provider})
+    endforeach()
+    set(mmix_lifecycle_excluded
+      "pthread_join;pthread_detach;pthread_exit;concurrent-libc;malloc;stdio;TSS;nontrivial-TLS;cancellation;fork;dynamic-linking")
+  else()
+    set(mmix_lifecycle_excluded
+      "pthread;concurrent-libc;malloc;stdio;TSS;nontrivial-TLS;cancellation;fork;dynamic-linking")
+  endif()
   add_library(mmix_libc_thread_lifecycle STATIC)
   foreach(provider IN LISTS mmix_lifecycle_objects)
     if(NOT TARGET ${provider})
@@ -63,7 +98,7 @@ function(mmix_configure_thread_lifecycle)
   set(MMIX_LIFECYCLE_THREAD_MODE \"${LIBC_CONF_THREAD_MODE}\")
   set(MMIX_LIFECYCLE_ERRNO_MODE \"${LIBC_CONF_ERRNO_MODE}\")
   set(MMIX_LIFECYCLE_CALLBACK_CAPACITY 1024)
-  set(MMIX_LIFECYCLE_EXCLUDED \"pthread;concurrent-libc;malloc;stdio;TSS;nontrivial-TLS;cancellation;fork;dynamic-linking\")
+  set(MMIX_LIFECYCLE_EXCLUDED \"${mmix_lifecycle_excluded}\")
   ")
   set(manifest "{}")
   foreach(pair "archive|$<TARGET_FILE:mmix_libc_thread_lifecycle>"
