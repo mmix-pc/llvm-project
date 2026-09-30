@@ -130,5 +130,9 @@ if(LIBC_MMIX_BUILD_RUNTIME_STATE)
   )
 endif()
 
+if(LIBC_MMIX_BUILD_PTHREAD_ATTRIBUTES)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.pthread)
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/CommandEnvironmentRuntime.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeInstallation.cmake)

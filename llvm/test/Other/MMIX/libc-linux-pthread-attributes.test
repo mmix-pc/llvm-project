@@ -1,0 +1,74 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/pthread.h %S/../../../../libc/include/pthread.yaml
+# RUN: clang --target=mmix-unknown-linux -std=c17 -ffreestanding -nostdlibinc -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+base = ['cmake', '-S', str(root), '-DLIBC_SOURCE=' + str(libc.resolve())]
+for suffix, args, success in [
+    ('off', [], True),
+    ('on', ['-DLIBC_MMIX_BUILD_PTHREAD_ATTRIBUTES=ON'], True),
+    ('lifecycle', ['-DLIBC_MMIX_BUILD_PTHREAD_ATTRIBUTES=ON',
+                   '-DLIBC_MMIX_BUILD_THREAD_LIFECYCLE=ON'], False),
+    ('install', ['-DLIBC_MMIX_BUILD_PTHREAD_ATTRIBUTES=ON',
+                 '-DLIBC_MMIX_INSTALL_RUNTIME=ON'], False),
+    ('command', ['-DLIBC_MMIX_BUILD_PTHREAD_ATTRIBUTES=ON',
+                 '-DLIBC_MMIX_BUILD_COMMAND_ENVIRONMENT_RUNTIME=ON'], False),
+]:
+    result = subprocess.run([*base, '-B', str(root / suffix), *args],
+                            capture_output=True, text=True)
+    assert (result.returncode == 0) == success, result.stdout + result.stderr
+    if not success:
+        assert 'MMIX pthread attributes are preparation only' in result.stderr
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(MMIXPthreadAttributes NONE)
+set(TARGET_LIBC_ENTRYPOINTS libc.src.errno.errno)
+include(${LIBC_SOURCE}/config/linux/mmix/PthreadAttributes.cmake)
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+if(LIBC_MMIX_BUILD_PTHREAD_ATTRIBUTES)
+  list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
+  if(NOT count EQUAL 13 OR
+     NOT libc.include.pthread IN_LIST TARGET_PUBLIC_HEADERS OR
+     NOT TARGET_LIBC_ENTRYPOINTS STREQUAL TARGET_LLVMLIBC_ENTRYPOINTS OR
+     libc.src.pthread.pthread_create IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "MMIX attribute-only selection is incomplete")
+  endif()
+elseif(libc.include.pthread IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "MMIX default unexpectedly exports pthread.h")
+endif()
+
+#--- public.c
+#include <stddef.h>
+#include <pthread.h>
+
+#define CHECK(T, S, A) _Static_assert(sizeof(T) == S && _Alignof(T) == A, #T)
+CHECK(pthread_t, 8, 8);
+CHECK(pthread_attr_t, 32, 8);
+CHECK(pthread_mutex_t, 24, 8);
+CHECK(pthread_mutexattr_t, 4, 4);
+CHECK(pthread_cond_t, 24, 8);
+CHECK(pthread_condattr_t, 8, 4);
+CHECK(pthread_once_t, 4, 4);
+CHECK(pthread_key_t, 4, 4);
+
+_Static_assert(PTHREAD_CREATE_JOINABLE == 0 && PTHREAD_CREATE_DETACHED == 1,
+               "detach ABI");
+_Static_assert(PTHREAD_STACK_MIN == 16384, "minimum stack");
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
+pthread_once_t once = PTHREAD_ONCE_INIT;
+
+int attributes(pthread_attr_t *attr, void *stack) {
+  return pthread_attr_init(attr) + pthread_attr_setstack(attr, stack, 16384) +
+         pthread_attr_setguardsize(attr, 8192) +
+         pthread_attr_setdetachstate(attr, PTHREAD_CREATE_DETACHED) +
+         pthread_attr_setschedparam(attr, 0);
+}
