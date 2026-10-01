@@ -828,20 +828,6 @@ void MMIXTargetCodeGenInfo::setTargetAttributes(const Decl *D,
                                                  Message);
       CGM.getDiags().Report(VD->getLocation(), ID);
     };
-    // FIXME: Admit thread-exit cleanup once the Linux runtime provides it.
-    auto NeedsTemporaryCleanup = [&](auto &&Self, const Stmt *S) -> bool {
-      if (!S)
-        return false;
-      if (const auto *M = dyn_cast<MaterializeTemporaryExpr>(S))
-        if (M->getStorageDuration() == SD_Thread &&
-            M->getType().isDestructedType() == QualType::DK_cxx_destructor)
-          return true;
-      return llvm::any_of(S->children(),
-                          [&](const Stmt *Child) { return Self(Self, Child); });
-    };
-    if (VD->needsDestruction(CGM.getContext()) == QualType::DK_cxx_destructor ||
-        NeedsTemporaryCleanup(NeedsTemporaryCleanup, VD->getInit()))
-      Diagnose("MMIX Linux does not yet support C++ TLS thread-exit cleanup");
     // The driver supplies these defaults; direct cc1 callers must select them.
     // Checking the module default also covers compiler-generated TLS guards.
     if (Opts.getDefaultTLSModel() != CodeGenOptions::LocalExecTLSModel)
