@@ -12,7 +12,12 @@ option(LIBC_MMIX_BUILD_PTHREAD_COND
   "Add public private condition variables to the lifecycle archive" OFF)
 option(LIBC_MMIX_BUILD_PTHREAD_ONCE
   "Add public C once initialization to the lifecycle archive" OFF)
+option(LIBC_MMIX_BUILD_PTHREAD_TSS
+  "Add public thread-specific keys to the lifecycle archive" OFF)
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_PTHREAD_TSS AND NOT LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE)
+    message(FATAL_ERROR "MMIX public TSS requires the public pthread lifecycle")
+  endif()
   if(LIBC_MMIX_BUILD_PTHREAD_ONCE AND NOT LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE)
     message(FATAL_ERROR "MMIX public once requires the public pthread lifecycle")
   endif()
@@ -37,7 +42,7 @@ function(mmix_check_runtime_mode)
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
-         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE)$")
+         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
       endif()
     endforeach()

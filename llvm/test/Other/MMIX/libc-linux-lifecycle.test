@@ -32,7 +32,7 @@ providers = [*state, atexit, normal_exit, *immediate_exit,
     libc / "src/__support/OSUtil/linux/mmix/heap.cpp",
     libc / "src/__support/freelist.cpp", libc / "src/__support/freetrie.cpp",
     libc / "src/errno/libc_errno.cpp", libc / "src/__support/CPP/new.cpp",
-    libc / "src/string/memset.cpp"]
+    libc / "src/string/memset.cpp", libc / "src/string/memcpy.cpp"]
 base = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
     "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
     *common, "-DLIBC_COPT_PUBLIC_PACKAGING", "-stack-protector", "2"]
