@@ -342,6 +342,8 @@ functions:
     arguments:
       - type: pthread_barrier_t *
   - name: pthread_once
+    # Initializers can unwind through pthread_once to their caller.
+    noexcept: false
     return_type: int
     arguments:
       - type: pthread_once_t *

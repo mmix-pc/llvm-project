@@ -96,6 +96,7 @@ def yaml_to_classes(yaml_data, header_class, entry_points=None):
                     standards,
                     guard,
                     attributes,
+                    noexcept=function_data.get("noexcept", True),
                 )
             )
         else:
@@ -119,6 +120,7 @@ def yaml_to_classes(yaml_data, header_class, entry_points=None):
                     standards,
                     guard,
                     attributes,
+                    noexcept=function_data.get("noexcept", True),
                 )
             )
 

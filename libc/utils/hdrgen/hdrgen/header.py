@@ -343,7 +343,8 @@ class HeaderFile:
                 content.pop()
             self.emit_guard(content, current_guard, function.guard)
             current_guard = function.guard
-            content.append(str(function) + " __NOEXCEPT;")
+            exception_spec = " __NOEXCEPT" if function.noexcept else ""
+            content.append(str(function) + exception_spec + ";")
             content.append("")
             last_name = function.name_without_underscores()
         self.emit_guard(content, current_guard, None)

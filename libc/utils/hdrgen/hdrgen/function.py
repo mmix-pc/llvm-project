@@ -39,7 +39,14 @@ NONIDENTIFIER = re.compile("[^a-zA-Z0-9_]+")
 
 class Function(Symbol):
     def __init__(
-        self, return_type, name, arguments, standards, guard=None, attributes=[]
+        self,
+        return_type,
+        name,
+        arguments,
+        standards,
+        guard=None,
+        attributes=[],
+        noexcept=True,
     ):
         super().__init__(name)
         assert return_type
@@ -51,6 +58,9 @@ class Function(Symbol):
         self.standards = standards
         self.guard = guard
         self.attributes = attributes or []
+        if not isinstance(noexcept, bool):
+            raise ValueError("Function noexcept must be a boolean")
+        self.noexcept = noexcept
 
     def signature_types(self):
         def collapse(type_string):

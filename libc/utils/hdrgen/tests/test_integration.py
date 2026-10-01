@@ -52,6 +52,32 @@ class TestHeaderGenIntegration(unittest.TestCase):
 
         self.compare_files(output_file, expected_output_file)
 
+    def test_exception_specifications(self):
+        output_file = self.output_dir / "noexcept.h"
+        self.run_script(self.source_dir / "input/noexcept.yaml", output_file)
+        content = output_file.read_text()
+        self.assertIn("void default_nothrow(void) __NOEXCEPT;", content)
+        self.assertIn("void explicit_nothrow(void) __NOEXCEPT;", content)
+        self.assertIn("void may_throw(void);", content)
+        self.assertIn("void guarded_may_throw(void);", content)
+        self.assertIn("#ifdef ENABLE_THROWING_CALLBACK", content)
+
+    def test_pthread_once_exception_specification(self):
+        output_file = self.output_dir / "pthread.h"
+        self.run_script(self.source_dir.parents[2] / "include/pthread.yaml",
+                        output_file, ["pthread_once", "pthread_self"])
+        content = output_file.read_text()
+        self.assertIn("int pthread_once(pthread_once_t *, __pthread_once_func_t);", content)
+        self.assertIn("pthread_t pthread_self(void) __NOEXCEPT;", content)
+
+    def test_invalid_exception_specification(self):
+        yaml_file = self.output_dir / "invalid-noexcept.yaml"
+        yaml_file.write_text((self.source_dir / "input/noexcept.yaml").read_text()
+                             .replace("noexcept: false", 'noexcept: "false"'))
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.run_script(yaml_file, self.output_dir / "invalid-noexcept.h")
+        self.assertIn("Function noexcept must be a boolean", raised.exception.stderr)
+
     def test_generate_subdir_header(self):
         yaml_file = self.source_dir / "input" / "subdir" / "test.yaml"
         expected_output_file = self.source_dir / "expected_output" / "subdir" / "test.h"

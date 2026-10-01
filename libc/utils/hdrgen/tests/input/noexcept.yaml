@@ -1,0 +1,18 @@
+header: noexcept.h
+functions:
+  - name: default_nothrow
+    return_type: void
+    arguments: []
+  - name: explicit_nothrow
+    return_type: void
+    arguments: []
+    noexcept: true
+  - name: may_throw
+    return_type: void
+    arguments: []
+    noexcept: false
+  - name: guarded_may_throw
+    return_type: void
+    arguments: []
+    guard: ENABLE_THROWING_CALLBACK
+    noexcept: false
