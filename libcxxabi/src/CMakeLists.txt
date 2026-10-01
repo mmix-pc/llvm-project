@@ -43,6 +43,10 @@ if (LIBCXXABI_ENABLE_THREADS AND (UNIX OR FUCHSIA) AND NOT (APPLE OR CYGWIN)
   )
 endif()
 
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "mmix")
+  include(mmix/Sources.cmake)
+endif()
+
 set(LIBCXXABI_HEADERS
   ../include/cxxabi.h
 )

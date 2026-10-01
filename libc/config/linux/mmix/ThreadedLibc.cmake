@@ -40,6 +40,7 @@ if(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)
     libc.src.stdlib.abort
     libc.src.stdio.fprintf)
 endif()
+include(${CMAKE_CURRENT_LIST_DIR}/CxxRuntimeDependencies.cmake)
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 set(mmix_threaded_entrypoints ${TARGET_LIBC_ENTRYPOINTS})
 
@@ -82,7 +83,8 @@ function(mmix_configure_threaded_libc)
                "errno_mode|${LIBC_CONF_ERRNO_MODE}"
                "unwind_diagnostics|${LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS}"
                "unwind_roots|${LIBC_MMIX_BUILD_UNWIND_ROOTS}"
-               "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}")
+               "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
+               "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")
     list(GET pair 0 key)
     list(GET pair 1 value)

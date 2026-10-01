@@ -1,0 +1,38 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/selection.cmake
+# RUN: not cmake -DSOURCE=%S/../../../.. -P %t/rejected.cmake 2>&1 | FileCheck %s
+# RUN: not cmake -DSOURCE=%S/../../../.. -DLIBC_CONF_PRINTF_DISABLE_FLOAT=ON -P %t/selection.cmake 2>&1 | FileCheck %s --check-prefix=FLOAT
+# CHECK: MMIX C++ runtime support requires TLS destructors
+# FLOAT: MMIX C++ dependencies require printf FLOAT support
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS retained)
+include(${SOURCE}/libc/config/linux/mmix/CxxRuntimeDependencies.cmake)
+if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL "retained")
+  message(FATAL_ERROR "Default C composition changed")
+endif()
+set(LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES ON)
+include(${SOURCE}/libc/config/linux/mmix/CxxRuntimeDependencies.cmake)
+foreach(provider retained libc.src.assert.__assert_fail libc.src.stdio.snprintf
+                 libc.src.stdio.vfprintf libc.src.pthread.pthread_getunique_np
+                 libc.src.pthread.pthread_getthreadid_np libc.src.sched.sched_yield
+                 libc.src.time.nanosleep libc.src.time.clock_gettime
+                 libc.src.stdlib.ldiv libc.src.stdlib.lldiv)
+  if(NOT provider IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "Missing C++ prerequisite: ${provider}")
+  endif()
+endforeach()
+foreach(provider libc.src.pthread.pthread_cancel libc.src.pthread.pthread_rwlock_init)
+  if(provider IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "Unrelated thread extension selected")
+  endif()
+endforeach()
+
+#--- rejected.cmake
+cmake_minimum_required(VERSION 3.20)
+set(LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES ON)
+include(${SOURCE}/libc/config/linux/mmix/RuntimeMode.cmake)
+mmix_check_runtime_mode()

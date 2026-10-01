@@ -137,6 +137,13 @@ if(LIBC_MMIX_BUILD_THREADED_LIBC)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.spawn libc.include.locale
     libc.include.time)
 endif()
+if(LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.ctype libc.include.sched
+    libc.include.math libc.include.fenv libc.include.wchar libc.include.wctype
+    libc.include.sys_stat libc.include.sys_statvfs libc.include.fcntl
+    libc.include.dirent libc.include.sys_time libc.include.sys_resource
+    libc.include.inttypes)
+endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/CommandEnvironmentRuntime.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeInstallation.cmake)
