@@ -20,6 +20,7 @@ common = ['-std=c++17', '-ffreestanding', '-fno-builtin', '-DLIBC_FULL_BUILD',
 sources = [libc/'src/__support/threads/linux/mmix'/n for n in
            ('thread_signal.cpp', 'lifecycle.cpp', 'thread_finish.cpp', 'thread_start.cpp')]
 sources.append(libc/'src/errno/libc_errno.cpp')
+sources.append(libc/'src/signal/linux/mmix/pthread_kill.cpp')
 for opt in ('0', '2'):
     objects = []
     for i, source in enumerate(sources):
@@ -59,6 +60,7 @@ for opt in ('0', '2'):
 #include "src/__support/threads/linux/mmix/thread_finish.h"
 #include "src/__support/threads/linux/mmix/thread_start.h"
 #include "src/__support/threads/thread.h"
+#include "src/signal/pthread_kill.h"
 #include "src/__support/libc_errno.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
@@ -87,6 +89,7 @@ void call_atexit_callbacks(ThreadAttributes *a) {
   pending = true; // Teardown must not restore the application mask again.
 }
 } namespace mmix {
+LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control = nullptr;
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
 } }
 extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
@@ -215,7 +218,8 @@ extern "C" int main(int argc, char **argv) {
     return 0;
   }
   try {
-    int error = signal_thread(handle, signal);
+    pthread_t thread{handle};
+    int error = signal_test::pthread_kill(thread, signal);
     require(mode != 11 && mode != 12);
     require(error == (mode == 2 || mode == 3 || mode == 10 ? EINVAL :
         mode >= 4 && mode <= 7 ? ESRCH : mode == 8 ? EPERM : mode == 9 ? EAGAIN : 0));

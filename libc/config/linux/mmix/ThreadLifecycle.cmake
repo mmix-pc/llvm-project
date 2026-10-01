@@ -56,6 +56,11 @@ if(LIBC_MMIX_BUILD_PTHREAD_TSS)
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_${operation})
   endforeach()
 endif()
+if(LIBC_MMIX_BUILD_PTHREAD_SIGNALS)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.signal.pthread_kill
+    libc.src.signal.pthread_sigmask)
+endif()
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 if(NOT LLVM_LIBC_FULL_BUILD OR NOT CMAKE_CROSSCOMPILING OR
    NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR LLVM_LIBC_INCLUDE_SCUDO OR
@@ -142,6 +147,11 @@ function(mmix_configure_thread_lifecycle)
       list(APPEND mmix_lifecycle_objects libc.src.pthread.pthread_${operation})
     endforeach()
     list(REMOVE_ITEM mmix_lifecycle_excluded TSS)
+  endif()
+  if(LIBC_MMIX_BUILD_PTHREAD_SIGNALS)
+    list(APPEND mmix_lifecycle_objects
+      libc.src.signal.linux.pthread_kill
+      libc.src.signal.linux.pthread_sigmask)
   endif()
   add_library(mmix_libc_thread_lifecycle STATIC)
   foreach(provider IN LISTS mmix_lifecycle_objects)
