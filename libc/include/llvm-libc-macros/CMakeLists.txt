@@ -495,13 +495,13 @@ add_macro_header(
     nl_types-macros.h
 )
 
-add_macro_header(
-  pthread_macros
-  HDR
-    pthread-macros.h
-  DEPENDS
-    .null_macro
-)
+if(TARGET libc.include.llvm-libc-macros.mmix.pthread_cleanup)
+  add_macro_header(pthread_macros HDR mmix/pthread-macros.h
+    DEST_HDR pthread-macros.h
+    DEPENDS .null_macro .mmix.pthread_base_macros .mmix.pthread_cleanup)
+else()
+  add_macro_header(pthread_macros HDR pthread-macros.h DEPENDS .null_macro)
+endif()
 
 add_macro_header(
   poll-macros

@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_CLEANUP_H
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_CLEANUP_H
 
+#include "include/llvm-libc-macros/mmix/pthread-cleanup.h"
 #include <stdint.h>
 
 // Private preparation interface. Owning functions require unwind tables and
@@ -16,33 +17,7 @@
 // Callbacks must return normally; forced dispatch rejects nested registration.
 #define MMIX_CLEANUP_FRAME __attribute__((noinline, disable_tail_calls))
 
-struct MmixCleanupFrame {
-  void *owner;
-  uintptr_t ro, procedure, sp, limit;
-  uint64_t chain, generation;
-};
-struct MmixCleanupRecord;
-struct MmixCleanupLink {
-  struct MmixCleanupRecord *record;
-  struct MmixCleanupFrame frame;
-  uint64_t serial;
-};
-struct MmixCleanupRecord {
-  struct MmixCleanupLink previous;
-  void (*callback)(void *);
-  void *argument;
-  uint64_t serial;
-};
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-__attribute__((visibility("hidden"))) void
-__llvm_libc_mmix_thread_cleanup_push(struct MmixCleanupRecord *,
-                                     void (*)(void *), void *);
-__attribute__((visibility("hidden"))) void
-__llvm_libc_mmix_thread_cleanup_pop(struct MmixCleanupRecord *, int);
-#ifdef __cplusplus
-}
-#endif
+typedef struct __llvm_libc_mmix_cleanup_frame MmixCleanupFrame;
+typedef struct __llvm_libc_mmix_cleanup_link MmixCleanupLink;
+typedef struct __llvm_libc_mmix_cleanup_record MmixCleanupRecord;
 #endif

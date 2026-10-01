@@ -814,8 +814,36 @@ StringRef MMIXTargetCodeGenInfo::getLLVMSyncScopeStr(
 }
 
 void MMIXTargetCodeGenInfo::setTargetAttributes(const Decl *D,
-                                                llvm::GlobalValue *,
+                                                llvm::GlobalValue *GV,
                                                 CodeGenModule &CGM) const {
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D);
+      FD && FD->doesThisDeclarationHaveABody() &&
+      CGM.getTarget().getTriple().isOSLinux()) {
+    class CleanupOwnerVisitor
+        : public RecursiveASTVisitor<CleanupOwnerVisitor> {
+    public:
+      bool Found = false;
+      bool VisitVarDecl(VarDecl *VD) {
+        for (const auto *A : VD->specific_attrs<AnnotateAttr>())
+          if (A->getAnnotation() == "mmix.pthread_cleanup_frame") {
+            Found = true;
+            return false;
+          }
+        return true;
+      }
+    } Visitor;
+    Visitor.TraverseStmt(FD->getBody());
+    if (Visitor.Found) {
+      // Keep cleanup owners distinct across mixed C/C++ LTO. C records run
+      // before a frame's personality; merging language frames reorders cleanup.
+      auto *F = cast<llvm::Function>(GV);
+      F->removeFnAttr(llvm::Attribute::AlwaysInline);
+      F->addFnAttr(llvm::Attribute::NoInline);
+      F->addFnAttr("disable-tail-calls", "true");
+      if (F->getUWTableKind() == llvm::UWTableKind::None)
+        F->setUWTableKind(llvm::UWTableKind::Sync);
+    }
+  }
   const auto *VD = dyn_cast_or_null<VarDecl>(D);
   if (!VD || !VD->hasGlobalStorage())
     return;
