@@ -82,7 +82,10 @@ LIBC_INLINE int timed_wait(CndVar *cond, Mutex *mutex,
   case internal::AbsTimeout::Error::Invalid:
     return EINVAL;
   case internal::AbsTimeout::Error::BeforeEpoch:
-    return ETIMEDOUT;
+    // Even an expired wait must release and reacquire the mutex. Use the
+    // earliest kernel-representable deadline rather than returning early.
+    return wait(cond, mutex,
+                internal::AbsTimeout::from_timespec({0, 0}, is_realtime).value());
   }
   __builtin_unreachable();
 }

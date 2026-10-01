@@ -1,6 +1,17 @@
 add_libc_integration_test_suite(libc-pthread-integration-tests)
 
 add_integration_test(
+  pthread_cond_expired_test
+  SUITE
+    libc-pthread-integration-tests
+  SRCS
+    pthread_cond_expired_test.cpp
+  DEPENDS
+    libc.src.pthread.pthread_cond_utils
+    libc.src.__support.OSUtil.osutil
+)
+
+add_integration_test(
   pthread_mutex_test
   SUITE
     libc-pthread-integration-tests
