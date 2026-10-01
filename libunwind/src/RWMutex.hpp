@@ -13,6 +13,10 @@
 #ifndef __RWMUTEX_HPP__
 #define __RWMUTEX_HPP__
 
+#if defined(_LIBUNWIND_MMIX_LINUX) && !defined(_LIBUNWIND_HAS_NO_THREADS)
+#include "mmix/RWMutex.hpp"
+#else
+
 #if defined(_WIN32)
 #include <windows.h>
 #elif !defined(_LIBUNWIND_HAS_NO_THREADS)
@@ -110,5 +114,7 @@ private:
 #endif
 
 } // namespace libunwind
+
+#endif // MMIX Linux mutex selection
 
 #endif // __RWMUTEX_HPP__

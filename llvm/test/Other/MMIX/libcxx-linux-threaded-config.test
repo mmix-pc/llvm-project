@@ -99,7 +99,8 @@ def configure(diagnostic=None, option=None, value=None):
 configure()
 for option in ("LIBCXX_HAS_EXTERNAL_THREAD_API", "LIBCXX_ENABLE_SHARED",
                "LIBCXXABI_INSTALL_LIBRARY", "LIBUNWIND_INSTALL_HEADERS",
-               "LIBCXX_MMIX_LINUX_INSTALL_RUNTIME", "LIBCXX_HAS_PTHREAD_LIB"):
+               "LIBCXX_MMIX_LINUX_INSTALL_RUNTIME", "LIBCXX_HAS_PTHREAD_LIB",
+               "LIBUNWIND_ENABLE_ASSERTIONS", "LIBUNWIND_WEAK_PTHREAD_LIB"):
     configure("rejects " + option, option, "ON")
 configure("requires LIBUNWIND_ENABLE_THREADS=ON", "LIBUNWIND_ENABLE_THREADS", "OFF")
 configure("requires native local-exec CXX flags", "CMAKE_CXX_FLAGS", "-nostdinc++")

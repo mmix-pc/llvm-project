@@ -2,12 +2,20 @@
 # RUN: split-file %s %t
 # RUN: clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_HAS_NO_THREADS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c
 # RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=THREAD
-# RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_HAS_NO_THREADS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=THREAD
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_HAS_NO_THREADS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=NATIVE
+# RUN: clang --target=mmix-unknown-linux -ffreestanding -DNDEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_MMIX_LINUX_THREADS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_MMIX_LINUX_THREADS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=THREAD
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -DNDEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_MMIX_LINUX_THREADS -D_LIBUNWIND_USE_FRAME_HEADER_CACHE -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=CACHE
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -DNDEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_MMIX_LINUX_THREADS -DLIBUNWIND_USE_WEAK_PTHREAD -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=CACHE
 # RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_HAS_NO_THREADS -D_LIBUNWIND_IS_BAREMETAL -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=FRAME
 # RUN: not clang --target=mmix-unknown-linux -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_HAS_NO_THREADS -D_LIBUNWIND_SUPPORT_FRAME_APIS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=FRAME
 # RUN: clang --target=mmix-unknown-unknown -ffreestanding -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_IS_BAREMETAL -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c
 # RUN: cmake -DSOURCE=%S/../../../.. -P %t/cache.cmake
-# THREAD: MMIX Linux libunwind requires native single-thread configuration
+# RUN: not clang --target=mmix-unknown-linux -ffreestanding -DNDEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_MMIX_LINUX_THREADS -D_LIBUNWIND_HAS_NO_THREADS -I %t -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -fsyntax-only %t/config.c 2>&1 | FileCheck %s --check-prefix=CONFLICT
+# CONFLICT: MMIX Linux libunwind has conflicting thread selections
+# THREAD: MMIX Linux threaded libunwind requires the explicit Release profile
+# NATIVE: MMIX Linux libunwind requires native configuration
+# CACHE: MMIX Linux threaded libunwind requires strong mutexes and no frame header cache
 # FRAME: MMIX Linux libunwind requires static Linux frame discovery
 
 # Stub C declarations isolate platform selection; real archive builds use libc.

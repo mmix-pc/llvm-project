@@ -22,6 +22,8 @@ option(LIBC_MMIX_BUILD_CONCURRENT_STDIO
   "Add concurrent file streams to the public lifecycle archive" OFF)
 option(LIBC_MMIX_BUILD_THREADED_LIBC
   "Compose the bounded public Linux pthread and concurrent libc archive" OFF)
+option(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS
+  "Add diagnostic providers for Linux threaded unwind preparation" OFF)
 option(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC
   "Compose the single-thread Linux libc and C runtime" OFF)
 if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
@@ -29,6 +31,9 @@ if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
   set(LIBC_MMIX_BUILD_C_RUNTIME ON)
 endif()
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS AND NOT LIBC_MMIX_BUILD_THREADED_LIBC)
+    message(FATAL_ERROR "MMIX unwind diagnostics require threaded libc")
+  endif()
   if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
     if(LIBC_MMIX_BUILD_THREADED_LIBC OR LIBC_MMIX_BUILD_THREAD_LIFECYCLE OR
        LIBC_MMIX_ENABLE_STATIC_TLS OR
@@ -83,7 +88,7 @@ function(mmix_check_runtime_mode)
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
-         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREADED_LIBC|THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
+         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREADED_LIBC|UNWIND_DIAGNOSTICS|THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
       endif()
     endforeach()

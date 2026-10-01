@@ -35,6 +35,11 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.signal.sigaddset
 )
 list(REMOVE_DUPLICATES TARGET_LIBC_ENTRYPOINTS)
+if(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.stdlib.abort
+    libc.src.stdio.fprintf)
+endif()
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 set(mmix_threaded_entrypoints ${TARGET_LIBC_ENTRYPOINTS})
 
@@ -74,7 +79,8 @@ function(mmix_configure_threaded_libc)
                "headers|${LIBC_INCLUDE_DIR}" "uapi|${LIBC_KERNEL_HEADERS}"
                "sysroot|${CMAKE_SYSROOT}" "namespace|${LIBC_NAMESPACE}"
                "thread_mode|${LIBC_CONF_THREAD_MODE}"
-               "errno_mode|${LIBC_CONF_ERRNO_MODE}")
+               "errno_mode|${LIBC_CONF_ERRNO_MODE}"
+               "unwind_diagnostics|${LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS}")
     string(REPLACE "|" ";" pair "${pair}")
     list(GET pair 0 key)
     list(GET pair 1 value)
@@ -98,7 +104,12 @@ function(mmix_configure_threaded_libc)
     CONTENT "${manifest}\n")
   # Package this alongside libc.a; internal and single-thread archives do not
   # advertise the public static pthread composition to the Clang driver.
-  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-threaded-libc/mmix-libc-profile"
-    CONTENT "mmix-linux-static-pthread-c-v1\n")
+  if(NOT LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)
+    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-threaded-libc/mmix-libc-profile"
+      CONTENT "mmix-linux-static-pthread-c-v1\n")
+  else()
+    # Preparation must not retain a stale installed-profile marker.
+    file(REMOVE "${CMAKE_BINARY_DIR}/mmix-threaded-libc/mmix-libc-profile")
+  endif()
 endfunction()
 cmake_language(DEFER CALL mmix_configure_threaded_libc)
