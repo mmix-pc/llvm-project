@@ -14,12 +14,14 @@ add_object_library(
   DEPENDS
     libc.src.__support.OSUtil.linux.mmix.heap
     libc.src.__support.CPP.limits
+    libc.src.__support.CPP.mutex
     libc.src.__support.CPP.new
     libc.src.__support.block
     libc.src.__support.freelist
     libc.src.__support.freestore
     libc.src.__support.freetrie
     libc.src.__support.libc_assert
+    libc.src.__support.threads.raw_mutex
     libc.src.string.memory_utils.inline_memcpy
     libc.src.string.memory_utils.inline_memset
 )

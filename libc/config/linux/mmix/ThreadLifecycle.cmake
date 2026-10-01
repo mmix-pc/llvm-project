@@ -153,6 +153,18 @@ function(mmix_configure_thread_lifecycle)
       libc.src.signal.linux.pthread_kill
       libc.src.signal.linux.pthread_sigmask)
   endif()
+  if(LIBC_MMIX_BUILD_CONCURRENT_ALLOCATION)
+    list(APPEND mmix_lifecycle_objects
+      libc.src.stdlib.linux.mmix.allocator
+      libc.src.__support.OSUtil.linux.mmix.heap
+      libc.src.__support.freelist
+      libc.src.__support.freetrie
+      libc.src.__support.CPP.new)
+    foreach(operation malloc free calloc realloc aligned_alloc posix_memalign)
+      list(APPEND mmix_lifecycle_objects libc.src.stdlib.linux.mmix.${operation})
+    endforeach()
+    list(REMOVE_ITEM mmix_lifecycle_excluded malloc)
+  endif()
   add_library(mmix_libc_thread_lifecycle STATIC)
   foreach(provider IN LISTS mmix_lifecycle_objects)
     if(NOT TARGET ${provider})

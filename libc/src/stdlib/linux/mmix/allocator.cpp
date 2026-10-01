@@ -1,5 +1,4 @@
-//===-- MMIX Linux region allocator
-//----------------------------------------===//
+//===-- MMIX Linux region allocator ---------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,9 +8,11 @@
 
 #include "allocator.h"
 #include "src/__support/CPP/limits.h"
+#include "src/__support/CPP/mutex.h"
 #include "src/__support/CPP/new.h"
 #include "src/__support/OSUtil/linux/mmix/heap.h"
 #include "src/__support/freelist_heap.h"
+#include "src/__support/threads/raw_mutex.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -29,8 +30,10 @@ struct Region {
 
 static_assert(alignof(Region) <= BlockRef::MIN_ALIGN);
 
-// FIXME: This process-global list requires single-threaded, non-reentrant use.
-// Revisit synchronization and fork handling with the pthread runtime.
+// One private, nonallocating lock protects both the list and each region's heap.
+// Allocation from signal handlers is unsupported. FIXME: Coordinate this lock
+// with fork when fork from a multithreaded process is admitted.
+LIBC_CONSTINIT RawMutex regions_mutex;
 Region *regions = nullptr;
 
 Region **find_region(void *ptr) {
@@ -53,9 +56,7 @@ void release_empty(Region **link) {
     *link = region;
 }
 
-} // namespace
-
-void *allocate(size_t size, size_t alignment) {
+void *allocate_unlocked(size_t size, size_t alignment = 1) {
   constexpr size_t LIMIT = cpp::numeric_limits<ptrdiff_t>::max();
   if (!size || !alignment || (alignment & (alignment - 1)) ||
       alignment > LIMIT || size > LIMIT - (alignment - 1))
@@ -82,7 +83,7 @@ void *allocate(size_t size, size_t alignment) {
   return nullptr;
 }
 
-void deallocate(void *ptr) {
+void deallocate_unlocked(void *ptr) {
   if (!ptr)
     return;
   if (Region **link = find_region(ptr)) {
@@ -96,13 +97,13 @@ void deallocate(void *ptr) {
   LIBC_ASSERT(false && "allocation does not belong to this heap");
 }
 
-void *resize(void *ptr, size_t size) {
+void *resize_unlocked(void *ptr, size_t size) {
   if (!size) {
-    deallocate(ptr);
+    deallocate_unlocked(ptr);
     return nullptr;
   }
   if (!ptr)
-    return allocate(size);
+    return allocate_unlocked(size);
   if (size > size_t(cpp::numeric_limits<ptrdiff_t>::max()))
     return nullptr;
   Region **link = find_region(ptr);
@@ -117,12 +118,29 @@ void *resize(void *ptr, size_t size) {
 
   // FreeListHeap resizes within one region. Keep the original allocation live
   // until another region supplies storage and its contents have been copied.
-  void *resized = allocate(size);
+  void *resized = allocate_unlocked(size);
   if (!resized)
     return nullptr;
   inline_memcpy(resized, ptr, cpp::min(old_size, size));
-  deallocate(ptr);
+  deallocate_unlocked(ptr);
   return resized;
+}
+
+} // namespace
+
+void *allocate(size_t size, size_t alignment) {
+  cpp::lock_guard lock(regions_mutex);
+  return allocate_unlocked(size, alignment);
+}
+
+void deallocate(void *ptr) {
+  cpp::lock_guard lock(regions_mutex);
+  deallocate_unlocked(ptr);
+}
+
+void *resize(void *ptr, size_t size) {
+  cpp::lock_guard lock(regions_mutex);
+  return resize_unlocked(ptr, size);
 }
 
 } // namespace mmix

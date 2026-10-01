@@ -62,7 +62,8 @@ if len(sys.argv) == 4:
     for opt in ("0", "2"):
         exe = root / ("native-O" + opt)
         subprocess.run([sys.argv[3], "-std=c++17", "-O" + opt,
-            "-I", str(mapping / "fake"), *includes, *defines,
+            "-I", str(mapping / "fake"), "-I", str(libc),
+            *[flag for flag in defines if flag != "-DLIBC_FULL_BUILD"],
             *map(str, sources), str(root / "test.cpp"), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
 

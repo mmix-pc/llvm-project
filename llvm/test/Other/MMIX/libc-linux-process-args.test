@@ -63,6 +63,7 @@ if len(sys.argv) == 4:
 #--- headers/linux/errno.h
 #include "include/llvm-libc-macros/generic-error-number-macros.h"
 #define EWOULDBLOCK EAGAIN
+#define ETIMEDOUT 110
 #--- headers/linux/mman.h
 #define PROT_READ 1
 #define PROT_WRITE 2
