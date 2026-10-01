@@ -16,6 +16,7 @@
 #include "clang/Driver/Types.h"
 #include "clang/Options/Options.h"
 #include "llvm/Option/ArgList.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/VirtualFileSystem.h"
 
@@ -66,6 +67,14 @@ public:
     auto Reject = [&](StringRef Mode) {
       D.Diag(diag::err_drv_clang_unsupported) << Mode;
     };
+    // The public pthread archive currently supplies C providers only. Do not
+    // pair it with the existing single-thread C++ or unwind runtimes.
+    if (Args.hasArg(options::OPT_pthread) &&
+        (TC.ShouldLinkCXXStdlib(Args) ||
+         TC.GetUnwindLibType(Args) != ToolChain::UNW_None)) {
+      Reject("C++ or unwind runtime linking with MMIX Linux pthread");
+      return;
+    }
     const auto LTOMode = TC.getLTOMode(Args);
     if (LTOMode == LTOK_Thin) {
       Reject("ThinLTO linking for MMIX Linux");
@@ -223,10 +232,36 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
   }
   for (const Arg *A : Args.filtered(
            options::OPT_shared, options::OPT_dynamic, options::OPT_rdynamic,
-           options::OPT_pie, options::OPT_static_pie, options::OPT_pthread,
+           options::OPT_pie, options::OPT_static_pie,
            options::OPT_gcc_toolchain, options::OPT_gcc_install_dir_EQ,
            options::OPT_gcc_triple_EQ))
     Reject(A);
+
+  if (const Arg *A = Args.getLastArg(options::OPT_pthread)) {
+    if (D.SysRoot.empty()) {
+      Reject(A);
+      return;
+    }
+    SmallString<128> Profile(D.SysRoot);
+    llvm::sys::path::append(Profile, "usr", "lib", "mmix-libc-profile");
+    if (diagnoseMissing(*this, Profile, /*Directory=*/false))
+      return;
+    auto Contents = getVFS().getBufferForFile(Profile);
+    if (!Contents || (*Contents)->getBuffer().trim() !=
+                         "mmix-linux-static-pthread-c-v1") {
+      D.Diag(diag::err_drv_clang_unsupported)
+          << "unrecognized MMIX Linux pthread libc profile";
+      return;
+    }
+    // A profile marker identifies the package, not arbitrary -L/-B inputs.
+    // Require its own headers and startup/library files even for compile-only
+    // jobs so a partial or single-thread sysroot cannot be selected silently.
+    SmallString<128> Header(D.SysRoot);
+    llvm::sys::path::append(Header, "usr", "include", "pthread.h");
+    diagnoseMissing(*this, Header, /*Directory=*/false);
+    getSysrootFile("crt1.o");
+    getSysrootFile("libc.a");
+  }
 }
 
 ToolChain::UnwindLibType

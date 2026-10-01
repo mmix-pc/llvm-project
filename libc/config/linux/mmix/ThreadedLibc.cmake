@@ -96,5 +96,9 @@ function(mmix_configure_threaded_libc)
   endforeach()
   file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-threaded-libc/inputs.json"
     CONTENT "${manifest}\n")
+  # Package this alongside libc.a; internal and single-thread archives do not
+  # advertise the public static pthread composition to the Clang driver.
+  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-threaded-libc/mmix-libc-profile"
+    CONTENT "mmix-linux-static-pthread-c-v1\n")
 endfunction()
 cmake_language(DEFER CALL mmix_configure_threaded_libc)
