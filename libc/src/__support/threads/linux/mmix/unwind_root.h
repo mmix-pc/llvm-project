@@ -25,6 +25,8 @@ struct UnwindRoot {
 };
 
 using RootBody = void(void *);
+void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp);
+bool has_c_cleanup();
 [[gnu::visibility("hidden")]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument);
 

@@ -81,9 +81,11 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
       saved.chain != current_chain() || (actions & _UA_END_OF_STACK) ||
       !(actions & _UA_FORCE_UNWIND))
     __builtin_trap();
+  dispatch_c_cleanup(_Unwind_GetGR(context, UNW_MMIX_RO),
+                     _Unwind_GetRegionStart(context), _Unwind_GetCFA(context));
   if (_Unwind_GetGR(context, UNW_MMIX_RO) == saved.ro &&
       _Unwind_GetRegionStart(context) == saved.procedure) {
-    if (_Unwind_GetCFA(context) != saved.sp)
+    if (_Unwind_GetCFA(context) != saved.sp || has_c_cleanup())
       __builtin_trap();
     control->unwind_root.active = false;
     state.active = false;
@@ -102,6 +104,8 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
     __builtin_trap();
   capture_root(control);
   body(argument);
+  if (has_c_cleanup())
+    __builtin_trap();
   control.unwind_root.active = false;
 }
 

@@ -120,10 +120,20 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   endif()
   if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
     add_object_library(
+      cleanup
+      SRCS cleanup.cpp
+      HDRS cleanup.h
+      DEPENDS .lifecycle libc.src.__support.OSUtil.linux.mmix.syscall
+              libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto -funwind-tables
+        -D_LIBUNWIND_IS_NATIVE_ONLY
+        -I${LIBC_SOURCE_DIR}/../libunwind/include
+    )
+    add_object_library(
       unwind_root
       SRCS unwind_root.cpp
       HDRS unwind_root.h
-      DEPENDS .lifecycle libc.src.__support.OSUtil.linux.mmix.syscall
+      DEPENDS .lifecycle .cleanup libc.src.__support.OSUtil.linux.mmix.syscall
               libc.include.sys_syscall
       COMPILE_OPTIONS -fno-lto -funwind-tables
         -D_LIBUNWIND_IS_NATIVE_ONLY
