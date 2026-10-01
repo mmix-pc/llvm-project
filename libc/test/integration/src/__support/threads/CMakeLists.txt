@@ -7,6 +7,12 @@ add_libc_integration_test_suite(libc-support-threads-integration-tests)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
   add_integration_test(
+    callonce_retry_test
+    SUITE libc-support-threads-integration-tests
+    SRCS callonce_retry_test.cpp
+    DEPENDS libc.src.__support.threads.callonce
+  )
+  add_integration_test(
     thread_stack_test
     SUITE
       libc-support-threads-integration-tests

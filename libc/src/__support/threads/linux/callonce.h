@@ -24,32 +24,57 @@ static constexpr FutexWordType FINISH = 0x33;
 // The destination operand of cmpxchg may receive a write cycle without
 // regard to the result of the comparison.
 LIBC_INLINE bool callonce_fastpath(CallOnceFlag *flag) {
-  return flag->load(cpp::MemoryOrder::RELAXED) == FINISH;
+  return flag->load(cpp::MemoryOrder::ACQUIRE) == FINISH;
 }
+
+// An initializer owns the flag until it publishes completion or abandons it.
+LIBC_INLINE void abandon(CallOnceFlag *flag) {
+  if (flag->exchange(NOT_CALLED, cpp::MemoryOrder::RELEASE) == WAITING)
+    flag->notify_all();
+}
+
+class CompletionGuard {
+  CallOnceFlag *flag;
+
+public:
+  explicit CompletionGuard(CallOnceFlag *flag) : flag(flag) {}
+  CompletionGuard(const CompletionGuard &) = delete;
+  CompletionGuard &operator=(const CompletionGuard &) = delete;
+  ~CompletionGuard() {
+    if (flag)
+      abandon(flag);
+  }
+  void complete() {
+    auto *completed = flag;
+    flag = nullptr;
+    if (completed->exchange(FINISH, cpp::MemoryOrder::RELEASE) == WAITING)
+      completed->notify_all();
+  }
+};
 
 template <class CallOnceCallback>
 [[gnu::noinline, gnu::cold]] int callonce_slowpath(CallOnceFlag *flag,
                                                    CallOnceCallback callback) {
-
-  auto *futex_word = reinterpret_cast<Futex *>(flag);
-
-  FutexWordType not_called = NOT_CALLED;
-
-  // The call_once call can return only after the called function |func|
-  // returns. So, we use futexes to synchronize calls with the same flag value.
-  if (futex_word->compare_exchange_strong(not_called, START)) {
-    callback();
-    auto status = futex_word->exchange(FINISH);
-    if (status == WAITING)
-      futex_word->notify_all();
-    return 0;
+  for (;;) {
+    auto status = flag->load(cpp::MemoryOrder::ACQUIRE);
+    if (status == FINISH)
+      return 0;
+    if (status == NOT_CALLED) {
+      if (flag->compare_exchange_strong(status, START)) {
+        CompletionGuard guard(flag);
+        callback();
+        guard.complete();
+        return 0;
+      }
+      continue;
+    }
+    if (status == START) {
+      if (!flag->compare_exchange_strong(status, WAITING))
+        continue;
+    }
+    // A wakeup is not completion: retry both publication and owner election.
+    flag->wait(WAITING);
   }
-
-  FutexWordType status = START;
-  if (futex_word->compare_exchange_strong(status, WAITING) || status == WAITING)
-    futex_word->wait(WAITING);
-
-  return 0;
 }
 } // namespace callonce_impl
 
