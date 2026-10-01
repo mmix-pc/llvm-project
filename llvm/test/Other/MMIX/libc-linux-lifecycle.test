@@ -46,10 +46,11 @@ for opt in ("0", "2"):
                 ["llvm-nm", "-u", "--demangle", str(obj)], text=True)
             assert "startup_test::internal::exit(int)" in undefined, undefined
             if source == normal_exit:
-                assert "cleanup_main_thread()" in undefined, undefined
+                assert "cleanup_current_thread()" in undefined, undefined
                 assert "__cxa_finalize" in undefined, undefined
             else:
-                assert "cleanup_main_thread" not in undefined, undefined
+                for cleanup in ("cleanup_main_thread", "cleanup_current_thread", "exit_process"):
+                    assert cleanup not in undefined, undefined
                 assert "__cxa_finalize" not in undefined, undefined
         objects.append(str(obj))
     linked = root / ("lifecycle-O" + opt + ".elf")

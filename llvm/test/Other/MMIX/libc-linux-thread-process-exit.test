@@ -19,6 +19,7 @@ common = ['-std=c++17', '-ffreestanding', '-fno-builtin', '-DLIBC_FULL_BUILD',
 sources = [libc/'src/__support/threads/linux/mmix'/n for n in
            ('thread_finish.cpp', 'thread_process_exit.cpp', 'lifecycle.cpp', 'main_thread.cpp')]
 sources.append(libc/'src/errno/libc_errno.cpp')
+sources.append(libc/'src/stdlib/linux/mmix/exit.cpp')
 for opt in ('0', '2'):
     objects = []
     for i, source in enumerate(sources):
@@ -42,9 +43,9 @@ for opt in ('0', '2'):
         subprocess.run([sys.argv[3], *common, '-D__mmix__', '-O'+opt,
             '-D__cxa_finalize=test_finalize', '-include', str(root/'finish/transport.h'),
             *map(str,sources), str(root/'test.cpp'), '-o', str(exe)], check=True)
-        for mode in range(10):
+        for mode in range(12):
             subprocess.run([str(exe), str(mode)], check=True, timeout=15)
-        print('Native process completion: 10 scenarios passed at O'+opt, flush=True)
+        print('Native process completion: 12 scenarios passed at O'+opt, flush=True)
 
 #--- headers/sys/syscall.h
 #define SYS_futex 98
@@ -57,6 +58,7 @@ for opt in ('0', '2'):
 #include "src/__support/threads/linux/mmix/thread_finish.h"
 #include "src/__support/threads/linux/mmix/main_thread.h"
 #include "src/__support/threads/thread.h"
+#include "src/stdlib/exit.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include <linux/futex.h>
@@ -82,11 +84,21 @@ void call_atexit_callbacks(ThreadAttributes *a) {
   }
 }
 [[noreturn]] void exit(int status) {
-  require(status == 0 && finalizers == 1 && !groups++);
+  require(status == (mode >= 10 ? 23 : 0) && finalizers == 1 && !groups++);
   throw Done{true};
 }
 } }
 extern "C" void test_finalize(void *dso) {
+  if (mode >= 10) {
+    require(!dso && !finalizers++);
+    require(clean_main == (mode == 11) && clean_worker == (mode == 10));
+    require(internal::self.attrib == (mode == 10 ? &worker.attributes :
+                                                  &main_control.attributes));
+    ThreadRegistryLock lock(thread_registry);
+    require(lock.live_threads() == 2 && lock.process_exiting());
+    require(!lock.reserve() && !lock.claim_process_cleanup());
+    return;
+  }
   require(!dso && !finalizers++ && clean_main == 1);
   require(internal::self.attrib == (mode == 0 || mode == 1 || mode == 6 || mode == 7 || mode == 9 ?
       &main_control.attributes : &worker.attributes));
@@ -135,6 +147,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
 }
 static void leave(ThreadControl &c, bool group) {
   internal::self.attrib = &c.attributes;
+  current_control = &c;
   mask = 0x1234;
   try { exit_thread(c, ThreadReturnValue(42)); }
   catch (Done d) { require(d.group == group); }
@@ -142,6 +155,7 @@ static void leave(ThreadControl &c, bool group) {
 extern "C" int main(int argc, char **argv) {
   require(argc == 2);
   mode = unsigned(argv[1][0]-'0');
+  if (argv[1][1]) mode = mode * 10 + unsigned(argv[1][1]-'0');
   main_control.attributes.tid = 10;
   require(internal::activate_main_thread(main_control));
   {
@@ -151,18 +165,26 @@ extern "C" int main(int argc, char **argv) {
       require(lock.reserve() && lock.insert(worker, mode == 3) && lock.start(worker));
     if (mode == 4 || mode == 5 || mode == 7) require(lock.reserve());
   }
+  if (mode >= 10) {
+    ThreadControl &caller = mode == 10 ? worker : main_control;
+    internal::self.attrib = &caller.attributes;
+    current_control = &caller;
+    try { process_test::exit(23); }
+    catch (Done d) { require(d.group && groups == 1 && finalizers == 1); }
+    return 0;
+  }
   if (mode == 8 || mode == 9) {
     // Both cleanup publications precede either termination decision. Exercise
     // both lock orders without depending on host scheduling.
     ThreadControl *controls[] = {&main_control, &worker};
     for (ThreadControl *c : controls) {
       internal::self.attrib = &c->attributes;
+      current_control = c;
       {
         ThreadRegistryLock lock(thread_registry);
         require(lock.begin_cleanup(*c));
       }
-      if (c == &main_control) internal::cleanup_main_thread();
-      else internal::call_atexit_callbacks(&c->attributes);
+      internal::cleanup_current_thread();
       ThreadRegistryLock lock(thread_registry);
       require(lock.close_leases(*c) && lock.exit_ready(*c, 0));
     }
@@ -174,6 +196,7 @@ extern "C" int main(int argc, char **argv) {
       require(lock.termination_action(loser) == ThreadTermination::ThreadOnly);
     }
     internal::self.attrib = &winner.attributes;
+    current_control = &winner;
     try { terminate_after_thread_cleanup(); }
     catch (Done d) { require(d.group && groups == 1 && finalizers == 1); }
     return 0;

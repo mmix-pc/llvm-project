@@ -88,6 +88,7 @@ void call_atexit_callbacks(ThreadAttributes *a) {
   require(mode == 15 && a == &target.attributes && mask == 0x1234);
   pending = true; // Teardown must not restore the application mask again.
 }
+void cleanup_current_thread() { call_atexit_callbacks(self.attrib); }
 } namespace mmix {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control = nullptr;
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }

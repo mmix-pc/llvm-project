@@ -90,6 +90,14 @@ struct ThreadControl {
 
   bool retains_resources_until_process_exit() const { return process_lifetime; }
 
+  // Only the owning thread may access this guard, including recursive exit.
+  bool begin_callback_cleanup() {
+    if (callbacks_started)
+      return false;
+    callbacks_started = true;
+    return true;
+  }
+
 private:
   friend class ThreadRegistryLock;
   ThreadRegistry *registry = nullptr;
@@ -102,6 +110,7 @@ private:
   bool listed = false, leases_open = false, counted = false;
   bool process_lifetime = false;
   bool internal_helper = false;
+  bool callbacks_started = false;
   size_t api_pins = 0, leases = 0;
 };
 
@@ -121,6 +130,7 @@ class ThreadRegistry {
   size_t reap_count = 0;
   size_t live = 0, reservations = 0;
   bool exiting = false;
+  bool process_cleanup_claimed = false;
   bool main_registered = false;
 
 public:
@@ -192,6 +202,9 @@ public:
   size_t pending_creations() const { return registry.reservations; }
   bool process_exiting() const { return registry.exiting; }
   bool claim_process_exit();
+  // Explicit exit may win while peers remain. Last-thread election only closes
+  // creation; both paths must claim this ownership before running callbacks.
+  bool claim_process_cleanup();
   ThreadTermination termination_action(const ThreadControl &control);
 };
 

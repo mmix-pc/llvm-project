@@ -140,6 +140,7 @@ void call_atexit_callbacks(ThreadAttributes *a) {
   require(mode >= 28 && a == &worker->attributes && mask == 0x1234);
   ++callbacks;
 }
+void cleanup_current_thread() { call_atexit_callbacks(self.attrib); }
 } }
 namespace reaper_test { namespace mmix {
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }

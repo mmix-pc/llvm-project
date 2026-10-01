@@ -14,9 +14,9 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 
-// Requires CLEANING, completed callbacks and suppressed cancellation. Later
-// explicit exit/forced-unwind paths must finish their own cleanup before this
-// boundary. This is not a replacement for unwind or complete TLS/TSS semantics.
+// Requires CLEANING, completed callbacks and suppressed cancellation. This
+// publishes thread completion, not explicit process exit, forced unwinding or
+// complete TLS/TSS semantics.
 [[noreturn]] __attribute__((visibility("hidden"))) void
 finish_thread(ThreadControl &control, ThreadReturnValue result);
 

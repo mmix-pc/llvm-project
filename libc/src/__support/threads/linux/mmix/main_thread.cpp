@@ -97,5 +97,24 @@ void cleanup_main_thread() {
   phase = Phase::Finished;
 }
 
+void cleanup_current_thread() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_SINGLE
+  cleanup_main_thread();
+#else
+  if (!self.attrib)
+    return;
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes)
+    __builtin_trap();
+  if (!control->begin_callback_cleanup())
+    return;
+  // Only main may access the main-thread lifecycle phase and attributes.
+  if (control->retains_resources_until_process_exit())
+    cleanup_main_thread();
+  else
+    call_atexit_callbacks(self.attrib);
+#endif
+}
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

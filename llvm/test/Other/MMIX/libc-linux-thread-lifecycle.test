@@ -332,6 +332,23 @@ extern "C" int main() {
   layout_and_publication();
   ownership();
   main_registration();
+  // Explicit finalization closes creation even with live threads/reservations.
+  // Last-thread election and explicit exit share a single cleanup claim.
+  for (unsigned elected = 0; elected != 2; ++elected) {
+    ThreadRegistry process;
+    ThreadControl main;
+    main.attributes.tid = 321;
+    event_address = 0;
+    ThreadRegistryLock lock(process);
+    if (elected) {
+      require(lock.claim_process_exit());
+    } else {
+      require(lock.register_main(main) && lock.reserve());
+    }
+    require(lock.claim_process_cleanup());
+    require(lock.process_exiting() && !lock.reserve());
+    require(!lock.claim_process_cleanup() && !lock.claim_process_exit());
+  }
   for (unsigned owner = 0; owner != 3; ++owner)
     for (unsigned creator = 0; creator != 4; ++creator)
       for (unsigned reader = 0; reader != 4; ++reader)

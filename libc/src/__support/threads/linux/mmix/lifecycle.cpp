@@ -338,6 +338,15 @@ bool ThreadRegistryLock::claim_process_exit() {
   return true;
 }
 
+bool ThreadRegistryLock::claim_process_cleanup() {
+  if (registry.process_cleanup_claimed)
+    return false;
+  registry.process_cleanup_claimed = true;
+  registry.exiting = true;
+  change();
+  return true;
+}
+
 ThreadTermination
 ThreadRegistryLock::termination_action(const ThreadControl &c) {
   if (!belongs(c) || c.internal_helper || c.counted ||

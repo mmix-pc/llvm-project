@@ -33,9 +33,16 @@ bool activate_main_thread(MainThreadState &state);
 // harmless, but initialization after cleanup is rejected.
 bool initialize_main_thread();
 
-// Drain the upstream callback/TSS manager once, including recursive calls.
-// CRT must invoke this at normal termination, not for _Exit or abnormal exit.
+// Main-only callback/TSS cleanup, including recursive calls. Worker and process
+// exit paths use cleanup_current_thread, never another thread's main state.
 void cleanup_main_thread();
+
+// Drain only the calling thread's selected callbacks, at most once even when
+// a callback requests process exit. Does not unwind stacks or clean up peers.
+void cleanup_current_thread();
+
+// Shared explicit/last-thread process finalization, implemented by MMIX exit.
+[[noreturn]] void exit_process(int status);
 
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

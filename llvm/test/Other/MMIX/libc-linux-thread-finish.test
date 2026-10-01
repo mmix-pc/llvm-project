@@ -29,7 +29,7 @@ for opt in ("0", "2"):
             assert name not in undefined, undefined
         if index == 0:
             assert '__llvm_libc_mmix_thread_exit' in undefined
-            assert 'call_atexit_callbacks' in undefined
+            assert 'cleanup_current_thread' in undefined
             text = ir.read_text()
             lines = text.splitlines()
             calls = [i for i, line in enumerate(lines) if 'call void @__llvm_libc_mmix_thread_exit(' in line]
@@ -97,6 +97,7 @@ void call_atexit_callbacks(ThreadAttributes *a) {
   require(mask == 0x5678 && runners == 1 && !callbacks++ && masks == 3);
   mask = 0x9abc; // Final blocking must not restore a stale callback mask.
 }
+void cleanup_current_thread() { call_atexit_callbacks(self.attrib); }
 } }
 namespace finish_test { namespace mmix {
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
