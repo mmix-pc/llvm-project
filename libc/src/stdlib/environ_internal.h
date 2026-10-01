@@ -15,6 +15,7 @@
 #define LLVM_LIBC_SRC_STDLIB_ENVIRON_INTERNAL_H
 
 #include "hdr/types/size_t.h"
+#include "src/__support/CPP/atomic.h"
 #include "src/__support/CPP/optional.h"
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/macros/attributes.h"
@@ -62,8 +63,8 @@ class EnvironmentManager {
   // Current number of variables in environ
   size_t count = 0;
 
-  // True if we have initialized from the startup environment
-  bool initialized = false;
+  enum class InitState : unsigned char { Uninitialized, Initializing, Ready };
+  cpp::Atomic<InitState> init_state{InitState::Uninitialized};
 
   // True if we allocated storage (and are responsible for freeing it)
   bool is_ours = false;

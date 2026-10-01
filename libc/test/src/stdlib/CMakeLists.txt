@@ -1,5 +1,25 @@
 add_custom_target(libc-stdlib-tests)
 
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
+    getenv_initialization_test
+    OVERLAY_BUILD_ONLY
+    SUITE
+      libc-stdlib-tests
+    SRCS
+      getenv_initialization_test.cpp
+      # getenv is not an overlay entrypoint; test its namespace implementation.
+      ${LIBC_SOURCE_DIR}/src/stdlib/getenv.cpp
+    DEPENDS
+      libc.config.app_h
+      libc.src.__support.CPP.atomic
+      libc.src.__support.common
+      libc.src.stdlib.environ_internal
+    LINK_LIBRARIES
+      pthread
+  )
+endif()
+
 add_libc_test(
   atof_test
   SUITE

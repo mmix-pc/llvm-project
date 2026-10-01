@@ -81,11 +81,13 @@ set(environ_internal_deps
   libc.config.app_h
   libc.hdr.types.size_t
   libc.src.__support.alloc_checker
+  libc.src.__support.CPP.atomic
   libc.src.__support.CPP.new
   libc.src.__support.CPP.optional
   libc.src.__support.CPP.string_view
   libc.src.__support.macros.attributes
   libc.src.__support.macros.config
+  libc.src.__support.threads.sleep
   libc.src.string.memory_utils.inline_memcpy
 )
 set(environ_internal_compile_options ${environ_internal_gcc12_workaround})

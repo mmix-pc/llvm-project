@@ -17,6 +17,7 @@
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/alloc-checker.h"
 #include "src/__support/macros/config.h"
+#include "src/__support/threads/sleep.h"
 #include "src/string/memory_utils/inline_memcpy.h"
 #ifdef LIBC_COPT_SUPPORT_ENVIRON
 #include "src/unistd/environ.h"
@@ -35,8 +36,17 @@ constexpr size_t MIN_ENVIRON_CAPACITY = 32;
 constexpr size_t ENVIRON_GROWTH_FACTOR = 2;
 
 void EnvironmentManager::init_once() {
-  if (initialized)
+  if (init_state.load(cpp::MemoryOrder::ACQUIRE) == InitState::Ready)
     return;
+
+  InitState expected = InitState::Uninitialized;
+  if (!init_state.compare_exchange_strong(expected, InitState::Initializing,
+                                         cpp::MemoryOrder::RELAXED,
+                                         cpp::MemoryOrder::RELAXED)) {
+    while (init_state.load(cpp::MemoryOrder::ACQUIRE) != InitState::Ready)
+      sleep_briefly();
+    return;
+  }
 
   // Count entries in the startup environ.
   char **env_ptr = reinterpret_cast<char **>(app.env_ptr);
@@ -47,7 +57,9 @@ void EnvironmentManager::init_once() {
     count = c;
   }
 
-  initialized = true;
+  // Publish the scan before another reader uses count. Initialization cannot
+  // allocate or invoke callbacks; mutation still needs caller locking.
+  init_state.store(InitState::Ready, cpp::MemoryOrder::RELEASE);
 }
 
 EnvironmentManager &EnvironmentManager::get_instance() {
