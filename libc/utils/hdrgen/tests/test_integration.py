@@ -70,6 +70,23 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("int pthread_once(pthread_once_t *, __pthread_once_func_t);", content)
         self.assertIn("pthread_t pthread_self(void) __NOEXCEPT;", content)
 
+    def test_stdlib_comparator_exception_specifications(self):
+        output_file = self.output_dir / "stdlib.h"
+        self.run_script(
+            self.source_dir.parents[2] / "include/stdlib.yaml",
+            output_file,
+            ["bsearch", "qsort", "qsort_r", "abs"],
+        )
+        content = output_file.read_text()
+        for declaration in (
+            "void *bsearch(const void *, const void *, size_t, size_t, __search_compare_t);",
+            "void qsort(void *, size_t, size_t, __qsortcompare_t);",
+            "void qsort_r(void *, size_t, size_t, __qsortrcompare_t, void *);",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, content)
+        self.assertIn("int abs(int) __NOEXCEPT;", content)
+
     def test_invalid_exception_specification(self):
         yaml_file = self.output_dir / "invalid-noexcept.yaml"
         yaml_file.write_text((self.source_dir / "input/noexcept.yaml").read_text()

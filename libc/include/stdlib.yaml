@@ -93,6 +93,8 @@ functions:
     arguments:
       - type: const char *
   - name: bsearch
+    # Comparators can propagate exceptions to the caller.
+    noexcept: false
     standards:
       - stdc
     return_type: void *
@@ -197,6 +199,8 @@ functions:
     arguments:
       - type: char *
   - name: qsort
+    # Comparators can propagate exceptions to the caller.
+    noexcept: false
     standards:
       - stdc
     return_type: void
@@ -206,6 +210,8 @@ functions:
       - type: size_t
       - type: __qsortcompare_t
   - name: qsort_r
+    # Comparators can propagate exceptions to the caller.
+    noexcept: false
     standards:
       - posix
     return_type: void
