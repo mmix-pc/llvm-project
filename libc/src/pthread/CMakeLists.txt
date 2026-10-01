@@ -434,14 +434,19 @@ add_entrypoint_object(
     libc.src.__support.threads.linux.barrier
 )
 
+set(pthread_mutex_init_source pthread_mutex_init.cpp)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(pthread_mutex_init_source linux/mmix/pthread_mutex_init.cpp)
+endif()
 add_entrypoint_object(
   pthread_mutex_init
   SRCS
-    pthread_mutex_init.cpp
+    ${pthread_mutex_init_source}
   HDRS
     pthread_mutex_init.h
   DEPENDS
     .pthread_mutexattr
+    libc.hdr.errno_macros
     libc.src.errno.errno
     libc.include.pthread
     libc.src.__support.threads.mutex

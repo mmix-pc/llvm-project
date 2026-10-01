@@ -6,7 +6,12 @@ option(LIBC_MMIX_BUILD_PTHREAD_CREATION
   "Add public pthread creation and identity to the lifecycle archive" OFF)
 option(LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE
   "Add public pthread join, detach and C thread exit" OFF)
+option(LIBC_MMIX_BUILD_PTHREAD_MUTEX
+  "Add public private normal mutexes to the lifecycle archive" OFF)
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_PTHREAD_MUTEX AND NOT LIBC_MMIX_BUILD_PTHREAD_CREATION)
+    message(FATAL_ERROR "MMIX public mutexes require the pthread creation profile")
+  endif()
   if(LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE AND NOT LIBC_MMIX_BUILD_PTHREAD_CREATION)
     message(FATAL_ERROR "MMIX public pthread lifecycle requires pthread creation")
   endif()
@@ -22,7 +27,7 @@ function(mmix_check_runtime_mode)
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
-         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE)$")
+         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
       endif()
     endforeach()
