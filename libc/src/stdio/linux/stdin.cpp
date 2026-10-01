@@ -21,7 +21,8 @@ namespace LIBC_NAMESPACE_DECL {
 constexpr size_t STDIN_BUFFER_SIZE = 512;
 uint8_t stdin_buffer[STDIN_BUFFER_SIZE];
 static LinuxFile StdIn(0, stdin_buffer, STDIN_BUFFER_SIZE, _IOFBF, false,
-                       File::ModeFlags(File::OpenMode::READ));
+                       File::ModeFlags(File::OpenMode::READ),
+                       /*owns_object=*/false);
 
 LLVM_LIBC_VARIABLE(FILE *, stdin) = reinterpret_cast<FILE *>(&StdIn);
 

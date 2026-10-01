@@ -189,7 +189,7 @@ public:
                  uint8_t *buffer, size_t buffer_size, int buffer_mode,
                  bool owned, ModeFlags modeflags)
       : platform_write(wf), platform_read(rf), platform_seek(sf),
-        platform_close(cf), mutex(/*timed=*/false, /*recursive=*/false,
+        platform_close(cf), mutex(/*timed=*/false, /*recursive=*/true,
                                   /*robust=*/false, /*pshared=*/false),
         ungetc_buf{}, buf(buffer), bufsize(buffer_size), bufmode(buffer_mode),
         own_buf(owned), mode(modeflags), pos(0), prev_op(FileOp::NONE),
@@ -262,7 +262,7 @@ public:
   // Does the following:
   // 1. If in write mode, Write out any data present in the buffer.
   // 2. Call platform_close.
-  // platform_close is expected to cleanup the complete file object.
+  // platform_close releases platform resources and any owned file object.
   int close() {
     {
       FileLock lock(this);
@@ -273,16 +273,23 @@ public:
           return buf_result.error;
         }
       }
+      pos = read_limit = 0;
+      prev_op = FileOp::NONE;
     }
+
+    // A global flush may still find this stream after its lock is released.
+    // Unpublish it before reclaiming storage, without holding the stream lock:
+    // global traversal acquires the list lock before the stream lock.
+    remove_file(this);
 
     // If we own the buffer, delete it before calling the platform close
     // implementation. The platform close should not need to access the buffer
     // and we need to clean it up before the entire structure is removed.
     if (own_buf)
-      delete buf;
+      delete[] buf;
 
-    // Platform close is expected to cleanup the file data structure which
-    // includes the file mutex. Hence, we call platform_close after releasing
+    // Platform close may destroy the file data structure, including its mutex.
+    // Hence, we call platform_close after releasing
     // the file lock. Another thread doing file operations while a thread is
     // closing the file is undefined behavior as per POSIX.
     return platform_close(this);

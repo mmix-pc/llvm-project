@@ -51,7 +51,6 @@ ErrorOr<off_t> linux_file_seek(File *f, off_t offset, int whence) {
 }
 
 int linux_file_close(File *f) {
-  File::remove_file(f);
   auto *lf = reinterpret_cast<LinuxFile *>(f);
   int retval = 0;
   if (lf->get_fd() >= 0) {
@@ -64,7 +63,10 @@ int linux_file_close(File *f) {
   } else {
     retval = EBADF;
   }
-  delete lf;
+  lf->set_fd(-1);
+  // Standard streams have static storage and remain visible to global flush.
+  if (lf->is_owned())
+    delete lf;
   return retval;
 }
 

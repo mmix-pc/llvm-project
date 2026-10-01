@@ -152,6 +152,17 @@ TEST(LlvmLibcFileTest, WriteOnly) {
   ASSERT_EQ(f->close(), 0);
 }
 
+TEST(LlvmLibcFileTest, RecursiveStreamLock) {
+  char buffer[32];
+  auto *f = new_string_file(buffer, sizeof(buffer), _IOFBF, false, "w");
+  f->lock();
+  f->lock();
+  ASSERT_EQ(f->write("locked", 6).value, size_t(6));
+  f->unlock();
+  f->unlock();
+  ASSERT_EQ(f->close(), 0);
+}
+
 TEST(LlvmLibcFileTest, WriteLineBuffered) {
   const char data[] = "hello\n file";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(data) * 3 / 2;
