@@ -1,0 +1,20 @@
+# Shared build-tree settings; each profile validates its own libc inputs.
+include("${CMAKE_CURRENT_LIST_DIR}/MMIXLinuxBase.cmake")
+set(LIBCXX_MMIX_LINUX_LIBC_BUILD "" CACHE PATH "Matching Linux libc build")
+set(LIBCXX_MMIX_LINUX_COMPILER_RT_BUILD "" CACHE PATH "Matching Linux compiler-rt build")
+# Use build-tree C++ headers rather than an unrelated installed profile.
+set(CMAKE_CXX_FLAGS "-nostdinc++" CACHE STRING "")
+set(LIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS ON CACHE BOOL "")
+set(LIBCXXABI_ENABLE_RTTI ON CACHE BOOL "")
+set(LIBUNWIND_IS_NATIVE_ONLY ON CACHE BOOL "")
+# Large MMIX DWARF states must not accumulate through alloca on the stack.
+set(LIBUNWIND_REMEMBER_HEAP_ALLOC ON CACHE BOOL "")
+set(LIBUNWIND_ENABLE_FRAME_APIS OFF CACHE BOOL "")
+set(LIBCXX_ABI_VERSION 1 CACHE STRING "")
+set(LIBCXX_ABI_NAMESPACE __1 CACHE STRING "")
+set(LIBCXX_ABI_UNSTABLE OFF CACHE BOOL "")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER CACHE STRING "")
+foreach(kind LIBRARY INCLUDE PACKAGE)
+  set(CMAKE_FIND_ROOT_PATH_MODE_${kind} ONLY CACHE STRING "")
+endforeach()

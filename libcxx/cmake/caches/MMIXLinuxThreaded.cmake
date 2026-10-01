@@ -1,0 +1,13 @@
+# Non-installing pthread C++ preparation. Use a fresh build directory.
+set(CMAKE_C_FLAGS "-ftls-model=local-exec -fno-lto" CACHE STRING "")
+set(CMAKE_CXX_FLAGS "-nostdinc++ -ftls-model=local-exec -fno-lto" CACHE STRING "")
+include("${CMAKE_CURRENT_LIST_DIR}/MMIXLinuxRuntimeBase.cmake")
+set(LIBCXX_MMIX_LINUX_THREADED_PREPARATION ON CACHE BOOL "Prepare static pthread C++ runtimes")
+set(LIBCXX_HAS_EXTERNAL_THREAD_API OFF CACHE BOOL "")
+set(LIBCXX_HAS_PTHREAD_API ON CACHE BOOL "")
+set(LIBCXXABI_ENABLE_THREADS ON CACHE BOOL "")
+set(LIBCXXABI_HAS_PTHREAD_API ON CACHE BOOL "")
+set(LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL ON CACHE BOOL "")
+set(LIBUNWIND_ENABLE_THREADS ON CACHE BOOL "")
+set(CMAKE_PROJECT_Runtimes_INCLUDE
+  "${CMAKE_CURRENT_LIST_DIR}/../Modules/MMIX/ThreadedRuntime.cmake" CACHE FILEPATH "" FORCE)

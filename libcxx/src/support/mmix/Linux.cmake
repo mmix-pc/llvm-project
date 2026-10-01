@@ -1,4 +1,12 @@
 # Installation is opt-in and requires the complete Linux composition checks.
+if(LIBCXX_MMIX_LINUX_THREADED_PREPARATION)
+  if(NOT MMIX_LINUX_THREADED_RUNTIME_VALIDATED)
+    message(FATAL_ERROR "MMIX pthread C++ requires validated preparation inputs")
+  endif()
+  include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/Modules/MMIX/ThreadedConfig.cmake")
+  # Use upstream pthread sources; no external-thread adapter objects or header.
+  return()
+endif()
 if(LIBCXX_MMIX_LINUX_INSTALL_RUNTIME AND NOT MMIX_LINUX_RUNTIME_VALIDATED)
   message(FATAL_ERROR "MMIX Linux installation requires validated runtime inputs")
 endif()

@@ -1,0 +1,127 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../.. %t
+
+# Synthetic providers test admission and source selection, not C++ execution.
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libcxx/cmake/caches/MMIXLinuxThreaded.cmake)
+project(Admission NONE)
+set(CMAKE_CROSSCOMPILING TRUE)
+foreach(lang C CXX ASM)
+  set(CMAKE_${lang}_COMPILER "${TOOLS}/clang")
+endforeach()
+set(CMAKE_SYSROOT "${INPUT}/sysroot")
+set(LIBCXX_MMIX_LINUX_LIBC_BUILD "${INPUT}/libc")
+set(LIBCXX_MMIX_LINUX_COMPILER_RT_BUILD "${INPUT}/rt")
+if(OPTION)
+  set(${OPTION} "${VALUE}")
+endif()
+include(${SOURCE}/libcxx/cmake/Modules/MMIX/ThreadedRuntime.cmake)
+set(LIBCXX_SOURCES sentinel)
+include(${SOURCE}/libcxx/src/support/mmix/Linux.cmake)
+if(NOT LIBCXX_SOURCES STREQUAL "sentinel" OR TARGET cxx_mmix_thread_api OR
+   TARGET cxx_mmix_sync OR NOT RUNTIMES_USE_LIBC STREQUAL "llvm-libc")
+  message(FATAL_ERROR "Threaded preparation selected external adapter objects")
+endif()
+get_target_property(libraries runtimes-libc-static INTERFACE_LINK_LIBRARIES)
+if(NOT libraries STREQUAL "${INPUT}/libc/libc.a")
+  message(FATAL_ERROR "Wrong libc dependency")
+endif()
+
+#--- check.py
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
+
+source, root = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+tools = pathlib.Path(shutil.which("clang")).parent
+inputs = root / "inputs"
+libc, rt = inputs / "libc", inputs / "rt"
+
+def write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+obj = inputs / "object.o"
+inputs.mkdir()
+subprocess.run([str(tools / "llvm-mc"), "-triple=mmix", "-filetype=obj", "-o", str(obj)],
+               input="SWYM 0,0,0\n", text=True, check=True)
+for path in (libc / "libc.a", rt / "lib/mmix-unknown-linux/libclang_rt.builtins.a"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([str(tools / "llvm-ar"), "rcs", str(path), str(obj)], check=True)
+shutil.copyfile(obj, libc / "crt1.o")
+for header in ("errno.h", "pthread.h", "stdlib.h", "unistd.h", "time.h", "sched.h"):
+    write(libc / "include" / header, "#define __LLVM_LIBC__ 1\n")
+write(inputs / "sysroot/usr/include/asm/unistd.h", "/* synthetic UAPI */\n")
+manifest = dict(archive=str(libc / "libc.a"), crt=str(libc / "crt1.o"),
+                headers=str(libc / "include"), sysroot=str(inputs / "sysroot"),
+                uapi="/usr/include", thread_mode="LIBC_THREAD_MODE_PLATFORM",
+                errno_mode="LIBC_ERRNO_MODE_THREAD_LOCAL", entrypoints=[])
+manifest_path = libc / "mmix-threaded-libc/inputs.json"
+write(manifest_path, json.dumps(manifest))
+common = {"CMAKE_C_COMPILER": str(tools / "clang"),
+          "CMAKE_C_COMPILER_TARGET": "mmix-unknown-linux",
+          "CMAKE_CXX_COMPILER": str(tools / "clang"),
+          "CMAKE_CXX_COMPILER_TARGET": "mmix-unknown-linux"}
+libc_cache = dict(common, CMAKE_HOME_DIRECTORY=str(source / "runtimes"),
+                  LIBC_CONF_THREAD_MODE=manifest["thread_mode"],
+                  LIBC_CONF_ERRNO_MODE=manifest["errno_mode"],
+                  LIBC_MMIX_ENABLE_STATIC_TLS="ON", LIBC_MMIX_BUILD_THREADED_LIBC="ON",
+                  LIBC_COMPILE_OPTIONS_DEFAULT="-ftls-model=local-exec;-fno-lto")
+def cache(path, values):
+    write(path, "".join(k + ":STRING=" + v + "\n" for k, v in values.items()))
+cache(libc / "CMakeCache.txt", libc_cache)
+cache(rt / "CMakeCache.txt", dict(common, CMAKE_HOME_DIRECTORY=str(source / "compiler-rt")))
+
+counter = 0
+def configure(diagnostic=None, option=None, value=None):
+    global counter
+    build = root / ("config-" + str(counter))
+    counter += 1
+    args = ["cmake", "-S", str(root), "-B", str(build), "-DSOURCE=" + str(source),
+            "-DTOOLS=" + str(tools), "-DINPUT=" + str(inputs)]
+    if option:
+        args += ["-DOPTION=" + option, "-DVALUE=" + value]
+    result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if diagnostic:
+        assert result.returncode and diagnostic in result.stdout, result.stdout
+    else:
+        assert result.returncode == 0, result.stdout
+        record = json.loads((build / "mmix-linux-threaded-cxx/inputs.json").read_text())
+        assert record["status"] == "preparation-only"
+        assert len(record["libc_sha256"]) == 64
+        assert not (build / "mmix-libc-profile").exists()
+
+configure()
+for option in ("LIBCXX_HAS_EXTERNAL_THREAD_API", "LIBCXX_ENABLE_SHARED",
+               "LIBCXXABI_INSTALL_LIBRARY", "LIBUNWIND_INSTALL_HEADERS",
+               "LIBCXX_MMIX_LINUX_INSTALL_RUNTIME", "LIBCXX_HAS_PTHREAD_LIB"):
+    configure("rejects " + option, option, "ON")
+configure("requires LIBUNWIND_ENABLE_THREADS=ON", "LIBUNWIND_ENABLE_THREADS", "OFF")
+configure("requires native local-exec CXX flags", "CMAKE_CXX_FLAGS", "-nostdinc++")
+configure("rejects conflicting CXX FLAGS", "CMAKE_CXX_FLAGS",
+          "-ftls-model=local-exec -fno-lto -femulated-tls")
+configure("rejects conflicting CXX FLAGS_RELEASE", "CMAKE_CXX_FLAGS_RELEASE",
+          "-O2 -ftls-model=global-dynamic")
+configure("rejects the external-thread state adapter", "LIBCXX_MMIX_LINUX_STATE_DIR", "old")
+configure("requires matching Linux compiler targets", "CMAKE_CXX_COMPILER_TARGET", "mmix-unknown-unknown")
+for key, value in (("thread_mode", "LIBC_THREAD_MODE_SINGLE"),
+                   ("errno_mode", "LIBC_ERRNO_MODE_SHARED")):
+    write(manifest_path, json.dumps(dict(manifest, **{key: value})))
+    configure("requires PLATFORM and THREAD_LOCAL errno")
+write(manifest_path, json.dumps(manifest))
+cache(libc / "CMakeCache.txt", dict(libc_cache, LIBC_COMPILE_OPTIONS_DEFAULT="-ftls-model=initial-exec"))
+configure("requires native PLATFORM libc providers")
+cache(libc / "CMakeCache.txt", libc_cache)
+cache(rt / "CMakeCache.txt", dict(common, CMAKE_HOME_DIRECTORY=str(source / "compiler-rt"),
+                                 CMAKE_CXX_COMPILER_TARGET="mmix-unknown-unknown"))
+configure("requires matching rt compiler")
+cache(rt / "CMakeCache.txt", dict(common, CMAKE_HOME_DIRECTORY=str(source / "compiler-rt")))
+write(manifest_path, json.dumps(dict(manifest, archive=str(obj))))
+configure("input escapes its provider root")
+write(manifest_path, json.dumps(manifest))
+configure()
