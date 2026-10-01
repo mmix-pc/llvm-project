@@ -17,6 +17,8 @@ LLVM_LIBC_FUNCTION(int, pthread_once,
                    (pthread_once_t * flag, void (*func)(void))) {
   auto *word = reinterpret_cast<CallOnceFlag *>(flag);
   return callonce(word, [=]() {
+    // Unwind unlinks this record before the common guard resets and wakes.
+    // Direct C exit instead drains the record at thread completion.
     mmix::OnceInitializer active(word);
     func();
   });

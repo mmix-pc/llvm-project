@@ -951,9 +951,13 @@ add_entrypoint_object(
 )
 
 set(pthread_once_source pthread_once.cpp)
+set(pthread_once_options)
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(pthread_once_source linux/mmix/pthread_once.cpp)
   set(pthread_once_dependency libc.src.__support.threads.linux.mmix.once)
+  if(LIBC_MMIX_BUILD_FORCED_EXIT)
+    set(pthread_once_options -fno-lto -fexceptions -funwind-tables)
+  endif()
 endif()
 add_entrypoint_object(
   pthread_once
@@ -965,6 +969,7 @@ add_entrypoint_object(
     libc.include.pthread
     libc.src.__support.threads.callonce
     ${pthread_once_dependency}
+  COMPILE_OPTIONS ${pthread_once_options}
 )
 
 add_entrypoint_object(

@@ -26,9 +26,9 @@ public:
   OnceInitializer &operator=(const OnceInitializer &) = delete;
 };
 
-// C pthread_exit does not unwind automatic objects. Drain before reclamation.
-// FIXME: Integrate forced-unwind cleanup before admitting C++
-// exit/cancellation.
+// Retained direct C exit drains records before reclamation. In the forced-exit
+// profile, stack unwinding already removed them and the common guard reset them.
+// Cancellation points remain a separate runtime integration.
 void abandon_once_initializers();
 
 } // namespace mmix
