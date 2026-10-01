@@ -246,10 +246,14 @@ add_entrypoint_object(
     .pthread_cond_utils
 )
 
+set(pthread_cond_init_source pthread_cond_init.cpp)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(pthread_cond_init_source linux/mmix/pthread_cond_init.cpp)
+endif()
 add_entrypoint_object(
   pthread_cond_init
   SRCS
-    pthread_cond_init.cpp
+    ${pthread_cond_init_source}
   HDRS
     pthread_cond_init.h
   DEPENDS

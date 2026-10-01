@@ -14,6 +14,9 @@ cases = [(['-DPUBLIC=ON'], True), (['-DPUBLIC=OFF'], True),
          (['-DPUBLIC=OFF', '-DLIBC_MMIX_BUILD_PTHREAD_LIFECYCLE=ON'], False),
          (['-DPUBLIC=ON', '-DLIBC_MMIX_BUILD_PTHREAD_MUTEX=ON'], True),
          (['-DPUBLIC=OFF', '-DLIBC_MMIX_BUILD_PTHREAD_MUTEX=ON'], False),
+         (['-DPUBLIC=ON', '-DLIBC_MMIX_BUILD_PTHREAD_COND=ON'], False),
+         (['-DPUBLIC=ON', '-DLIBC_MMIX_BUILD_PTHREAD_MUTEX=ON',
+           '-DLIBC_MMIX_BUILD_PTHREAD_COND=ON'], True),
          (['-DPUBLIC=ON', '-DLIBC_MMIX_BUILD_STDIO=ON'], False)]
 for i, (options, accepted) in enumerate(cases):
     result = subprocess.run(['cmake', '-S', str(root), '-B', str(root / str(i)),
