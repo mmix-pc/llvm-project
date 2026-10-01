@@ -81,6 +81,10 @@ void validate_link(const MmixCleanupLink &link) {
     __builtin_trap();
 }
 
+void invoke_callback(void (*callback)(void *), void *argument) noexcept {
+  callback(argument);
+}
+
 void remove(bool execute) {
   validate_link(head);
   auto *record = head.record;
@@ -91,7 +95,7 @@ void remove(bool execute) {
   head = record->previous;
   record->serial = 0;
   if (execute)
-    callback(argument);
+    invoke_callback(callback, argument);
 }
 } // namespace
 

@@ -119,13 +119,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     set(mmix_once_option -DLIBC_MMIX_PUBLIC_ONCE)
   endif()
   if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
+    set(mmix_cleanup_options)
+    if(LIBC_MMIX_BUILD_FORCED_EXIT)
+      set(mmix_cleanup_options -fexceptions)
+    endif()
     add_object_library(
       cleanup
       SRCS cleanup.cpp
       HDRS cleanup.h
       DEPENDS .lifecycle libc.src.__support.OSUtil.linux.mmix.syscall
               libc.include.sys_syscall
-      COMPILE_OPTIONS -fno-lto -funwind-tables
+      COMPILE_OPTIONS -fno-lto -funwind-tables ${mmix_cleanup_options}
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include
     )

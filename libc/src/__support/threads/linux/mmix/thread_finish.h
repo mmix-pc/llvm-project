@@ -20,9 +20,14 @@ namespace mmix {
 [[noreturn]] __attribute__((visibility("hidden"))) void
 finish_thread(ThreadControl &control, ThreadReturnValue result);
 
-// Internal explicit exit, including main while peers survive. Caller supplies
-// its own control and suppresses cancellation. Automatic-object unwinding and
-// complete public TLS/TSS destruction require later cleanup integration.
+// Enter Cleaning under the registry lock, restoring the caller's signal mask
+// before any callback or unwinder code. Reentry fails rather than restarting.
+void begin_thread_cleanup(ThreadControl &control);
+// Called once after normal return or a verified forced-unwind root handoff.
+[[noreturn]] void complete_thread_cleanup(ThreadControl &control,
+                                        ThreadReturnValue result);
+
+// Normal return and retained C-only explicit exit, without stack unwinding.
 [[noreturn]] void exit_thread(ThreadControl &control, ThreadReturnValue result);
 
 // Selected thread cleanup has already completed. Run normal process callbacks

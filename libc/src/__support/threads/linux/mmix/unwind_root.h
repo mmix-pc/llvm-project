@@ -30,8 +30,8 @@ bool has_c_cleanup();
 [[gnu::visibility("hidden")]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument);
 
-// Preparation-only bridge. Public pthread_exit retains its C-only path until
-// forced cleanup, TLS destruction and C cleanup records are integrated.
+// Shared root bridge. Only the selected forced-exit composition connects public
+// pthread_exit here; retained C-only packages keep their direct finish path.
 extern "C" [[noreturn, gnu::visibility("hidden")]] void
 __llvm_libc_mmix_unwind_to_root(void *result);
 } // namespace mmix

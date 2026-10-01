@@ -67,7 +67,7 @@ int Thread::join(ThreadReturnValue &retval) {
   if (!control || internal::self.attrib != &control->attributes ||
       (style != ThreadStyle::POSIX && style != ThreadStyle::STDC))
     __builtin_trap();
-  // FIXME: Add forced unwinding when C++ pthread_exit cleanup is admitted.
+  // The forced-exit pthread provider bypasses this retained direct-exit path.
   mmix::exit_thread(*control, retval);
 }
 

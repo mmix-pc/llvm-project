@@ -83,6 +83,7 @@ function(mmix_configure_threaded_libc)
                "errno_mode|${LIBC_CONF_ERRNO_MODE}"
                "unwind_diagnostics|${LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS}"
                "unwind_roots|${LIBC_MMIX_BUILD_UNWIND_ROOTS}"
+               "forced_exit|${LIBC_MMIX_BUILD_FORCED_EXIT}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")

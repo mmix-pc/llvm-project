@@ -568,15 +568,26 @@ add_entrypoint_object(
     libc.src.__support.threads.thread
 )
 
+set(pthread_exit_source pthread_exit.cpp)
+set(pthread_exit_dependencies libc.src.__support.threads.thread)
+set(pthread_exit_options)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix"
+   AND LIBC_MMIX_BUILD_FORCED_EXIT)
+  set(pthread_exit_source linux/mmix/pthread_exit.cpp)
+  set(pthread_exit_dependencies libc.src.__support.threads.linux.mmix.unwind_root)
+  set(pthread_exit_options -fno-lto -fexceptions -funwind-tables)
+endif()
+
 add_entrypoint_object(
   pthread_exit
   SRCS
-    pthread_exit.cpp
+    ${pthread_exit_source}
   HDRS
     pthread_exit.h
   DEPENDS
     libc.include.pthread
-    libc.src.__support.threads.thread
+    ${pthread_exit_dependencies}
+  COMPILE_OPTIONS ${pthread_exit_options}
 )
 
 add_entrypoint_object(

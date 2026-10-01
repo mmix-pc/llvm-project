@@ -90,7 +90,7 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
     control->unwind_root.active = false;
     state.active = false;
     // Never return through consumed frames or release the current backing.
-    exit_thread(*control, ThreadReturnValue(state.result));
+    complete_thread_cleanup(*control, ThreadReturnValue(state.result));
   }
   return _URC_NO_REASON;
 }
@@ -118,7 +118,8 @@ extern "C" [[noreturn]] void __llvm_libc_mmix_unwind_to_root(void *result) {
   forced.root = control->unwind_root;
   forced.result = result;
   forced.active = true;
-  forced.exception.exception_class = 0x4c4c564d4d4d4958ULL;
+  begin_thread_cleanup(*control);
+  forced.exception.exception_class = 0x4c4c564d50544852ULL; // LLVMPTHR.
   forced.exception.exception_cleanup = disposed;
   _Unwind_ForcedUnwind(&forced.exception, stop, &forced);
   __builtin_trap();

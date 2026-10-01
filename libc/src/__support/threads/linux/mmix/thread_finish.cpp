@@ -124,11 +124,9 @@ __llvm_libc_mmix_thread_run(ThreadControl *control) {
 #endif
 }
 
-[[noreturn]] void exit_thread(ThreadControl &control,
-                              ThreadReturnValue result) {
+void begin_thread_cleanup(ThreadControl &control) {
   if (internal::self.attrib != &control.attributes)
     __builtin_trap();
-  control.unwind_root.active = false;
   uint64_t callback_mask;
   set_mask(UINT64_MAX, &callback_mask);
   {
@@ -136,14 +134,31 @@ __llvm_libc_mmix_thread_run(ThreadControl *control) {
     if (!lock.begin_cleanup(control))
       __builtin_trap();
   }
-#ifdef LIBC_MMIX_PUBLIC_ONCE
-  abandon_once_initializers();
-#endif
   set_mask(callback_mask);
-  // Reuse only the selected internal callback/TSS manager. Full public TLS
-  // destruction and cancellation need their own integration.
+}
+
+[[noreturn]] void complete_thread_cleanup(ThreadControl &control,
+                                        ThreadReturnValue result) {
+  control.unwind_root.active = false;
+#ifdef LIBC_MMIX_PUBLIC_ONCE
+  uint64_t callback_mask;
+  set_mask(UINT64_MAX, &callback_mask);
+  abandon_once_initializers();
+  set_mask(callback_mask);
+#endif
+  // Stack cleanup has finished. Drain the selected TLS/TSS manager on its owner.
   internal::cleanup_current_thread();
   finish_thread(control, result);
+}
+
+[[noreturn]] void exit_thread(ThreadControl &control,
+                              ThreadReturnValue result) {
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  if (has_c_cleanup())
+    __builtin_trap();
+#endif
+  begin_thread_cleanup(control);
+  complete_thread_cleanup(control, result);
 }
 
 extern "C" [[clang::disable_tail_calls]] void
