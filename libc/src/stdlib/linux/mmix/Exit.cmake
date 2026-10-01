@@ -1,2 +1,6 @@
 set(exit_source linux/mmix/exit.cpp)
 list(APPEND exit_deps libc.src.__support.threads.linux.mmix.main_thread)
+if(LIBC_MMIX_BUILD_CONCURRENT_STDIO)
+  list(APPEND exit_deps libc.src.stdio.fflush)
+  list(APPEND exit_compile_options -DLIBC_MMIX_CONCURRENT_STDIO)
+endif()

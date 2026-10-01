@@ -10,6 +10,9 @@
 #include "src/__support/OSUtil/exit.h"
 #include "src/__support/common.h"
 #include "src/__support/threads/linux/mmix/main_thread.h"
+#ifdef LIBC_MMIX_CONCURRENT_STDIO
+#include "src/stdio/fflush.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -19,6 +22,9 @@ extern "C" void __cxa_finalize(void *);
   // Explicit exit, including from constructors, shares main's cleanup path.
   internal::cleanup_main_thread();
   __cxa_finalize(nullptr);
+#ifdef LIBC_MMIX_CONCURRENT_STDIO
+  fflush(nullptr);
+#endif
   internal::exit(status);
 }
 

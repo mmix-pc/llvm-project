@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/OSUtil/exit.h"
+#ifdef LIBC_MMIX_CONCURRENT_STDIO
+#include "src/stdio/fflush.h"
+#endif
 #include "thread_finish.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -17,6 +20,9 @@ namespace mmix {
   // Reuse normal exit's process callbacks and terminal transport, but do not
   // replay thread cleanup or run main's TLS callbacks on the last worker.
   __cxa_finalize(nullptr);
+#ifdef LIBC_MMIX_CONCURRENT_STDIO
+  fflush(nullptr);
+#endif
   internal::exit(0);
 }
 } // namespace mmix

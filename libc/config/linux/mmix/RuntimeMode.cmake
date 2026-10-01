@@ -18,7 +18,12 @@ option(LIBC_MMIX_BUILD_PTHREAD_SIGNALS
   "Add public thread mask and directed signal operations to the lifecycle archive" OFF)
 option(LIBC_MMIX_BUILD_CONCURRENT_ALLOCATION
   "Add concurrent allocation to the public lifecycle archive" OFF)
+option(LIBC_MMIX_BUILD_CONCURRENT_STDIO
+  "Add concurrent file streams to the public lifecycle archive" OFF)
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_CONCURRENT_STDIO AND NOT LIBC_MMIX_BUILD_CONCURRENT_ALLOCATION)
+    message(FATAL_ERROR "MMIX concurrent stdio requires concurrent allocation")
+  endif()
   if(LIBC_MMIX_BUILD_CONCURRENT_ALLOCATION AND NOT LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE)
     message(FATAL_ERROR "MMIX concurrent allocation requires the public pthread lifecycle")
   endif()
@@ -52,7 +57,7 @@ function(mmix_check_runtime_mode)
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
-         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION)$")
+         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
       endif()
     endforeach()
