@@ -7,10 +7,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/threads/thread.h"
+#include "hdr/limits_macros.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/threads/mutex.h"
 
 #include "src/__support/CPP/array.h"
+#include "src/__support/CPP/limits.h"
 #include "src/__support/CPP/mutex.h" // lock_guard
 #include "src/__support/CPP/optional.h"
 #include "src/__support/fixedvector.h"
@@ -31,15 +33,13 @@ struct AtExitUnit {
 constexpr size_t TSS_KEY_COUNT = 1024;
 
 struct TSSKeyUnit {
-  // Indicates whether is unit is active. Presence of a non-null dtor
+  // Indicates whether this unit is active. Presence of a non-null dtor
   // is not sufficient to indicate the same information as a TSS key can
   // have a null destructor.
   bool active = false;
 
   TSSDtor *dtor = nullptr;
-
-  constexpr TSSKeyUnit() = default;
-  constexpr TSSKeyUnit(TSSDtor *d) : active(true), dtor(d) {}
+  uint64_t generation = 0;
 
   void reset() {
     active = false;
@@ -60,45 +60,42 @@ public:
     cpp::lock_guard lock(mtx);
     for (unsigned int i = 0; i < TSS_KEY_COUNT; ++i) {
       TSSKeyUnit &u = units[i];
-      if (!u.active) {
-        u = {dtor};
+      // Retire exhausted slots rather than reviving an ancient TLS value.
+      if (!u.active && u.generation != cpp::numeric_limits<uint64_t>::max()) {
+        ++u.generation;
+        u.active = true;
+        u.dtor = dtor;
         return i;
       }
     }
     return cpp::optional<unsigned int>();
   }
 
-  TSSDtor *get_dtor(unsigned int key) {
+  cpp::optional<TSSKeyUnit> get_key(unsigned int key) {
     if (key >= TSS_KEY_COUNT)
-      return nullptr;
+      return cpp::nullopt;
     cpp::lock_guard lock(mtx);
-    return units[key].dtor;
+    if (!units[key].active)
+      return cpp::nullopt;
+    return units[key];
   }
 
   bool remove_key(unsigned int key) {
     if (key >= TSS_KEY_COUNT)
       return false;
     cpp::lock_guard lock(mtx);
+    if (!units[key].active)
+      return false;
     units[key].reset();
     return true;
-  }
-
-  bool is_valid_key(unsigned int key) {
-    cpp::lock_guard lock(mtx);
-    return units[key].active;
   }
 };
 
 TSSKeyMgr tss_key_mgr;
 
 struct TSSValueUnit {
-  bool active = false;
   void *payload = nullptr;
-  TSSDtor *dtor = nullptr;
-
-  constexpr TSSValueUnit() = default;
-  constexpr TSSValueUnit(void *p, TSSDtor *d)
-      : active(true), payload(p), dtor(d) {}
+  uint64_t generation = 0;
 };
 
 static LIBC_THREAD_LOCAL cpp::array<TSSValueUnit, TSS_KEY_COUNT> tss_values;
@@ -156,11 +153,32 @@ ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
 
 void call_atexit_callbacks(ThreadAttributes *attrib) {
   attrib->atexit_callback_mgr->call();
-  for (size_t i = 0; i < TSS_KEY_COUNT; ++i) {
-    TSSValueUnit &unit = tss_values[i];
-    // Both dtor and value need to nonnull to call dtor
-    if (unit.dtor != nullptr && unit.payload != nullptr)
-      unit.dtor(unit.payload);
+  for (unsigned pass = 0; pass < PTHREAD_DESTRUCTOR_ITERATIONS; ++pass) {
+    bool called = false;
+    for (unsigned i = 0; i < TSS_KEY_COUNT; ++i) {
+      auto &unit = tss_values[i];
+      if (!unit.payload)
+        continue;
+      auto key = tss_key_mgr.get_key(i);
+      if (!key || key->generation != unit.generation) {
+        unit = {};
+        continue;
+      }
+      if (!key->dtor)
+        continue;
+      // Snapshot under the registry lock, but clear and invoke outside it.
+      // Destructors may rearm values or create/delete keys.
+      void *payload = unit.payload;
+      unit = {};
+      called = true;
+      key->dtor(payload);
+    }
+    if (!called)
+      break;
+  }
+  for (auto &unit : tss_values) {
+    unit.payload = nullptr;
+    unit.generation = 0;
   }
 }
 
@@ -173,18 +191,20 @@ cpp::optional<unsigned int> new_tss_key(TSSDtor *dtor) {
 bool tss_key_delete(unsigned int key) { return tss_key_mgr.remove_key(key); }
 
 bool set_tss_value(unsigned int key, void *val) {
-  if (!tss_key_mgr.is_valid_key(key))
+  auto entry = tss_key_mgr.get_key(key);
+  if (!entry)
     return false;
-  tss_values[key] = {val, tss_key_mgr.get_dtor(key)};
+  tss_values[key] = {val, entry->generation};
   return true;
 }
 
 void *get_tss_value(unsigned int key) {
-  if (key >= TSS_KEY_COUNT)
+  auto entry = tss_key_mgr.get_key(key);
+  if (!entry)
     return nullptr;
 
   auto &u = tss_values[key];
-  if (!u.active)
+  if (u.generation != entry->generation)
     return nullptr;
   return u.payload;
 }

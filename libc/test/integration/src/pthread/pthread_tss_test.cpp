@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "hdr/errno_macros.h"
+#include "hdr/limits_macros.h"
 #include "src/pthread/pthread_create.h"
 #include "src/pthread/pthread_exit.h"
 #include "src/pthread/pthread_getspecific.h"
@@ -78,8 +80,33 @@ static void null_value_test() {
   ASSERT_EQ(LIBC_NAMESPACE::pthread_key_delete(key), 0);
 }
 
+static void key_errors_test() {
+  pthread_key_t keys[4096];
+  unsigned count = 0;
+  for (;;) {
+    pthread_key_t key = UINT_MAX;
+    int error = LIBC_NAMESPACE::pthread_key_create(&key, nullptr);
+    if (error) {
+      ASSERT_EQ(error, EAGAIN);
+      ASSERT_EQ(key, UINT_MAX);
+      break;
+    }
+    ASSERT_TRUE(count < 4096);
+    keys[count++] = key;
+  }
+  ASSERT_TRUE(count > 0);
+  for (unsigned i = 0; i != count; ++i)
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_key_delete(keys[i]), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_key_delete(keys[0]), EINVAL);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_setspecific(keys[0], keys), EINVAL);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_setspecific(UINT_MAX, keys), EINVAL);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_key_delete(UINT_MAX), EINVAL);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_getspecific(UINT_MAX), nullptr);
+}
+
 TEST_MAIN() {
   standard_usage_test();
   null_value_test();
+  key_errors_test();
   return 0;
 }

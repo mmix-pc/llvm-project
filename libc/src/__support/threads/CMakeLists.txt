@@ -143,10 +143,12 @@ if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.thread)
     DEPENDS
       .mutex
       .${LIBC_TARGET_OS}.thread
+      libc.hdr.limits_macros
       libc.hdr.stdint_proxy
       libc.src.__support.common
       libc.src.__support.fixedvector
       libc.src.__support.CPP.array
+      libc.src.__support.CPP.limits
       libc.src.__support.CPP.mutex
       libc.src.__support.CPP.optional
   )
