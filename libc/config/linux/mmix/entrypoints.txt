@@ -1,3 +1,5 @@
+include(${CMAKE_CURRENT_LIST_DIR}/RuntimeMode.cmake)
+
 # Only entries with buildable dependencies belong in the initial archive.
 set(TARGET_LIBC_ENTRYPOINTS
     libc.src.errno.errno
@@ -32,7 +34,13 @@ set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeState.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/Allocation.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/CRuntime.cmake)
+if(LIBC_MMIX_ENABLE_STATIC_TLS)
+  # Main-thread TLS preparation remains distinct from SINGLE storage.
+  include(${CMAKE_CURRENT_LIST_DIR}/CRuntime.cmake)
+else()
+  include(${CMAKE_CURRENT_LIST_DIR}/SingleThreadedLibc.cmake)
+endif()
 include(${CMAKE_CURRENT_LIST_DIR}/SignalRuntime.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/PthreadAttributes.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/ThreadLifecycle.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/ThreadedLibc.cmake)

@@ -19,7 +19,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   mmix_check_runtime_mode()
   set(mmix_main_errno_dependency libc.src.errno.errno)
   set(mmix_main_lifecycle_dependency .lifecycle)
-  # Internal primitives; only the opt-in lifecycle archive selects workers.
+  # Internal primitives; only explicit lifecycle/public compositions select workers.
   add_object_library(
     lifecycle
     SRCS lifecycle.cpp
@@ -61,7 +61,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     HDRS thread_entry.h
     DEPENDS .tls_h libc.include.sys_syscall
   )
-  # Native child entry is selected only by the internal lifecycle composition.
+  # Native child entry is selected only by explicit thread compositions.
   add_object_library(
     thread_start
     SRCS thread_start.cpp

@@ -20,7 +20,33 @@ option(LIBC_MMIX_BUILD_CONCURRENT_ALLOCATION
   "Add concurrent allocation to the public lifecycle archive" OFF)
 option(LIBC_MMIX_BUILD_CONCURRENT_STDIO
   "Add concurrent file streams to the public lifecycle archive" OFF)
+option(LIBC_MMIX_BUILD_THREADED_LIBC
+  "Compose the bounded public Linux pthread and concurrent libc archive" OFF)
+option(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC
+  "Compose the single-thread Linux libc and C runtime" OFF)
+if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
+  # Preserve the existing C runtime targets, manifests and installation inputs.
+  set(LIBC_MMIX_BUILD_C_RUNTIME ON)
+endif()
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
+    if(LIBC_MMIX_BUILD_THREADED_LIBC OR LIBC_MMIX_BUILD_THREAD_LIFECYCLE OR
+       LIBC_MMIX_ENABLE_STATIC_TLS OR
+       NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE" OR
+       NOT LIBC_CONF_ERRNO_MODE STREQUAL "LIBC_ERRNO_MODE_SHARED")
+      message(FATAL_ERROR "MMIX single-thread libc requires SINGLE/shared storage without static TLS or thread composition")
+    endif()
+  endif()
+  if(LIBC_MMIX_BUILD_THREADED_LIBC)
+    foreach(component THREAD_LIFECYCLE RUNTIME_STATE PTHREAD_CREATION
+                      PTHREAD_LIFECYCLE PTHREAD_MUTEX PTHREAD_COND PTHREAD_ONCE
+                      PTHREAD_TSS PTHREAD_SIGNALS CONCURRENT_ALLOCATION
+                      CONCURRENT_STDIO)
+      if(NOT LIBC_MMIX_BUILD_${component})
+        message(FATAL_ERROR "MMIX threaded libc requires ${component}")
+      endif()
+    endforeach()
+  endif()
   if(LIBC_MMIX_BUILD_CONCURRENT_STDIO AND NOT LIBC_MMIX_BUILD_CONCURRENT_ALLOCATION)
     message(FATAL_ERROR "MMIX concurrent stdio requires concurrent allocation")
   endif()
@@ -57,7 +83,7 @@ function(mmix_check_runtime_mode)
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
-         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
+         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREADED_LIBC|THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
       endif()
     endforeach()

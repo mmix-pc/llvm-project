@@ -1,0 +1,53 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, out = map(pathlib.Path, sys.argv[1:])
+source = libc.resolve() / "config/linux/mmix/RuntimeMode.cmake"
+script = out / "mode.cmake"
+script.write_text('cmake_minimum_required(VERSION 3.20)\ninclude("' +
+                  str(source) + '")\nmmix_check_runtime_mode()\n')
+components = ("THREADED_LIBC", "THREAD_LIFECYCLE", "RUNTIME_STATE",
+              "PTHREAD_CREATION", "PTHREAD_LIFECYCLE", "PTHREAD_MUTEX",
+              "PTHREAD_COND", "PTHREAD_ONCE", "PTHREAD_TSS", "PTHREAD_SIGNALS",
+              "CONCURRENT_ALLOCATION", "CONCURRENT_STDIO")
+base = {"LIBC_MMIX_BUILD_" + name: "ON" for name in components}
+base.update(LIBC_MMIX_ENABLE_STATIC_TLS="ON",
+            LIBC_CONF_THREAD_MODE="LIBC_THREAD_MODE_PLATFORM",
+            LIBC_CONF_ERRNO_MODE="LIBC_ERRNO_MODE_THREAD_LOCAL",
+            LIBC_COMPILE_OPTIONS_DEFAULT="-ftls-model=local-exec;-fno-lto")
+cases = [({}, None)]
+for name in components[1:]:
+    cases.append(({"LIBC_MMIX_BUILD_" + name: "OFF"}, "requires " + name))
+for values, error in (
+    ({"LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC": "ON"}, "single-thread libc requires"),
+    ({"LIBC_CONF_THREAD_MODE": "LIBC_THREAD_MODE_SINGLE"}, "PLATFORM storage"),
+    ({"LIBC_CONF_ERRNO_MODE": "LIBC_ERRNO_MODE_SHARED"}, "THREAD_LOCAL errno"),
+    ({"LIBC_MMIX_ENABLE_STATIC_TLS": "OFF"}, "requires static TLS"),
+    ({"LIBC_COMPILE_OPTIONS_DEFAULT": "-ftls-model=local-exec"}, "native local-exec"),
+    ({"LIBC_MMIX_BUILD_ACCOUNT_MANAGEMENT": "ON"}, "does not support"),
+    ({"LIBC_MMIX_INSTALL_RUNTIME": "ON"}, "not an installed"),
+):
+    cases.append((values, error))
+for overrides, error in cases:
+    config = dict(base, **overrides)
+    result = subprocess.run(["cmake", *[f"-D{k}={v}" for k, v in config.items()],
+                             "-P", str(script)], capture_output=True, text=True)
+    if error is None:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode and error in result.stderr, result.stderr
+# Retain default TLS-free and main-thread TLS configurations.
+for config in (
+    {"LIBC_CONF_THREAD_MODE": "LIBC_THREAD_MODE_SINGLE",
+     "LIBC_CONF_ERRNO_MODE": "LIBC_ERRNO_MODE_SHARED"},
+    {key: value for key, value in base.items() if not key.startswith("LIBC_MMIX_BUILD_")},
+):
+    result = subprocess.run(["cmake", *[f"-D{k}={v}" for k, v in config.items()],
+                             "-P", str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

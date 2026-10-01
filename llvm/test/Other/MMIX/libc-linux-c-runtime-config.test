@@ -31,7 +31,17 @@ foreach(target libc.src.signal.linux.mmix.uapi_checks
   add_library(${target} OBJECT IMPORTED)
   set_target_properties(${target} PROPERTIES IMPORTED_OBJECTS ${CMAKE_BINARY_DIR}/${target}.o)
 endforeach()
-include(${LIBC_SOURCE}/config/linux/mmix/CRuntime.cmake)
+if(LIBC_MMIX_ENABLE_STATIC_TLS)
+  include(${LIBC_SOURCE}/config/linux/mmix/CRuntime.cmake)
+else()
+  include(${LIBC_SOURCE}/config/linux/mmix/SingleThreadedLibc.cmake)
+  if(LIBC_MMIX_BUILD_C_RUNTIME AND NOT TARGET mmix_libc_single_threaded)
+    message(FATAL_ERROR "missing single-thread composition target")
+  endif()
+  if(NOT LIBC_MMIX_BUILD_C_RUNTIME AND TARGET mmix_libc_single_threaded)
+    message(FATAL_ERROR "unexpected single-thread composition target")
+  endif()
+endif()
 include(${LIBC_SOURCE}/config/linux/mmix/SignalRuntime.cmake)
 
 #--- check-manifest.cmake
@@ -75,6 +85,11 @@ base = ["cmake", "-S", str(root), "-DLIBC_SOURCE=" + str(source),
         "-DLIBC_MMIX_COMPILER_RT_CRTBEGIN=" + str(resources / "begin"),
         "-DLIBC_MMIX_COMPILER_RT_CRTEND=" + str(resources / "end")]
 cases = [([], None),
+         (["-DLIBC_MMIX_BUILD_SINGLE_THREADED_LIBC=ON"], None),
+         (["-DLIBC_MMIX_BUILD_SINGLE_THREADED_LIBC=ON",
+           "-DLIBC_MMIX_BUILD_C_RUNTIME=OFF"], None),
+         (["-DPROFILE=mmix-linux-static-tls",
+           "-DLIBC_MMIX_BUILD_SINGLE_THREADED_LIBC=ON"], "single-thread libc requires"),
          (["-DPROFILE=mmix-linux-static-tls"], None),
          (["-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON"], None),
          (["-DLIBC_MMIX_BUILD_SIGNAL_MASKS=ON", "-DLIBC_MMIX_BUILD_FORK=ON"], None),

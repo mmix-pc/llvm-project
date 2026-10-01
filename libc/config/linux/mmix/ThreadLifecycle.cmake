@@ -191,6 +191,13 @@ function(mmix_configure_thread_lifecycle)
     endforeach()
     list(REMOVE_ITEM mmix_lifecycle_excluded stdio)
   endif()
+  set_property(DIRECTORY PROPERTY MMIX_THREAD_SUPPORT_OBJECTS
+    "${mmix_lifecycle_objects}")
+  if(LIBC_MMIX_BUILD_THREADED_LIBC)
+    # Public libc uses its own entrypoint variants and CRT ownership. Do not
+    # produce a competing internal archive in the public configuration.
+    return()
+  endif()
   add_library(mmix_libc_thread_lifecycle STATIC)
   foreach(provider IN LISTS mmix_lifecycle_objects)
     if(NOT TARGET ${provider})

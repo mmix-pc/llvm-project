@@ -130,8 +130,12 @@ if(LIBC_MMIX_BUILD_RUNTIME_STATE)
   )
 endif()
 
-if(LIBC_MMIX_BUILD_PTHREAD_ATTRIBUTES)
+if(LIBC_MMIX_BUILD_PTHREAD_ATTRIBUTES OR LIBC_MMIX_BUILD_THREADED_LIBC)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.pthread)
+endif()
+if(LIBC_MMIX_BUILD_THREADED_LIBC)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.spawn libc.include.locale
+    libc.include.time)
 endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/CommandEnvironmentRuntime.cmake)
