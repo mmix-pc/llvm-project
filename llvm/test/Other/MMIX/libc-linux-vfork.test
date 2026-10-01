@@ -5,6 +5,8 @@
 # RUN: %python %t/run.py %S/../../../../libc %t
 # RUN: llvm-objdump -dr %t/public-O0.o | FileCheck %s
 # RUN: llvm-objdump -dr %t/public-O2.o | FileCheck %s
+# RUN: llvm-objdump -dr %t/threaded-O0.o | FileCheck %s --check-prefix=THREADED
+# RUN: llvm-objdump -dr %t/threaded-O2.o | FileCheck %s --check-prefix=THREADED
 # CONFIG: MMIX vfork preparation requires single-thread mode
 # CHECK-LABEL: <vfork>:
 # CHECK-NEXT: {{.*}} SETL r231, 0x4111
@@ -19,6 +21,18 @@
 # CHECK-NEXT: {{.*}} JMP
 # CHECK-NEXT: {{.*}} R_MMIX_ADDR27 __llvm_libc_mmix_vfork_error
 # CHECK-NEXT: {{.*}} POP 0x0, 0x0
+# THREADED-LABEL: <vfork>:
+# THREADED: GET r0, rJ
+# THREADED: R_MMIX_PUSHJ_STUBBABLE __llvm_libc_mmix_vfork_begin
+# THREADED: PUT rJ, r0
+# THREADED: BN r231,
+# THREADED: TRAP 0x1, 0x0, 0x0
+# THREADED-NEXT: {{.*}} BZ r231,
+# THREADED-NEXT: {{.*}} GET r0, rJ
+# THREADED: R_MMIX_PUSHJ_STUBBABLE __llvm_libc_mmix_vfork_end
+# THREADED: PUT rJ, r0
+# THREADED: R_MMIX_ADDR27 __llvm_libc_mmix_vfork_error
+# THREADED: POP 0x0, 0x0
 
 #--- check.cmake
 cmake_minimum_required(VERSION 3.20)
@@ -45,15 +59,17 @@ common = ["-std=c++17", "-ffreestanding", "-DLIBC_FULL_BUILD",
           "-DLIBC_NAMESPACE=vfork_test", "-DLIBC_ERRNO_MODE=3",
           "-I", str(root), "-I", str(libc)]
 for opt in ("0", "2"):
-    for mode in ("public", "internal"):
+    for mode in ("public", "internal", "threaded"):
         subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
             "-mrelocation-model", "static", *common, "-O" + opt,
-            *(["-DLIBC_COPT_PUBLIC_PACKAGING"] if mode == "public" else []),
+            "-DLIBC_THREAD_MODE=" + ("LIBC_THREAD_MODE_PLATFORM" if mode == "threaded" else "LIBC_THREAD_MODE_SINGLE"),
+            *(["-DLIBC_COPT_PUBLIC_PACKAGING"] if mode != "internal" else []),
             "-emit-obj", str(libc / "src/unistd/linux/mmix/vfork.cpp"),
             "-o", str(root / (mode + "-O" + opt + ".o"))], check=True)
     if len(sys.argv) == 4:
         exe = root / ("errors-O" + opt)
         subprocess.run([sys.argv[3], *common, "-O" + opt,
+            "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
             str(root / "errors.cpp"), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True, timeout=30)
 

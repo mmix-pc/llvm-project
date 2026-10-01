@@ -37,10 +37,38 @@ uint32_t ThreadRegistryLock::sequence() {
 }
 
 bool ThreadRegistryLock::reserve() {
-  if (registry.exiting || registry.reservations == SIZE_MAX)
+  if (registry.exiting || registry.process_operation ||
+      registry.reservations == SIZE_MAX)
     return false;
+  registry.creation_started = true;
   ++registry.reservations;
   change();
+  return true;
+}
+
+bool ThreadRegistryLock::begin_helper_creation() {
+  if (registry.exiting || registry.process_operation)
+    return false;
+  registry.creation_started = true;
+  return true;
+}
+
+bool ThreadRegistryLock::begin_process_operation(const ThreadControl &caller) {
+  // Never reopen admission after a failed creation or retirement: a helper or
+  // other runtime state may survive even when application accounting is one.
+  if (!registry.main_registered || registry.creation_started ||
+      registry.process_operation || registry.exiting || registry.live != 1 ||
+      registry.reservations || registry.head != &caller ||
+      caller.execution != ThreadExecution::Running || caller.callbacks_started)
+    return false;
+  registry.process_operation = true;
+  return true;
+}
+
+bool ThreadRegistryLock::end_process_operation() {
+  if (!registry.process_operation)
+    return false;
+  registry.process_operation = false;
   return true;
 }
 
@@ -54,10 +82,11 @@ bool ThreadRegistryLock::cancel_reservation() {
 
 bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
   if (c.registry || c.owner != ThreadOwner::Unpublished || !c.creator_pin ||
-      !c.lifecycle_pin || registry.exiting ||
+      !c.lifecycle_pin || registry.exiting || registry.process_operation ||
       (!helper && (!registry.reservations || registry.live == SIZE_MAX)))
     return false;
   c.registry = &registry;
+  registry.creation_started = true;
   c.owner = detached ? ThreadOwner::Detached : ThreadOwner::Joinable;
   c.internal_helper = helper;
   c.listed = !helper;

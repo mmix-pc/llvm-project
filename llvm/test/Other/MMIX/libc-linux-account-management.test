@@ -39,7 +39,9 @@ common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
           "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=credential_test",
           "-I", str(root), "-I", str(libc)]
 for opt in ("0", "2"):
-    for mode, flags in (("native", []), ("ids32", ["-DTEST_IDS32"])):
+    for mode, flags in (("native", []), ("ids32", ["-DTEST_IDS32"]),
+                        ("guarded", ["-DTEST_ADMISSION",
+                         "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM"])):
         suffix = mode + "-O" + opt
         subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
             "-mrelocation-model", "static", "-internal-isystem", resource + "/include",
@@ -81,12 +83,26 @@ for opt in ("0", "2"):
 #define EFAULT 14
 #define EINVAL 22
 #define ENOSYS 38
+#define EOPNOTSUPP 95
 
 #--- semantics.cpp
+#ifdef TEST_ADMISSION
+#include "src/unistd/linux/mmix/setuid.cpp"
+#include "src/unistd/linux/mmix/setgid.cpp"
+#include "src/unistd/linux/mmix/seteuid.cpp"
+#include "src/unistd/linux/mmix/setegid.cpp"
+static int admission_error;
+static unsigned begins, ends;
+namespace credential_test::mmix {
+int begin_process_operation() { ++begins; return admission_error; }
+void end_process_operation() { ++ends; }
+}
+#else
 #include "src/unistd/linux/setuid.cpp"
 #include "src/unistd/linux/setgid.cpp"
 #include "src/unistd/linux/seteuid.cpp"
 #include "src/unistd/linux/setegid.cpp"
+#endif
 #include "src/unistd/linux/getgroups.cpp"
 #include "src/__support/OSUtil/linux/syscall_wrappers/setgroups.h"
 #include "src/errno/libc_errno.cpp"
@@ -155,5 +171,19 @@ extern "C" int main() {
   reply = 0;
   require(linux_syscalls::setgroups(0, nullptr).has_value());
   require(args[0] == 0 && args[1] == 0);
+#ifdef TEST_ADMISSION
+  require(begins == ends);
+  before = calls;
+  unsigned released = ends;
+  const int admission_errors[] = {ENOTSUP, EINVAL};
+  for (int error : admission_errors) {
+    admission_error = error;
+    require(setuid(0) == -1 && libc_errno == error);
+    require(setgid(0) == -1 && libc_errno == error);
+    require(seteuid(0) == -1 && libc_errno == error);
+    require(setegid(0) == -1 && libc_errno == error);
+    require(calls == before && ends == released);
+  }
+#endif
   return 0;
 }

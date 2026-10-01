@@ -1,3 +1,11 @@
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/ProcessOperations.cmake)
+else()
+  foreach(name setuid setgid seteuid setegid)
+    set(${name}_source ${name}.cpp)
+  endforeach()
+endif()
+
 add_entrypoint_object(
   alarm
   SRCS
@@ -144,7 +152,9 @@ set(fork_source fork.cpp)
 set(fork_extra_deps "")
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(fork_source mmix/fork.cpp)
-  set(fork_extra_deps libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask)
+  set(fork_extra_deps
+    libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
+    libc.src.__support.threads.linux.mmix.process_operation_h)
 endif()
 add_entrypoint_object(
   fork
@@ -613,12 +623,13 @@ add_entrypoint_object(
 add_entrypoint_object(
   setgid
   SRCS
-    setgid.cpp
+    ${setgid_source}
   HDRS
     ../setgid.h
   DEPENDS
     libc.hdr.types.gid_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.setgid
+    ${mmix_credential_dependencies}
     libc.src.errno.errno
 )
 
@@ -673,12 +684,13 @@ add_entrypoint_object(
 add_entrypoint_object(
   setuid
   SRCS
-    setuid.cpp
+    ${setuid_source}
   HDRS
     ../setuid.h
   DEPENDS
     libc.hdr.types.uid_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.setuid
+    ${mmix_credential_dependencies}
     libc.src.errno.errno
 )
 
@@ -897,9 +909,15 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
 )
 foreach(name seteuid setegid getgroups)
+  set(source ${name}.cpp)
+  set(extra_deps "")
+  if(DEFINED ${name}_source)
+    set(source ${${name}_source})
+    set(extra_deps ${mmix_credential_dependencies})
+  endif()
   add_entrypoint_object(
     ${name}
-    SRCS ${name}.cpp
+    SRCS ${source}
     HDRS ../${name}.h
     DEPENDS
       libc.hdr.types.uid_t
@@ -908,5 +926,6 @@ foreach(name seteuid setegid getgroups)
       libc.src.__support.OSUtil.osutil
       libc.src.__support.common
       libc.src.__support.libc_errno
+      ${extra_deps}
   )
 endforeach()

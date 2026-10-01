@@ -29,6 +29,20 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.threads.raw_mutex
       libc.src.__support.threads.thread_attributes
   )
+  if(LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_PLATFORM")
+    add_object_library(
+      process_operation
+      SRCS process_operation.cpp
+      HDRS process_operation.h
+      DEPENDS
+        .lifecycle
+        libc.hdr.errno_macros
+        libc.hdr.signal_macros
+        libc.src.__support.OSUtil.linux.mmix.syscall
+        libc.include.sys_syscall
+    )
+    set(mmix_process_operation_dependency .process_operation)
+  endif()
   add_object_library(
     resources
     SRCS resources.cpp
@@ -173,6 +187,12 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     COMPILE_OPTIONS -fno-lto
   )
 endif()
+
+add_header_library(
+  process_operation_h
+  HDRS process_operation.h
+  DEPENDS libc.src.__support.macros.attributes ${mmix_process_operation_dependency}
+)
 
 add_object_library(
   main_thread

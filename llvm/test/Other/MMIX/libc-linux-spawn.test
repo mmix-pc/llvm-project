@@ -239,7 +239,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
   default: __builtin_trap();
   }
 }
-int main(int argc, char **argv) {
+extern "C" int main(int argc, char **argv) {
   require(argc == 2);
   mode = argv[1][0] - '0';
   if (argv[1][1]) mode = 10 * mode + argv[1][1] - '0';

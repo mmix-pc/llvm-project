@@ -326,12 +326,82 @@ static void concurrency() {
   require(pthread_join(worker, nullptr) == 0);
   concurrent = false;
 }
+
+struct AdmissionState {
+  ThreadRegistry registry;
+  ThreadControl main;
+  LifecycleWord start, finished;
+  bool reserved = false;
+};
+static void *admission_creator(void *arg) {
+  auto &state = *static_cast<AdmissionState *>(arg);
+  while (!state.start.value.load(cpp::MemoryOrder::ACQUIRE)) {}
+  {
+    ThreadRegistryLock lock(state.registry);
+    state.reserved = lock.reserve();
+    if (state.reserved) require(lock.cancel_reservation());
+  }
+  state.finished.value.store(1, cpp::MemoryOrder::RELEASE);
+  return nullptr;
+}
+static void admission_concurrency() {
+  concurrent = true;
+  for (unsigned reserve_first = 0; reserve_first != 2; ++reserve_first) {
+    AdmissionState state;
+    state.main.attributes.tid = 41;
+    {
+      ThreadRegistryLock lock(state.registry);
+      require(lock.register_main(state.main));
+      if (!reserve_first) require(lock.begin_process_operation(state.main));
+    }
+    unsigned long worker;
+    require(pthread_create(&worker, nullptr, admission_creator, &state) == 0);
+    state.start.value.store(1, cpp::MemoryOrder::RELEASE);
+    while (!state.finished.value.load(cpp::MemoryOrder::ACQUIRE)) {}
+    require(pthread_join(worker, nullptr) == 0);
+    {
+      ThreadRegistryLock lock(state.registry);
+      require(state.reserved == reserve_first);
+      if (reserve_first) {
+        require(!lock.begin_process_operation(state.main));
+      } else {
+        require(lock.end_process_operation());
+        require(lock.begin_process_operation(state.main));
+        require(lock.end_process_operation());
+        require(lock.reserve() && lock.cancel_reservation());
+        require(!lock.begin_process_operation(state.main));
+      }
+    }
+  }
+  concurrent = false;
+}
 #endif
 
 extern "C" int main() {
   layout_and_publication();
   ownership();
   main_registration();
+  // Admission is exclusive with both ordinary and helper creation, and never
+  // reopens after a creation reservation is cancelled.
+  for (unsigned helper = 0; helper != 2; ++helper) {
+    ThreadRegistry process;
+    ThreadControl main, other;
+    main.attributes.tid = 321;
+    event_address = 0;
+    ThreadRegistryLock lock(process);
+    require(!lock.begin_process_operation(main));
+    require(lock.register_main(main));
+    require(!lock.begin_process_operation(other));
+    require(lock.begin_process_operation(main));
+    require(!lock.begin_process_operation(main));
+    require(!lock.reserve() && !lock.begin_helper_creation());
+    require(!lock.insert(other, true, true));
+    require(lock.end_process_operation() && !lock.end_process_operation());
+    require(lock.begin_process_operation(main) && lock.end_process_operation());
+    if (helper) require(lock.begin_helper_creation());
+    else require(lock.reserve() && lock.cancel_reservation());
+    require(!lock.begin_process_operation(main));
+  }
   // Explicit finalization closes creation even with live threads/reservations.
   // Last-thread election and explicit exit share a single cleanup claim.
   for (unsigned elected = 0; elected != 2; ++elected) {
@@ -375,6 +445,7 @@ extern "C" int main() {
   }
 #ifdef NATIVE_CONCURRENCY
   concurrency();
+  admission_concurrency();
 #endif
   return 0;
 }

@@ -3,6 +3,7 @@ add_entrypoint_object(
   SRCS mmix/vfork.cpp mmix/vfork_error.cpp
   HDRS ../vfork.h
   DEPENDS
+    libc.src.__support.threads.linux.mmix.process_operation_h
     libc.hdr.types.pid_t
     libc.hdr.signal_macros
     libc.include.sys_syscall

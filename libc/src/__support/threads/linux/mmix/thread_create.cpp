@@ -101,9 +101,9 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
   if (ret != 0)
     __builtin_trap();
   bool reserved = true;
-  if (!helper) {
+  {
     ThreadRegistryLock lock(thread_registry);
-    reserved = lock.reserve();
+    reserved = helper ? lock.begin_helper_creation() : lock.reserve();
   }
   if (!reserved) {
     restore_mask(saved_mask);

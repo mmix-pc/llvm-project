@@ -8,6 +8,7 @@
 
 #include "src/unistd/vfork.h"
 #include "hdr/signal_macros.h"
+#include "src/__support/macros/attributes.h"
 #include "src/__support/macros/macro-utils.h"
 #include <linux/sched.h>
 #include <sys/syscall.h>
@@ -31,6 +32,13 @@ asm(".section .text.__llvm_libc_mmix_vfork,\"ax\",@progbits\n"
     "vfork:\n"
 #endif
     "__llvm_libc_mmix_vfork:\n"
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+    // Calls finish before the clone; no software frame spans the trap.
+    "GET r0, rJ\n"
+    "PUSHJ r31, __llvm_libc_mmix_vfork_begin\n"
+    "PUT rJ, r0\n"
+    "BN r231, 2f\n"
+#endif
     "SETL r231, " LLVM_LIBC_STRINGIFY(CLONE_VM | CLONE_VFORK | SIGCHLD) "\n"
     "SETL r232, 0\n"
     "SETL r233, 0\n"
@@ -39,6 +47,14 @@ asm(".section .text.__llvm_libc_mmix_vfork,\"ax\",@progbits\n"
     "SETL r236, 0\n"
     "SETL r237, " LLVM_LIBC_STRINGIFY(SYS_clone) "\n"
     "TRAP 1, 0, 0\n"
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+    // A shared-VM child must not release its suspended parent's admission.
+    "BZ r231, 1f\n"
+    "GET r0, rJ\n"
+    "PUSHJ r31, __llvm_libc_mmix_vfork_end\n"
+    "PUT rJ, r0\n"
+    "2:\n"
+#endif
     "BNN r231, 1f\n"
     "JMP __llvm_libc_mmix_vfork_error\n"
     "1: POP 0, 0\n"

@@ -15,9 +15,14 @@
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/fork_callbacks.h"
 #include "src/__support/threads/identifier.h"
+#include "src/__support/threads/linux/mmix/process_operation.h"
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+#include "src/__support/threads/linux/mmix/main_thread.h"
+#endif
 
-#if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE
-#error "MMIX Linux fork currently requires single-thread mode"
+#if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE &&                             \
+    LIBC_THREAD_MODE != LIBC_THREAD_MODE_PLATFORM
+#error "MMIX Linux fork requires single-thread or platform mode"
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
@@ -25,6 +30,11 @@ namespace LIBC_NAMESPACE_DECL {
 // FIXME: Rejoin shared fork policy when pthread/TLS and coordinated
 // sigaction/abort/fork/spawn synchronization are supported on MMIX Linux.
 LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
+  mmix::ProcessOperation operation;
+  if (operation.error()) {
+    libc_errno = operation.error();
+    return -1;
+  }
   auto *attributes = current_thread().attrib;
   if (!attributes) {
     libc_errno = EINVAL;
@@ -43,13 +53,18 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
   pid_t parent_tid = attributes->tid;
   attributes->tid = 0;
   // Linux copies both stacks and resumes after TRAP with r231=0 in the child.
-  // The syscall leaf can POP normally; no foreign new-stack clone recipe is used.
+  // The syscall leaf can POP normally; no foreign new-stack clone recipe is
+  // used.
   long result = syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
   if (result == 0) {
     long tid = syscall_impl<long>(SYS_gettid);
     if (tid <= 0 || tid > cpp::numeric_limits<pid_t>::max())
       internal::exit(127);
     attributes->tid = static_cast<pid_t>(tid);
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+    if (!internal::restore_main_thread_after_fork())
+      internal::exit(127);
+#endif
   } else {
     attributes->tid = parent_tid;
   }

@@ -3,6 +3,7 @@ set(spawn_signal_deps libc.src.signal.linux.signal_utils)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(spawn_source mmix/posix_spawn.cpp)
   set(spawn_signal_deps
+    libc.src.__support.threads.linux.mmix.process_operation_h
     libc.hdr.errno_macros
     libc.src.signal.linux.mmix.rt_sigaction
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask)

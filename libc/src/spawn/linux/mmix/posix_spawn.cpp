@@ -13,11 +13,13 @@
 #include "src/__support/OSUtil/linux/syscall_wrappers/dup2.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/rt_sigprocmask.h"
+#include "src/__support/threads/linux/mmix/process_operation.h"
 #include "src/signal/linux/mmix/rt_sigaction.h"
 #include "src/spawn/file_actions.h"
 
-#if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE
-#error "MMIX Linux posix_spawn currently requires single-thread mode"
+#if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE &&                             \
+    LIBC_THREAD_MODE != LIBC_THREAD_MODE_PLATFORM
+#error "MMIX Linux posix_spawn requires single-thread or platform mode"
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
@@ -98,6 +100,9 @@ LLVM_LIBC_FUNCTION(int, posix_spawn,
                     const posix_spawnattr_t *__restrict attr,
                     char *const *__restrict argv,
                     char *const *__restrict envp)) {
+  mmix::ProcessOperation operation;
+  if (operation.error())
+    return operation.error();
   if (attr)
     return ENOTSUP;
   sigset_t full{{-1UL}}, saved{};

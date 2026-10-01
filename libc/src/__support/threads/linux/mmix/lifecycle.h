@@ -132,6 +132,8 @@ class ThreadRegistry {
   bool exiting = false;
   bool process_cleanup_claimed = false;
   bool main_registered = false;
+  bool creation_started = false;
+  bool process_operation = false;
 
 public:
   constexpr ThreadRegistry() = default;
@@ -163,6 +165,9 @@ public:
 
   uint32_t sequence();
   bool reserve();
+  bool begin_helper_creation();
+  bool begin_process_operation(const ThreadControl &caller);
+  bool end_process_operation();
   bool cancel_reservation();
   // Bootstrap only, before user callbacks or worker publication. Main uses
   // static control storage and the kernel's non-owned initial stack.
