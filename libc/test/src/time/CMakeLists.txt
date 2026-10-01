@@ -1,5 +1,26 @@
 add_custom_target(libc_time_unittests)
 
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
+    ctime_r_concurrent_test
+    OVERLAY_BUILD_ONLY
+    SUITE
+      libc_time_unittests
+    SRCS
+      ctime_r_concurrent_test.cpp
+      # ctime_r is not selected as an overlay entrypoint.
+      ${LIBC_SOURCE_DIR}/src/time/ctime_r.cpp
+    DEPENDS
+      libc.src.__support.CPP.atomic
+      libc.src.__support.common
+      libc.src.errno.errno
+      libc.src.time.asctime_utils
+      libc.src.time.time_utils
+    LINK_LIBRARIES
+      pthread
+  )
+endif()
+
 add_header_library(
   time_test_utils
   HDRS

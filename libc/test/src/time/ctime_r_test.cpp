@@ -36,6 +36,26 @@ TEST_F(LlvmLibcCtimeR, ValidUnixTimestamp0) {
   ASSERT_STREQ("Thu Jan  1 00:00:00 1970\n", result);
 }
 
+TEST_F(LlvmLibcCtimeR, DoesNotModifyStaticCalendar) {
+  time_t epoch = 0;
+  auto shared = LIBC_NAMESPACE::time_utils::localtime(&epoch);
+  ASSERT_TRUE(shared.has_value());
+  tm saved = *shared.value();
+  time_t later = 2147483647;
+  char buffer[LIBC_NAMESPACE::time_constants::ASCTIME_BUFFER_SIZE];
+  ASSERT_STREQ(LIBC_NAMESPACE::ctime_r(&later, buffer),
+               "Tue Jan 19 03:14:07 2038\n");
+  EXPECT_EQ(shared.value()->tm_sec, saved.tm_sec);
+  EXPECT_EQ(shared.value()->tm_min, saved.tm_min);
+  EXPECT_EQ(shared.value()->tm_hour, saved.tm_hour);
+  EXPECT_EQ(shared.value()->tm_mday, saved.tm_mday);
+  EXPECT_EQ(shared.value()->tm_mon, saved.tm_mon);
+  EXPECT_EQ(shared.value()->tm_year, saved.tm_year);
+  EXPECT_EQ(shared.value()->tm_wday, saved.tm_wday);
+  EXPECT_EQ(shared.value()->tm_yday, saved.tm_yday);
+  EXPECT_EQ(shared.value()->tm_isdst, saved.tm_isdst);
+}
+
 TEST_F(LlvmLibcCtimeR, ValidUnixTimestamp32Int) {
   char buffer[LIBC_NAMESPACE::time_constants::ASCTIME_BUFFER_SIZE];
   time_t t;
