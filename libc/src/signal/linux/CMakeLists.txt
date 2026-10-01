@@ -4,6 +4,15 @@ set(signal_action_source sigaction.cpp)
 set(signal_action_deps .__restore .signal_utils)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   add_subdirectory(mmix)
+  add_entrypoint_object(
+    pthread_kill
+    SRCS mmix/pthread_kill.cpp
+    HDRS ../pthread_kill.h
+    DEPENDS
+      libc.hdr.types.pthread_t
+      libc.src.__support.common
+      libc.src.__support.threads.linux.mmix.thread_signal
+  )
   # Keep mask operations independent of unprovided handler/vDSO machinery.
   set(signal_set_source_dir "mmix/")
   set(signal_set_deps libc.hdr.signal_macros)
