@@ -646,9 +646,13 @@ void __cxa_rethrow() {
         globals->caughtExceptions = 0;
     }
 #ifdef __USING_SJLJ_EXCEPTIONS__
-    _Unwind_SjLj_RaiseException(&exception_header->unwindHeader);
-#else
+    _Unwind_SjLj_Resume_or_Rethrow(&exception_header->unwindHeader);
+#elif defined(__WASM_EXCEPTIONS__)
     _Unwind_RaiseException(&exception_header->unwindHeader);
+#else
+    // A foreign exception may be a forced unwind. Raising it again would
+    // discard its stop callback and restart ordinary exception search.
+    _Unwind_Resume_or_Rethrow(&exception_header->unwindHeader);
 #endif
 
     //  If we get here, some kind of unwinding error has occurred.
