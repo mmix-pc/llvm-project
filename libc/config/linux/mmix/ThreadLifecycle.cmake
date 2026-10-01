@@ -48,6 +48,9 @@ if(LIBC_MMIX_BUILD_PTHREAD_COND)
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_condattr_${operation})
   endforeach()
 endif()
+if(LIBC_MMIX_BUILD_PTHREAD_ONCE)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_once)
+endif()
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 if(NOT LLVM_LIBC_FULL_BUILD OR NOT CMAKE_CROSSCOMPILING OR
    NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR LLVM_LIBC_INCLUDE_SCUDO OR
@@ -123,6 +126,11 @@ function(mmix_configure_thread_lifecycle)
     foreach(operation init destroy getclock setclock getpshared setpshared)
       list(APPEND mmix_lifecycle_objects libc.src.pthread.pthread_condattr_${operation})
     endforeach()
+  endif()
+  if(LIBC_MMIX_BUILD_PTHREAD_ONCE)
+    list(APPEND mmix_lifecycle_objects
+      libc.src.pthread.pthread_once
+      libc.src.__support.threads.linux.mmix.once)
   endif()
   add_library(mmix_libc_thread_lifecycle STATIC)
   foreach(provider IN LISTS mmix_lifecycle_objects)

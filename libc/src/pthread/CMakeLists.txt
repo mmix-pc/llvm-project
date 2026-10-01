@@ -939,15 +939,21 @@ add_entrypoint_object(
     libc.hdr.errno_macros
 )
 
+set(pthread_once_source pthread_once.cpp)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(pthread_once_source linux/mmix/pthread_once.cpp)
+  set(pthread_once_dependency libc.src.__support.threads.linux.mmix.once)
+endif()
 add_entrypoint_object(
   pthread_once
   SRCS
-    pthread_once.cpp
+    ${pthread_once_source}
   HDRS
     pthread_once.h
   DEPENDS
     libc.include.pthread
     libc.src.__support.threads.callonce
+    ${pthread_once_dependency}
 )
 
 add_entrypoint_object(

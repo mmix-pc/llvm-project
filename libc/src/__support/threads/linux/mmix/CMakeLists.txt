@@ -94,11 +94,22 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto
   )
+  if(LIBC_MMIX_BUILD_PTHREAD_ONCE)
+    add_object_library(
+      once
+      SRCS once.cpp
+      HDRS once.h
+      DEPENDS libc.src.__support.threads.callonce
+    )
+    set(mmix_once_dependency .once)
+    set(mmix_once_option -DLIBC_MMIX_PUBLIC_ONCE)
+  endif()
   add_object_library(
     thread_finish
     SRCS thread_finish.cpp thread_process_exit.cpp
     HDRS thread_finish.h
     DEPENDS
+      ${mmix_once_dependency}
       .thread_start
       .main_thread
       .lifecycle
@@ -109,7 +120,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.CPP.limits
       libc.src.__support.OSUtil.linux.mmix.syscall
       libc.include.sys_syscall
-    COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls
+    COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls ${mmix_once_option}
   )
   add_object_library(
     thread_reclaim

@@ -15,6 +15,9 @@
 #include "src/__support/threads/thread.h"
 #include "thread_start.h"
 #include <sys/syscall.h>
+#ifdef LIBC_MMIX_PUBLIC_ONCE
+#include "once.h"
+#endif
 
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_PLATFORM ||                           \
     LIBC_ERRNO_MODE != LIBC_ERRNO_MODE_THREAD_LOCAL
@@ -123,6 +126,9 @@ __llvm_libc_mmix_thread_run(ThreadControl *control) {
     if (!lock.begin_cleanup(control))
       __builtin_trap();
   }
+#ifdef LIBC_MMIX_PUBLIC_ONCE
+  abandon_once_initializers();
+#endif
   set_mask(callback_mask);
   // Reuse only the selected internal callback/TSS manager. Full public TLS
   // destruction and cancellation need their own integration.
