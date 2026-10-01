@@ -94,13 +94,8 @@ static Futex::Timeout lease_deadline() {
   __llvm_libc_mmix_thread_exit();
 }
 
-extern "C" [[clang::disable_tail_calls]] void
-__llvm_libc_mmix_thread_run(ThreadControl *control) {
-  if (!control || internal::self.attrib != &control->attributes ||
-      control->retains_resources_until_process_exit() ||
-      control->acquire_child() != ChildStatus::Ready ||
-      control->acquire_decision() != CreatorDecision::Go)
-    __builtin_trap();
+static void run_worker(void *argument) {
+  auto *control = static_cast<ThreadControl *>(argument);
   set_mask(control->saved_signal_mask);
   ThreadReturnValue result;
   if (control->attributes.style == ThreadStyle::POSIX &&
@@ -115,10 +110,25 @@ __llvm_libc_mmix_thread_run(ThreadControl *control) {
   exit_thread(*control, result);
 }
 
+extern "C" [[clang::disable_tail_calls]] void
+__llvm_libc_mmix_thread_run(ThreadControl *control) {
+  if (!control || internal::self.attrib != &control->attributes ||
+      control->retains_resources_until_process_exit() ||
+      control->acquire_child() != ChildStatus::Ready ||
+      control->acquire_decision() != CreatorDecision::Go)
+    __builtin_trap();
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  run_with_unwind_root(*control, run_worker, control);
+#else
+  run_worker(control);
+#endif
+}
+
 [[noreturn]] void exit_thread(ThreadControl &control,
                               ThreadReturnValue result) {
   if (internal::self.attrib != &control.attributes)
     __builtin_trap();
+  control.unwind_root.active = false;
   uint64_t callback_mask;
   set_mask(UINT64_MAX, &callback_mask);
   {

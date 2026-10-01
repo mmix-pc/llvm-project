@@ -11,6 +11,9 @@
 #include "src/__support/threads/linux/mmix/main_thread.h"
 #include "src/stdlib/atexit.h"
 #include "src/stdlib/exit.h"
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+#include "src/__support/threads/linux/mmix/lifecycle.h"
+#endif
 
 extern "C" {
 int main(int argc, char **argv, char **envp);
@@ -41,14 +44,7 @@ void call_fini_array_callbacks() {
   for (size_t i = count; i > 0; --i)
     reinterpret_cast<FiniCallback *>(__fini_array_start[i - 1])();
 }
-} // namespace
-} // namespace LIBC_NAMESPACE_DECL
-
-extern "C" [[noreturn, gnu::visibility("hidden")]] void
-__llvm_libc_mmix_linux_run() {
-  using namespace LIBC_NAMESPACE;
-  if (!internal::initialize_main_thread())
-    __llvm_libc_mmix_linux_start_fail();
+void run_main(void *) {
   // Register before constructors so their exit callbacks run before fini.
   if (atexit(&call_fini_array_callbacks) != 0)
     __llvm_libc_mmix_linux_start_fail();
@@ -57,4 +53,21 @@ __llvm_libc_mmix_linux_run() {
   auto **env = reinterpret_cast<char **>(app.env_ptr);
   call_init_array_callbacks(argc, argv, env);
   exit(main(argc, argv, env));
+}
+} // namespace
+} // namespace LIBC_NAMESPACE_DECL
+
+extern "C" [[noreturn, gnu::visibility("hidden")]] void
+__llvm_libc_mmix_linux_run() {
+  using namespace LIBC_NAMESPACE;
+  if (!internal::initialize_main_thread())
+    __llvm_libc_mmix_linux_start_fail();
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  if (!mmix::current_control)
+    __llvm_libc_mmix_linux_start_fail();
+  mmix::run_with_unwind_root(*mmix::current_control, run_main, nullptr);
+#else
+  run_main(nullptr);
+#endif
+  __llvm_libc_mmix_linux_start_fail();
 }

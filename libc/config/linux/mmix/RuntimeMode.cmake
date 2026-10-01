@@ -24,6 +24,10 @@ option(LIBC_MMIX_BUILD_THREADED_LIBC
   "Compose the bounded public Linux pthread and concurrent libc archive" OFF)
 option(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS
   "Add diagnostic providers for Linux threaded unwind preparation" OFF)
+option(LIBC_MMIX_BUILD_UNWIND_ROOTS
+  "Prepare owning Linux thread unwind roots without public forced exit" OFF)
+option(LIBC_MMIX_BUILD_TLS_DESTRUCTORS
+  "Prepare dynamically allocated per-thread static TLS destructor registration" OFF)
 option(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC
   "Compose the single-thread Linux libc and C runtime" OFF)
 if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
@@ -31,6 +35,12 @@ if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
   set(LIBC_MMIX_BUILD_C_RUNTIME ON)
 endif()
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_TLS_DESTRUCTORS AND NOT LIBC_MMIX_BUILD_UNWIND_ROOTS)
+    message(FATAL_ERROR "MMIX TLS destructors require owning unwind roots")
+  endif()
+  if(LIBC_MMIX_BUILD_UNWIND_ROOTS AND NOT LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)
+    message(FATAL_ERROR "MMIX unwind roots require threaded unwind diagnostics")
+  endif()
   if(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS AND NOT LIBC_MMIX_BUILD_THREADED_LIBC)
     message(FATAL_ERROR "MMIX unwind diagnostics require threaded libc")
   endif()
@@ -88,7 +98,7 @@ function(mmix_check_runtime_mode)
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
-         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREADED_LIBC|UNWIND_DIAGNOSTICS|THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
+         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREADED_LIBC|UNWIND_DIAGNOSTICS|UNWIND_ROOTS|TLS_DESTRUCTORS|THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
       endif()
     endforeach()

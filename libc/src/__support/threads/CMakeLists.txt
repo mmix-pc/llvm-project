@@ -136,6 +136,10 @@ add_header_library(
 )
 
 if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.thread)
+  if(TARGET libc.src.__support.threads.linux.mmix.tls_destructors)
+    set(thread_atexit_dependency .linux.mmix.tls_destructors)
+    set(thread_atexit_options -DLIBC_MMIX_TLS_DESTRUCTORS)
+  endif()
   add_object_library(
     thread
     SRCS
@@ -143,6 +147,7 @@ if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.thread)
     DEPENDS
       .mutex
       .${LIBC_TARGET_OS}.thread
+      ${thread_atexit_dependency}
       libc.hdr.limits_macros
       libc.hdr.stdint_proxy
       libc.src.__support.common
@@ -151,6 +156,7 @@ if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.thread)
       libc.src.__support.CPP.limits
       libc.src.__support.CPP.mutex
       libc.src.__support.CPP.optional
+    COMPILE_OPTIONS ${thread_atexit_options}
   )
 endif()
 

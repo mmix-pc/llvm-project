@@ -18,6 +18,10 @@
 #include "src/__support/fixedvector.h"
 #include "src/__support/macros/attributes.h"
 
+#ifdef LIBC_MMIX_TLS_DESTRUCTORS
+#include "src/__support/threads/linux/mmix/tls_destructors.h"
+#endif
+
 namespace LIBC_NAMESPACE_DECL {
 namespace {
 
@@ -102,6 +106,7 @@ static LIBC_THREAD_LOCAL cpp::array<TSSValueUnit, TSS_KEY_COUNT> tss_values;
 
 } // anonymous namespace
 
+#ifndef LIBC_MMIX_TLS_DESTRUCTORS
 class ThreadAtExitCallbackMgr {
   Mutex mtx;
   // TODO: Use a BlockStore when compiled for production.
@@ -131,6 +136,7 @@ public:
     mtx.unlock();
   }
 };
+#endif
 
 static LIBC_THREAD_LOCAL ThreadAtExitCallbackMgr atexit_callback_mgr;
 

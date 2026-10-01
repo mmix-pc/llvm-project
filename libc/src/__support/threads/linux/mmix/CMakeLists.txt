@@ -23,7 +23,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   add_object_library(
     lifecycle
     SRCS lifecycle.cpp
-    HDRS lifecycle.h
+    HDRS lifecycle.h unwind_root.h
     DEPENDS
       .tls_h
       libc.src.__support.threads.raw_mutex
@@ -118,12 +118,37 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     set(mmix_once_dependency .once)
     set(mmix_once_option -DLIBC_MMIX_PUBLIC_ONCE)
   endif()
+  if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
+    add_object_library(
+      unwind_root
+      SRCS unwind_root.cpp
+      HDRS unwind_root.h
+      DEPENDS .lifecycle libc.src.__support.OSUtil.linux.mmix.syscall
+              libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto -funwind-tables
+        -D_LIBUNWIND_IS_NATIVE_ONLY
+        -I${LIBC_SOURCE_DIR}/../libunwind/include
+    )
+    set(mmix_root_dependency .unwind_root)
+    set(mmix_root_options -DLIBC_MMIX_UNWIND_ROOTS -funwind-tables)
+  endif()
+  if(LIBC_MMIX_BUILD_TLS_DESTRUCTORS)
+    add_object_library(
+      tls_destructors
+      SRCS tls_destructors.cpp
+      HDRS tls_destructors.h
+      DEPENDS .lifecycle libc.src.__support.threads.thread_common
+              libc.src.__support.CPP.new libc.src.stdlib.malloc libc.src.stdlib.free
+      COMPILE_OPTIONS -fno-lto
+    )
+  endif()
   add_object_library(
     thread_finish
     SRCS thread_finish.cpp thread_process_exit.cpp
     HDRS thread_finish.h
     DEPENDS
       ${mmix_once_dependency}
+      ${mmix_root_dependency}
       .thread_start
       .main_thread
       .lifecycle
@@ -135,6 +160,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.OSUtil.linux.mmix.syscall
       libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls ${mmix_once_option}
+                    ${mmix_root_options}
   )
   add_object_library(
     thread_reclaim

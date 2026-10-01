@@ -68,6 +68,9 @@ add_startup_object(
 )
 
 # Guard initialization precedes this ordinary protected runtime path.
+if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
+  set(mmix_root_options -DLIBC_MMIX_UNWIND_ROOTS -funwind-tables)
+endif()
 add_startup_object(
   lifecycle
   SRC lifecycle.cpp
@@ -75,7 +78,7 @@ add_startup_object(
     libc.config.app_h
     libc.hdr.types.size_t
     libc.src.__support.threads.linux.mmix.main_thread
-  COMPILE_OPTIONS -ffreestanding -fno-builtin
+  COMPILE_OPTIONS -ffreestanding -fno-builtin ${mmix_root_options}
 )
 
 # Keep libc state, termination and syscall providers in the runtime archive.

@@ -80,7 +80,9 @@ function(mmix_configure_threaded_libc)
                "sysroot|${CMAKE_SYSROOT}" "namespace|${LIBC_NAMESPACE}"
                "thread_mode|${LIBC_CONF_THREAD_MODE}"
                "errno_mode|${LIBC_CONF_ERRNO_MODE}"
-               "unwind_diagnostics|${LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS}")
+               "unwind_diagnostics|${LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS}"
+               "unwind_roots|${LIBC_MMIX_BUILD_UNWIND_ROOTS}"
+               "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}")
     string(REPLACE "|" ";" pair "${pair}")
     list(GET pair 0 key)
     list(GET pair 1 value)
