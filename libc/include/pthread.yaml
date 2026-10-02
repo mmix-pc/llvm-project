@@ -218,6 +218,8 @@ functions:
       - type: pthread_t
       - type: pthread_t
   - name: pthread_exit
+    # Thread exit may unwind registered cleanup handlers in its callers.
+    noexcept: false
     return_type: _Noreturn void
     arguments:
       - type: void *

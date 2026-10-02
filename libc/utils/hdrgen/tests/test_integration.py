@@ -70,6 +70,14 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("int pthread_once(pthread_once_t *, __pthread_once_func_t);", content)
         self.assertIn("pthread_t pthread_self(void) __NOEXCEPT;", content)
 
+    def test_pthread_exit_exception_specification(self):
+        output_file = self.output_dir / "pthread.h"
+        self.run_script(self.source_dir.parents[2] / "include/pthread.yaml",
+                        output_file, ["pthread_exit", "pthread_self"])
+        content = output_file.read_text()
+        self.assertIn("_Noreturn void pthread_exit(void *);", content)
+        self.assertIn("pthread_t pthread_self(void) __NOEXCEPT;", content)
+
     def test_stdlib_comparator_exception_specifications(self):
         output_file = self.output_dir / "stdlib.h"
         self.run_script(

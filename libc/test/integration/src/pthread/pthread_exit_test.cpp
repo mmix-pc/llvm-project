@@ -13,6 +13,8 @@
 
 #include <pthread.h>
 
+static_assert(!noexcept(::pthread_exit(nullptr)));
+
 bool dtor_called = false;
 
 class A {
