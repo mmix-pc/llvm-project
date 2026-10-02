@@ -631,9 +631,10 @@ void __assoc_state<_Rp>::set_value_at_thread_exit(_Arg&& __arg) {
   unique_lock<mutex> __lk(this->__mut_);
   if (this->__has_value())
     std::__throw_future_error(future_errc::promise_already_satisfied);
+  auto& __thread_state = std::__get_thread_struct();
   ::new ((void*)std::addressof(__value_)) _Rp(std::forward<_Arg>(__arg));
   this->__state_ |= base::__constructed;
-  __thread_local_data()->__make_ready_at_thread_exit(this);
+  __thread_state.__make_ready_at_thread_exit(this);
 }
 
 template <class _Rp>
@@ -691,9 +692,10 @@ void __assoc_state<_Rp&>::set_value_at_thread_exit(_Rp& __arg) {
   unique_lock<mutex> __lk(this->__mut_);
   if (this->__has_value())
     std::__throw_future_error(future_errc::promise_already_satisfied);
+  auto& __thread_state = std::__get_thread_struct();
   __value_ = std::addressof(__arg);
   this->__state_ |= base::__constructed;
-  __thread_local_data()->__make_ready_at_thread_exit(this);
+  __thread_state.__make_ready_at_thread_exit(this);
 }
 
 template <class _Rp>

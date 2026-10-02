@@ -123,6 +123,14 @@ void __thread_specific_ptr<_Tp>::set_pointer(pointer __p) {
   std::__libcpp_tls_set(__key_, __p);
 }
 
+_LIBCPP_HIDE_FROM_ABI inline __thread_struct& __get_thread_struct() {
+  auto& __ptr = __thread_local_data();
+  // Threads created outside std::thread do not have exit state yet.
+  if (__ptr.get() == nullptr)
+    __ptr.set_pointer(new __thread_struct);
+  return *__ptr.get();
+}
+
 template <>
 struct hash<__thread_id> : public __unary_function<__thread_id, size_t> {
   _LIBCPP_HIDE_FROM_ABI size_t operator()(__thread_id __v) const _NOEXCEPT {

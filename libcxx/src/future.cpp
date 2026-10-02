@@ -72,8 +72,9 @@ void __assoc_sub_state::set_value_at_thread_exit() {
   unique_lock<mutex> __lk(__mut_);
   if (__has_value())
     std::__throw_future_error(future_errc::promise_already_satisfied);
+  auto& __thread_state = std::__get_thread_struct();
   __state_ |= __constructed;
-  __thread_local_data()->__make_ready_at_thread_exit(this);
+  __thread_state.__make_ready_at_thread_exit(this);
 }
 
 void __assoc_sub_state::set_exception(exception_ptr __p) {
@@ -89,8 +90,9 @@ void __assoc_sub_state::set_exception_at_thread_exit(exception_ptr __p) {
   unique_lock<mutex> __lk(__mut_);
   if (__has_value())
     std::__throw_future_error(future_errc::promise_already_satisfied);
+  auto& __thread_state = std::__get_thread_struct();
   __exception_ = __p;
-  __thread_local_data()->__make_ready_at_thread_exit(this);
+  __thread_state.__make_ready_at_thread_exit(this);
 }
 
 void __assoc_sub_state::__make_ready() {
