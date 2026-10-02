@@ -439,8 +439,12 @@ add_entrypoint_object(
 )
 
 set(pthread_mutex_init_source pthread_mutex_init.cpp)
+set(pthread_mutex_init_options)
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(pthread_mutex_init_source linux/mmix/pthread_mutex_init.cpp)
+  if(LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES)
+    set(pthread_mutex_init_options -DLIBC_MMIX_PRIVATE_RECURSIVE_MUTEX)
+  endif()
 endif()
 add_entrypoint_object(
   pthread_mutex_init
@@ -454,6 +458,7 @@ add_entrypoint_object(
     libc.src.errno.errno
     libc.include.pthread
     libc.src.__support.threads.mutex
+  COMPILE_OPTIONS ${pthread_mutex_init_options}
 )
 
 add_entrypoint_object(

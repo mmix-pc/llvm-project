@@ -29,10 +29,18 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
     return EINVAL;
   // Reject unqualified modes before touching the destination. Protocol has
   // no attribute encoding yet; unknown bits cannot silently select it.
+  bool recursive = false;
   switch (get_mutexattr_type(value)) {
   case PTHREAD_MUTEX_NORMAL:
     break;
   case PTHREAD_MUTEX_RECURSIVE:
+#ifdef LIBC_MMIX_PRIVATE_RECURSIVE_MUTEX
+    // The C++ composition uses the common recursive owner/count machinery.
+    recursive = true;
+    break;
+#else
+    return ENOTSUP;
+#endif
   case PTHREAD_MUTEX_ERRORCHECK:
     return ENOTSUP;
   default:
@@ -41,7 +49,7 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
   if (get_mutexattr_robust(value) != PTHREAD_MUTEX_STALLED ||
       get_mutexattr_pshared(value) != PTHREAD_PROCESS_PRIVATE)
     return ENOTSUP;
-  new (mutex) Mutex(false, false, false, false, false);
+  new (mutex) Mutex(false, recursive, false, false, false);
   return 0;
 }
 
