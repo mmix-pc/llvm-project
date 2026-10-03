@@ -14,7 +14,10 @@
 namespace clang::driver::toolchains {
 
 class LLVM_LIBRARY_VISIBILITY MMIXLinuxToolChain final : public ToolChain {
+  bool ThreadedCXX = false;
+
 public:
+  bool hasThreadedCXXProfile() const { return ThreadedCXX; }
   MMIXLinuxToolChain(const Driver &D, const llvm::Triple &Triple,
                      const llvm::opt::ArgList &Args);
 

@@ -67,9 +67,9 @@ public:
     auto Reject = [&](StringRef Mode) {
       D.Diag(diag::err_drv_clang_unsupported) << Mode;
     };
-    // The public pthread archive currently supplies C providers only. Do not
-    // pair it with the existing single-thread C++ or unwind runtimes.
+    // The C-only package must not select single-thread C++ or unwind archives.
     if (Args.hasArg(options::OPT_pthread) &&
+        !TC.hasThreadedCXXProfile() &&
         (TC.ShouldLinkCXXStdlib(Args) ||
          TC.GetUnwindLibType(Args) != ToolChain::UNW_None)) {
       Reject("C++ or unwind runtime linking with MMIX Linux pthread");
@@ -152,6 +152,10 @@ public:
       if (TC.ShouldLinkCXXStdlib(Args)) {
         TC.AddCXXStdlibLibArgs(Args, CmdArgs);
         CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("libm.a")));
+      } else if (TC.hasThreadedCXXProfile()) {
+        // The complete libc's forced-exit frames use the C++ personality even
+        // when the application itself contains only C code.
+        CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("libc++abi.a")));
       }
       if (TC.GetUnwindLibType(Args) == ToolChain::UNW_CompilerRT)
         CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("libunwind.a")));
@@ -247,8 +251,9 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
     if (diagnoseMissing(*this, Profile, /*Directory=*/false))
       return;
     auto Contents = getVFS().getBufferForFile(Profile);
-    if (!Contents || (*Contents)->getBuffer().trim() !=
-                         "mmix-linux-static-pthread-c-v1") {
+    StringRef Kind = Contents ? (*Contents)->getBuffer().trim() : StringRef();
+    ThreadedCXX = Kind == "mmix-linux-static-pthread-cxx-v1";
+    if (!ThreadedCXX && Kind != "mmix-linux-static-pthread-c-v1") {
       D.Diag(diag::err_drv_clang_unsupported)
           << "unrecognized MMIX Linux pthread libc profile";
       return;
@@ -261,11 +266,51 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
     diagnoseMissing(*this, Header, /*Directory=*/false);
     getSysrootFile("crt1.o");
     getSysrootFile("libc.a");
+    if (ThreadedCXX) {
+      // The marker attests a coherently packaged runtime, not archive contents.
+      // Require the whole composition even for C and compile-only consumers.
+      for (StringRef Name : {"libc++.a", "libc++abi.a", "libunwind.a", "libm.a"})
+        getSysrootFile(Name);
+      SmallString<128> Config(D.SysRoot);
+      llvm::sys::path::append(Config, "usr", "include", "c++", "v1");
+      llvm::sys::path::append(Config, "__config_site");
+      diagnoseMissing(*this, Config, /*Directory=*/false);
+      getCompilerRT(Args, "builtins");
+      getCompilerRT(Args, "crtbegin", FT_Object);
+      getCompilerRT(Args, "crtend", FT_Object);
+
+      for (auto Pair : {std::pair{options::OPT_fexceptions,
+                                 options::OPT_fno_exceptions},
+                        std::pair{options::OPT_funwind_tables,
+                                 options::OPT_fno_unwind_tables}})
+        if (!Args.hasFlag(Pair.first, Pair.second, true))
+          Reject(Args.getLastArg(Pair.second));
+      if (const Arg *A = Args.getLastArg(
+              options::OPT_fcxx_exceptions, options::OPT_fno_cxx_exceptions,
+              options::OPT_fexceptions, options::OPT_fno_exceptions))
+        if (A->getOption().matches(options::OPT_fno_cxx_exceptions))
+          Reject(A);
+      if (const Arg *A = Args.getLastArg(options::OPT_fignore_exceptions))
+        Reject(A);
+      if (Args.hasFlag(options::OPT_fasynchronous_unwind_tables,
+                       options::OPT_fno_asynchronous_unwind_tables, false))
+        Reject(Args.getLastArg(options::OPT_fasynchronous_unwind_tables));
+      if (const Arg *A = Args.getLastArg(options::OPT_unwindlib_EQ))
+        if (StringRef(A->getValue()) == "none")
+          Reject(A);
+      if (const Arg *A = Args.getLastArg(
+              options::OPT_fsjlj_exceptions, options::OPT_fseh_exceptions,
+              options::OPT_fdwarf_exceptions, options::OPT_fwasm_exceptions))
+        if (!A->getOption().matches(options::OPT_fdwarf_exceptions))
+          Reject(A);
+    }
   }
 }
 
 ToolChain::UnwindLibType
 MMIXLinuxToolChain::GetUnwindLibType(const ArgList &Args) const {
+  if (ThreadedCXX)
+    return UNW_CompilerRT;
   const Arg *A = Args.getLastArg(options::OPT_unwindlib_EQ);
   if (A && StringRef(A->getValue()) == "none")
     return UNW_None;
@@ -283,6 +328,12 @@ void MMIXLinuxToolChain::addClangTargetOptions(
     Action::OffloadKind) const {
   if (!Args.hasArg(options::OPT_ftlsmodel_EQ))
     CC1Args.push_back("-ftls-model=local-exec");
+  if (ThreadedCXX) {
+    // C callbacks may be traversed by forced C++ cleanup, including under LTO.
+    // Unwind tables alone do not prevent inferred nounwind from deleting it.
+    CC1Args.push_back("-fexceptions");
+    CC1Args.push_back("-funwind-tables=1");
+  }
 }
 
 std::string MMIXLinuxToolChain::getSysrootFile(StringRef Name) const {
