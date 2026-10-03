@@ -1,4 +1,4 @@
-# Non-installing pthread C++ preparation. Use a fresh build directory.
+# Pthread C++ preparation; validated installation is opt-in. Use a fresh build.
 set(CMAKE_C_FLAGS "-ftls-model=local-exec -fno-lto" CACHE STRING "")
 set(CMAKE_CXX_FLAGS "-nostdinc++ -ftls-model=local-exec -fno-lto" CACHE STRING "")
 include("${CMAKE_CURRENT_LIST_DIR}/MMIXLinuxRuntimeBase.cmake")

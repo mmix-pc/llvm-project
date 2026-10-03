@@ -1,4 +1,9 @@
+option(LIBC_MMIX_INSTALL_THREADED_RUNTIME
+  "Install the static MMIX Linux pthread libc and startup objects" OFF)
 if(NOT LIBC_MMIX_BUILD_THREADED_LIBC)
+  if(LIBC_MMIX_INSTALL_THREADED_RUNTIME)
+    message(FATAL_ERROR "MMIX pthread installation requires the public threaded libc")
+  endif()
   return()
 endif()
 mmix_check_runtime_mode()
@@ -74,6 +79,17 @@ function(mmix_configure_threaded_libc)
   endforeach()
   add_custom_target(mmix_libc_threaded
     DEPENDS libc libc-headers libc.startup.linux.mmix.crt1)
+  if(LIBC_MMIX_INSTALL_THREADED_RUNTIME)
+    # The package builder publishes a profile only after all runtime audits.
+    # Do not install the internal state archive or a C++ marker from libc alone.
+    install(TARGETS libc ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+      COMPONENT mmix-libc-threaded-runtime)
+    install(FILES $<TARGET_OBJECTS:libc.startup.linux.mmix.crt1>
+      DESTINATION lib${LLVM_LIBDIR_SUFFIX} COMPONENT mmix-libc-threaded-runtime)
+    install(FILES ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/libm.ld
+      DESTINATION lib${LLVM_LIBDIR_SUFFIX} RENAME libm.a
+      COMPONENT mmix-libc-threaded-runtime)
+  endif()
   set(manifest "{}")
   foreach(pair "archive|$<TARGET_FILE:libc>"
                "crt|$<TARGET_OBJECTS:libc.startup.linux.mmix.crt1>"

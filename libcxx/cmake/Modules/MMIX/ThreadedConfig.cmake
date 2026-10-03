@@ -1,4 +1,6 @@
 # This validates preparation settings, not provider completeness or execution.
+option(LIBCXX_MMIX_LINUX_INSTALL_RUNTIME
+  "Install the validated static MMIX Linux C++ runtime" OFF)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
    NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "mmix" OR
    NOT CMAKE_CROSSCOMPILING OR NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR
@@ -30,7 +32,7 @@ foreach(option LIBCXX_MMIX_LINUX_THREADED_PREPARATION
     message(FATAL_ERROR "MMIX pthread C++ requires ${option}=ON")
   endif()
 endforeach()
-foreach(option LIBCXX_MMIX_LINUX_INSTALL_RUNTIME LIBCXX_HAS_EXTERNAL_THREAD_API
+foreach(option LIBCXX_HAS_EXTERNAL_THREAD_API
                LIBCXX_HAS_C11_THREAD_API LIBCXX_HAS_WIN32_THREAD_API
                LIBCXXABI_HAS_EXTERNAL_THREAD_API LIBCXXABI_HAS_WIN32_THREAD_API
                LIBCXX_ENABLE_SHARED LIBCXXABI_ENABLE_SHARED LIBUNWIND_ENABLE_SHARED
@@ -48,7 +50,16 @@ foreach(option LIBCXX_MMIX_LINUX_INSTALL_RUNTIME LIBCXX_HAS_EXTERNAL_THREAD_API
   endif()
 endforeach()
 foreach(project LIBCXX LIBCXXABI LIBUNWIND)
-  foreach(option INSTALL_HEADERS INSTALL_LIBRARY INCLUDE_TESTS
+  foreach(option INSTALL_HEADERS INSTALL_LIBRARY)
+    if(LIBCXX_MMIX_LINUX_INSTALL_RUNTIME)
+      if(NOT ${project}_${option})
+        message(FATAL_ERROR "MMIX pthread C++ installation requires ${project}_${option}")
+      endif()
+    elseif(${project}_${option})
+      message(FATAL_ERROR "MMIX pthread C++ rejects ${project}_${option}")
+    endif()
+  endforeach()
+  foreach(option INCLUDE_TESTS
                  HAS_PTHREAD_LIB HAS_DL_LIB HAS_GCC_LIB HAS_GCC_S_LIB
                  HAS_RT_LIB HAS_ATOMIC_LIB)
     if(${project}_${option})

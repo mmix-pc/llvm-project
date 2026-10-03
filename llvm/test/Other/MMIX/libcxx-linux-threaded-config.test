@@ -78,7 +78,7 @@ cache(libc / "CMakeCache.txt", libc_cache)
 cache(rt / "CMakeCache.txt", dict(common, CMAKE_HOME_DIRECTORY=str(source / "compiler-rt")))
 
 counter = 0
-def configure(diagnostic=None, option=None, value=None):
+def configure(diagnostic=None, option=None, value=None, install=False):
     global counter
     build = root / ("config-" + str(counter))
     counter += 1
@@ -86,6 +86,12 @@ def configure(diagnostic=None, option=None, value=None):
             "-DTOOLS=" + str(tools), "-DINPUT=" + str(inputs)]
     if option:
         args += ["-DOPTION=" + option, "-DVALUE=" + value]
+    if install:
+        args += ["-DLIBCXX_MMIX_LINUX_INSTALL_RUNTIME=ON",
+                 "-DLIBCXXABI_MMIX_LINUX_TLS_DESTRUCTORS=ON"]
+        args += ["-D" + project + "_" + kind + "=ON"
+                 for project in ("LIBCXX", "LIBCXXABI", "LIBUNWIND")
+                 for kind in ("INSTALL_HEADERS", "INSTALL_LIBRARY")]
     result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if diagnostic:
         assert result.returncode and diagnostic in result.stdout, result.stdout
@@ -99,9 +105,22 @@ def configure(diagnostic=None, option=None, value=None):
 configure()
 for option in ("LIBCXX_HAS_EXTERNAL_THREAD_API", "LIBCXX_ENABLE_SHARED",
                "LIBCXXABI_INSTALL_LIBRARY", "LIBUNWIND_INSTALL_HEADERS",
-               "LIBCXX_MMIX_LINUX_INSTALL_RUNTIME", "LIBCXX_HAS_PTHREAD_LIB",
+               "LIBCXX_HAS_PTHREAD_LIB",
                "LIBUNWIND_ENABLE_ASSERTIONS", "LIBUNWIND_WEAK_PTHREAD_LIB"):
     configure("rejects " + option, option, "ON")
+configure("installation requires LIBCXX_INSTALL_HEADERS", "LIBCXX_MMIX_LINUX_INSTALL_RUNTIME", "ON")
+components = ("unwind_diagnostics", "unwind_roots", "tls_destructors",
+              "forced_exit", "cxx_runtime_dependencies")
+complete = dict(manifest, **{name: "ON" for name in components})
+write(manifest_path, json.dumps(complete))
+configure(install=True)
+for component in components:
+    write(manifest_path, json.dumps(dict(complete, **{component: "OFF"})))
+    configure("installation requires libc " + component + "=ON", install=True)
+write(manifest_path, json.dumps(complete))
+configure("installation requires TLS destructors", "LIBCXXABI_MMIX_LINUX_TLS_DESTRUCTORS", "OFF", install=True)
+configure("installation requires LIBUNWIND_INSTALL_LIBRARY", "LIBUNWIND_INSTALL_LIBRARY", "OFF", install=True)
+write(manifest_path, json.dumps(manifest))
 configure("requires LIBUNWIND_ENABLE_THREADS=ON", "LIBUNWIND_ENABLE_THREADS", "OFF")
 configure("requires native local-exec CXX flags", "CMAKE_CXX_FLAGS", "-nostdinc++")
 configure("rejects conflicting CXX FLAGS", "CMAKE_CXX_FLAGS",
