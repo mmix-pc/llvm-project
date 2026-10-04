@@ -36,6 +36,7 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.time.ctime_r
   libc.src.time.asctime_r
   libc.src.signal.sigaction
+  libc.src.signal.sigaltstack
   libc.src.signal.sigemptyset
   libc.src.signal.sigaddset
 )

@@ -51,3 +51,29 @@ for config in (
     result = subprocess.run(["cmake", *[f"-D{k}={v}" for k, v in config.items()],
                              "-P", str(script)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+# Exercise the evaluated export lists for both public pthread compositions.
+# Provider construction is covered by the real runtime build, not this check.
+(out / "CMakeLists.txt").write_text('''
+cmake_minimum_required(VERSION 3.20)
+project(ThreadedExports NONE)
+include("${LIBC_SOURCE}/config/linux/mmix/RuntimeMode.cmake")
+include("${LIBC_SOURCE}/config/linux/mmix/ThreadedLibc.cmake")
+cmake_language(DEFER GET_CALL_IDS deferred)
+cmake_language(DEFER CANCEL_CALL ${deferred})
+foreach(exports TARGET_LIBC_ENTRYPOINTS TARGET_LLVMLIBC_ENTRYPOINTS
+                mmix_threaded_entrypoints)
+  foreach(name sigaction sigaltstack sigemptyset sigaddset)
+    if(NOT "libc.src.signal.${name}" IN_LIST ${exports})
+      message(FATAL_ERROR "Missing public signal provider ${name} in ${exports}")
+    endif()
+  endforeach()
+endforeach()
+''')
+for cxx in ("OFF", "ON"):
+    subprocess.run(["cmake", "-S", str(out), "-B", str(out / cxx),
+                    "-DLIBC_SOURCE=" + str(libc.resolve()),
+                    "-DLIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES=" + cxx,
+                    *["-DLIBC_MMIX_BUILD_" + name + "=" + cxx for name in
+                      ("TLS_DESTRUCTORS", "UNWIND_ROOTS", "UNWIND_DIAGNOSTICS")],
+                    *[f"-D{k}={v}" for k, v in base.items()]], check=True)
