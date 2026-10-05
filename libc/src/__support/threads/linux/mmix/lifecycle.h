@@ -10,6 +10,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_LIFECYCLE_H
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_LIFECYCLE_H
 
+#include "src/__support/threads/linux/mmix/cancellation_state.h"
 #include "src/__support/threads/linux/mmix/tls.h"
 #include "src/__support/threads/linux/mmix/unwind_root.h"
 #include "src/__support/threads/raw_mutex.h"
@@ -61,6 +62,7 @@ struct ThreadControl {
   ThreadMapping control_mapping, stack_mapping;
   TLSDescriptor tls{};
   UnwindRoot unwind_root{};
+  CancellationState cancellation;
   uintptr_t stack_bottom = 0, stack_top = 0;
   size_t guard_size = 0;
   bool owns_stack = false;
@@ -186,7 +188,9 @@ public:
   bool join_result(ThreadControl &control, ThreadReturnValue &result) const;
   bool detach(ThreadControl &control);
   bool start(ThreadControl &control);
-  bool begin_cleanup(ThreadControl &control);
+  bool begin_cleanup(ThreadControl &control, bool cancellation = false);
+  // Peers own a pin and lease; owner=true requires the current live activation.
+  int request_cancellation(ThreadControl &control, bool owner = false);
   bool exit_ready(ThreadControl &control, ThreadReturnValue result);
   bool acquire_lease(ThreadControl &control);
   bool release_lease(ThreadControl &control);

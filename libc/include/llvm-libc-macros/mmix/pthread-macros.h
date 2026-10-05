@@ -13,4 +13,10 @@
 #include "mmix/pthread-base-macros.h"
 #include "mmix/pthread-cleanup.h"
 
+#define PTHREAD_CANCEL_ENABLE 0
+#define PTHREAD_CANCEL_DISABLE 1
+#define PTHREAD_CANCEL_DEFERRED 0
+#define PTHREAD_CANCEL_ASYNCHRONOUS 1
+#define PTHREAD_CANCELED ((void *)-1)
+
 #endif // LLVM_LIBC_MACROS_MMIX_PTHREAD_MACROS_H

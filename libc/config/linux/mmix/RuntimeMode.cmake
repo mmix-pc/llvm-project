@@ -28,6 +28,8 @@ option(LIBC_MMIX_BUILD_UNWIND_ROOTS
   "Prepare owning Linux thread unwind roots without public forced exit" OFF)
 option(LIBC_MMIX_BUILD_FORCED_EXIT
   "Use forced unwinding for explicit Linux pthread exit" OFF)
+option(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION
+  "Prepare explicit deferred cancellation polling without blocking points" OFF)
 option(LIBC_MMIX_BUILD_TLS_DESTRUCTORS
   "Prepare dynamically allocated per-thread static TLS destructor registration" OFF)
 option(LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES
@@ -39,6 +41,9 @@ if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
   set(LIBC_MMIX_BUILD_C_RUNTIME ON)
 endif()
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION AND NOT LIBC_MMIX_BUILD_FORCED_EXIT)
+    message(FATAL_ERROR "MMIX deferred cancellation requires forced pthread exit")
+  endif()
   if(LIBC_MMIX_BUILD_FORCED_EXIT AND NOT LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES)
     message(FATAL_ERROR "MMIX forced pthread exit requires the native C++ runtime composition")
   endif()
@@ -108,7 +113,7 @@ function(mmix_check_runtime_mode)
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
-         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREADED_LIBC|UNWIND_DIAGNOSTICS|UNWIND_ROOTS|FORCED_EXIT|TLS_DESTRUCTORS|CXX_RUNTIME_DEPENDENCIES|THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
+         NOT variable MATCHES "^LIBC_MMIX_BUILD_(THREADED_LIBC|UNWIND_DIAGNOSTICS|UNWIND_ROOTS|FORCED_EXIT|DEFERRED_CANCELLATION|TLS_DESTRUCTORS|CXX_RUNTIME_DEPENDENCIES|THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
       endif()
     endforeach()

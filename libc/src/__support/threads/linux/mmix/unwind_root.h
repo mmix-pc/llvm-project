@@ -34,6 +34,8 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument);
 // pthread_exit here; retained C-only packages keep their direct finish path.
 extern "C" [[noreturn, gnu::visibility("hidden")]] void
 __llvm_libc_mmix_unwind_to_root(void *result);
+[[noreturn, gnu::visibility("hidden")]] void
+unwind_after_cleanup_claim(void *result, uint64_t callback_mask);
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif

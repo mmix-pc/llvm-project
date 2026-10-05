@@ -72,6 +72,25 @@ types:
     standards:
       - llvm_libc_ext
 functions:
+  - name: pthread_cancel
+    return_type: int
+    arguments:
+      - type: pthread_t
+  - name: pthread_setcancelstate
+    return_type: int
+    arguments:
+      - type: int
+      - type: int *
+  - name: pthread_setcanceltype
+    return_type: int
+    arguments:
+      - type: int
+      - type: int *
+  - name: pthread_testcancel
+    noexcept: false
+    return_type: void
+    arguments:
+      - type: void
   - name: pthread_atfork
     return_type: int
     arguments:

@@ -1,3 +1,7 @@
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${CMAKE_CURRENT_LIST_DIR}/linux/mmix/Cancellation.cmake)
+endif()
+
 add_entrypoint_object(
   pthread_attr_init
   SRCS

@@ -8,6 +8,7 @@
 
 #include "unwind_root.h"
 #include "lifecycle.h"
+#include "hdr/signal_macros.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "thread_finish.h"
 #include <asm/rstack.h>
@@ -109,20 +110,38 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
   control.unwind_root.active = false;
 }
 
-extern "C" [[noreturn]] void __llvm_libc_mmix_unwind_to_root(void *result) {
+[[noreturn]] static void force_exit(void *result, bool cleanup_claimed,
+                                  uint64_t callback_mask = 0) {
   auto *control = current_control;
   if (!control || !control->unwind_root.active || forced.active ||
       control->unwind_root.owner != control ||
-      control->unwind_root.chain != current_chain())
+      control->unwind_root.chain != current_chain() ||
+      (cleanup_claimed && !control->cancellation.terminal()))
     __builtin_trap();
   forced.root = control->unwind_root;
   forced.result = result;
   forced.active = true;
-  begin_thread_cleanup(*control);
   forced.exception.exception_class = 0x4c4c564d50544852ULL; // LLVMPTHR.
   forced.exception.exception_cleanup = disposed;
+  if (!cleanup_claimed)
+    begin_thread_cleanup(*control);
+  else if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
+                        reinterpret_cast<long>(&callback_mask), 0,
+                        sizeof(callback_mask)))
+    __builtin_trap();
   _Unwind_ForcedUnwind(&forced.exception, stop, &forced);
   __builtin_trap();
+}
+
+extern "C" [[noreturn]] void __llvm_libc_mmix_unwind_to_root(void *result) {
+  force_exit(result, false);
+}
+
+[[noreturn]] void unwind_after_cleanup_claim(void *result,
+                                           uint64_t callback_mask) {
+  // The claim transfers a full mask. Publish forced ownership before restoring
+  // callback signals, so no handler observes a partially initialized exit.
+  force_exit(result, true, callback_mask);
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

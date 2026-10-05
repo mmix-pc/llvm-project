@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/threads/linux/mmix/lifecycle.h"
+#include "hdr/errno_macros.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -89,6 +90,8 @@ bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
   registry.creation_started = true;
   c.owner = detached ? ThreadOwner::Detached : ThreadOwner::Joinable;
   c.internal_helper = helper;
+  if (helper)
+    c.cancellation.set_enabled(false);
   c.listed = !helper;
   c.leases_open = !helper;
   c.counted = !helper;
@@ -209,11 +212,23 @@ bool ThreadRegistryLock::start(ThreadControl &c) {
   return true;
 }
 
-bool ThreadRegistryLock::begin_cleanup(ThreadControl &c) {
-  if (!belongs(c) || c.execution != ThreadExecution::Running)
+bool ThreadRegistryLock::begin_cleanup(ThreadControl &c, bool cancellation) {
+  if (!belongs(c) || c.execution != ThreadExecution::Running ||
+      !c.cancellation.claim(cancellation))
     return false;
   c.execution = ThreadExecution::Cleaning;
   return true;
+}
+
+int ThreadRegistryLock::request_cancellation(ThreadControl &c, bool owner) {
+  if (!belongs(c) || (!owner && (!c.api_pins || !c.leases)) ||
+      c.internal_helper ||
+      (c.execution != ThreadExecution::Starting &&
+       c.execution != ThreadExecution::Running) || c.cancellation.terminal())
+    return ESRCH;
+  if (registry.process_operation)
+    return EBUSY;
+  return c.cancellation.request() ? 0 : ESRCH;
 }
 
 bool ThreadRegistryLock::exit_ready(ThreadControl &c,

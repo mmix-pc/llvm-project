@@ -41,6 +41,11 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.signal.sigaddset
 )
 list(REMOVE_DUPLICATES TARGET_LIBC_ENTRYPOINTS)
+if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION)
+  foreach(operation cancel setcancelstate setcanceltype testcancel)
+    list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_${operation})
+  endforeach()
+endif()
 if(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.stdlib.abort
@@ -101,6 +106,7 @@ function(mmix_configure_threaded_libc)
                "unwind_diagnostics|${LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS}"
                "unwind_roots|${LIBC_MMIX_BUILD_UNWIND_ROOTS}"
                "forced_exit|${LIBC_MMIX_BUILD_FORCED_EXIT}"
+               "deferred_cancellation|${LIBC_MMIX_BUILD_DEFERRED_CANCELLATION}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")

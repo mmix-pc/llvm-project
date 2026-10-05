@@ -23,11 +23,12 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   add_object_library(
     lifecycle
     SRCS lifecycle.cpp
-    HDRS lifecycle.h unwind_root.h
+    HDRS lifecycle.h unwind_root.h cancellation_state.h
     DEPENDS
       .tls_h
       libc.src.__support.threads.raw_mutex
       libc.src.__support.threads.thread_attributes
+      libc.hdr.errno_macros
   )
   if(LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_PLATFORM")
     add_object_library(
@@ -138,7 +139,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       SRCS unwind_root.cpp
       HDRS unwind_root.h
       DEPENDS .lifecycle .cleanup libc.src.__support.OSUtil.linux.mmix.syscall
-              libc.include.sys_syscall
+              libc.include.sys_syscall libc.hdr.signal_macros
       COMPILE_OPTIONS -fno-lto -funwind-tables
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include
@@ -154,6 +155,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       DEPENDS .lifecycle libc.src.__support.threads.thread_common
               libc.src.__support.CPP.new libc.src.stdlib.malloc libc.src.stdlib.free
       COMPILE_OPTIONS -fno-lto
+    )
+  endif()
+  if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION)
+    add_object_library(
+      cancellation
+      SRCS cancellation.cpp
+      HDRS cancellation.h
+      DEPENDS .lifecycle .unwind_root libc.hdr.errno_macros
+        libc.hdr.signal_macros libc.include.pthread
+        libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
     )
   endif()
   add_object_library(
