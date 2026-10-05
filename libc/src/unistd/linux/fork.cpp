@@ -24,7 +24,7 @@ namespace LIBC_NAMESPACE_DECL {
 // functionality and standard compliance in future.
 
 LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
-  invoke_prepare_callbacks();
+  size_t callback_count = invoke_prepare_callbacks();
   pid_t parent_tid = internal::gettid();
   // Invalidate parent's tid cache before forking. We cannot do this in child
   // process because in the post-fork instruction windows, there may be a signal
@@ -44,18 +44,18 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
     // copy of parent process' thread which called fork. So, we have to fix up
     // the child process' self object with the new process' tid.
     internal::force_set_tid(syscall_impl<pid_t>(SYS_gettid));
-    invoke_child_callbacks();
+    invoke_child_callbacks(callback_count);
     return 0;
   }
 
+  // Recover identity and release the callback registry on failure as well.
+  internal::force_set_tid(parent_tid);
+  invoke_parent_callbacks(callback_count);
   if (ret < 0) {
     // Error case, a child process was not created.
     libc_errno = static_cast<int>(-ret);
     return -1;
   }
-  // recover parent's tid.
-  internal::force_set_tid(parent_tid);
-  invoke_parent_callbacks();
   return ret;
 }
 

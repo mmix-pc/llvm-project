@@ -10,6 +10,7 @@
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_FORK_CALLBACKS_H
 
 #include "src/__support/macros/config.h"
+#include <stddef.h>
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -17,9 +18,13 @@ using ForkCallback = void(void);
 
 bool register_atfork_callbacks(ForkCallback *prepare_cd,
                                ForkCallback *parent_cb, ForkCallback *child_cb);
-void invoke_prepare_callbacks();
-void invoke_parent_callbacks();
-void invoke_child_callbacks();
+// Freeze this fork's callback boundary, run prepare callbacks, and lock the
+// registry across fork. Exactly one post-fork invocation must release the lock,
+// including when fork fails. Registrations during callbacks apply to later
+// forks.
+size_t invoke_prepare_callbacks();
+void invoke_parent_callbacks(size_t count);
+void invoke_child_callbacks(size_t count);
 
 } // namespace LIBC_NAMESPACE_DECL
 

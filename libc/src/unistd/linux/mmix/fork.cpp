@@ -41,11 +41,11 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
     return -1;
   }
 
-  invoke_prepare_callbacks();
+  size_t callback_count = invoke_prepare_callbacks();
   sigset_t full{{-1UL}}, saved{};
   auto blocked = linux_syscalls::rt_sigprocmask(SIG_BLOCK, &full, &saved);
   if (!blocked) {
-    invoke_parent_callbacks();
+    invoke_parent_callbacks(callback_count);
     libc_errno = blocked.error();
     return -1;
   }
@@ -74,9 +74,9 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
     internal::exit(127);
   if (result == 0) {
-    invoke_child_callbacks();
+    invoke_child_callbacks(callback_count);
   } else {
-    invoke_parent_callbacks();
+    invoke_parent_callbacks(callback_count);
   }
   if (result < 0) {
     libc_errno = static_cast<int>(-result);

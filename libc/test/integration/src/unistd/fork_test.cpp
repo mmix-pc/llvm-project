@@ -159,6 +159,61 @@ void gettid_test() {
   ASSERT_EQ(WEXITSTATUS(status), 0);
 }
 
+static long long callback_order;
+static bool register_from_callbacks;
+static bool registered_prepare_callback;
+static bool registered_post_callback;
+
+static void prepare_four() { callback_order = callback_order * 10 + 4; }
+static void post_four() { callback_order = callback_order * 10 + 4; }
+static void prepare_five() { callback_order = callback_order * 10 + 5; }
+static void post_five() { callback_order = callback_order * 10 + 5; }
+static void prepare_one() { callback_order = callback_order * 10 + 1; }
+static void post_one() { callback_order = callback_order * 10 + 1; }
+static void prepare_two() {
+  callback_order = callback_order * 10 + 2;
+  if (register_from_callbacks && !registered_prepare_callback) {
+    ASSERT_EQ(
+        LIBC_NAMESPACE::pthread_atfork(prepare_four, post_four, post_four), 0);
+    registered_prepare_callback = true;
+  }
+}
+static void post_two() {
+  callback_order = callback_order * 10 + 2;
+  if (register_from_callbacks && !registered_post_callback) {
+    ASSERT_EQ(
+        LIBC_NAMESPACE::pthread_atfork(prepare_five, post_five, post_five), 0);
+    registered_post_callback = true;
+  }
+}
+static void prepare_three() { callback_order = callback_order * 10 + 3; }
+static void post_three() { callback_order = callback_order * 10 + 3; }
+
+void fork_with_ordered_reentrant_callbacks() {
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_atfork(prepare_one, post_one, post_one), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_atfork(nullptr, nullptr, nullptr), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_atfork(prepare_two, post_two, post_two), 0);
+  ASSERT_EQ(
+      LIBC_NAMESPACE::pthread_atfork(prepare_three, post_three, post_three), 0);
+
+  for (int round = 0; round < 3; ++round) {
+    callback_order = 0;
+    register_from_callbacks = round != 0;
+    pid_t pid = LIBC_NAMESPACE::fork();
+    // The same frozen set runs in both processes. Registrations made by
+    // prepare, parent or child must not extend the current traversal or
+    // deadlock it.
+    ASSERT_EQ(callback_order, round < 2 ? 321123 : 5432112345LL);
+    if (pid == 0)
+      LIBC_NAMESPACE::internal::exit(0);
+    ASSERT_TRUE(pid > 0);
+    int status;
+    ASSERT_EQ(LIBC_NAMESPACE::waitpid(pid, &status, 0), pid);
+    ASSERT_TRUE(WIFEXITED(status));
+    ASSERT_EQ(WEXITSTATUS(status), 0);
+  }
+}
+
 TEST_MAIN([[maybe_unused]] int argc, [[maybe_unused]] char **argv,
           [[maybe_unused]] char **envp) {
   gettid_test();
@@ -169,5 +224,6 @@ TEST_MAIN([[maybe_unused]] int argc, [[maybe_unused]] char **argv,
   fork_and_wait4_signal_exit();
   fork_and_waitpid_signal_exit();
   fork_with_atfork_callbacks();
+  fork_with_ordered_reentrant_callbacks();
   return 0;
 }

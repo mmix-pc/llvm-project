@@ -110,8 +110,9 @@ extern "C" int main() {
     return 4;
   if (!sync_test::register_atfork_callbacks(fork_callback, fork_callback, fork_callback))
     return 5;
-  sync_test::invoke_prepare_callbacks();
-  sync_test::invoke_parent_callbacks();
-  sync_test::invoke_child_callbacks();
-  return fork_callbacks != 3;
+  auto count = sync_test::invoke_prepare_callbacks();
+  sync_test::invoke_parent_callbacks(count);
+  count = sync_test::invoke_prepare_callbacks();
+  sync_test::invoke_child_callbacks(count);
+  return fork_callbacks != 4;
 }

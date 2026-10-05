@@ -47,27 +47,35 @@ public:
     return true;
   }
 
-  void invoke_prepare() {
-    cpp::lock_guard lock(mtx);
-    for (size_t i = 0; i < next_index; ++i) {
-      auto prepare = list[i].prepare;
+  size_t invoke_prepare() {
+    size_t count;
+    {
+      cpp::lock_guard lock(mtx);
+      count = next_index;
+    }
+    // Published entries are immutable; registration only appends new entries.
+    for (size_t i = count; i > 0; --i) {
+      auto prepare = list[i - 1].prepare;
       if (prepare)
         prepare();
     }
+    // The forking thread must own the registry lock when the child is created.
+    mtx.lock();
+    return count;
   }
 
-  void invoke_parent() {
-    cpp::lock_guard lock(mtx);
-    for (size_t i = 0; i < next_index; ++i) {
+  void invoke_parent(size_t count) {
+    mtx.unlock();
+    for (size_t i = 0; i < count; ++i) {
       auto parent = list[i].parent;
       if (parent)
         parent();
     }
   }
 
-  void invoke_child() {
-    cpp::lock_guard lock(mtx);
-    for (size_t i = 0; i < next_index; ++i) {
+  void invoke_child(size_t count) {
+    mtx.unlock();
+    for (size_t i = 0; i < count; ++i) {
       auto child = list[i].child;
       if (child)
         child();
@@ -85,10 +93,10 @@ bool register_atfork_callbacks(ForkCallback *prepare_cb,
   return cb_manager.register_triple({prepare_cb, parent_cb, child_cb});
 }
 
-void invoke_child_callbacks() { cb_manager.invoke_child(); }
+void invoke_child_callbacks(size_t count) { cb_manager.invoke_child(count); }
 
-void invoke_prepare_callbacks() { cb_manager.invoke_prepare(); }
+size_t invoke_prepare_callbacks() { return cb_manager.invoke_prepare(); }
 
-void invoke_parent_callbacks() { cb_manager.invoke_parent(); }
+void invoke_parent_callbacks(size_t count) { cb_manager.invoke_parent(count); }
 
 } // namespace LIBC_NAMESPACE_DECL
