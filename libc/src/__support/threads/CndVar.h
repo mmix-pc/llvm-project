@@ -250,9 +250,22 @@ public:
   // It is not used in wait directly.
   LIBC_INLINE bool default_clock_is_realtime() const { return is_realtime; }
 
-  // TODO: register callback for pthread cancellation
   LIBC_INLINE CndVarResult wait(Mutex *mutex,
                                 cpp::optional<Timeout> timeout = cpp::nullopt) {
+    return wait_with(
+        mutex, timeout,
+        [](RawMutex &barrier, cpp::optional<Timeout> deadline) {
+          return barrier.lock(deadline, /*is_shared=*/false);
+        },
+        [] {});
+  }
+
+  // A throwing wait policy must leave barrier ownership with the cleanup.
+  // Notification and stack-node lifetime remain owned by this queue algorithm.
+  template <typename Wait, typename Check>
+  LIBC_INLINE CndVarResult wait_with(Mutex *mutex,
+                                     cpp::optional<Timeout> timeout,
+                                     Wait wait_barrier, Check check_cancel) {
 #ifdef LIBC_COPT_TIMEOUT_ENSURE_MONOTONICITY
     if (timeout)
       ensure_monotonicity(*timeout);
@@ -281,10 +294,39 @@ public:
 
     // Unlock the mutex and wait for the signal.
     mutex->unlock();
+    struct Cleanup {
+      CndVar *cond;
+      CndWaiter *waiter;
+      Mutex *mutex;
+      bool active = true;
+      bool finished = false, consumed_signal = false;
+      ~Cleanup() {
+        if (!active)
+          return;
+        if (finished) {
+          if (consumed_signal)
+            cond->notify(/*is_broadcast=*/false);
+        } else if (cond->finish_wait(*waiter, mutex, false, true) ==
+                   CndVarResult::MutexError)
+          __builtin_trap();
+      }
+    } cleanup{this, &waiter, mutex};
     // Notice that lock is already initialized as LOCKED. We abuse the LOCKED
     // state to indicate that the waiter is pending.
-    bool locked = waiter.barrier.lock(timeout, /*is_shared=*/false);
+    bool locked = wait_barrier(waiter.barrier, timeout);
+    CndVarResult result = finish_wait(waiter, mutex, locked, false);
+    cleanup.finished = true;
+    cleanup.consumed_signal = result == CndVarResult::Success;
+    // Cancellation arriving during raw mutex reacquisition still belongs to
+    // this wait. The node is retired, but a consumed signal needs replacement.
+    check_cancel();
+    cleanup.active = false;
+    return result;
+  }
 
+private:
+  LIBC_INLINE CndVarResult finish_wait(CndWaiter &waiter, Mutex *mutex,
+                                       bool locked, bool abandoned) {
     // if we wake up and find that we are still waiting, this means
     // timeout has been reached.
     uint8_t old_state = Waiting;
@@ -347,9 +389,14 @@ public:
     }
     if (mutex_result != MutexError::NONE)
       return CndVarResult::MutexError;
+    // A canceled waiter must not consume a signal intended for other waiters.
+    // Complete the detached propagation ring before issuing a replacement.
+    if (abandoned && old_state != Waiting)
+      notify(/*is_broadcast=*/false);
     return old_state == Waiting ? CndVarResult::Timeout : CndVarResult::Success;
   }
 
+public:
   LIBC_INLINE void notify_one() { notify(/*is_broadcast=*/false); }
   LIBC_INLINE void broadcast() { notify(/*is_broadcast=*/true); }
 };

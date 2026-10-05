@@ -13,12 +13,15 @@
 #include "lifecycle.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/libc_errno.h"
+#include "src/__support/threads/thread.h"
 #include "src/setjmp/setjmp_impl.h"
 #include "src/signal/linux/mmix/kernel_sigaction.h"
 #include "src/signal/linux/mmix/signal_trampoline.h"
+#include "thread_join.h"
 #include <asm/rstack.h>
 #include <asm/sigcontext.h>
 #include <asm/unistd.h>
+#include <linux/futex.h>
 #include <sys/syscall.h>
 
 #if !defined(MMIX_SIGCONTEXT_HAS_CHAIN_ID) || MMIX_SIGCONTEXT_HAS_CHAIN_ID != 1
@@ -253,6 +256,25 @@ long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
   }
   restore_mask(mask);
   return result;
+}
+
+void await_cancellable_join(ThreadJoinClaim &claim) {
+  if (!claim.control || claim.caller != internal::self.attrib)
+    __builtin_trap();
+  for (;;) {
+    test_cancel();
+    uint32_t value =
+        claim.control->clear_tid.value.load(cpp::MemoryOrder::ACQUIRE);
+    if (!value)
+      return;
+    // clear_child_tid wakeups use the shared futex key. Only this wait is
+    // cancelable; claim release and successful reclamation remain raw paths.
+    long ret = cancellation_syscall(
+        SYS_futex, reinterpret_cast<long>(&claim.control->clear_tid.value.val),
+        FUTEX_WAIT, value);
+    if (ret != 0 && ret != -EINTR && ret != -EAGAIN)
+      __builtin_trap();
+  }
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

@@ -108,6 +108,8 @@ class TestHeaderGenIntegration(unittest.TestCase):
             ("unistd", ["read", "write", "close"]),
             ("fcntl", ["open", "openat"]),
             ("time", ["nanosleep"]),
+            ("pthread", ["pthread_join", "pthread_cond_wait",
+                         "pthread_cond_timedwait", "pthread_cond_clockwait"]),
         ):
             with self.subTest(header=header):
                 output = self.output_dir / (header + ".h")

@@ -11,3 +11,17 @@ foreach(operation cancel setcancelstate setcanceltype testcancel)
     COMPILE_OPTIONS -fexceptions -funwind-tables
   )
 endforeach()
+
+if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+  foreach(operation pthread_join pthread_cond_wait pthread_cond_timedwait
+                    pthread_cond_clockwait)
+    set(${operation}_source linux/mmix/cancellation_${operation}.cpp)
+  endforeach()
+  set(mmix_wait_dependencies
+    libc.src.__support.threads.linux.mmix.cancellation_point
+    libc.src.__support.threads.linux.mmix.cancellation
+    libc.src.__support.threads.linux.mmix.thread_join
+    libc.src.__support.OSUtil.linux.mmix.syscall
+    libc.hdr.signal_macros libc.include.sys_syscall)
+  set(mmix_wait_options -fexceptions -funwind-tables)
+endif()

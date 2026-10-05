@@ -190,6 +190,7 @@ functions:
     arguments:
       - type: pthread_cond_t *
   - name: pthread_cond_clockwait
+    noexcept: false
     return_type: int
     arguments:
       - type: pthread_cond_t *__restrict
@@ -210,12 +211,14 @@ functions:
     arguments:
       - type: pthread_cond_t *
   - name: pthread_cond_timedwait
+    noexcept: false
     return_type: int
     arguments:
       - type: pthread_cond_t *__restrict
       - type: pthread_mutex_t *__restrict
       - type: const struct timespec *__restrict
   - name: pthread_cond_wait
+    noexcept: false
     return_type: int
     arguments:
       - type: pthread_cond_t *__restrict
@@ -276,6 +279,7 @@ functions:
       - type: void **__restrict
       - type: size_t *__restrict
   - name: pthread_join
+    noexcept: false
     return_type: int
     arguments:
       - type: pthread_t

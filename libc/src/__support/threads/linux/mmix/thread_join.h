@@ -22,6 +22,7 @@ class ThreadJoinClaim {
   friend int claim_thread_join(ThreadAttributes *, ThreadJoinClaim &);
   friend void abandon_thread_join(ThreadJoinClaim &);
   friend void commit_thread_join(ThreadJoinClaim &, ThreadReturnValue &);
+  friend void await_cancellable_join(ThreadJoinClaim &);
 
 public:
   ThreadJoinClaim() = default;
@@ -30,14 +31,15 @@ public:
 };
 
 // Internal callers block signals and suppress cancellation through these
-// operations. Later cancellable waits need a cleanup that abandons the claim
-// before unwinding, then a noncancelable commit. No cancellation API is admitted.
+// operations. Public cancellation waits abandon the claim before unwinding,
+// then use the same noncancelable commit after a successful wait.
 // Lookup compares handle addresses under the registry lock, never dereferencing
 // an unpinned handle. Errors are positive errno values and leave output intact.
 int claim_thread_join(ThreadAttributes *handle, ThreadJoinClaim &claim);
 void abandon_thread_join(ThreadJoinClaim &claim);
 void commit_thread_join(ThreadJoinClaim &claim, ThreadReturnValue &result);
 int join_thread(ThreadAttributes *handle, ThreadReturnValue &result);
+void await_cancellable_join(ThreadJoinClaim &claim);
 
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

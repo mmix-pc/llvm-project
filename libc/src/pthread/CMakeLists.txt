@@ -1,3 +1,7 @@
+foreach(operation pthread_join pthread_cond_wait pthread_cond_timedwait
+                  pthread_cond_clockwait)
+  set(${operation}_source ${operation}.cpp)
+endforeach()
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${CMAKE_CURRENT_LIST_DIR}/linux/mmix/Cancellation.cmake)
 endif()
@@ -228,16 +232,18 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_cond_clockwait
   SRCS
-    pthread_cond_clockwait.cpp
+    ${pthread_cond_clockwait_source}
   HDRS
     pthread_cond_clockwait.h
   DEPENDS
+    ${mmix_wait_dependencies}
     .pthread_cond_utils
     libc.hdr.errno_macros
     libc.include.llvm-libc-types.clockid_t
     libc.include.llvm-libc-types.pthread_cond_t
     libc.include.llvm-libc-types.pthread_mutex_t
     libc.include.llvm-libc-types.struct_timespec
+  COMPILE_OPTIONS ${mmix_wait_options}
 )
 
 add_entrypoint_object(
@@ -284,27 +290,31 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_cond_timedwait
   SRCS
-    pthread_cond_timedwait.cpp
+    ${pthread_cond_timedwait_source}
   HDRS
     pthread_cond_timedwait.h
   DEPENDS
+    ${mmix_wait_dependencies}
     .pthread_cond_utils
     libc.include.llvm-libc-types.pthread_cond_t
     libc.include.llvm-libc-types.pthread_mutex_t
     libc.include.llvm-libc-types.struct_timespec
+  COMPILE_OPTIONS ${mmix_wait_options}
 )
 
 add_entrypoint_object(
   pthread_cond_wait
   SRCS
-    pthread_cond_wait.cpp
+    ${pthread_cond_wait_source}
   HDRS
     pthread_cond_wait.h
   DEPENDS
+    ${mmix_wait_dependencies}
     .pthread_cond_utils
     libc.src.__support.CPP.optional
     libc.include.llvm-libc-types.pthread_cond_t
     libc.include.llvm-libc-types.pthread_mutex_t
+  COMPILE_OPTIONS ${mmix_wait_options}
 )
 
 add_header_library(
@@ -536,12 +546,14 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_join
   SRCS
-    pthread_join.cpp
+    ${pthread_join_source}
   HDRS
     pthread_join.h
   DEPENDS
+    ${mmix_wait_dependencies}
     libc.include.pthread
     libc.src.__support.threads.thread
+  COMPILE_OPTIONS ${mmix_wait_options}
 )
 
 set(pthread_detach_source pthread_detach.cpp)
