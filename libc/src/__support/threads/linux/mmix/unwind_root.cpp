@@ -15,6 +15,9 @@
 #include <asm/unistd.h>
 #include <libunwind.h>
 #include <unwind.h>
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "cancellation_point.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -104,6 +107,9 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
   if (current_control != &control || !body)
     __builtin_trap();
   capture_root(control);
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  initialize_cancellation_windows(control);
+#endif
   body(argument);
   if (has_c_cleanup())
     __builtin_trap();

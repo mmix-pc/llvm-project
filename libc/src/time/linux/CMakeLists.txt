@@ -4,6 +4,12 @@ if(NOT TARGET libc.src.__support.OSUtil.osutil)
   return()
 endif()
 
+set(nanosleep_source nanosleep.cpp)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
+  mmix_select_cancellation_points(nanosleep)
+endif()
+
 add_entrypoint_object(
   timespec_get
   SRCS
@@ -35,7 +41,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   nanosleep
   SRCS
-    nanosleep.cpp
+    ${nanosleep_source}
   HDRS
     ../nanosleep.h
   DEPENDS
@@ -45,6 +51,8 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     libc.src.__support.macros.config
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(

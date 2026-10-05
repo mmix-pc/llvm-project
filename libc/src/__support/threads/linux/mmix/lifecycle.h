@@ -51,6 +51,7 @@ struct ThreadMapping {
 
 class ThreadRegistry;
 class ThreadRegistryLock;
+struct CancellationPoint;
 
 struct ThreadControl {
   // Thread::attrib identifies this embedded object. Lookup compares addresses;
@@ -63,6 +64,9 @@ struct ThreadControl {
   TLSDescriptor tls{};
   UnwindRoot unwind_root{};
   CancellationState cancellation;
+  cpp::Atomic<CancellationPoint *> cancellation_point{nullptr};
+  cpp::Atomic<uint64_t> cancellation_suppression{0}, cancellation_transfer{0};
+  uint64_t cancellation_identity = 0, cancellation_generation = 0;
   uintptr_t stack_bottom = 0, stack_top = 0;
   size_t guard_size = 0;
   bool owns_stack = false;

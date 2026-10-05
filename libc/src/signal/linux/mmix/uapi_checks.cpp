@@ -43,6 +43,12 @@ CHECK_CONTEXT_FIELD(sc_rstack);
 CHECK_CONTEXT_FIELD(sc_rstack.start);
 CHECK_CONTEXT_FIELD(sc_rstack.count);
 CHECK_CONTEXT_FIELD(sc_rstack.data);
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#if !defined(MMIX_SIGCONTEXT_HAS_CHAIN_ID) || MMIX_SIGCONTEXT_HAS_CHAIN_ID != 1
+#error "MMIX cancellation requires interrupted-chain UAPI"
+#endif
+CHECK_CONTEXT_FIELD(sc_chain_id);
+#endif
 CHECK_CONTEXT_FIELD(reserved);
 #undef CHECK_CONTEXT_FIELD
 static_assert(sizeof(ucontext_t) == 10624 && alignof(ucontext_t) == 8);

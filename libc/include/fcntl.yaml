@@ -36,6 +36,7 @@ functions:
       - type: int
       - type: '...'
   - name: open
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -44,6 +45,7 @@ functions:
       - type: int
       - type: '...'
   - name: openat
+    noexcept: false
     standards:
       - posix
     return_type: int

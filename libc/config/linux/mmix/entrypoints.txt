@@ -1,4 +1,7 @@
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeMode.cmake)
+if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+  add_compile_definitions(LIBC_MMIX_CANCELLATION_WINDOWS)
+endif()
 
 # Only entries with buildable dependencies belong in the initial archive.
 set(TARGET_LIBC_ENTRYPOINTS

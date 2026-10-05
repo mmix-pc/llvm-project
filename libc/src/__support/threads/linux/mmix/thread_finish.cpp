@@ -96,7 +96,12 @@ static Futex::Timeout lease_deadline() {
 
 static void run_worker(void *argument) {
   auto *control = static_cast<ThreadControl *>(argument);
-  set_mask(control->saved_signal_mask);
+  uint64_t mask = control->saved_signal_mask;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  if (control->cancellation.enabled())
+    mask &= ~(uint64_t(1) << 31);
+#endif
+  set_mask(mask);
   ThreadReturnValue result;
   if (control->attributes.style == ThreadStyle::POSIX &&
       control->runner.posix_runner)
@@ -134,6 +139,9 @@ void begin_thread_cleanup(ThreadControl &control) {
     if (!lock.begin_cleanup(control))
       __builtin_trap();
   }
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  callback_mask |= uint64_t(1) << 31;
+#endif
   set_mask(callback_mask);
 }
 

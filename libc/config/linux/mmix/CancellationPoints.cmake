@@ -1,0 +1,11 @@
+function(mmix_select_cancellation_points)
+  if(NOT LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    return()
+  endif()
+  foreach(name IN LISTS ARGN)
+    set(${name}_source mmix/cancellation_${name}.cpp PARENT_SCOPE)
+  endforeach()
+  set(mmix_cancellation_dependency
+    libc.src.__support.threads.linux.mmix.cancellation_point PARENT_SCOPE)
+  set(mmix_cancellation_options -fexceptions -funwind-tables PARENT_SCOPE)
+endfunction()

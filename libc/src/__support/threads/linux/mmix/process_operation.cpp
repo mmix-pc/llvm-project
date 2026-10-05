@@ -16,6 +16,10 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 int begin_process_operation() {
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  // FIXME: Add cancellation request/queue handoff before joint fork/exec export.
+  return ENOTSUP;
+#else
   uint64_t full = UINT64_MAX, saved = 0;
   long result =
       syscall_impl(SYS_rt_sigprocmask, SIG_BLOCK, reinterpret_cast<long>(&full),
@@ -34,6 +38,7 @@ int begin_process_operation() {
                    reinterpret_cast<long>(&saved), 0, sizeof(saved)))
     __builtin_trap();
   return admitted ? 0 : ENOTSUP;
+#endif
 }
 
 void end_process_operation() {

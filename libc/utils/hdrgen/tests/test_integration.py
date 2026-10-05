@@ -103,6 +103,22 @@ class TestHeaderGenIntegration(unittest.TestCase):
             self.run_script(yaml_file, self.output_dir / "invalid-noexcept.h")
         self.assertIn("Function noexcept must be a boolean", raised.exception.stderr)
 
+    def test_blocking_syscall_exception_specifications(self):
+        for header, functions in (
+            ("unistd", ["read", "write", "close"]),
+            ("fcntl", ["open", "openat"]),
+            ("time", ["nanosleep"]),
+        ):
+            with self.subTest(header=header):
+                output = self.output_dir / (header + ".h")
+                self.run_script(self.source_dir.parents[2] /
+                                ("include/" + header + ".yaml"), output, functions)
+                declarations = [line for line in output.read_text().splitlines()
+                                if any(name + "(" in line for name in functions)]
+                self.assertEqual(len(declarations), len(functions))
+                self.assertTrue(all("__NOEXCEPT" not in line
+                                    for line in declarations))
+
     def test_generate_subdir_header(self):
         yaml_file = self.source_dir / "input" / "subdir" / "test.yaml"
         expected_output_file = self.source_dir / "expected_output" / "subdir" / "test.h"

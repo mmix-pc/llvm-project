@@ -1,3 +1,11 @@
+foreach(name open openat)
+  set(${name}_source ${name}.cpp)
+endforeach()
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
+  mmix_select_cancellation_points(open openat)
+endif()
+
 add_entrypoint_object(
   creat
   SRCS
@@ -28,7 +36,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   open
   SRCS
-    open.cpp
+    ${open_source}
   HDRS
     ../open.h
   DEPENDS
@@ -36,16 +44,20 @@ add_entrypoint_object(
     libc.hdr.fcntl_macros
     libc.src.__support.OSUtil.linux.syscall_wrappers.open
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   openat
   SRCS
-    openat.cpp
+    ${openat_source}
   HDRS
     ../openat.h
   DEPENDS
     libc.hdr.types.mode_t
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )

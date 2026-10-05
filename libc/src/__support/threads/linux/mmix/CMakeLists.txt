@@ -120,6 +120,25 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     set(mmix_once_option -DLIBC_MMIX_PUBLIC_ONCE)
   endif()
   if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
+    set(mmix_window_dependency)
+    if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+      add_object_library(
+        cancellation_point
+        # Reuse the private save producer without exporting a public setjmp API.
+        SRCS cancellation_point.cpp cancellation_leaf.S
+          ${LIBC_SOURCE_DIR}/src/setjmp/mmix/linux/setjmp.cpp
+        HDRS cancellation_point.h
+        DEPENDS .lifecycle libc.hdr.errno_macros libc.hdr.signal_macros
+          libc.src.errno.errno libc.hdr.types.jmp_buf
+          libc.hdr.types.sigjmp_buf libc.src.__support.common
+          libc.src.setjmp.mmix.jump_restore
+          libc.src.signal.linux.mmix.kernel_sigaction
+          libc.src.signal.linux.mmix.signal_trampoline
+          libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
+        COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
+      )
+      set(mmix_window_dependency .cancellation_point)
+    endif()
     set(mmix_cleanup_options)
     if(LIBC_MMIX_BUILD_FORCED_EXIT)
       set(mmix_cleanup_options -fexceptions)
@@ -139,7 +158,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       SRCS unwind_root.cpp
       HDRS unwind_root.h
       DEPENDS .lifecycle .cleanup libc.src.__support.OSUtil.linux.mmix.syscall
-              libc.include.sys_syscall libc.hdr.signal_macros
+              libc.include.sys_syscall libc.hdr.signal_macros ${mmix_window_dependency}
       COMPILE_OPTIONS -fno-lto -funwind-tables
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include

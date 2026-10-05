@@ -118,6 +118,7 @@ functions:
     arguments:
       - type: struct tm *
   - name: nanosleep
+    noexcept: false
     standards:
       - posix
     return_type: int

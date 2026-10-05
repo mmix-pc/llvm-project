@@ -22,7 +22,11 @@ static_assert(sizeof(unsigned long) == 8 && sizeof(sigset_t) == 8);
 static_assert(NSIG == 65);
 
 LLVM_LIBC_FUNCTION(int, sigaddset, (sigset_t * set, int signum)) {
-  if (!set || signum <= 0 || signum >= NSIG) {
+  if (!set || signum <= 0 || signum >= NSIG
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+      || signum == 32
+#endif
+  ) {
     libc_errno = EINVAL;
     return -1;
   }

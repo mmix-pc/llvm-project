@@ -29,7 +29,11 @@ static int send_signal(int tid, int signal) {
 }
 
 int signal_thread(ThreadAttributes *handle, int signal) {
-  if (signal < 0 || signal >= NSIG)
+  if (signal < 0 || signal >= NSIG
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+      || signal == 32
+#endif
+  )
     return EINVAL;
   if (!handle)
     return ESRCH;

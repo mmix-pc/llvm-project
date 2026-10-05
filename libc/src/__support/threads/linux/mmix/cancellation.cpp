@@ -15,6 +15,9 @@
 #include <asm/unistd.h>
 #include <pthread.h>
 #include <sys/syscall.h>
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "cancellation_point.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -49,11 +52,27 @@ int cancel_thread(ThreadAttributes *handle) {
   SignalMask mask;
   // The current activation retains its own identity, without a sender lease.
   if (current_control && handle == &current_control->attributes) {
-    ThreadRegistryLock lock(thread_registry);
-    return lock.request_cancellation(*current_control, true);
+    int error;
+    {
+      ThreadRegistryLock lock(thread_registry);
+      error = lock.request_cancellation(*current_control, true);
+    }
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+    if (!error && current_control->cancellation.enabled() &&
+        current_control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE)) {
+      long pid = syscall_impl(SYS_getpid);
+      long result = pid < 0 ? pid : syscall_impl(
+          SYS_tgkill, pid, current_control->attributes.tid, CANCEL_SIGNAL);
+      if (result < 0)
+        error = static_cast<int>(-result);
+    }
+#endif
+    return error;
   }
   ThreadControl *control;
   int error = ESRCH;
+  int tid = 0;
+  bool notify = false;
   {
     ThreadRegistryLock lock(thread_registry);
     control = lock.pin(handle);
@@ -61,15 +80,27 @@ int cancel_thread(ThreadAttributes *handle) {
       return error;
     if (lock.acquire_lease(*control)) {
       error = lock.request_cancellation(*control);
-      if (!lock.release_lease(*control))
+      tid = control->attributes.tid;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+      notify = !error && control->cancellation.enabled();
+#endif
+    } else {
+      if (!lock.unpin(*control))
         __builtin_trap();
+      return error;
     }
-    if (!lock.unpin(*control))
+  }
+  if (notify) {
+    long pid = syscall_impl(SYS_getpid);
+    long result = pid < 0 ? pid : syscall_impl(SYS_tgkill, pid, tid, 32);
+    if (result < 0)
+      error = static_cast<int>(-result);
+  }
+  {
+    ThreadRegistryLock lock(thread_registry);
+    if (!lock.release_lease(*control) || !lock.unpin(*control))
       __builtin_trap();
   }
-  // FIXME: Connect leased private notification when audited blocking windows
-  // are available; sending must precede lease release outside the lock. This
-  // preparation exports only explicit testcancel polling.
   return error;
 }
 
@@ -83,6 +114,17 @@ int set_cancel_state(int state, int *old_state) {
       current_control->cancellation.set_enabled(state == PTHREAD_CANCEL_ENABLE);
   if (old_state)
     *old_state = enabled ? PTHREAD_CANCEL_ENABLE : PTHREAD_CANCEL_DISABLE;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  // An application handler can enable a pending request while its ordinary
+  // caller is blocked. Queue the wake before returning to that caller's TRAP.
+  if (state == PTHREAD_CANCEL_ENABLE && current_control->cancellation.ready() &&
+      current_control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE)) {
+    long pid = syscall_impl(SYS_getpid);
+    if (pid <= 0 || syscall_impl(SYS_tgkill, pid,
+                                current_control->attributes.tid, CANCEL_SIGNAL))
+      __builtin_trap();
+  }
+#endif
   return 0;
 }
 
@@ -100,6 +142,10 @@ int set_cancel_type(int type, int *old_type) {
   auto *control = current_control;
   if (!control || !control->cancellation.ready())
     return;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  if (cancellation_private_block())
+    return;
+#endif
   bool claimed = false;
   uint64_t callback_mask = 0;
   {
@@ -118,6 +164,9 @@ int set_cancel_type(int type, int *old_type) {
     if (claimed)
       callback_mask = mask.transfer();
   }
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  callback_mask |= CANCEL_MASK;
+#endif
   if (claimed)
     unwind_after_cleanup_claim(PTHREAD_CANCELED, callback_mask);
 }

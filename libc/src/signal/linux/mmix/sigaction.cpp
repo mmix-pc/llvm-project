@@ -22,13 +22,20 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, sigaction,
                    (int signal, const struct sigaction *__restrict action,
                     struct sigaction *__restrict old_action)) {
-  if (signal <= 0 || signal >= NSIG) {
+  if (signal <= 0 || signal >= NSIG
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+      || signal == 32
+#endif
+  ) {
     libc_errno = EINVAL;
     return -1;
   }
   struct sigaction prepared{};
   if (action) {
     prepared = *action;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+    prepared.sa_mask.__signals[0] |= uint64_t(1) << 31;
+#endif
     if (!(prepared.sa_flags & SA_RESTORER)) {
       prepared.sa_flags |= SA_RESTORER;
       prepared.sa_restorer = __llvm_libc_mmix_signal_trampoline;
@@ -39,6 +46,10 @@ LLVM_LIBC_FUNCTION(int, sigaction,
     libc_errno = result.error();
     return -1;
   }
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  if (old_action)
+    old_action->sa_mask.__signals[0] &= ~(uint64_t(1) << 31);
+#endif
   return result.value();
 }
 

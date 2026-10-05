@@ -107,6 +107,7 @@ function(mmix_configure_threaded_libc)
                "unwind_roots|${LIBC_MMIX_BUILD_UNWIND_ROOTS}"
                "forced_exit|${LIBC_MMIX_BUILD_FORCED_EXIT}"
                "deferred_cancellation|${LIBC_MMIX_BUILD_DEFERRED_CANCELLATION}"
+               "cancellation_windows|${LIBC_MMIX_BUILD_CANCELLATION_WINDOWS}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")

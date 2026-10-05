@@ -2,7 +2,13 @@ set(signal_set_source_dir "")
 set(signal_set_deps .signal_utils)
 set(signal_action_source sigaction.cpp)
 set(signal_action_deps .__restore .signal_utils)
+set(pthread_sigmask_source pthread_sigmask.cpp)
+set(pthread_sigmask_deps)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    set(pthread_sigmask_source mmix/cancellation_pthread_sigmask.cpp)
+    set(pthread_sigmask_deps libc.src.__support.threads.linux.mmix.cancellation_point)
+  endif()
   add_subdirectory(mmix)
   add_entrypoint_object(
     pthread_kill
@@ -165,7 +171,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_sigmask
   SRCS
-    pthread_sigmask.cpp
+    ${pthread_sigmask_source}
   HDRS
     ../pthread_sigmask.h
   DEPENDS
@@ -173,6 +179,7 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
     libc.src.__support.common
     libc.src.__support.macros.config
+    ${pthread_sigmask_deps}
 )
 
 add_entrypoint_object(

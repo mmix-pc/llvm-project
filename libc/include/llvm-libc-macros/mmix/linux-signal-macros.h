@@ -14,4 +14,10 @@
 #define SIGSTKSZ 65536
 #define SS_AUTODISARM (1U << 31)
 
+#if defined(LIBC_MMIX_CANCELLATION_WINDOWS) ||                                 \
+    defined(__LLVM_LIBC_MMIX_CANCELLATION_PROFILE)
+#undef SIGRTMIN
+#define SIGRTMIN 33
+#endif
+
 #endif // LLVM_LIBC_MACROS_MMIX_LINUX_SIGNAL_MACROS_H

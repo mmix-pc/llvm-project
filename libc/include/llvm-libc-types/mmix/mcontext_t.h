@@ -36,7 +36,13 @@ typedef struct {
     unsigned long count;
     unsigned long data[1024];
   } sc_rstack;
+#if defined(LIBC_MMIX_CANCELLATION_WINDOWS) ||                                 \
+    defined(__LLVM_LIBC_MMIX_CANCELLATION_PROFILE)
+  unsigned long sc_chain_id;
+  unsigned long reserved[7];
+#else
   unsigned long reserved[8];
+#endif
 } mcontext_t;
 
 #endif // LLVM_LIBC_TYPES_MMIX_MCONTEXT_T_H
