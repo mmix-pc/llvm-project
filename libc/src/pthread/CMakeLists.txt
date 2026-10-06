@@ -799,10 +799,20 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+set(pthread_rwlock_target_headers)
+foreach(operation init timedrdlock timedwrlock clockrdlock clockwrlock)
+  set(pthread_rwlock_${operation}_source pthread_rwlock_${operation}.cpp)
+endforeach()
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(pthread_rwlock_target_headers linux/mmix/rwlock_timeout.h)
+  foreach(operation init timedrdlock timedwrlock clockrdlock clockwrlock)
+    set(pthread_rwlock_${operation}_source linux/mmix/pthread_rwlock_${operation}.cpp)
+  endforeach()
+endif()
 add_entrypoint_object(
   pthread_rwlock_init
   SRCS
-    pthread_rwlock_init.cpp
+    ${pthread_rwlock_init_source}
   HDRS
     pthread_rwlock_init.h
   DEPENDS
@@ -837,9 +847,10 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_rwlock_clockrdlock
   SRCS
-    pthread_rwlock_clockrdlock.cpp
+    ${pthread_rwlock_clockrdlock_source}
   HDRS
     pthread_rwlock_clockrdlock.h
+    ${pthread_rwlock_target_headers}
   DEPENDS
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock
@@ -848,9 +859,10 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_rwlock_clockwrlock
   SRCS
-    pthread_rwlock_clockwrlock.cpp
+    ${pthread_rwlock_clockwrlock_source}
   HDRS
     pthread_rwlock_clockwrlock.h
+    ${pthread_rwlock_target_headers}
   DEPENDS
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock
@@ -859,9 +871,10 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_rwlock_timedrdlock
   SRCS
-    pthread_rwlock_timedrdlock.cpp
+    ${pthread_rwlock_timedrdlock_source}
   HDRS
     pthread_rwlock_timedrdlock.h
+    ${pthread_rwlock_target_headers}
   DEPENDS
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock
@@ -871,9 +884,10 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_rwlock_timedwrlock
   SRCS
-    pthread_rwlock_timedwrlock.cpp
+    ${pthread_rwlock_timedwrlock_source}
   HDRS
     pthread_rwlock_timedwrlock.h
+    ${pthread_rwlock_target_headers}
   DEPENDS
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock

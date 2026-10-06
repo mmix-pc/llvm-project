@@ -1,0 +1,12 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: clang --no-default-config --target=mmix-unknown-linux -ffreestanding -nostdinc -std=c17 -I %S/../../../../libc/include -fsyntax-only %t/storage.c
+
+#--- storage.c
+#include "llvm-libc-types/pthread_rwlock_t.h"
+#include "llvm-libc-types/pthread_rwlockattr_t.h"
+
+_Static_assert(sizeof(pthread_rwlock_t) == 32, "rwlock storage");
+_Static_assert(_Alignof(pthread_rwlock_t) == 4, "rwlock alignment");
+_Static_assert(sizeof(pthread_rwlockattr_t) == 8, "rwlock attribute storage");
+_Static_assert(_Alignof(pthread_rwlockattr_t) == 4, "rwlock attribute alignment");
