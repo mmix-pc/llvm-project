@@ -418,10 +418,22 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+set(pthread_barrier_init_source pthread_barrier_init.cpp)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(pthread_barrier_init_source linux/mmix/pthread_barrier_init.cpp)
+  foreach(operation init destroy getpshared setpshared)
+    add_entrypoint_object(
+      pthread_barrierattr_${operation}
+      SRCS linux/mmix/pthread_barrierattr_${operation}.cpp
+      HDRS pthread_barrierattr_${operation}.h
+      DEPENDS libc.include.pthread libc.hdr.errno_macros
+    )
+  endforeach()
+endif()
 add_entrypoint_object(
   pthread_barrier_init
   SRCS
-    pthread_barrier_init.cpp
+    ${pthread_barrier_init_source}
   HDRS
     pthread_barrier_init.h
   DEPENDS

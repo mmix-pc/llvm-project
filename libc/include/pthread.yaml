@@ -380,6 +380,24 @@ functions:
     return_type: int
     arguments:
       - type: pthread_barrier_t *
+  - name: pthread_barrierattr_init
+    return_type: int
+    arguments:
+      - type: pthread_barrierattr_t *
+  - name: pthread_barrierattr_destroy
+    return_type: int
+    arguments:
+      - type: pthread_barrierattr_t *
+  - name: pthread_barrierattr_getpshared
+    return_type: int
+    arguments:
+      - type: const pthread_barrierattr_t *__restrict
+      - type: int *__restrict
+  - name: pthread_barrierattr_setpshared
+    return_type: int
+    arguments:
+      - type: pthread_barrierattr_t *
+      - type: int
   - name: pthread_once
     # Initializers can unwind through pthread_once to their caller.
     noexcept: false

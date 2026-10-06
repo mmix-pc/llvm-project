@@ -1,0 +1,12 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: clang --no-default-config --target=mmix-unknown-linux -ffreestanding -nostdlibinc -std=c17 -I %S/../../../../libc/include -fsyntax-only %t/storage.c
+
+#--- storage.c
+#include "llvm-libc-types/pthread_barrier_t.h"
+#include "llvm-libc-types/pthread_barrierattr_t.h"
+
+_Static_assert(sizeof(pthread_barrier_t) == 88, "barrier storage capacity");
+_Static_assert(_Alignof(pthread_barrier_t) == 8, "barrier storage alignment");
+_Static_assert(sizeof(pthread_barrierattr_t) == 1, "barrier attribute storage");
+_Static_assert(_Alignof(pthread_barrierattr_t) == 1, "barrier attribute alignment");
