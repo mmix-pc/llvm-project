@@ -82,6 +82,16 @@ class TestHeaderGenIntegration(unittest.TestCase):
             with self.subTest(declaration=declaration):
                 self.assertIn(declaration, content)
 
+    def test_pthread_barrier_unsigned_count(self):
+        output_file = self.output_dir / "pthread-barrier.h"
+        self.run_script(self.source_dir.parents[2] / "include/pthread.yaml",
+                        output_file, ["pthread_barrier_init"])
+        content = output_file.read_text()
+        self.assertIn(
+            "int pthread_barrier_init(pthread_barrier_t *__restrict, const pthread_barrierattr_t *__restrict, unsigned) __NOEXCEPT;",
+            content,
+        )
+
     def test_pthread_exit_exception_specification(self):
         output_file = self.output_dir / "pthread.h"
         self.run_script(self.source_dir.parents[2] / "include/pthread.yaml",
