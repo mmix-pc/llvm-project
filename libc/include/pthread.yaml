@@ -73,15 +73,18 @@ types:
       - llvm_libc_ext
 functions:
   - name: pthread_cancel
+    noexcept: false
     return_type: int
     arguments:
       - type: pthread_t
   - name: pthread_setcancelstate
+    noexcept: false
     return_type: int
     arguments:
       - type: int
       - type: int *
   - name: pthread_setcanceltype
+    noexcept: false
     return_type: int
     arguments:
       - type: int
