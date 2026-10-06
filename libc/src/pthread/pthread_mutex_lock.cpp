@@ -21,6 +21,8 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_lock, (pthread_mutex_t * mutex)) {
   MutexError err = reinterpret_cast<Mutex *>(mutex)->lock();
   if (err == MutexError::DEADLOCK)
     return EDEADLK;
+  if (err == MutexError::OVERFLOW)
+    return EAGAIN;
   // TODO: When the Mutex class supports all the possible error conditions
   // return the appropriate error value here.
   return 0;

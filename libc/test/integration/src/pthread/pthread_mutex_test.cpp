@@ -201,6 +201,31 @@ void recursive_mutex_test() {
   ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_destroy(&recursive_mutex), 0);
 }
 
+void recursive_overflow_test() {
+  pthread_mutexattr_t attr;
+  pthread_mutex_t value;
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_mutexattr_init(&attr), 0);
+  ASSERT_EQ(
+      LIBC_NAMESPACE::pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE),
+      0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_init(&value, &attr), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_lock(&value), 0);
+  // Seed the public representation's depth boundary while this thread owns
+  // the lock. Byte copying preserves the active internal object's aliasing.
+  pthread_mutex_t snapshot = snapshot_mutex(&value);
+  snapshot.__lock_count = size_t(-1);
+  LIBC_NAMESPACE::inline_memcpy(&value, &snapshot, sizeof(value));
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_lock(&value), EAGAIN);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_trylock(&value), EAGAIN);
+  snapshot = snapshot_mutex(&value);
+  ASSERT_EQ(snapshot.__lock_count, size_t(-1));
+  snapshot.__lock_count = 1;
+  LIBC_NAMESPACE::inline_memcpy(&value, &snapshot, sizeof(value));
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_unlock(&value), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_destroy(&value), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_mutexattr_destroy(&attr), 0);
+}
+
 [[maybe_unused]]
 static pthread_mutex_t test_initializer = PTHREAD_MUTEX_INITIALIZER;
 
@@ -256,7 +281,7 @@ void error_checking_mutex_test() {
 
   ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_lock(&error_checking_mutex), 0);
   ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_trylock(&error_checking_mutex),
-            EDEADLK);
+            EBUSY);
   ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_lock(&error_checking_mutex), EDEADLK);
   ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_unlock(&error_checking_mutex), 0);
 
@@ -327,6 +352,7 @@ TEST_MAIN() {
   wait_and_step();
   trylock_test();
   recursive_mutex_test();
+  recursive_overflow_test();
   initializer_acts_the_same_as_null_attr();
   error_checking_mutex_test();
   multiple_waiters();

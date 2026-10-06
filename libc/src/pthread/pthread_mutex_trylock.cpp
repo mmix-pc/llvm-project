@@ -18,10 +18,10 @@ namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, pthread_mutex_trylock, (pthread_mutex_t * mutex)) {
   MutexError err = reinterpret_cast<Mutex *>(mutex)->try_lock();
-  if (err == MutexError::DEADLOCK)
-    return EDEADLK;
-  if (err == MutexError::BUSY)
+  if (err == MutexError::DEADLOCK || err == MutexError::BUSY)
     return EBUSY;
+  if (err == MutexError::OVERFLOW)
+    return EAGAIN;
   return 0;
 }
 
