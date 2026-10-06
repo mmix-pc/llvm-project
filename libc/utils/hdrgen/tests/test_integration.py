@@ -70,6 +70,18 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("int pthread_once(pthread_once_t *, __pthread_once_func_t);", content)
         self.assertIn("pthread_t pthread_self(void) __NOEXCEPT;", content)
 
+    def test_pthread_mutex_timeout_declarations(self):
+        output_file = self.output_dir / "pthread-timeouts.h"
+        self.run_script(self.source_dir.parents[2] / "include/pthread.yaml",
+                        output_file, ["pthread_mutex_timedlock", "pthread_mutex_clocklock"])
+        content = output_file.read_text()
+        for declaration in (
+            "int pthread_mutex_timedlock(pthread_mutex_t *__restrict, const struct timespec *__restrict) __NOEXCEPT;",
+            "int pthread_mutex_clocklock(pthread_mutex_t *__restrict, clockid_t, const struct timespec *__restrict) __NOEXCEPT;",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, content)
+
     def test_pthread_exit_exception_specification(self):
         output_file = self.output_dir / "pthread.h"
         self.run_script(self.source_dir.parents[2] / "include/pthread.yaml",

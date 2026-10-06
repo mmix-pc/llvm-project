@@ -48,6 +48,11 @@ if(LIBC_MMIX_BUILD_PTHREAD_COND)
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_condattr_${operation})
   endforeach()
 endif()
+if(LIBC_MMIX_BUILD_TIMED_MUTEX)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.pthread.pthread_mutex_timedlock
+    libc.src.pthread.pthread_mutex_clocklock)
+endif()
 if(LIBC_MMIX_BUILD_PTHREAD_ONCE)
   list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_once)
 endif()

@@ -513,6 +513,21 @@ add_entrypoint_object(
     libc.src.__support.threads.mutex
 )
 
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  foreach(operation timedlock clocklock)
+    add_entrypoint_object(
+      pthread_mutex_${operation}
+      SRCS linux/mmix/pthread_mutex_${operation}.cpp
+      HDRS pthread_mutex_${operation}.h linux/mmix/mutex_timeout.h
+      DEPENDS
+        libc.include.pthread
+        libc.hdr.errno_macros
+        libc.hdr.time_macros
+        libc.src.__support.threads.mutex
+    )
+  endforeach()
+endif()
+
 add_entrypoint_object(
   pthread_mutex_unlock
   SRCS
