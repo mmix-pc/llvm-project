@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC_STDIO_SCANF_CORE_VFSCANF_INTERNAL_H
 #define LLVM_LIBC_SRC_STDIO_SCANF_CORE_VFSCANF_INTERNAL_H
 
+#include "src/__support/CPP/scope.h"
 #include "src/__support/File/file.h"
 #include "src/__support/arg_list.h"
 #include "src/__support/macros/config.h"
@@ -111,12 +112,11 @@ LIBC_INLINE int vfscanf_internal(::FILE *__restrict stream,
                                  const char *__restrict format,
                                  internal::ArgList &args) {
   internal::flockfile(stream);
+  cpp::scope_exit unlock([&] { internal::funlockfile(stream); });
   scanf_core::StreamReader reader(stream);
   int retval = scanf_core::scanf_main(&reader, format, args);
   if (retval == 0 && reader.reached_eof())
     retval = EOF;
-  internal::funlockfile(stream);
-
   return retval;
 }
 } // namespace scanf_core

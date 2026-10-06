@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_PRINTF_CORE_VFPRINTF_INTERNAL_H
 #define LLVM_LIBC_SRC___SUPPORT_PRINTF_CORE_VFPRINTF_INTERNAL_H
 
+#include "src/__support/CPP/scope.h"
 #include "src/__support/File/file.h"
 #include "src/__support/arg_list.h"
 #include "src/__support/error_or.h"
@@ -90,15 +91,13 @@ LIBC_INLINE ErrorOr<size_t> vfprintf_internal(::FILE *__restrict stream,
                                  reinterpret_cast<void *>(stream));
   Writer writer(wb);
   internal::flockfile(stream);
+  cpp::scope_exit unlock([&] { internal::funlockfile(stream); });
   auto retval = printf_main(&writer, format, args);
-  if (!retval.has_value()) {
-    internal::funlockfile(stream);
+  if (!retval.has_value())
     return retval;
-  }
   int flushval = wb.flush_to_stream();
   if (flushval != WRITE_OK)
     retval = Error(-flushval);
-  internal::funlockfile(stream);
   return retval;
 }
 

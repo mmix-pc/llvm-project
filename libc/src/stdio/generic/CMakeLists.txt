@@ -101,6 +101,7 @@ add_generic_entrypoint_object(
   HDRS
     ../fflush.h
   DEPENDS
+    libc.src.__support.CPP.scope
     libc.src.errno.errno
     libc.hdr.types.FILE
     libc.src.__support.File.file

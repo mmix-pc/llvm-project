@@ -1,0 +1,153 @@
+//===-- Stream lock cleanup during provider unwind ------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#include "hdr/stdio_macros.h"
+#include "src/__support/File/file.h"
+#include "src/stdio/fflush.h"
+#include "src/stdio/vfprintf.h"
+#include "src/stdio/vfscanf.h"
+#include "test/UnitTest/Test.h"
+#include <pthread.h>
+#include <stdarg.h>
+
+using LIBC_NAMESPACE::File;
+using LIBC_NAMESPACE::FileIOResult;
+
+// Isolate list traversal from unrelated host standard-stream implementations.
+namespace LIBC_NAMESPACE_DECL {
+FILE *stdin = nullptr;
+FILE *stdout = nullptr;
+FILE *stderr = nullptr;
+} // namespace LIBC_NAMESPACE_DECL
+
+namespace {
+struct ProviderFailure {};
+class ThrowingFile : public File {
+public:
+  bool fail = true;
+  unsigned reads = 0, writes = 0;
+  uint8_t buffer[8]{};
+
+  static FileIOResult read(File *base, void *data, size_t size) {
+    auto *file = static_cast<ThrowingFile *>(base);
+    ++file->reads;
+    if (file->fail)
+      throw ProviderFailure{};
+    if (size)
+      *static_cast<char *>(data) = '7';
+    return size ? 1 : 0;
+  }
+  static FileIOResult write(File *base, const void *, size_t size) {
+    auto *file = static_cast<ThrowingFile *>(base);
+    ++file->writes;
+    if (file->fail)
+      throw ProviderFailure{};
+    return size;
+  }
+  ThrowingFile(bool buffered = false)
+      : File(write, read, nullptr, nullptr, buffer, sizeof(buffer),
+             buffered ? _IOFBF : _IONBF, false,
+             static_cast<ModeFlags>(OpenMode::READ) |
+                 static_cast<ModeFlags>(OpenMode::WRITE)) {}
+};
+
+int print(FILE *file, const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  try {
+    int result = LIBC_NAMESPACE::vfprintf(file, format, args);
+    va_end(args);
+    return result;
+  } catch (...) {
+    va_end(args);
+    throw;
+  }
+}
+int scan(FILE *file, const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  try {
+    int result = LIBC_NAMESPACE::vfscanf(file, format, args);
+    va_end(args);
+    return result;
+  } catch (...) {
+    va_end(args);
+    throw;
+  }
+}
+
+void *acquire(void *data) {
+  auto *file = static_cast<File *>(data);
+  file->lock();
+  file->unlock();
+  File::lock_list();
+  File::unlock_list();
+  return data;
+}
+void check_unlocked(File &file) {
+  // A same-thread acquisition would miss a leaked recursive stream lock.
+  pthread_t thread;
+  ASSERT_EQ(::pthread_create(&thread, nullptr, acquire, &file), 0);
+  void *result = nullptr;
+  ASSERT_EQ(::pthread_join(thread, &result), 0);
+  ASSERT_EQ(result, static_cast<void *>(&file));
+}
+} // namespace
+
+TEST(LlvmLibcStdioUnwindLockTest, FormattedOutput) {
+  ThrowingFile file;
+  bool caught = false;
+  try {
+    print(reinterpret_cast<FILE *>(&file), "%s", "output");
+  } catch (ProviderFailure) {
+    caught = true;
+  }
+  ASSERT_TRUE(caught);
+  EXPECT_EQ(file.writes, 1U);
+  check_unlocked(file);
+  file.fail = false;
+  EXPECT_EQ(print(reinterpret_cast<FILE *>(&file), "%s", "output"), 6);
+  check_unlocked(file);
+}
+
+TEST(LlvmLibcStdioUnwindLockTest, FormattedInput) {
+  ThrowingFile file;
+  char value = 0;
+  bool caught = false;
+  try {
+    scan(reinterpret_cast<FILE *>(&file), "%c", &value);
+  } catch (ProviderFailure) {
+    caught = true;
+  }
+  ASSERT_TRUE(caught);
+  EXPECT_EQ(file.reads, 1U);
+  check_unlocked(file);
+  file.fail = false;
+  EXPECT_EQ(scan(reinterpret_cast<FILE *>(&file), "%c", &value), 1);
+  EXPECT_EQ(value, '7');
+  check_unlocked(file);
+}
+
+TEST(LlvmLibcStdioUnwindLockTest, GlobalFlush) {
+  ThrowingFile file(true);
+  ASSERT_EQ(file.write_unlocked("data", 4).value, size_t(4));
+  File::add_file(&file);
+  bool caught = false;
+  try {
+    LIBC_NAMESPACE::fflush(nullptr);
+  } catch (ProviderFailure) {
+    caught = true;
+  }
+  ASSERT_TRUE(caught);
+  EXPECT_EQ(file.writes, 1U);
+  check_unlocked(file);
+  file.fail = false;
+  EXPECT_EQ(LIBC_NAMESPACE::fflush(nullptr), 0);
+  check_unlocked(file);
+  File::remove_file(&file);
+}

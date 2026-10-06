@@ -244,6 +244,7 @@ add_header_library(
   HDRS
     vfprintf_internal.h
   DEPENDS
+    libc.src.__support.CPP.scope
     libc.src.__support.File.file
     libc.src.__support.error_or
     libc.src.__support.arg_list

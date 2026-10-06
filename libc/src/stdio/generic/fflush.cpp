@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/stdio/fflush.h"
+#include "src/__support/CPP/scope.h"
 #include "src/__support/File/file.h"
 #include "src/stdio/stderr.h"
 #include "src/stdio/stdin.h"
@@ -49,12 +50,12 @@ LLVM_LIBC_FUNCTION(int, fflush, (::FILE * stream)) {
   // We iterate over the global list of all open File objects to flush any
   // other streams that were opened via fopen.
   File::lock_list();
+  cpp::scope_exit unlock_list([] { File::unlock_list(); });
   for (File *f = File::get_first_file(); f != nullptr; f = f->get_next()) {
     int result = f->flush();
     if (result != 0)
       total_error = result;
   }
-  File::unlock_list();
 
   if (total_error != 0) {
     libc_errno = total_error;

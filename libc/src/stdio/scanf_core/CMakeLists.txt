@@ -114,6 +114,7 @@ add_header_library(
   HDRS
     vfscanf_internal.h
   DEPENDS
+    libc.src.__support.CPP.scope
     .reader
     .scanf_main
     libc.src.__support.arg_list

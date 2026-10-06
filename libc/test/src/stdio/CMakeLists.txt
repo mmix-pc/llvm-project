@@ -1,5 +1,30 @@
 add_custom_target(libc_stdio_unittests)
 
+# Provider exceptions need the native host C++ runtime, not a target probe.
+if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPILING)
+  add_libc_test(
+    unwind_lock_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc_stdio_unittests
+    SRCS unwind_lock_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/vfprintf.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/vfscanf.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/fflush.cpp
+      ${LIBC_SOURCE_DIR}/src/__support/File/file.cpp
+    DEPENDS
+      libc.src.__support.File.file
+      libc.src.__support.printf_core.vfprintf_internal
+      libc.src.stdio.scanf_core.vfscanf_internal
+      libc.src.__support.CPP.scope
+      libc.src.errno.errno
+    # Compile the production File with unwind metadata without changing the
+    # normal no-exceptions support object or colliding with its symbols.
+    COMPILE_OPTIONS -fexceptions -funwind-tables -ULIBC_COPT_STDIO_USE_SYSTEM_FILE
+      -DFile=UnwindFile
+    LINK_LIBRARIES pthread
+  )
+endif()
+
 add_libc_test(
   freopen_test
   SUITE
