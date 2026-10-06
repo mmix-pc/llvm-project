@@ -35,7 +35,10 @@ ErrorOr<Dir *> Dir::open(const char *path) {
   if (!fd)
     return LIBC_NAMESPACE::Error(fd.error());
 
-  return Dir::fdopen(fd.value());
+  auto result = Dir::fdopen(fd.value());
+  if (!result)
+    platform_closedir(fd.value());
+  return result;
 }
 
 ErrorOr<struct dirent *> Dir::read() {
@@ -67,15 +70,16 @@ ErrorOr<struct dirent *> Dir::read() {
   return d;
 }
 
-int Dir::close() {
+int Dir::close(bool consume_on_error) {
+  int retval;
   {
     cpp::lock_guard lock(mutex);
-    int retval = platform_closedir(fd);
-    if (retval != 0)
+    retval = platform_closedir(fd);
+    if (retval && !consume_on_error)
       return retval;
   }
   delete this;
-  return 0;
+  return retval;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

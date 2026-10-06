@@ -81,10 +81,10 @@ public:
 
   ErrorOr<struct dirent *> read();
 
-  // Returns 0 on success or the error number on failure. If an error number
-  // was returned, then the resources associated with the directory are not
-  // cleaned up.
-  int close();
+  // Returns 0 on success or the error number on failure. By default, errors
+  // retain storage. Backends that consume the descriptor even on failure may
+  // request retirement to avoid retrying a subsequently reused descriptor.
+  int close(bool consume_on_error = false);
 
   LIBC_INLINE int getfd() { return fd; }
 };

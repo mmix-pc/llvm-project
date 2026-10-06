@@ -56,6 +56,25 @@ add_subdirectory(testdata)
 
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
+    dir_ownership_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-support-tests
+    SRCS dir_ownership_test.cpp ${LIBC_SOURCE_DIR}/src/__support/File/dir.cpp
+    DEPENDS
+      libc.src.__support.CPP.new
+      libc.src.__support.CPP.mutex
+      libc.src.__support.CPP.span
+      libc.src.__support.threads.mutex
+      libc.src.__support.alloc_checker
+      libc.src.__support.error_or
+      libc.hdr.types.struct_dirent
+      libc.hdr.errno_macros
+    LINK_LIBRARIES "-Wl,--wrap=malloc"
+  )
+endif()
+
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
     linux_file_allocation_test
     OVERLAY_BUILD_ONLY
     SUITE
