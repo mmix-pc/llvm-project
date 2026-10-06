@@ -110,6 +110,14 @@ class TestHeaderGenIntegration(unittest.TestCase):
             ("time", ["nanosleep"]),
             ("pthread", ["pthread_join", "pthread_cond_wait",
                          "pthread_cond_timedwait", "pthread_cond_clockwait"]),
+            ("stdio", ["fopen", "fclose", "fread", "fwrite", "fflush", "fseek",
+                       "ftell", "fseeko", "ftello", "fgetc", "fputc", "fgets",
+                       "fputs", "getc", "putc", "puts", "printf", "fprintf",
+                       "vfprintf", "fread_unlocked", "fwrite_unlocked",
+                       "fscanf", "vfscanf", "vprintf", "getchar", "putchar",
+                       "freopen"]),
+            ("wchar", ["getwc", "fputwc"]),
+            ("dirent", ["opendir", "readdir", "closedir"]),
         ):
             with self.subTest(header=header):
                 output = self.output_dir / (header + ".h")

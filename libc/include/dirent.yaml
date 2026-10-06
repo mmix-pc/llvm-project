@@ -35,6 +35,7 @@ functions:
       - type: const struct dirent **
       - type: const struct dirent **
   - name: closedir
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -53,12 +54,14 @@ functions:
     arguments:
       - type: int
   - name: opendir
+    noexcept: false
     standards:
       - posix
     return_type: DIR *
     arguments:
       - type: const char *
   - name: readdir
+    noexcept: false
     standards:
       - posix
     return_type: struct dirent *

@@ -140,6 +140,7 @@ functions:
     arguments:
       - type: FILE *
   - name: fclose
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -177,12 +178,14 @@ functions:
     arguments:
       - type: FILE *
   - name: fflush
+    noexcept: false
     standards:
       - stdc
     return_type: int
     arguments:
       - type: FILE *
   - name: fgetc
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -195,6 +198,7 @@ functions:
     arguments:
       - type: FILE *
   - name: fgets
+    noexcept: false
     standards:
       - stdc
     return_type: char *
@@ -215,6 +219,7 @@ functions:
     arguments:
       - type: FILE *
   - name: fopen
+    noexcept: false
     standards:
       - stdc
     return_type: FILE *
@@ -222,6 +227,7 @@ functions:
       - type: const char *
       - type: const char *
   - name: freopen
+    noexcept: false
     standards:
       - stdc
     return_type: FILE *
@@ -238,6 +244,7 @@ functions:
       - type: const char *
       - type: cookie_io_functions_t
   - name: fprintf
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -246,6 +253,7 @@ functions:
       - type: const char *__restrict
       - type: '...'
   - name: fputc
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -253,6 +261,7 @@ functions:
       - type: int
       - type: FILE *
   - name: fputs
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -260,6 +269,7 @@ functions:
       - type: const char *__restrict
       - type: FILE *__restrict
   - name: fread
+    noexcept: false
     standards:
       - stdc
     return_type: size_t
@@ -269,6 +279,7 @@ functions:
       - type: size_t
       - type: FILE *__restrict
   - name: fread_unlocked
+    noexcept: false
     standards:
       - gnu
     return_type: size_t
@@ -278,6 +289,7 @@ functions:
       - type: size_t
       - type: FILE *__restrict
   - name: fscanf
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -286,6 +298,7 @@ functions:
       - type: const char *__restrict
       - type: '...'
   - name: vfscanf
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -294,6 +307,7 @@ functions:
       - type: const char *__restrict
       - type: va_list
   - name: fseek
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -308,6 +322,7 @@ functions:
     arguments:
       - type: FILE *
   - name: fseeko
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -316,12 +331,14 @@ functions:
       - type: off_t
       - type: int
   - name: ftell
+    noexcept: false
     standards:
       - stdc
     return_type: long
     arguments:
       - type: FILE *
   - name: ftello
+    noexcept: false
     standards:
       - posix
     return_type: off_t
@@ -334,6 +351,7 @@ functions:
     arguments:
       - type: FILE *
   - name: fwrite
+    noexcept: false
     standards:
       - stdc
     return_type: size_t
@@ -343,6 +361,7 @@ functions:
       - type: size_t
       - type: FILE *__restrict
   - name: fwrite_unlocked
+    noexcept: false
     standards:
       - gnu
     return_type: size_t
@@ -352,6 +371,7 @@ functions:
       - type: size_t
       - type: FILE *__restrict
   - name: getc
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -364,6 +384,7 @@ functions:
     arguments:
       - type: FILE *
   - name: getchar
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -380,6 +401,7 @@ functions:
     arguments:
       - type: const char *
   - name: printf
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -389,6 +411,7 @@ functions:
     attributes:
       - _LIBC_MODULAR_FORMAT_PRINTF(__printf_modular, 1, 2)
   - name: putc
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -396,12 +419,14 @@ functions:
       - type: int
       - type: FILE *
   - name: putchar
+    noexcept: false
     standards:
       - stdc
     return_type: int
     arguments:
       - type: int
   - name: puts
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -503,6 +528,7 @@ functions:
     attributes:
       - _LIBC_MODULAR_FORMAT_PRINTF(__vasprintf_modular, 2, 0)
   - name: vfprintf
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -511,6 +537,7 @@ functions:
       - type: const char *__restrict
       - type: va_list
   - name: vprintf
+    noexcept: false
     standards:
       - stdc
     return_type: int

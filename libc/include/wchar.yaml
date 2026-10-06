@@ -377,6 +377,7 @@ functions:
       - type: int
       - type: FILE *__restrict
   - name: fputwc
+    noexcept: false
     standards:
       - stdc
     return_type: wint_t
@@ -398,6 +399,7 @@ functions:
       - type: FILE *
       - type: int
   - name: getwc
+    noexcept: false
     standards:
       - stdc
     return_type: wint_t
