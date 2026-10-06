@@ -327,7 +327,7 @@ declare i32 @chown(ptr, i32, i32)
 ; CHECK: declare void @clearerr(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
 declare void @clearerr(ptr)
 
-; CHECK: declare noundef i32 @closedir(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @closedir(ptr noundef captures(none)) [[NOFREE:#[0-9]+]]
 declare i32 @closedir(ptr)
 
 ; CHECK: declare double @copysign(double, double) [[MEMNONE_NOFREE_NOSYNC_NOUNWIND_WILLRETURN]]
@@ -396,7 +396,7 @@ declare float @fabsf(float)
 ; CHECK: declare x86_fp80 @fabsl(x86_fp80) [[MEMNONE_NOFREE_NOSYNC_NOUNWIND_WILLRETURN]]
 declare x86_fp80 @fabsl(x86_fp80)
 
-; CHECK: declare noundef i32 @fclose(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fclose(ptr noundef captures(none)) [[NOFREE]]
 declare i32 @fclose(ptr)
 
 ; CHECK: declare noalias noundef ptr @fdopen(i32 noundef, ptr noundef readonly captures(none)) [[NOFREE_NOUNWIND]]
@@ -408,7 +408,7 @@ declare i32 @feof(ptr)
 ; CHECK: declare noundef i32 @ferror(ptr noundef captures(none)) [[NOFREE_NOUNWIND_READONLY:#[0-9]+]]
 declare i32 @ferror(ptr)
 
-; CHECK: declare noundef i32 @fflush(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fflush(ptr noundef captures(none)) [[NOFREE]]
 declare i32 @fflush(ptr)
 
 ; CHECK: declare i32 @ffs(i32) [[MEMNONE_NOFREE_NOSYNC_NOUNWIND_WILLRETURN]]
@@ -422,13 +422,13 @@ declare i32 @ffsl(i64)
 ; CHECK-UNKNOWN: declare i32 @ffsll(i64){{$}}
 declare i32 @ffsll(i64)
 
-; CHECK: declare noundef i32 @fgetc(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fgetc(ptr noundef captures(none)) [[NOFREE]]
 declare i32 @fgetc(ptr)
 
-; CHECK: declare noundef i32 @fgetpos(ptr noundef captures(none), ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fgetpos(ptr noundef captures(none), ptr noundef captures(none)) [[NOFREE]]
 declare i32 @fgetpos(ptr, ptr)
 
-; CHECK: declare noundef ptr @fgets(ptr noundef writeonly, i32 noundef, ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef ptr @fgets(ptr noundef writeonly, i32 noundef, ptr noundef captures(none)) [[NOFREE]]
 declare ptr @fgets(ptr, i32, ptr)
 
 ; CHECK: declare noundef i32 @fileno(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
@@ -500,19 +500,19 @@ declare float @fmodf(float, float)
 ; CHECK: declare x86_fp80 @fmodl(x86_fp80, x86_fp80) [[ERRNOMEMONLY_NOFREE_NOSYNC_NOUNWIND_WILLRETURN]]
 declare x86_fp80 @fmodl(x86_fp80, x86_fp80)
 
-; CHECK: declare noalias noundef ptr @fopen(ptr noundef readonly captures(none), ptr noundef readonly captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noalias noundef ptr @fopen(ptr noundef readonly captures(none), ptr noundef readonly captures(none)) [[NOFREE]]
 declare ptr @fopen(ptr, ptr)
 
-; CHECK: declare noundef i32 @fprintf(ptr noundef captures(none), ptr noundef readonly captures(none), ...) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fprintf(ptr noundef captures(none), ptr noundef readonly captures(none), ...) [[NOFREE]]
 declare i32 @fprintf(ptr, ptr, ...)
 
-; CHECK: declare noundef i32 @fputc(i32 noundef, ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fputc(i32 noundef, ptr noundef captures(none)) [[NOFREE]]
 declare i32 @fputc(i32, ptr)
 
-; CHECK: declare noundef i32 @fputs(ptr noundef readonly captures(none), ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fputs(ptr noundef readonly captures(none), ptr noundef captures(none)) [[NOFREE]]
 declare i32 @fputs(ptr, ptr)
 
-; CHECK: declare noundef i64 @fread(ptr noundef writeonly captures(none), i64 noundef, i64 noundef, ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i64 @fread(ptr noundef writeonly captures(none), i64 noundef, i64 noundef, ptr noundef captures(none)) [[NOFREE]]
 declare i64 @fread(ptr, i64, i64, ptr)
 
 ; CHECK: declare void @free(ptr allocptr noundef captures(none)) [[INACCESSIBLEMEMORARGMEMONLY_NOUNWIND_WILLRETURN_ALLOCKIND_FREE_FAMILY_MALLOC:#[0-9]+]]
@@ -530,19 +530,19 @@ declare float @frexpf(float, ptr)
 ; CHECK: declare x86_fp80 @frexpl(x86_fp80, ptr captures(none)) [[ARGMEMONLY_NOFREE_NOSYNC_NOUNWIND_WILLRETURN_WRITEONLY]]
 declare x86_fp80 @frexpl(x86_fp80, ptr)
 
-; CHECK: declare noundef i32 @fscanf(ptr noundef captures(none), ptr noundef readonly captures(none), ...) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fscanf(ptr noundef captures(none), ptr noundef readonly captures(none), ...) [[NOFREE]]
 declare i32 @fscanf(ptr, ptr, ...)
 
-; CHECK: declare noundef i32 @fseek(ptr noundef captures(none), i64 noundef, i32 noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fseek(ptr noundef captures(none), i64 noundef, i32 noundef) [[NOFREE]]
 declare i32 @fseek(ptr, i64, i32)
 
-; CHECK: declare noundef i32 @fseeko(ptr noundef captures(none), i64 noundef, i32 noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fseeko(ptr noundef captures(none), i64 noundef, i32 noundef) [[NOFREE]]
 declare i32 @fseeko(ptr, i64, i32)
 
-; CHECK-LINUX: declare noundef i32 @fseeko64(ptr noundef captures(none), i64 noundef, i32 noundef) [[NOFREE_NOUNWIND]]
+; CHECK-LINUX: declare noundef i32 @fseeko64(ptr noundef captures(none), i64 noundef, i32 noundef) [[NOFREE]]
 declare i32 @fseeko64(ptr, i64, i32)
 
-; CHECK: declare noundef i32 @fsetpos(ptr noundef captures(none), ptr noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @fsetpos(ptr noundef captures(none), ptr noundef) [[NOFREE]]
 declare i32 @fsetpos(ptr, ptr)
 
 ; CHECK: declare noundef i32 @fstat(i32 noundef, ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
@@ -557,13 +557,13 @@ declare i32 @fstatvfs(i32, ptr)
 ; CHECK-LINUX: declare noundef i32 @fstatvfs64(i32 noundef, ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
 declare i32 @fstatvfs64(i32, ptr)
 
-; CHECK: declare noundef i64 @ftell(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i64 @ftell(ptr noundef captures(none)) [[NOFREE]]
 declare i64 @ftell(ptr)
 
-; CHECK: declare noundef i64 @ftello(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i64 @ftello(ptr noundef captures(none)) [[NOFREE]]
 declare i64 @ftello(ptr)
 
-; CHECK-LINUX: declare noundef i64 @ftello64(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK-LINUX: declare noundef i64 @ftello64(ptr noundef captures(none)) [[NOFREE]]
 declare i64 @ftello64(ptr)
 
 ; CHECK: declare noundef i32 @ftrylockfile(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
@@ -572,20 +572,20 @@ declare i32 @ftrylockfile(ptr)
 ; CHECK: declare void @funlockfile(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
 declare void @funlockfile(ptr)
 
-; CHECK: declare noundef i64 @fwrite(ptr noundef readonly captures(none), i64 noundef, i64 noundef, ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i64 @fwrite(ptr noundef readonly captures(none), i64 noundef, i64 noundef, ptr noundef captures(none)) [[NOFREE]]
 declare i64 @fwrite(ptr, i64, i64, ptr)
 
-; CHECK: declare noundef i32 @getc(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @getc(ptr noundef captures(none)) [[NOFREE]]
 declare i32 @getc(ptr)
 
-; CHECK-KNOWN: declare noundef i32 @getc_unlocked(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK-KNOWN: declare noundef i32 @getc_unlocked(ptr noundef captures(none)) [[NOFREE]]
 ; CHECK-UNKNOWN: declare i32 @getc_unlocked(ptr){{$}}
 declare i32 @getc_unlocked(ptr)
 
-; CHECK: declare noundef i32 @getchar() [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @getchar() [[NOFREE]]
 declare i32 @getchar()
 
-; CHECK-KNOWN: declare noundef i32 @getchar_unlocked() [[NOFREE_NOUNWIND]]
+; CHECK-KNOWN: declare noundef i32 @getchar_unlocked() [[NOFREE]]
 ; CHECK-UNKNOWN: declare i32 @getchar_unlocked(){{$}}
 declare i32 @getchar_unlocked()
 
@@ -601,7 +601,7 @@ declare i32 @getlogin_r(ptr, i64)
 ; CHECK: declare noundef ptr @getpwnam(ptr noundef readonly captures(none)) [[NOFREE_NOUNWIND]]
 declare ptr @getpwnam(ptr)
 
-; CHECK: declare noundef ptr @gets(ptr noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef ptr @gets(ptr noundef) [[NOFREE]]
 declare ptr @gets(ptr)
 
 ; CHECK: declare noundef i32 @gettimeofday(ptr noundef captures(none), ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
@@ -805,16 +805,16 @@ declare i32 @open(ptr, i32, ...)
 ; CHECK-LINUX: declare noundef i32 @open64(ptr noundef readonly captures(none), i32 noundef, ...) [[NOFREE]]
 declare i32 @open64(ptr, i32, ...)
 
-; CHECK: declare noalias noundef ptr @opendir(ptr noundef readonly captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noalias noundef ptr @opendir(ptr noundef readonly captures(none)) [[NOFREE]]
 declare ptr @opendir(ptr)
 
-; CHECK: declare noundef i32 @pclose(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @pclose(ptr noundef captures(none)) [[NOFREE]]
 declare i32 @pclose(ptr)
 
-; CHECK: declare void @perror(ptr noundef readonly captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare void @perror(ptr noundef readonly captures(none)) [[NOFREE]]
 declare void @perror(ptr)
 
-; CHECK: declare noalias noundef ptr @popen(ptr noundef readonly captures(none), ptr noundef readonly captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noalias noundef ptr @popen(ptr noundef readonly captures(none), ptr noundef readonly captures(none)) [[NOFREE]]
 declare ptr @popen(ptr, ptr)
 
 ; CHECK: declare i32 @posix_memalign(ptr, i64, i64) [[NOFREE]]
@@ -832,20 +832,20 @@ declare x86_fp80 @powl(x86_fp80, x86_fp80)
 ; CHECK: declare noundef i64 @pread(i32 noundef, ptr noundef captures(none), i64 noundef, i64 noundef) [[NOFREE]]
 declare i64 @pread(i32, ptr, i64, i64)
 
-; CHECK: declare noundef i32 @printf(ptr noundef readonly captures(none), ...) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @printf(ptr noundef readonly captures(none), ...) [[NOFREE]]
 declare i32 @printf(ptr, ...)
 
-; CHECK: declare noundef i32 @putc(i32 noundef, ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @putc(i32 noundef, ptr noundef captures(none)) [[NOFREE]]
 declare i32 @putc(i32, ptr)
 
-; CHECK: declare noundef i32 @putchar(i32 noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @putchar(i32 noundef) [[NOFREE]]
 declare i32 @putchar(i32)
 
-; CHECK-KNOWN: declare noundef i32 @putchar_unlocked(i32 noundef) [[NOFREE_NOUNWIND]]
+; CHECK-KNOWN: declare noundef i32 @putchar_unlocked(i32 noundef) [[NOFREE]]
 ; CHECK-UNKNOWN: declare i32 @putchar_unlocked(i32){{$}}
 declare i32 @putchar_unlocked(i32)
 
-; CHECK: declare noundef i32 @puts(ptr noundef readonly captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @puts(ptr noundef readonly captures(none)) [[NOFREE]]
 declare i32 @puts(ptr)
 
 ; CHECK: declare noalias noundef ptr @pvalloc(i64 noundef) [[INACCESSIBLEMEMORERRNOMEMONLY_NOFREE_NOUNWIND_WILLRETURN_ALLOCKIND_ALLOCUNINIT_FAMILY_MALLOC:#[0-9]+]]
@@ -912,7 +912,7 @@ declare x86_fp80 @fdiml(x86_fp80, x86_fp80)
 ; CHECK: declare noundef i32 @rename(ptr noundef readonly captures(none), ptr noundef readonly captures(none)) [[NOFREE_NOUNWIND]]
 declare i32 @rename(ptr, ptr)
 
-; CHECK: declare void @rewind(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
+; CHECK: declare void @rewind(ptr noundef captures(none)) [[NOFREE]]
 declare void @rewind(ptr)
 
 ; CHECK: declare double @rint(double) [[ERRNOMEMONLY_NOFREE_NOSYNC_NOUNWIND_WILLRETURN]]
@@ -963,7 +963,7 @@ declare float @scalbnf(float, i32)
 ; CHECK: declare x86_fp80 @scalbnl(x86_fp80, i32) [[ERRNOMEMONLY_NOFREE_NOSYNC_NOUNWIND_WILLRETURN]]
 declare x86_fp80 @scalbnl(x86_fp80, i32)
 
-; CHECK: declare noundef i32 @scanf(ptr noundef readonly captures(none), ...) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @scanf(ptr noundef readonly captures(none), ...) [[NOFREE]]
 declare i32 @scanf(ptr, ...)
 
 ; CHECK: declare void @setbuf(ptr noundef captures(none), ptr noundef) [[NOFREE_NOUNWIND]]
@@ -1140,10 +1140,10 @@ declare x86_fp80 @tanl(x86_fp80)
 ; CHECK: declare noundef i64 @times(ptr noundef captures(none)) [[NOFREE_NOUNWIND]]
 declare i64 @times(ptr)
 
-; CHECK: declare noalias noundef ptr @tmpfile() [[NOFREE_NOUNWIND]]
+; CHECK: declare noalias noundef ptr @tmpfile() [[NOFREE]]
 declare ptr @tmpfile()
 
-; CHECK-LINUX: declare noalias noundef ptr @tmpfile64() [[NOFREE_NOUNWIND]]
+; CHECK-LINUX: declare noalias noundef ptr @tmpfile64() [[NOFREE]]
 declare ptr @tmpfile64()
 
 ; CHECK: declare i32 @toascii(i32) [[MEMNONE_NOFREE_NOSYNC_NOUNWIND_WILLRETURN]]
@@ -1179,16 +1179,16 @@ declare i32 @utimes(ptr, ptr)
 ; CHECK: declare noalias noundef ptr @valloc(i64 noundef) [[INACCESSIBLEMEMORERRNOMEMONLY_NOFREE_NOUNWIND_WILLRETURN_ALLOCKIND_ALLOCUNINIT_ALLOCSIZE0_FAMILY_MALLOC]]
 declare ptr @valloc(i64)
 
-; CHECK: declare noundef i32 @vfprintf(ptr noundef captures(none), ptr noundef readonly captures(none), ptr noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @vfprintf(ptr noundef captures(none), ptr noundef readonly captures(none), ptr noundef) [[NOFREE]]
 declare i32 @vfprintf(ptr, ptr, ptr)
 
-; CHECK: declare noundef i32 @vfscanf(ptr noundef captures(none), ptr noundef readonly captures(none), ptr noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @vfscanf(ptr noundef captures(none), ptr noundef readonly captures(none), ptr noundef) [[NOFREE]]
 declare i32 @vfscanf(ptr, ptr, ptr)
 
-; CHECK: declare noundef i32 @vprintf(ptr noundef readonly captures(none), ptr noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @vprintf(ptr noundef readonly captures(none), ptr noundef) [[NOFREE]]
 declare i32 @vprintf(ptr, ptr)
 
-; CHECK: declare noundef i32 @vscanf(ptr noundef readonly captures(none), ptr noundef) [[NOFREE_NOUNWIND]]
+; CHECK: declare noundef i32 @vscanf(ptr noundef readonly captures(none), ptr noundef) [[NOFREE]]
 declare i32 @vscanf(ptr, ptr)
 
 ; CHECK: declare noundef i32 @vsnprintf(ptr noundef captures(none), i64 noundef, ptr noundef readonly captures(none), ptr noundef) [[NOFREE_NOUNWIND]]
