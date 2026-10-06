@@ -92,15 +92,10 @@ FileIOResult File::write_unlocked_impl(const void *data, size_t len) {
 
 FileIOResult File::write_unlocked_nbf(const uint8_t *data, size_t len) {
   if (pos > 0) { // If the buffer is not empty
-    // Flush the buffer
-    const size_t write_size = pos;
-    FileIOResult write_result = platform_write(this, buf, write_size);
-    pos = 0; // Buffer is now empty so reset pos to the beginning.
-    // If less bytes were written than expected, then an error occurred.
-    if (write_result < write_size) {
-      err = true;
+    int error = flush_unlocked();
+    if (error) {
       // No bytes from data were written, so return 0.
-      return {0, write_result.error};
+      return {0, error};
     }
   }
 
@@ -152,14 +147,19 @@ FileIOResult File::write_unlocked_fbf(const uint8_t *data, size_t len) {
   FileIOResult buf_result = platform_write(this, buf, write_size);
   size_t bytes_written = buf_result.value;
 
-  pos = 0; // Buffer is now empty so reset pos to the beginning.
   // If less bytes were written than expected, then an error occurred. Return
   // the number of bytes that have been written from |data|.
   if (buf_result.has_error() || bytes_written < write_size) {
     err = true;
+    // Preserve previously accepted data, but not uncommitted new bytes whose
+    // count is returned to the caller for retry.
+    pos = bytes_written < init_pos ? init_pos - bytes_written : 0;
+    for (size_t i = 0; i < pos; ++i)
+      buf[i] = buf[i + bytes_written];
     return {bytes_written <= init_pos ? 0 : bytes_written - init_pos,
-            buf_result.error};
+            buf_result.error ? buf_result.error : EIO};
   }
+  pos = 0;
 
   // The second piece is handled basically the same as the first, although we
   // know that if the second piece has data in it then the buffer has been
@@ -396,12 +396,9 @@ int File::ungetc_unlocked(int c) {
 ErrorOr<int> File::seek(off_t offset, int whence) {
   FileLock lock(this);
   if (prev_op == FileOp::WRITE && pos > 0) {
-
-    FileIOResult buf_result = platform_write(this, buf, pos);
-    if (buf_result.has_error() || buf_result.value < pos) {
-      err = true;
-      return Error(buf_result.error);
-    }
+    int error = flush_unlocked();
+    if (error)
+      return Error(error);
   } else if (prev_op == FileOp::READ && whence == SEEK_CUR) {
     // More data could have been read out from the platform file than was
     // required. So, we have to adjust the offset we pass to platform seek
@@ -441,11 +438,14 @@ ErrorOr<off_t> File::tell() {
 int File::flush_unlocked() {
   if (prev_op == FileOp::WRITE && pos > 0) {
     FileIOResult buf_result = platform_write(this, buf, pos);
-    if (buf_result.has_error() || buf_result.value < pos) {
+    const size_t consumed = buf_result.value < pos ? buf_result.value : pos;
+    for (size_t i = consumed; i < pos; ++i)
+      buf[i - consumed] = buf[i];
+    pos -= consumed;
+    if (buf_result.has_error() || pos > 0) {
       err = true;
-      return buf_result.error;
+      return buf_result.error ? buf_result.error : EIO;
     }
-    pos = 0;
   } else if (prev_op == FileOp::READ) {
     if (read_limit > pos) {
       if (!platform_seek(this, -static_cast<off_t>(read_limit - pos), SEEK_CUR)

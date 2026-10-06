@@ -267,11 +267,9 @@ public:
     {
       FileLock lock(this);
       if (prev_op == FileOp::WRITE && pos > 0) {
-        auto buf_result = platform_write(this, buf, pos);
-        if (buf_result.has_error() || buf_result.value < pos) {
-          err = true;
-          return buf_result.error;
-        }
+        int error = flush_unlocked();
+        if (error)
+          return error;
       }
       pos = read_limit = 0;
       prev_op = FileOp::NONE;

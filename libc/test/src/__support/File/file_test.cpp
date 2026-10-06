@@ -849,6 +849,7 @@ public:
   void reset() { pos = 0; }
   size_t get_pos() const { return pos; }
   char *get_str() { return str; }
+  void set_max_write(size_t maximum) { max_write = maximum; }
 };
 
 // Verify that a short platform_write of a multi-byte UTF-8 character is
@@ -876,6 +877,97 @@ TEST(LlvmLibcFileTest, PartialWideCharWriteDetected) {
   EXPECT_TRUE(f->error());
 
   ASSERT_EQ(f->close(), 0);
+}
+
+TEST(LlvmLibcFileTest, ShortFlushDoesNotReplayCommittedPrefix) {
+  char buffer[8];
+  ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
+                      File::mode_flags("w"), 2);
+  ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
+  EXPECT_EQ(file.flush(), EIO);
+  EXPECT_EQ(file.get_pos(), size_t(2));
+  EXPECT_EQ(file.flush(), EIO);
+  EXPECT_EQ(file.get_pos(), size_t(4));
+  EXPECT_EQ(file.flush(), 0);
+  EXPECT_EQ(file.get_pos(), size_t(6));
+  EXPECT_MEM_EQ(MemoryView("abcdef", 6), MemoryView(file.get_str(), 6));
+}
+
+TEST(LlvmLibcFileTest, ShortSeekPreservesOnlyUnconsumedData) {
+  char buffer[8];
+  ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
+                      File::mode_flags("w"), 2);
+  ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
+  auto result = file.seek(0, SEEK_SET);
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), EIO);
+  EXPECT_EQ(file.get_pos(), size_t(2));
+  file.set_max_write(8);
+  ASSERT_TRUE(file.seek(0, SEEK_SET).has_value());
+  EXPECT_EQ(file.get_pos(), size_t(0));
+  EXPECT_MEM_EQ(MemoryView("abcdef", 6), MemoryView(file.get_str(), 6));
+}
+
+TEST(LlvmLibcFileTest, ShortCloseRemainsPublishedUntilRetry) {
+  LIBC_NAMESPACE::AllocChecker ac;
+  char buffer[8];
+  auto *file = new (ac) ShortWriteFile(buffer, sizeof(buffer), _IOFBF, false,
+                                      File::mode_flags("w"), 2);
+  ASSERT_TRUE(bool(ac));
+  File::add_file(file);
+  ASSERT_EQ(file->write("abcdef", 6).value, size_t(6));
+  EXPECT_EQ(file->close(), EIO);
+  EXPECT_EQ(file->get_pos(), size_t(2));
+  EXPECT_EQ(File::get_first_file(), static_cast<File *>(file));
+  file->set_max_write(8);
+  ASSERT_EQ(file->flush(), 0);
+  EXPECT_EQ(file->get_pos(), size_t(6));
+  EXPECT_MEM_EQ(MemoryView("abcdef", 6), MemoryView(file->get_str(), 6));
+  EXPECT_EQ(file->close(), 0);
+}
+
+TEST(LlvmLibcFileTest, ShortBufferedWriteRetainsOldDataWithoutAcceptingNewData) {
+  char buffer[8];
+  ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
+                      File::mode_flags("w"), 4);
+  ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
+  auto result = file.write("ghijkl", 6);
+  EXPECT_EQ(result.value, size_t(0));
+  EXPECT_EQ(result.error, EIO);
+  file.set_max_write(32);
+  ASSERT_EQ(file.write("ghijkl", 6).value, size_t(6));
+  ASSERT_EQ(file.flush(), 0);
+  EXPECT_EQ(file.get_pos(), size_t(12));
+  EXPECT_MEM_EQ(MemoryView("abcdefghijkl", 12), MemoryView(file.get_str(), 12));
+}
+
+TEST(LlvmLibcFileTest, ShortPreflushRetainsOldDataWithoutWritingNewData) {
+  char buffer[8];
+  ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
+                      File::mode_flags("w"), 4);
+  ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
+  const char data[] = "ghijklmnopqrstuvwxyz";
+  auto result = file.write(data, 20);
+  EXPECT_EQ(result.value, size_t(0));
+  EXPECT_EQ(result.error, EIO);
+  file.set_max_write(32);
+  ASSERT_EQ(file.write(data, 20).value, size_t(20));
+  EXPECT_EQ(file.get_pos(), size_t(26));
+  EXPECT_MEM_EQ(MemoryView("abcdefghijklmnopqrstuvwxyz", 26),
+                MemoryView(file.get_str(), 26));
+}
+
+TEST(LlvmLibcFileTest, ZeroProgressFlushDoesNotReportSuccess) {
+  char buffer[8];
+  ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
+                      File::mode_flags("w"), 0);
+  ASSERT_EQ(file.write("data", 4).value, size_t(4));
+  EXPECT_EQ(file.flush(), EIO);
+  EXPECT_EQ(file.get_pos(), size_t(0));
+  file.set_max_write(8);
+  EXPECT_EQ(file.flush(), 0);
+  EXPECT_EQ(file.get_pos(), size_t(4));
+  EXPECT_MEM_EQ(MemoryView("data", 4), MemoryView(file.get_str(), 4));
 }
 
 TEST(LlvmLibcFileTest, FileLockRAII) {
