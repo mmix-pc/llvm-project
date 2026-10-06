@@ -459,6 +459,9 @@ if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   if(LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES)
     set(pthread_mutex_init_options -DLIBC_MMIX_PRIVATE_RECURSIVE_MUTEX)
   endif()
+  if(LIBC_MMIX_BUILD_MUTEX_TYPES)
+    list(APPEND pthread_mutex_init_options -DLIBC_MMIX_PUBLIC_MUTEX_TYPES)
+  endif()
 endif()
 add_entrypoint_object(
   pthread_mutex_init
