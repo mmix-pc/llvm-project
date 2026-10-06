@@ -44,6 +44,12 @@ void __call_once(volatile once_flag::_State_type& flag, void* arg, void (*func)(
 #else // !_LIBCPP_HAS_THREADS
 
   __libcpp_mutex_lock(&mut);
+  // A canceled condition waiter owns this mutex again before unwinding.
+  bool locked = true;
+  auto unlock = std::__make_exception_guard([&] {
+    if (locked)
+      __libcpp_mutex_unlock(&mut);
+  });
   while (flag == once_flag::_Pending)
     __libcpp_condvar_wait(&cv, &mut);
   if (flag == once_flag::_Unset) {
@@ -56,15 +62,20 @@ void __call_once(volatile once_flag::_State_type& flag, void* arg, void (*func)(
 
     __libcpp_relaxed_store(&flag, once_flag::_Pending);
     __libcpp_mutex_unlock(&mut);
+    locked = false;
     func(arg);
     __libcpp_mutex_lock(&mut);
+    locked = true;
     __libcpp_atomic_store(&flag, once_flag::_Complete, _AO_Release);
     __libcpp_mutex_unlock(&mut);
+    locked = false;
     __libcpp_condvar_broadcast(&cv);
     guard.__complete();
   } else {
     __libcpp_mutex_unlock(&mut);
+    locked = false;
   }
+  unlock.__complete();
 
 #endif // !_LIBCPP_HAS_THREADS
 }
