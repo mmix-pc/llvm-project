@@ -120,6 +120,10 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     set(mmix_once_option -DLIBC_MMIX_PUBLIC_ONCE)
   endif()
   if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
+    set(mmix_async_options)
+    if(LIBC_MMIX_BUILD_ASYNC_CANCELLATION)
+      set(mmix_async_options -DLIBC_MMIX_ASYNC_CANCELLATION)
+    endif()
     set(mmix_window_dependency)
     if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
       add_object_library(
@@ -130,12 +134,12 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
         HDRS cancellation_point.h
         DEPENDS .lifecycle libc.hdr.errno_macros libc.hdr.signal_macros
           libc.src.errno.errno libc.hdr.types.jmp_buf
-          libc.hdr.types.sigjmp_buf libc.src.__support.common
+          libc.hdr.types.sigjmp_buf libc.include.ucontext libc.src.__support.common
           libc.src.setjmp.mmix.jump_restore
           libc.src.signal.linux.mmix.kernel_sigaction
           libc.src.signal.linux.mmix.signal_trampoline
           libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
-        COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
+        COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_async_options}
       )
       set(mmix_window_dependency .cancellation_point)
     endif()
@@ -148,8 +152,8 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       SRCS cleanup.cpp
       HDRS cleanup.h
       DEPENDS .lifecycle libc.src.__support.OSUtil.linux.mmix.syscall
-              libc.include.sys_syscall
-      COMPILE_OPTIONS -fno-lto -funwind-tables ${mmix_cleanup_options}
+              libc.include.sys_syscall libc.hdr.signal_macros
+      COMPILE_OPTIONS -fno-lto -funwind-tables ${mmix_cleanup_options} ${mmix_async_options}
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include
     )
@@ -185,6 +189,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
         libc.hdr.signal_macros libc.include.pthread
         libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
       COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
+        ${mmix_async_options}
     )
   endif()
   add_object_library(

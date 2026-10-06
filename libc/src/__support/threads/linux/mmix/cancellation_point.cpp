@@ -17,12 +17,14 @@
 #include "src/setjmp/setjmp_impl.h"
 #include "src/signal/linux/mmix/kernel_sigaction.h"
 #include "src/signal/linux/mmix/signal_trampoline.h"
+#include "thread_finish.h"
 #include "thread_join.h"
 #include <asm/rstack.h>
 #include <asm/sigcontext.h>
 #include <asm/unistd.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#include <ucontext.h>
 
 #if !defined(MMIX_SIGCONTEXT_HAS_CHAIN_ID) || MMIX_SIGCONTEXT_HAS_CHAIN_ID != 1
 #error "MMIX cancellation windows require the matched interrupted-chain UAPI"
@@ -56,6 +58,84 @@ namespace {
 cpp::Atomic<uint64_t> identities{1};
 long process_id = 0;
 bool initialized = false;
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+struct AsyncExit {
+  __jmp_buf environment{};
+  uint64_t identity = 0, generation = 0, mask = 0;
+  uintptr_t ro = 0, sp = 0;
+  int saved_errno = 0;
+};
+static_assert(__builtin_offsetof(ucontext_t, uc_mcontext) == 168);
+LIBC_CONSTINIT LIBC_THREAD_LOCAL AsyncExit async_exit{};
+
+extern "C" [[noreturn, gnu::noinline, clang::disable_tail_calls]] void
+__llvm_libc_mmix_async_landing() {
+  auto *control = current_control;
+  mmix_rstack_query query{};
+  if (!control || !control->cancellation.asynchronous() ||
+      !control->unwind_root.active ||
+      async_exit.identity != control->cancellation_identity ||
+      async_exit.generation != control->unwind_root.generation ||
+      syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) ||
+      query.chain_id != control->unwind_root.chain ||
+      control->cancellation_transfer.exchange(0, cpp::MemoryOrder::ACQ_REL) !=
+          1 ||
+      control->cancellation_suppression.fetch_sub(
+          1, cpp::MemoryOrder::ACQ_REL) != 1)
+    __builtin_trap();
+  {
+    ThreadRegistryLock lock(thread_registry);
+    if (!lock.begin_cleanup(*control, true))
+      __builtin_trap();
+  }
+  libc_errno = async_exit.saved_errno;
+  uint64_t mask = async_exit.mask | CANCEL_MASK;
+  if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
+                   reinterpret_cast<long>(&mask), 0, 8))
+    __builtin_trap();
+  dispatch_async_cleanup(async_exit.ro, async_exit.sp);
+  complete_thread_cleanup(*control,
+                          ThreadReturnValue(reinterpret_cast<void *>(-1L)));
+}
+
+[[noreturn]] void transfer_async(ThreadControl &control,
+                                 const ucontext_t &context, int saved_errno) {
+  const auto &saved =
+      *reinterpret_cast<const sigcontext *>(&context.uc_mcontext);
+  const auto &regs = saved.sc_regs;
+  uint64_t expected = 0;
+  if (!control.cancellation_transfer.compare_exchange_strong(
+          expected, 1, cpp::MemoryOrder::ACQ_REL))
+    __builtin_trap();
+  control.cancellation_suppression.fetch_add(1, cpp::MemoryOrder::ACQ_REL);
+  async_exit.identity = control.cancellation_identity;
+  async_exit.generation = control.unwind_root.generation;
+  async_exit.mask = *reinterpret_cast<const uint64_t *>(&context.uc_sigmask);
+  async_exit.ro = regs.r_o;
+  async_exit.sp = regs.regs[254];
+  async_exit.saved_errno = saved_errno;
+  auto &env = async_exit.environment;
+  env.frame_pointer = regs.regs[253];
+  env.return_address =
+      reinterpret_cast<uintptr_t>(&__llvm_libc_mmix_async_landing);
+  env.stack_pointer = regs.regs[254];
+  env.register_stack_offset = regs.r_o;
+  for (unsigned i = 0; i < 31; ++i)
+    env.locals[i] = regs.regs[i];
+  env.chain_id = saved.sc_chain_id;
+  env.signal_mask = UINT64_MAX;
+  env.save_mask = 1;
+  mmix_rstack_jump request{
+      saved.sc_chain_id,
+      reinterpret_cast<uintptr_t>(&__llvm_libc_mmix_jump_landing),
+      reinterpret_cast<uintptr_t>(&env),
+      1,
+      MMIX_RSTACK_JUMP_SETMASK,
+      UINT64_MAX};
+  syscall_impl(__NR_mmix_rstack_jump, reinterpret_cast<long>(&request));
+  __builtin_trap();
+}
+#endif
 
 uint64_t mask_all() {
   uint64_t full = UINT64_MAX, old;
@@ -84,6 +164,25 @@ void notification(int signal, siginfo_t *info, void *context) {
   // ucontext puts the machine context after a 168-byte fixed prefix.
   const auto &saved = *reinterpret_cast<const sigcontext *>(
       static_cast<const unsigned char *>(context) + 168);
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  if (control->cancellation.asynchronous()) {
+    uintptr_t current_tp;
+    asm volatile("OR %0, r230, 0" : "=r"(current_tp));
+    if (!control->unwind_root.active ||
+        saved.sc_chain_id != control->unwind_root.chain)
+      return;
+    if (control->unwind_root.owner != control || saved.sc_regs.regs[230] != current_tp ||
+        saved.sc_regs.r_o < control->unwind_root.ro ||
+        (saved.sc_regs.r_o & 7) || (saved.sc_regs.regs[254] & 7) ||
+        !saved.sc_regs.regs[254] ||
+        (!control->retains_resources_until_process_exit() &&
+         (saved.sc_regs.regs[254] < control->stack_bottom ||
+          saved.sc_regs.regs[254] >= control->stack_top)))
+      __builtin_trap();
+    transfer_async(*control, *static_cast<const ucontext_t *>(context),
+                   saved_errno);
+  }
+#endif
   uintptr_t pc = saved.sc_regs.pc;
   if (!point || point->owner != control ||
       point->identity != control->cancellation_identity || !point->generation ||

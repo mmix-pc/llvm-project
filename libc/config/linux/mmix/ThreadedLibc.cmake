@@ -128,6 +128,7 @@ function(mmix_configure_threaded_libc)
                "deferred_cancellation|${LIBC_MMIX_BUILD_DEFERRED_CANCELLATION}"
                "cancellation_windows|${LIBC_MMIX_BUILD_CANCELLATION_WINDOWS}"
                "cancellation_runtime_locks|${LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS}"
+               "asynchronous_cancellation|${LIBC_MMIX_BUILD_ASYNC_CANCELLATION}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")

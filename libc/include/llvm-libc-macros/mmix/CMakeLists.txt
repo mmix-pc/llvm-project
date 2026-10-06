@@ -22,6 +22,12 @@ if(LIBC_TARGET_OS STREQUAL "linux")
   if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
     add_header(pthread_base_macros HDR ../pthread-macros.h
       DEST_HDR pthread-base-macros.h)
-    add_header(pthread_cleanup HDR pthread-cleanup.h)
+    if(LIBC_MMIX_BUILD_ASYNC_CANCELLATION)
+      add_header(pthread_cleanup_base HDR pthread-cleanup.h DEST_HDR pthread-cleanup-base.h)
+      add_header(pthread_cleanup HDR pthread-cleanup-async.h DEST_HDR pthread-cleanup.h
+        DEPENDS .pthread_cleanup_base)
+    else()
+      add_header(pthread_cleanup HDR pthread-cleanup.h)
+    endif()
   endif()
 endif()

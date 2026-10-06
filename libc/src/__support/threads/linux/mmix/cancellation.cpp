@@ -59,7 +59,8 @@ int cancel_thread(ThreadAttributes *handle) {
     }
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
     if (!error && current_control->cancellation.enabled() &&
-        current_control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE)) {
+        (current_control->cancellation.asynchronous() ||
+         current_control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE))) {
       long pid = syscall_impl(SYS_getpid);
       long result = pid < 0 ? pid : syscall_impl(
           SYS_tgkill, pid, current_control->attributes.tid, CANCEL_SIGNAL);
@@ -109,21 +110,29 @@ int set_cancel_state(int state, int *old_state) {
     return EINVAL;
   if (!current_control)
     return ENOTSUP;
-  SignalMask mask;
-  bool enabled =
-      current_control->cancellation.set_enabled(state == PTHREAD_CANCEL_ENABLE);
-  if (old_state)
-    *old_state = enabled ? PTHREAD_CANCEL_ENABLE : PTHREAD_CANCEL_DISABLE;
+  {
+    SignalMask mask;
+    bool enabled = current_control->cancellation.set_enabled(
+        state == PTHREAD_CANCEL_ENABLE);
+    if (old_state)
+      *old_state = enabled ? PTHREAD_CANCEL_ENABLE : PTHREAD_CANCEL_DISABLE;
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   // An application handler can enable a pending request while its ordinary
   // caller is blocked. Queue the wake before returning to that caller's TRAP.
   if (state == PTHREAD_CANCEL_ENABLE && current_control->cancellation.ready() &&
-      current_control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE)) {
+      (current_control->cancellation.asynchronous() ||
+       current_control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE))) {
     long pid = syscall_impl(SYS_getpid);
     if (pid <= 0 || syscall_impl(SYS_tgkill, pid,
                                 current_control->attributes.tid, CANCEL_SIGNAL))
       __builtin_trap();
   }
+#endif
+  }
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  if (state == PTHREAD_CANCEL_ENABLE &&
+      current_control->cancellation.asynchronous())
+    test_cancel();
 #endif
   return 0;
 }
@@ -131,10 +140,25 @@ int set_cancel_state(int state, int *old_state) {
 int set_cancel_type(int type, int *old_type) {
   if (type != PTHREAD_CANCEL_DEFERRED && type != PTHREAD_CANCEL_ASYNCHRONOUS)
     return EINVAL;
-  if (type == PTHREAD_CANCEL_ASYNCHRONOUS || !current_control)
+  if (!current_control)
+    return ENOTSUP;
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  {
+    SignalMask mask;
+    bool previous = current_control->cancellation.set_async(
+        type == PTHREAD_CANCEL_ASYNCHRONOUS);
+    if (old_type)
+      *old_type =
+          previous ? PTHREAD_CANCEL_ASYNCHRONOUS : PTHREAD_CANCEL_DEFERRED;
+  }
+  if (type == PTHREAD_CANCEL_ASYNCHRONOUS)
+    test_cancel();
+#else
+  if (type == PTHREAD_CANCEL_ASYNCHRONOUS)
     return ENOTSUP;
   if (old_type)
     *old_type = PTHREAD_CANCEL_DEFERRED;
+#endif
   return 0;
 }
 

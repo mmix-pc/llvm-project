@@ -36,29 +36,60 @@ __llvm_libc_mmix_thread_cleanup_push(struct __llvm_libc_mmix_cleanup_record *,
 __attribute__((visibility("hidden"))) void
 __llvm_libc_mmix_thread_cleanup_pop(struct __llvm_libc_mmix_cleanup_record *,
                                     int);
+#ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
+__attribute__((visibility("hidden"))) void
+__llvm_libc_mmix_thread_cleanup_push_cpp(struct __llvm_libc_mmix_cleanup_record *,
+                                       void (*)(void *), void *);
+#endif
 #ifdef __cplusplus
 }
 
 class __llvm_libc_mmix_cleanup_guard {
+#ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
+  __llvm_libc_mmix_cleanup_record __record;
+#else
   void (*__callback)(void *);
   void *__argument;
   bool __active;
+#endif
 
 public:
+#ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
+#define __LIBC_MMIX_CLEANUP_INLINE __attribute__((always_inline))
+#else
+#define __LIBC_MMIX_CLEANUP_INLINE
+#endif
+  __LIBC_MMIX_CLEANUP_INLINE
   __llvm_libc_mmix_cleanup_guard(void (*__fn)(void *), void *__arg)
-      : __callback(__fn), __argument(__arg), __active(true) {}
+#ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
+  {
+    __llvm_libc_mmix_thread_cleanup_push_cpp(&__record, __fn, __arg);
+  }
+#else
+      : __callback(__fn), __argument(__arg), __active(true) {
+  }
+#endif
   __llvm_libc_mmix_cleanup_guard(const __llvm_libc_mmix_cleanup_guard &) =
       delete;
   __llvm_libc_mmix_cleanup_guard &
   operator=(const __llvm_libc_mmix_cleanup_guard &) = delete;
-  ~__llvm_libc_mmix_cleanup_guard() noexcept { __finish(true); }
-  void __finish(bool __execute) noexcept {
+  __LIBC_MMIX_CLEANUP_INLINE ~__llvm_libc_mmix_cleanup_guard() noexcept {
+    __finish(true);
+  }
+  __LIBC_MMIX_CLEANUP_INLINE void __finish(bool __execute) noexcept {
+#ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
+    // Forced dispatch consumed the record before running its callback.
+    if (__record.serial)
+      __llvm_libc_mmix_thread_cleanup_pop(&__record, __execute);
+#else
     bool __run = __active && __execute;
     __active = false;
     if (__run)
       __callback(__argument);
+#endif
   }
 };
+#undef __LIBC_MMIX_CLEANUP_INLINE
 
 #define pthread_cleanup_push(routine, arg)                                     \
   do {                                                                         \

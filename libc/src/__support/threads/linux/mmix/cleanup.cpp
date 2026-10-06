@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "cleanup.h"
+#include "hdr/signal_macros.h"
 #include "lifecycle.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include <asm/rstack.h>
@@ -19,6 +20,34 @@ namespace {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL MmixCleanupLink head{};
 LIBC_CONSTINIT LIBC_THREAD_LOCAL uint64_t serial = 0;
 LIBC_CONSTINIT LIBC_THREAD_LOCAL bool dispatching = false;
+
+class RegistrationMask {
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  uint64_t saved;
+  bool active = true;
+#endif
+public:
+  RegistrationMask() {
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+    uint64_t full = UINT64_MAX;
+    if (syscall_impl(__NR_rt_sigprocmask, SIG_SETMASK,
+                     reinterpret_cast<long>(&full),
+                     reinterpret_cast<long>(&saved), 8))
+      __builtin_trap();
+#endif
+  }
+  void restore() {
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+    if (!active)
+      return;
+    active = false;
+    if (syscall_impl(__NR_rt_sigprocmask, SIG_SETMASK,
+                     reinterpret_cast<long>(&saved), 0, 8))
+      __builtin_trap();
+#endif
+  }
+  ~RegistrationMask() { restore(); }
+};
 
 MmixCleanupFrame owner_frame(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
   auto *control = current_control;
@@ -97,17 +126,22 @@ void remove(bool execute) {
   if (execute)
     invoke_callback(callback, argument);
 }
-} // namespace
-
-extern "C" [[gnu::noinline, clang::disable_tail_calls]] void
-__llvm_libc_mmix_thread_cleanup_push(MmixCleanupRecord *record,
-                                     void (*callback)(void *), void *argument) {
-  auto frame = capture(record);
-  if (!callback || dispatching || serial == UINT64_MAX ||
+void publish(MmixCleanupRecord *record, void (*callback)(void *), void *argument,
+             const MmixCleanupFrame &frame, bool cpp_record) {
+  if (!callback || dispatching || serial >= UINT64_MAX - 2 ||
       (head.record && (head.record == record || head.frame.ro > frame.ro)))
     __builtin_trap();
-  // Serial ordering bounds the walk and rejects cycles before reusing storage.
-  uint64_t newer = serial + 1;
+  // Async profiles tag C++ records in monotonically increasing serials without
+  // changing public record layout. Synchronous unwind leaves those records to
+  // their RAII guard, preserving ordering with other automatic destructors.
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  uint64_t next = serial + 2;
+  uint64_t identifier = next | (cpp_record ? 1 : 0);
+#else
+  (void)cpp_record;
+  uint64_t next = serial + 1, identifier = next;
+#endif
+  uint64_t newer = identifier;
   for (auto link = head; link.record; link = link.record->previous) {
     if (link.record == record || link.serial >= newer ||
         link.frame.owner != frame.owner || link.frame.chain != frame.chain ||
@@ -116,17 +150,43 @@ __llvm_libc_mmix_thread_cleanup_push(MmixCleanupRecord *record,
     validate_link(link);
     newer = link.serial;
   }
-  // Do not read uninitialized automatic record storage.
-  *record = {head, callback, argument, ++serial};
-  head = {record, frame, serial};
+  serial = next;
+  *record = {head, callback, argument, identifier};
+  head = {record, frame, identifier};
 }
+} // namespace
+
+extern "C" [[gnu::noinline, clang::disable_tail_calls]] void
+__llvm_libc_mmix_thread_cleanup_push(MmixCleanupRecord *record,
+                                     void (*callback)(void *), void *argument) {
+  RegistrationMask mask;
+  auto frame = capture(record);
+  publish(record, callback, argument, frame, false);
+}
+
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+extern "C" [[gnu::noinline, clang::disable_tail_calls]] void
+__llvm_libc_mmix_thread_cleanup_push_cpp(MmixCleanupRecord *record,
+                                        void (*callback)(void *), void *argument) {
+  RegistrationMask mask;
+  auto frame = capture(record);
+  publish(record, callback, argument, frame, true);
+}
+#endif
 
 extern "C" [[gnu::noinline, clang::disable_tail_calls]] void
 __llvm_libc_mmix_thread_cleanup_pop(MmixCleanupRecord *record, int execute) {
+  RegistrationMask mask;
   auto frame = capture(record);
   if (dispatching || head.record != record || !same_frame(head.frame, frame))
     __builtin_trap();
-  remove(execute != 0);
+  validate_link(head);
+  auto callback = record->callback;
+  auto argument = record->argument;
+  remove(false);
+  mask.restore();
+  if (execute)
+    invoke_callback(callback, argument);
 }
 
 void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
@@ -142,11 +202,43 @@ void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
       break;
     if (!same_frame(head.frame, frame))
       __builtin_trap();
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+    if (head.serial & 1)
+      break;
+#endif
     remove(true);
   }
   dispatching = false;
 }
 
 bool has_c_cleanup() { return head.record != nullptr; }
+
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+void dispatch_async_cleanup(uintptr_t interrupted_ro,
+                            uintptr_t interrupted_sp) {
+  auto *control = current_control;
+  mmix_rstack_query query{};
+  if (!control || dispatching || !control->cancellation.terminal() ||
+      !control->unwind_root.active ||
+      syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) ||
+      query.chain_id != control->unwind_root.chain)
+    __builtin_trap();
+  dispatching = true;
+  uint64_t newer = UINT64_MAX;
+  uintptr_t inner_ro = interrupted_ro;
+  while (head.record) {
+    if (head.frame.owner != control || head.frame.chain != query.chain_id ||
+        head.frame.generation != control->unwind_root.generation ||
+        head.frame.ro < control->unwind_root.ro ||
+        head.frame.ro > interrupted_ro || head.frame.sp < interrupted_sp ||
+        head.serial >= newer || head.frame.ro > inner_ro)
+      __builtin_trap();
+    newer = head.serial;
+    inner_ro = head.frame.ro;
+    remove(true);
+  }
+  dispatching = false;
+}
+#endif
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

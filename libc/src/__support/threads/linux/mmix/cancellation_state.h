@@ -19,7 +19,7 @@ namespace mmix {
 // Keep signal-visible state in one naturally aligned, lock-free octa. Only
 // the owner changes enable/type; request and terminal updates preserve it.
 class CancellationState {
-  static constexpr uint64_t ENABLED = 1, PENDING = 2, TERMINAL = 4;
+  static constexpr uint64_t ENABLED = 1, PENDING = 2, TERMINAL = 4, ASYNC = 8;
   cpp::Atomic<uint64_t> bits{ENABLED};
 
 public:
@@ -30,6 +30,15 @@ public:
             (ENABLED | PENDING | TERMINAL)) == (ENABLED | PENDING);
   }
   bool terminal() { return bits.load(cpp::MemoryOrder::ACQUIRE) & TERMINAL; }
+  bool asynchronous() { return bits.load(cpp::MemoryOrder::ACQUIRE) & ASYNC; }
+  bool set_async(bool asynchronous) {
+    auto old = bits.load(cpp::MemoryOrder::ACQUIRE);
+    for (;;) {
+      auto next = asynchronous ? old | ASYNC : old & ~ASYNC;
+      if (bits.compare_exchange_weak(old, next, cpp::MemoryOrder::ACQ_REL))
+        return old & ASYNC;
+    }
+  }
   bool set_enabled(bool enabled) {
     auto old = bits.load(cpp::MemoryOrder::ACQUIRE);
     for (;;) {
