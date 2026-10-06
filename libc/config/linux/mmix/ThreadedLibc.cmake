@@ -82,6 +82,25 @@ function(mmix_configure_threaded_libc)
     if(NOT TARGET ${provider})
       message(FATAL_ERROR "MMIX threaded libc is missing provider ${provider}")
     endif()
+    if(LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS)
+      # Every frame above an admitted leaf must propagate forced unwind and
+      # execute its scope guards. Raw helpers still do not become points.
+      foreach(variant "${provider}" "${provider}.__internal__")
+        if(TARGET ${variant})
+          get_target_property(aliased ${variant} ALIASED_TARGET)
+          if(aliased)
+            set(actual ${aliased})
+          else()
+            set(actual ${variant})
+          endif()
+          get_target_property(type ${actual} TYPE)
+          if(type STREQUAL OBJECT_LIBRARY)
+            target_compile_options(${actual} PRIVATE
+              -fno-lto -fexceptions -funwind-tables)
+          endif()
+        endif()
+      endforeach()
+    endif()
   endforeach()
   add_custom_target(mmix_libc_threaded
     DEPENDS libc libc-headers libc.startup.linux.mmix.crt1)
@@ -108,6 +127,7 @@ function(mmix_configure_threaded_libc)
                "forced_exit|${LIBC_MMIX_BUILD_FORCED_EXIT}"
                "deferred_cancellation|${LIBC_MMIX_BUILD_DEFERRED_CANCELLATION}"
                "cancellation_windows|${LIBC_MMIX_BUILD_CANCELLATION_WINDOWS}"
+               "cancellation_runtime_locks|${LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")

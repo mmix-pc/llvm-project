@@ -28,7 +28,7 @@ public:
 
 // Retained direct C exit drains records before reclamation. In the forced-exit
 // profile, stack unwinding already removed them and the common guard reset them.
-// Cancellation points remain a separate runtime integration.
+// Deferred cancellation uses the same forced-unwind abandonment ordering.
 void abandon_once_initializers();
 
 } // namespace mmix

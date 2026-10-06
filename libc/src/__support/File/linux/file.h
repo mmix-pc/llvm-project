@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/types/off_t.h"
+#include "hdr/types/mode_t.h"
 #include "src/__support/File/file.h"
 #include "src/__support/macros/config.h"
 
@@ -14,6 +15,7 @@ namespace LIBC_NAMESPACE_DECL {
 
 FileIOResult linux_file_write(File *, const void *, size_t);
 FileIOResult linux_file_read(File *, void *, size_t);
+ErrorOr<int> linux_file_open(const char *, int, mode_t);
 ErrorOr<off_t> linux_file_seek(File *, off_t, int);
 int linux_file_close(File *);
 

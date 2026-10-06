@@ -1,3 +1,11 @@
+set(closedir_source closedir.cpp)
+set(closedir_dependency)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+   LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS)
+  set(closedir_source linux/mmix/cancellation_closedir.cpp)
+  set(closedir_dependency libc.src.__support.threads.linux.mmix.cancellation)
+endif()
+
 add_entrypoint_object(
   opendir
   SRCS
@@ -26,7 +34,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   closedir
   SRCS
-    closedir.cpp
+    ${closedir_source}
   HDRS
     closedir.h
   DEPENDS
@@ -34,6 +42,7 @@ add_entrypoint_object(
     libc.src.__support.File.dir
     libc.src.__support.File.platform_dir
     libc.src.errno.errno
+    ${closedir_dependency}
 )
 
 add_entrypoint_object(

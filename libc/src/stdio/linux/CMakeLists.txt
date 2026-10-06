@@ -82,3 +82,18 @@ add_entrypoint_object(
     libc.src.__support.macros.config
     libc.src.__support.OSUtil.linux.syscall_wrappers.open
 )
+# Target-owned resource retirement policy; generic File ownership is retained.
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+   LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS)
+  add_entrypoint_object(
+    fclose
+    SRCS mmix/cancellation_fclose.cpp
+    HDRS ../fclose.h
+    DEPENDS
+      libc.src.__support.File.file
+      libc.src.__support.File.platform_file
+      libc.src.__support.threads.linux.mmix.cancellation
+      libc.src.errno.errno
+    COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
+  )
+endif()

@@ -27,24 +27,6 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-FileIOResult linux_file_write(File *f, const void *data, size_t size) {
-  auto *lf = reinterpret_cast<LinuxFile *>(f);
-  auto ret = linux_syscalls::write(lf->get_fd(), data, size);
-  if (!ret) {
-    return {0, ret.error()};
-  }
-  return static_cast<size_t>(ret.value());
-}
-
-FileIOResult linux_file_read(File *f, void *buf, size_t size) {
-  auto *lf = reinterpret_cast<LinuxFile *>(f);
-  auto ret = linux_syscalls::read(lf->get_fd(), buf, size);
-  if (!ret) {
-    return {0, ret.error()};
-  }
-  return static_cast<size_t>(ret.value());
-}
-
 ErrorOr<off_t> linux_file_seek(File *f, off_t offset, int whence) {
   auto *lf = reinterpret_cast<LinuxFile *>(f);
   return linux_syscalls::lseek(lf->get_fd(), offset, whence);
@@ -105,7 +87,7 @@ ErrorOr<File *> openfile(const char *path, const char *mode) {
   constexpr mode_t OPEN_MODE =
       S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 
-  ErrorOr<int> fd = linux_syscalls::open(path, open_flags, OPEN_MODE);
+  ErrorOr<int> fd = linux_file_open(path, open_flags, OPEN_MODE);
   if (!fd)
     return Error(fd.error());
 
@@ -220,7 +202,7 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
     constexpr mode_t OPEN_MODE =
         S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 
-    ErrorOr<int> new_fd = linux_syscalls::open(path, open_flags, OPEN_MODE);
+    ErrorOr<int> new_fd = linux_file_open(path, open_flags, OPEN_MODE);
 
     // If the new file fails to open, POSIX says we still have to close the old
     // file.

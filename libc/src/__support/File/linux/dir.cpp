@@ -25,30 +25,6 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-ErrorOr<int> platform_opendir(const char *name) {
-  return linux_syscalls::open(name, O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0);
-}
-
-ErrorOr<size_t> platform_fetch_dirents(int fd, cpp::span<uint8_t> buffer) {
-#ifdef SYS_getdents64
-  long size = LIBC_NAMESPACE::syscall_impl<long>(SYS_getdents64, fd,
-                                                 buffer.data(), buffer.size());
-#else
-#error "getdents64 syscalls not available to perform a fetch dirents operation."
-#endif
-
-  if (size < 0)
-    return LIBC_NAMESPACE::Error(static_cast<int>(-size));
-  return size;
-}
-
-int platform_closedir(int fd) {
-  auto ret = linux_syscalls::close(fd);
-  if (!ret)
-    return ret.error();
-  return 0;
-}
-
 int platform_check_dir(int fd) {
   // 1. Verify fd is valid and open for reading.
   auto flags = linux_syscalls::fcntl(fd, F_GETFL);
