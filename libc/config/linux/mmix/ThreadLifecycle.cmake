@@ -48,6 +48,13 @@ if(LIBC_MMIX_BUILD_PI_MUTEX)
     libc.src.pthread.pthread_mutexattr_getprotocol
     libc.src.pthread.pthread_mutexattr_setprotocol)
 endif()
+if(LIBC_MMIX_BUILD_PROTECT_MUTEX)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.pthread.pthread_mutexattr_getprioceiling
+    libc.src.pthread.pthread_mutexattr_setprioceiling
+    libc.src.pthread.pthread_mutex_getprioceiling
+    libc.src.pthread.pthread_mutex_setprioceiling)
+endif()
 if(LIBC_MMIX_BUILD_PTHREAD_COND)
   foreach(operation init destroy wait signal broadcast timedwait clockwait)
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_cond_${operation})

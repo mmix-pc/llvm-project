@@ -17,6 +17,9 @@
 #ifdef LIBC_MMIX_ROBUST_MUTEX
 #include "src/__support/threads/linux/mmix/robust_mutex.h"
 #endif
+#ifdef LIBC_MMIX_PROTECT_MUTEX
+#include "src/__support/threads/linux/mmix/protect_mutex.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -89,8 +92,14 @@ inline int condition_wait_impl(CndVar *cond, WaitMutex *mutex,
 
 inline int condition_wait(CndVar *cond, pthread_mutex_t *mutex,
                           cpp::optional<CndVar::Timeout> timeout) {
+#ifdef LIBC_MMIX_PROTECT_MUTEX
+  // FIXME: Admit protection only after condition waits can propagate an
+  // unlock's post-release priority-restoration error without losing ownership.
+  if (uses_protect_mutex(mutex))
+    return ENOTSUP;
+#endif
 #ifdef LIBC_MMIX_ROBUST_MUTEX
-  if (mutex->__robust || mutex->__priority_inherit)
+  if (uses_kernel_mutex(mutex))
     return condition_wait_impl(cond, reinterpret_cast<RobustMutex *>(mutex),
                                timeout);
 #endif

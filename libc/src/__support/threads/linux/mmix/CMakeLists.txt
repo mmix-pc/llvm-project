@@ -17,6 +17,16 @@ add_object_library(
 if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
+  if(LIBC_MMIX_BUILD_PROTECT_MUTEX)
+    add_object_library(
+      protect_mutex
+      SRCS protect_mutex.cpp priority_protection.cpp priority_kernel.cpp
+      HDRS protect_mutex.h priority_protection_state.h mutex_flags.h
+      DEPENDS .lifecycle .robust_mutex libc.src.__support.OSUtil.osutil
+        libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto -ftls-model=local-exec
+    )
+  endif()
   if(LIBC_MMIX_BUILD_ROBUST_MUTEX)
     if(LIBC_MMIX_BUILD_PI_MUTEX)
       set(mmix_pi_sources pi_mutex.cpp)

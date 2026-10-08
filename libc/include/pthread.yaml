@@ -306,6 +306,27 @@ functions:
     return_type: int
     arguments:
       - type: pthread_mutex_t *
+  - name: pthread_mutex_getprioceiling
+    return_type: int
+    arguments:
+      - type: const pthread_mutex_t *__restrict
+      - type: int *__restrict
+  - name: pthread_mutex_setprioceiling
+    return_type: int
+    arguments:
+      - type: pthread_mutex_t *__restrict
+      - type: int
+      - type: int *__restrict
+  - name: pthread_mutexattr_getprioceiling
+    return_type: int
+    arguments:
+      - type: const pthread_mutexattr_t *__restrict
+      - type: int *__restrict
+  - name: pthread_mutexattr_setprioceiling
+    return_type: int
+    arguments:
+      - type: pthread_mutexattr_t *
+      - type: int
   - name: pthread_mutex_consistent
     return_type: int
     arguments:

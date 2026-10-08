@@ -12,7 +12,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_mutex_consistent, (pthread_mutex_t * mutex)) {
-  if (!mutex->__robust)
+  if (!(mmix::mutex_flags(mutex) & mmix::MUTEX_ROBUST))
     return EINVAL;
   return reinterpret_cast<mmix::RobustMutex *>(mutex)->consistent();
 }

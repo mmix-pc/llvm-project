@@ -10,6 +10,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_LIFECYCLE_H
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_LIFECYCLE_H
 
+#include "priority_protection_state.h"
 #include "src/__support/threads/linux/mmix/cancellation_state.h"
 #include "src/__support/threads/linux/mmix/tls.h"
 #include "src/__support/threads/linux/mmix/unwind_root.h"
@@ -63,6 +64,7 @@ struct ThreadControl {
   ThreadMapping control_mapping, stack_mapping;
   TLSDescriptor tls{};
   UnwindRoot unwind_root{};
+  PriorityProtectionState priority_protection;
   CancellationState cancellation;
   cpp::Atomic<CancellationPoint *> cancellation_point{nullptr};
   cpp::Atomic<uint64_t> cancellation_suppression{0}, cancellation_transfer{0};

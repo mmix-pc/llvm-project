@@ -11,6 +11,9 @@
 #define LLVM_LIBC_SRC_PTHREAD_LINUX_MMIX_ROBUST_MUTEX_DISPATCH_H
 #include "src/__support/threads/linux/mmix/robust_mutex.h"
 #include "src/__support/threads/mutex.h"
+#ifdef LIBC_MMIX_PROTECT_MUTEX
+#include "src/__support/threads/linux/mmix/protect_mutex.h"
+#endif
 #include <pthread.h>
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {

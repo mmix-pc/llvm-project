@@ -1,0 +1,21 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:])
+script = root / 'mode.cmake'
+script.write_text('cmake_minimum_required(VERSION 3.20)\ninclude("' +
+                  str(libc.resolve() / 'config/linux/mmix/RuntimeMode.cmake') +
+                  '")\nmmix_check_runtime_mode()\n')
+for pi, asynchronous in ((False, False), (True, True)):
+    args = {'LIBC_MMIX_BUILD_PROTECT_MUTEX': 'ON',
+            'LIBC_MMIX_BUILD_PI_MUTEX': 'ON' if pi else 'OFF',
+            'LIBC_MMIX_BUILD_ASYNC_CANCELLATION': 'ON' if asynchronous else 'OFF'}
+    result = subprocess.run(['cmake', *[f'-D{k}={v}' for k,v in args.items()],
+                             '-P', str(script)], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert 'MMIX protection requires PI and a deferred-only profile' in result.stderr

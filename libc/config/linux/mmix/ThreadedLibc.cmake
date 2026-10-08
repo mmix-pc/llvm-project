@@ -137,6 +137,7 @@ function(mmix_configure_threaded_libc)
                "process_shared|${LIBC_MMIX_BUILD_PROCESS_SHARED}"
                "robust_mutex|${LIBC_MMIX_BUILD_ROBUST_MUTEX}"
                "pi_mutex|${LIBC_MMIX_BUILD_PI_MUTEX}"
+               "protect_mutex|${LIBC_MMIX_BUILD_PROTECT_MUTEX}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")

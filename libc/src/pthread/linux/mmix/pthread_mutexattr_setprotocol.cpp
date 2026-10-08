@@ -15,8 +15,10 @@ LLVM_LIBC_FUNCTION(int, pthread_mutexattr_setprotocol,
   if (protocol != PTHREAD_PRIO_NONE && protocol != PTHREAD_PRIO_INHERIT &&
       protocol != PTHREAD_PRIO_PROTECT)
     return EINVAL;
+#ifndef LIBC_MMIX_PROTECT_MUTEX
   if (protocol == PTHREAD_PRIO_PROTECT)
     return ENOTSUP;
+#endif
   *attr = (*attr & ~mmix::MUTEX_PROTOCOL_MASK) |
           (unsigned(protocol) << mmix::MUTEX_PROTOCOL_SHIFT);
   return 0;

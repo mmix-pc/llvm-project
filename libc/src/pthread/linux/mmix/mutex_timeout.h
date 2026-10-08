@@ -42,8 +42,24 @@ LIBC_INLINE int mutex_clocklock(pthread_mutex_t *storage, clockid_t clock,
   if (clock != CLOCK_REALTIME && clock != CLOCK_MONOTONIC)
     return EINVAL;
   LIBC_CRASH_ON_NULLPTR(storage);
+#ifdef LIBC_MMIX_PROTECT_MUTEX
+  if (uses_protect_mutex(storage)) {
+    auto *protect = reinterpret_cast<ProtectMutex *>(storage);
+    int initial = protect->acquire(cpp::nullopt, true);
+    if (initial != EBUSY)
+      return initial;
+    LIBC_CRASH_ON_NULLPTR(abstime);
+    auto timeout =
+        internal::AbsTimeout::from_timespec(*abstime, clock == CLOCK_REALTIME);
+    if (!timeout)
+      return timeout.error() == internal::AbsTimeout::Error::Invalid
+                 ? EINVAL
+                 : ETIMEDOUT;
+    return protect->acquire(*timeout);
+  }
+#endif
 #ifdef LIBC_MMIX_ROBUST_MUTEX
-  if (storage->__robust || storage->__priority_inherit) {
+  if (uses_kernel_mutex(storage)) {
     auto *robust = reinterpret_cast<RobustMutex *>(storage);
     MutexError initial = robust->try_lock();
     if (initial != MutexError::BUSY)

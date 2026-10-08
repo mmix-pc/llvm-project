@@ -18,6 +18,10 @@
 #ifdef LIBC_MMIX_PI_MUTEX
 #include "mutex_protocol.h"
 #endif
+#ifdef LIBC_MMIX_PROTECT_MUTEX
+#include "src/__support/threads/linux/mmix/priority_protection_state.h"
+#include "src/__support/threads/linux/mmix/protect_mutex.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -34,6 +38,9 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
 #ifdef LIBC_MMIX_PI_MUTEX
   known |= mmix::MUTEX_PROTOCOL_MASK;
 #endif
+#ifdef LIBC_MMIX_PROTECT_MUTEX
+  known |= mmix::MUTEX_ATTR_CEILING_MASK;
+#endif
   if (value & ~known)
     return EINVAL;
   // Reject unqualified modes before touching the destination.
@@ -42,9 +49,12 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
 #endif
 #ifdef LIBC_MMIX_PI_MUTEX
   int protocol = mmix::mutex_protocol(value);
+#ifndef LIBC_MMIX_PROTECT_MUTEX
   if (protocol == PTHREAD_PRIO_PROTECT)
     return ENOTSUP;
-  if (protocol != PTHREAD_PRIO_NONE && protocol != PTHREAD_PRIO_INHERIT)
+#endif
+  if (protocol != PTHREAD_PRIO_NONE && protocol != PTHREAD_PRIO_INHERIT &&
+      protocol != PTHREAD_PRIO_PROTECT)
     return EINVAL;
   inherit = protocol == PTHREAD_PRIO_INHERIT;
 #endif
@@ -76,6 +86,22 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
 #ifndef LIBC_MMIX_PROCESS_SHARED
   if (shared)
     return ENOTSUP;
+#endif
+#ifdef LIBC_MMIX_PROTECT_MUTEX
+  if (protocol == PTHREAD_PRIO_PROTECT) {
+    if (get_mutexattr_robust(value) != PTHREAD_MUTEX_STALLED)
+      return ENOTSUP;
+    int low, high;
+    if (int error = mmix::priority_range(low, high))
+      return error;
+    int ceiling = mmix::mutex_attr_ceiling(value);
+    if (!ceiling)
+      ceiling = low;
+    if (ceiling < low || ceiling > high)
+      return EINVAL;
+    new (mutex) mmix::ProtectMutex(ceiling, recursive, shared, error_checking);
+    return 0;
+  }
 #endif
 #ifdef LIBC_MMIX_ROBUST_MUTEX
   if (get_mutexattr_robust(value) == PTHREAD_MUTEX_ROBUST) {

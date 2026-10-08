@@ -61,7 +61,7 @@ public:
 void insert(RobustMutex &mutex) {
   mutex.link.next = head.list.next;
   auto *tagged = reinterpret_cast<robust_list *>(
-      reinterpret_cast<uintptr_t>(&mutex.link) | mutex.priority_inherit);
+      reinterpret_cast<uintptr_t>(&mutex.link) | mutex.is_priority_inherit());
   __atomic_store_n(&head.list.next, tagged, __ATOMIC_SEQ_CST);
 }
 
@@ -99,9 +99,10 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
   if (register_robust_list())
     return MutexError::BAD_LOCK_STATE;
   auto *pending =
-      robust ? reinterpret_cast<robust_list *>(
-                   reinterpret_cast<uintptr_t>(&link) | priority_inherit)
-             : nullptr;
+      is_robust()
+          ? reinterpret_cast<robust_list *>(reinterpret_cast<uintptr_t>(&link) |
+                                            is_priority_inherit())
+          : nullptr;
   Operation operation(pending);
   uint32_t tid = uint32_t(internal::gettid());
   if (!tid || (tid & ~FUTEX_TID_MASK))
@@ -109,7 +110,7 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
   uint32_t value = futex.load(cpp::MemoryOrder::RELAXED);
   for (;;) {
     if ((value & FUTEX_TID_MASK) == tid) {
-      if (recursive) {
+      if (is_recursive()) {
         if (lock_count == cpp::numeric_limits<size_t>::max())
           return MutexError::OVERFLOW;
         ++lock_count;
@@ -117,18 +118,18 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
       }
       if (try_only)
         return MutexError::BUSY;
-      if (error_checking)
+      if (is_error_checking())
         return MutexError::DEADLOCK;
     }
 #ifdef LIBC_MMIX_PI_MUTEX
-    if (priority_inherit) {
+    if (is_priority_inherit()) {
       operation.pause();
       MutexError result = acquire_pi(timeout, try_only);
       operation.resume();
       if (result != MutexError::NONE)
         return result;
       value = futex.load(cpp::MemoryOrder::RELAXED);
-      if (unrecoverable) {
+      if (is_unrecoverable()) {
         if (release_pi() != MutexError::NONE)
           __builtin_trap();
         return MutexError::NOT_RECOVERABLE;
@@ -136,9 +137,9 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
       bool died = value & FUTEX_OWNER_DIED;
       if (died)
         futex.fetch_and(~uint32_t(FUTEX_OWNER_DIED), cpp::MemoryOrder::ACQUIRE);
-      inconsistent = died;
+      set_flag(MUTEX_INCONSISTENT, died);
       lock_count = 1;
-      if (robust)
+      if (is_robust())
         insert(*this);
       return died ? MutexError::OWNER_DEAD : MutexError::NONE;
     }
@@ -150,13 +151,13 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
                                          cpp::MemoryOrder::ACQUIRE,
                                          cpp::MemoryOrder::RELAXED))
         continue;
-      if (unrecoverable) {
+      if (is_unrecoverable()) {
         uint32_t old = futex.exchange(0, cpp::MemoryOrder::RELEASE);
         if (old & FUTEX_WAITERS)
           futex.notify_all(/*is_shared=*/true);
         return MutexError::NOT_RECOVERABLE;
       }
-      inconsistent = died;
+      set_flag(MUTEX_INCONSISTENT, died);
       lock_count = 1;
       insert(*this);
       return died ? MutexError::OWNER_DEAD : MutexError::NONE;
@@ -186,31 +187,32 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
 
 MutexError RobustMutex::unlock() {
   auto *pending =
-      robust ? reinterpret_cast<robust_list *>(
-                   reinterpret_cast<uintptr_t>(&link) | priority_inherit)
-             : nullptr;
+      is_robust()
+          ? reinterpret_cast<robust_list *>(reinterpret_cast<uintptr_t>(&link) |
+                                            is_priority_inherit())
+          : nullptr;
   Operation operation(pending);
   if ((futex.load(cpp::MemoryOrder::RELAXED) & FUTEX_TID_MASK) !=
       uint32_t(internal::gettid()))
     return MutexError::UNLOCK_WITHOUT_LOCK;
-  if (recursive && lock_count > 1) {
+  if (is_recursive() && lock_count > 1) {
     --lock_count;
     return MutexError::NONE;
   }
-  if (robust)
+  if (is_robust())
     remove(*this);
-  bool poisoned = unrecoverable;
-  if (inconsistent)
-    unrecoverable = 1;
+  bool poisoned = is_unrecoverable();
+  if (is_inconsistent())
+    set_flag(MUTEX_UNRECOVERABLE, true);
   lock_count = 0;
 #ifdef LIBC_MMIX_PI_MUTEX
-  if (priority_inherit) {
+  if (is_priority_inherit()) {
     MutexError result = release_pi();
     if (result != MutexError::NONE) {
       // Failure did not hand off ownership; restore the registered state.
       lock_count = 1;
-      unrecoverable = poisoned;
-      if (robust)
+      set_flag(MUTEX_UNRECOVERABLE, poisoned);
+      if (is_robust())
         insert(*this);
     }
     return result;
@@ -227,9 +229,9 @@ MutexError RobustMutex::unlock() {
 int RobustMutex::consistent() {
   if ((futex.load(cpp::MemoryOrder::RELAXED) & FUTEX_TID_MASK) !=
           uint32_t(internal::gettid()) ||
-      !inconsistent)
+      !is_inconsistent())
     return EINVAL;
-  inconsistent = 0;
+  set_flag(MUTEX_INCONSISTENT, false);
   return 0;
 }
 

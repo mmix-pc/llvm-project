@@ -28,6 +28,28 @@ if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
           DEPENDS libc.include.pthread .pthread_mutexattr libc.hdr.errno_macros)
       endforeach()
     endif()
+    if(LIBC_MMIX_BUILD_PROTECT_MUTEX)
+      list(APPEND mmix_robust_options -DLIBC_MMIX_PROTECT_MUTEX)
+      list(APPEND mmix_wait_options -DLIBC_MMIX_PROTECT_MUTEX)
+      list(APPEND mmix_robust_dependency libc.src.__support.threads.linux.mmix.protect_mutex)
+      list(APPEND mmix_wait_dependencies libc.src.__support.threads.linux.mmix.protect_mutex)
+      foreach(operation lock trylock unlock destroy)
+        set_source_files_properties(linux/mmix/robust_pthread_mutex_${operation}.cpp
+          PROPERTIES COMPILE_DEFINITIONS LIBC_MMIX_PROTECT_MUTEX)
+      endforeach()
+      set_source_files_properties(linux/mmix/pthread_mutexattr_setprotocol.cpp
+        PROPERTIES COMPILE_DEFINITIONS LIBC_MMIX_PROTECT_MUTEX)
+      foreach(operation getprioceiling setprioceiling)
+        add_entrypoint_object(pthread_mutexattr_${operation}
+          SRCS linux/mmix/pthread_mutexattr_${operation}.cpp
+          HDRS pthread_mutexattr_${operation}.h
+          DEPENDS libc.include.pthread .pthread_mutexattr ${mmix_robust_dependency})
+        add_entrypoint_object(pthread_mutex_${operation}
+          SRCS linux/mmix/pthread_mutex_${operation}.cpp
+          HDRS pthread_mutex_${operation}.h
+          DEPENDS libc.include.pthread ${mmix_robust_dependency})
+      endforeach()
+    endif()
   endif()
 endif()
 

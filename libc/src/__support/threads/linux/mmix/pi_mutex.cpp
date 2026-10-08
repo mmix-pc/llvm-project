@@ -15,7 +15,7 @@ namespace mmix {
 MutexError RobustMutex::acquire_pi(cpp::optional<Futex::Timeout> timeout,
                                    bool try_only) {
   int operation = try_only ? FUTEX_TRYLOCK_PI : FUTEX_LOCK_PI2;
-  if (!robust && !pshared)
+  if (!is_robust() && !is_shared())
     operation |= FUTEX_PRIVATE_FLAG;
   const timespec *deadline = nullptr;
   if (!try_only && timeout) {
@@ -49,7 +49,7 @@ MutexError RobustMutex::release_pi() {
   // Publish all protected data before the kernel hands ownership to a waiter.
   __atomic_thread_fence(__ATOMIC_RELEASE);
   int operation = FUTEX_UNLOCK_PI;
-  if (!robust && !pshared)
+  if (!is_robust() && !is_shared())
     operation |= FUTEX_PRIVATE_FLAG;
   long result =
       syscall_impl<long>(SYS_futex, &futex.val, operation, 0, 0, 0, 0);
