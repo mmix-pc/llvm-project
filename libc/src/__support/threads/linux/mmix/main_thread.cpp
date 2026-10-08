@@ -12,6 +12,9 @@
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/thread.h"
 #include <sys/syscall.h>
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+#include "robust_mutex.h"
+#endif
 
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE &&                             \
     (LIBC_THREAD_MODE != LIBC_THREAD_MODE_PLATFORM ||                          \
@@ -61,13 +64,17 @@ bool initialize_main_thread() {
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE
 bool restore_main_thread_after_fork() {
   auto *control = mmix::current_control;
-  if (phase != Phase::Active || !control ||
-      self.attrib != active_attributes || self.attrib != &control->attributes ||
+  if (phase != Phase::Active || !control || self.attrib != active_attributes ||
+      self.attrib != &control->attributes ||
       !control->retains_resources_until_process_exit())
     return false;
   // No peer, reaper or creation reservation has ever existed. All pointers and
   // unlocked runtime objects remain valid in the copied address space.
   control->clear_tid.value.store(UINT32_MAX, cpp::MemoryOrder::RELAXED);
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  if (mmix::register_robust_list(true))
+    return false;
+#endif
   return syscall_impl(SYS_set_tid_address,
                       reinterpret_cast<long>(&control->clear_tid.value.val)) ==
          control->attributes.tid;
@@ -76,6 +83,10 @@ bool restore_main_thread_after_fork() {
 bool activate_main_thread(MainThreadState &state) {
   if (phase != Phase::Uninitialized || self.attrib || state.attributes.tid <= 0)
     return false;
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  if (mmix::register_robust_list())
+    return false;
+#endif
   self.attrib = &state.attributes;
   libc_errno = 0;
   auto *manager = get_thread_atexit_callback_mgr();

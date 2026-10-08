@@ -15,7 +15,7 @@ LLVM_LIBC_FUNCTION(int, pthread_cond_timedwait,
                     pthread_mutex_t *__restrict mutex,
                     const timespec *__restrict abstime)) {
   auto *cnd = pthread_cond_utils::to_cndvar(cond);
-  return mmix::condition_timed_wait(cnd, pthread_cond_utils::to_mutex(mutex),
-                                    abstime, cnd->default_clock_is_realtime());
+  return mmix::condition_timed_wait(cnd, mutex, abstime,
+                                    cnd->default_clock_is_realtime());
 }
 } // namespace LIBC_NAMESPACE_DECL

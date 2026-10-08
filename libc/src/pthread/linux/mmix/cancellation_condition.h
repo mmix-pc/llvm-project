@@ -14,11 +14,15 @@
 #include "src/pthread/pthread_cond_utils.h"
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+#include "src/__support/threads/linux/mmix/robust_mutex.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
-inline int condition_wait(CndVar *cond, Mutex *mutex,
-                          cpp::optional<CndVar::Timeout> timeout) {
+template <typename WaitMutex>
+inline int condition_wait_impl(CndVar *cond, WaitMutex *mutex,
+                               cpp::optional<CndVar::Timeout> timeout) {
   auto wait = [](RawMutex &barrier, cpp::optional<CndVar::Timeout> deadline) {
     constexpr FutexWordType UNLOCKED = 0, IN_CONTENTION = 2;
     auto &futex = barrier.get_raw_futex();
@@ -75,11 +79,26 @@ inline int condition_wait(CndVar *cond, Mutex *mutex,
     return ETIMEDOUT;
   case CndVarResult::MutexError:
     return EINVAL;
+  case CndVarResult::OwnerDead:
+    return EOWNERDEAD;
+  case CndVarResult::NotRecoverable:
+    return ENOTRECOVERABLE;
   }
   __builtin_unreachable();
 }
 
-inline int condition_timed_wait(CndVar *cond, Mutex *mutex,
+inline int condition_wait(CndVar *cond, pthread_mutex_t *mutex,
+                          cpp::optional<CndVar::Timeout> timeout) {
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  if (mutex->__robust)
+    return condition_wait_impl(cond, reinterpret_cast<RobustMutex *>(mutex),
+                               timeout);
+#endif
+  return condition_wait_impl(cond, pthread_cond_utils::to_mutex(mutex),
+                             timeout);
+}
+
+inline int condition_timed_wait(CndVar *cond, pthread_mutex_t *mutex,
                                 const timespec *abstime, bool realtime) {
   LIBC_CRASH_ON_NULLPTR(abstime);
   auto timeout = internal::AbsTimeout::from_timespec(*abstime, realtime);

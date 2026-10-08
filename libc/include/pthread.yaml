@@ -300,6 +300,10 @@ functions:
     return_type: int
     arguments:
       - type: pthread_mutex_t *
+  - name: pthread_mutex_consistent
+    return_type: int
+    arguments:
+      - type: pthread_mutex_t *
   - name: pthread_mutex_init
     return_type: int
     arguments:

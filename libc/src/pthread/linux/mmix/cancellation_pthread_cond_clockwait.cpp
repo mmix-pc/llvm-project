@@ -17,7 +17,7 @@ LLVM_LIBC_FUNCTION(int, pthread_cond_clockwait,
   if (!pthread_cond_utils::is_supported_clock(clock))
     return EINVAL;
   return mmix::condition_timed_wait(
-      pthread_cond_utils::to_cndvar(cond), pthread_cond_utils::to_mutex(mutex),
-      abstime, pthread_cond_utils::is_realtime_clock(clock));
+      pthread_cond_utils::to_cndvar(cond), mutex, abstime,
+      pthread_cond_utils::is_realtime_clock(clock));
 }
 } // namespace LIBC_NAMESPACE_DECL

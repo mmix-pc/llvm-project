@@ -2,8 +2,24 @@ foreach(operation pthread_join pthread_cond_wait pthread_cond_timedwait
                   pthread_cond_clockwait)
   set(${operation}_source ${operation}.cpp)
 endforeach()
+foreach(operation lock trylock unlock destroy)
+  set(pthread_mutex_${operation}_source pthread_mutex_${operation}.cpp)
+endforeach()
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${CMAKE_CURRENT_LIST_DIR}/linux/mmix/Cancellation.cmake)
+  if(LIBC_MMIX_BUILD_ROBUST_MUTEX)
+    set(mmix_robust_dependency libc.src.__support.threads.linux.mmix.robust_mutex)
+    foreach(operation lock trylock unlock destroy consistent)
+      set(pthread_mutex_${operation}_source linux/mmix/robust_pthread_mutex_${operation}.cpp)
+    endforeach()
+    add_entrypoint_object(pthread_mutex_consistent
+      SRCS ${pthread_mutex_consistent_source}
+      HDRS pthread_mutex_consistent.h
+      DEPENDS libc.include.pthread ${mmix_robust_dependency})
+    list(APPEND mmix_wait_dependencies ${mmix_robust_dependency})
+    list(APPEND mmix_wait_options -DLIBC_MMIX_ROBUST_MUTEX)
+    set(mmix_robust_options -DLIBC_MMIX_ROBUST_MUTEX)
+  endif()
 endif()
 
 add_entrypoint_object(
@@ -494,43 +510,47 @@ add_entrypoint_object(
     libc.src.errno.errno
     libc.include.pthread
     libc.src.__support.threads.mutex
+    ${mmix_robust_dependency}
   COMPILE_OPTIONS ${pthread_mutex_init_options}
-    ${pthread_shared_options}
+    ${pthread_shared_options} ${mmix_robust_options}
 )
 
 add_entrypoint_object(
   pthread_mutex_destroy
   SRCS
-    pthread_mutex_destroy.cpp
+    ${pthread_mutex_destroy_source}
   HDRS
     pthread_mutex_destroy.h
   DEPENDS
     libc.include.pthread
     libc.src.__support.threads.mutex
+    ${mmix_robust_dependency}
 )
 
 add_entrypoint_object(
   pthread_mutex_lock
   SRCS
-    pthread_mutex_lock.cpp
+    ${pthread_mutex_lock_source}
   HDRS
     pthread_mutex_lock.h
   DEPENDS
     libc.hdr.errno_macros
     libc.include.pthread
     libc.src.__support.threads.mutex
+    ${mmix_robust_dependency}
 )
 
 add_entrypoint_object(
   pthread_mutex_trylock
   SRCS
-    pthread_mutex_trylock.cpp
+    ${pthread_mutex_trylock_source}
   HDRS
     pthread_mutex_trylock.h
   DEPENDS
     libc.hdr.errno_macros
     libc.include.pthread
     libc.src.__support.threads.mutex
+    ${mmix_robust_dependency}
 )
 
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
@@ -544,6 +564,8 @@ if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
         libc.hdr.errno_macros
         libc.hdr.time_macros
         libc.src.__support.threads.mutex
+        ${mmix_robust_dependency}
+      COMPILE_OPTIONS ${mmix_robust_options}
     )
   endforeach()
 endif()
@@ -551,7 +573,7 @@ endif()
 add_entrypoint_object(
   pthread_mutex_unlock
   SRCS
-    pthread_mutex_unlock.cpp
+    ${pthread_mutex_unlock_source}
   HDRS
     pthread_mutex_unlock.h
   DEPENDS
@@ -559,6 +581,7 @@ add_entrypoint_object(
     libc.include.pthread
     libc.src.__support.libc_assert
     libc.src.__support.threads.mutex
+    ${mmix_robust_dependency}
 )
 
 add_entrypoint_object(

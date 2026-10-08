@@ -15,6 +15,9 @@
 #include "src/__support/threads/mutex.h"
 #include "src/__support/time/abs_timeout.h"
 #include <pthread.h>
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+#include "robust_mutex_dispatch.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -39,6 +42,22 @@ LIBC_INLINE int mutex_clocklock(pthread_mutex_t *storage, clockid_t clock,
   if (clock != CLOCK_REALTIME && clock != CLOCK_MONOTONIC)
     return EINVAL;
   LIBC_CRASH_ON_NULLPTR(storage);
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  if (storage->__robust) {
+    auto *robust = reinterpret_cast<RobustMutex *>(storage);
+    MutexError initial = robust->try_lock();
+    if (initial != MutexError::BUSY)
+      return mutex_result(initial);
+    LIBC_CRASH_ON_NULLPTR(abstime);
+    auto timeout =
+        internal::AbsTimeout::from_timespec(*abstime, clock == CLOCK_REALTIME);
+    if (!timeout)
+      return timeout.error() == internal::AbsTimeout::Error::Invalid
+                 ? EINVAL
+                 : ETIMEDOUT;
+    return mutex_result(robust->timed_lock(*timeout));
+  }
+#endif
   auto *mutex = reinterpret_cast<Mutex *>(storage);
   // Immediate acquisition (including recursive ownership) ignores the deadline.
   MutexError initial = mutex->try_lock();

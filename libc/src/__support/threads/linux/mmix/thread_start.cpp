@@ -15,6 +15,9 @@
 #include "src/__support/threads/thread.h"
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+#include "robust_mutex.h"
+#endif
 
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_PLATFORM ||                           \
     LIBC_ERRNO_MODE != LIBC_ERRNO_MODE_THREAD_LOCAL
@@ -27,6 +30,10 @@ namespace mmix {
 static int initialize_child(ThreadControl &control) {
   if (internal::self.attrib)
     __builtin_trap();
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  if (int error = register_robust_list())
+    return error;
+#endif
   libc_errno = 0;
   long tid = syscall_impl(SYS_gettid);
   if (tid <= 0 || tid > cpp::numeric_limits<int>::max())

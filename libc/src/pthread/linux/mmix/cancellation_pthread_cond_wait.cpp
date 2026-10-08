@@ -13,8 +13,7 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_cond_wait,
                    (pthread_cond_t *__restrict cond,
                     pthread_mutex_t *__restrict mutex)) {
-  return mmix::condition_wait(pthread_cond_utils::to_cndvar(cond),
-                              pthread_cond_utils::to_mutex(mutex),
+  return mmix::condition_wait(pthread_cond_utils::to_cndvar(cond), mutex,
                               cpp::nullopt);
 }
 } // namespace LIBC_NAMESPACE_DECL

@@ -12,6 +12,9 @@
 #include "src/__support/common.h"
 #include "src/__support/threads/mutex.h"
 #include "src/pthread/pthread_mutexattr.h"
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+#include "src/__support/threads/linux/mmix/robust_mutex.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -53,13 +56,19 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
   default:
     return EINVAL;
   }
-  if (get_mutexattr_robust(value) != PTHREAD_MUTEX_STALLED)
-    return ENOTSUP;
   bool shared = get_mutexattr_pshared(value) == PTHREAD_PROCESS_SHARED;
 #ifndef LIBC_MMIX_PROCESS_SHARED
   if (shared)
     return ENOTSUP;
 #endif
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  if (get_mutexattr_robust(value) == PTHREAD_MUTEX_ROBUST) {
+    new (mutex) mmix::RobustMutex(recursive, shared, error_checking);
+    return 0;
+  }
+#endif
+  if (get_mutexattr_robust(value) != PTHREAD_MUTEX_STALLED)
+    return ENOTSUP;
   new (mutex) Mutex(false, recursive, false, shared, error_checking);
   return 0;
 }

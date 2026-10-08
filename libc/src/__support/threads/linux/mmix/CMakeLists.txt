@@ -17,6 +17,18 @@ add_object_library(
 if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
+  if(LIBC_MMIX_BUILD_ROBUST_MUTEX)
+    add_object_library(
+      robust_mutex
+      SRCS robust_mutex.cpp
+      HDRS robust_mutex.h
+      DEPENDS libc.src.__support.threads.raw_mutex
+        libc.src.__support.OSUtil.osutil libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto -ftls-model=local-exec
+    )
+    set(mmix_robust_dependency .robust_mutex)
+    set(mmix_robust_options -DLIBC_MMIX_ROBUST_MUTEX)
+  endif()
   set(mmix_main_errno_dependency libc.src.errno.errno)
   set(mmix_main_lifecycle_dependency .lifecycle)
   # Internal primitives; only explicit lifecycle/public compositions select workers.
@@ -68,6 +80,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     SRCS thread_start.cpp
     HDRS thread_start.h
     DEPENDS
+      ${mmix_robust_dependency}
       .thread_entry
       .lifecycle
       libc.src.__support.threads.thread_common
@@ -75,7 +88,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.CPP.limits
       libc.src.__support.OSUtil.linux.mmix.syscall
       libc.include.sys_syscall
-    COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls
+    COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls ${mmix_robust_options}
   )
   add_object_library(
     thread_create
@@ -277,10 +290,12 @@ add_object_library(
   HDRS
     main_thread.h
   DEPENDS
+    ${mmix_robust_dependency}
     libc.src.__support.threads.thread_common
     ${mmix_main_errno_dependency}
     ${mmix_main_lifecycle_dependency}
     libc.src.__support.CPP.limits
     libc.src.__support.OSUtil.linux.mmix.syscall
     libc.include.sys_syscall
+  COMPILE_OPTIONS ${mmix_robust_options}
 )
