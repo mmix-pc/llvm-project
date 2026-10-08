@@ -78,6 +78,41 @@ types:
     standards:
       - llvm_libc_ext
 functions:
+  - name: pthread_attr_getschedpolicy
+    return_type: int
+    arguments:
+      - type: const pthread_attr_t *__restrict
+      - type: int *__restrict
+  - name: pthread_attr_setschedpolicy
+    return_type: int
+    arguments:
+      - type: pthread_attr_t *
+      - type: int
+  - name: pthread_attr_getinheritsched
+    return_type: int
+    arguments:
+      - type: const pthread_attr_t *__restrict
+      - type: int *__restrict
+  - name: pthread_attr_setinheritsched
+    return_type: int
+    arguments:
+      - type: pthread_attr_t *
+      - type: int
+  - name: pthread_attr_getscope
+    return_type: int
+    arguments:
+      - type: const pthread_attr_t *__restrict
+      - type: int *__restrict
+  - name: pthread_attr_setscope
+    return_type: int
+    arguments:
+      - type: pthread_attr_t *
+      - type: int
+  - name: pthread_setschedprio
+    return_type: int
+    arguments:
+      - type: pthread_t
+      - type: int
   - name: pthread_cancel
     noexcept: false
     return_type: int

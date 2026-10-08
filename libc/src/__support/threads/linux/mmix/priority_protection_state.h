@@ -30,6 +30,13 @@ int priority_replace(int previous, int replacement,
 // Kernel transport is separate from the ownership/state algorithm.
 int priority_kernel_read(int &policy, int &priority);
 int priority_kernel_set(int policy, int priority);
+int priority_kernel_read_for(int tid, int &policy, int &priority);
+int priority_kernel_set_for(int tid, int policy, int priority);
+int scheduling_validate(int policy, int priority);
+int scheduling_read(PriorityProtectionState &state, int tid, int &policy,
+                    int &priority);
+int scheduling_write(PriorityProtectionState &state, int tid, int policy,
+                     int priority, bool priority_only = false);
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif

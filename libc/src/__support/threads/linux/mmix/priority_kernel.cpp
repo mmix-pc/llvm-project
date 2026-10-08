@@ -24,27 +24,33 @@ int priority_range(int &minimum, int &maximum) {
   maximum = int(high);
   return 0;
 }
-int priority_kernel_read(int &policy, int &priority) {
-  long result = syscall_impl<long>(SYS_sched_getscheduler, 0);
+int priority_kernel_read_for(int tid, int &policy, int &priority) {
+  long result = syscall_impl<long>(SYS_sched_getscheduler, tid);
   if (result < 0)
     return int(-result);
   struct {
     int priority;
   } parameter{};
-  long status = syscall_impl<long>(SYS_sched_getparam, 0, &parameter);
+  long status = syscall_impl<long>(SYS_sched_getparam, tid, &parameter);
   if (status < 0)
     return int(-status);
   policy = int(result);
   priority = parameter.priority;
   return 0;
 }
-int priority_kernel_set(int policy, int priority) {
+int priority_kernel_set_for(int tid, int policy, int priority) {
   struct {
     int priority;
   } parameter{priority};
   long result =
-      syscall_impl<long>(SYS_sched_setscheduler, 0, policy, &parameter);
+      syscall_impl<long>(SYS_sched_setscheduler, tid, policy, &parameter);
   return result < 0 ? int(-result) : 0;
+}
+int priority_kernel_read(int &policy, int &priority) {
+  return priority_kernel_read_for(0, policy, priority);
+}
+int priority_kernel_set(int policy, int priority) {
+  return priority_kernel_set_for(0, policy, priority);
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

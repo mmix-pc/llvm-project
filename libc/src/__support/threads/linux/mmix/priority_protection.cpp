@@ -143,5 +143,64 @@ int priority_replace(int previous, int replacement, bool condition_recovery) {
   }
   return 0;
 }
+#ifdef LIBC_MMIX_PTHREAD_SCHEDULING
+int scheduling_validate(int policy, int priority) {
+  if (policy == 0)
+    return priority == 0 ? 0 : EINVAL;
+  if (policy != 1 && policy != 2)
+    return EINVAL;
+  int low, high;
+  if (int error = priority_range(low, high))
+    return error;
+  return priority < low || priority > high ? EINVAL : 0;
+}
+static int scheduling_refresh(PriorityProtectionState &state, int tid) {
+  int policy, priority;
+  if (int error = priority_kernel_read_for(tid, policy, priority))
+    return error;
+  if (empty(state) && !state.restore_pending) {
+    state.policy = policy;
+    state.base = state.applied = priority;
+  } else if (policy != state.policy || priority != state.applied) {
+    return EINVAL;
+  }
+  return 0;
+}
+int scheduling_read(PriorityProtectionState &state, int tid, int &policy,
+                    int &priority) {
+  Guard guard(state);
+  if (int error = scheduling_refresh(state, tid))
+    return error;
+  policy = state.policy;
+  priority = state.base;
+  return 0;
+}
+int scheduling_write(PriorityProtectionState &state, int tid, int policy,
+                     int priority, bool priority_only) {
+  Guard guard(state);
+  if (int error = scheduling_refresh(state, tid))
+    return error;
+  if (priority_only)
+    policy = state.policy;
+  if (int error = scheduling_validate(policy, priority))
+    return error;
+  if (policy == 0 && !empty(state))
+    return EINVAL;
+  int target = priority;
+  for (int i = 127; i > target; --i)
+    if (state.contributions[i]) {
+      target = i;
+      break;
+    }
+  // Even an unchanged effective priority must receive a kernel permission check.
+  if (int error = priority_kernel_set_for(tid, policy, target))
+    return error;
+  state.policy = policy;
+  state.base = priority;
+  state.applied = target;
+  state.restore_pending = false;
+  return 0;
+}
+#endif
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

@@ -100,6 +100,23 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
     return {ret};
   if (ret != 0)
     __builtin_trap();
+#ifdef LIBC_MMIX_PTHREAD_SCHEDULING
+  if (!helper && !input.apply_scheduling) {
+    if (!current_control)
+      __builtin_trap();
+    int error = scheduling_read(current_control->priority_protection, 0,
+                                input.scheduling_policy,
+                                input.scheduling_priority);
+    if (!error)
+      error = scheduling_validate(input.scheduling_policy,
+                                  input.scheduling_priority);
+    if (error) {
+      restore_mask(saved_mask);
+      return {-error};
+    }
+    input.apply_scheduling = true;
+  }
+#endif
   bool reserved = true;
   {
     ThreadRegistryLock lock(thread_registry);

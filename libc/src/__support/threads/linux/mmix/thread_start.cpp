@@ -53,6 +53,18 @@ static int initialize_child(ThreadControl &control) {
   if (!attributes.atexit_callback_mgr)
     return ENOMEM;
   current_control = &control;
+#ifdef LIBC_MMIX_PTHREAD_SCHEDULING
+  if (control.apply_scheduling) {
+    int policy, priority;
+    if (int error = priority_kernel_read(policy, priority))
+      return error;
+    if (policy != control.scheduling_policy ||
+        priority != control.scheduling_priority)
+      if (int error = priority_kernel_set(control.scheduling_policy,
+                                          control.scheduling_priority))
+        return error;
+  }
+#endif
   return 0;
 }
 

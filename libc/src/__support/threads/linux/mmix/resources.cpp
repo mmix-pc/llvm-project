@@ -152,6 +152,9 @@ ThreadPreparationResult prepare_thread(const ThreadPreparation &request,
 
   control->runner = input.runner;
   control->argument = input.argument;
+  control->apply_scheduling = input.apply_scheduling;
+  control->scheduling_policy = input.scheduling_policy;
+  control->scheduling_priority = input.scheduling_priority;
   control->saved_signal_mask = input.saved_signal_mask;
   control->control_mapping = resources.control;
   control->stack_mapping = resources.stack;

@@ -1,3 +1,6 @@
+foreach(operation pthread_attr_init pthread_attr_getschedparam pthread_attr_setschedparam pthread_create pthread_setschedparam pthread_getschedparam)
+  set(${operation}_source ${operation}.cpp)
+endforeach()
 foreach(operation pthread_join pthread_cond_wait pthread_cond_timedwait
                   pthread_cond_clockwait)
   set(${operation}_source ${operation}.cpp)
@@ -6,6 +9,7 @@ foreach(operation lock trylock unlock destroy)
   set(pthread_mutex_${operation}_source pthread_mutex_${operation}.cpp)
 endforeach()
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${CMAKE_CURRENT_LIST_DIR}/linux/mmix/Scheduling.cmake)
   include(${CMAKE_CURRENT_LIST_DIR}/linux/mmix/Cancellation.cmake)
   if(LIBC_MMIX_BUILD_ROBUST_MUTEX)
     set(mmix_robust_dependency libc.src.__support.threads.linux.mmix.robust_mutex)
@@ -56,10 +60,11 @@ endif()
 add_entrypoint_object(
   pthread_attr_init
   SRCS
-    pthread_attr_init.cpp
+    ${pthread_attr_init_source}
   HDRS
     pthread_attr_init.h
   DEPENDS
+    ${mmix_scheduling_dependency}
     libc.include.pthread
 )
 
@@ -118,20 +123,22 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_attr_getschedparam
   SRCS
-    pthread_attr_getschedparam.cpp
+    ${pthread_attr_getschedparam_source}
   HDRS
     pthread_attr_getschedparam.h
   DEPENDS
+    ${mmix_scheduling_dependency}
     libc.include.pthread
 )
 
 add_entrypoint_object(
   pthread_attr_setschedparam
   SRCS
-    pthread_attr_setschedparam.cpp
+    ${pthread_attr_setschedparam_source}
   HDRS
     pthread_attr_setschedparam.h
   DEPENDS
+    ${mmix_scheduling_dependency}
     libc.include.pthread
 )
 
@@ -618,10 +625,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_create
   SRCS
-    pthread_create.cpp
+    ${pthread_create_source}
   HDRS
     pthread_create.h
   DEPENDS
+    ${mmix_scheduling_dependency}
     libc.include.pthread
     libc.src.__support.threads.thread
     libc.src.pthread.pthread_attr_destroy
@@ -1120,10 +1128,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_setschedparam
   SRCS
-    pthread_setschedparam.cpp
+    ${pthread_setschedparam_source}
   HDRS
     pthread_setschedparam.h
   DEPENDS
+    ${mmix_scheduling_dependency}
     libc.hdr.types.pthread_t
     libc.hdr.types.struct_sched_param
     libc.src.__support.macros.null_check
@@ -1133,10 +1142,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_getschedparam
   SRCS
-    pthread_getschedparam.cpp
+    ${pthread_getschedparam_source}
   HDRS
     pthread_getschedparam.h
   DEPENDS
+    ${mmix_scheduling_dependency}
     libc.hdr.types.pthread_t
     libc.hdr.types.struct_sched_param
     libc.src.__support.macros.null_check

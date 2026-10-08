@@ -65,6 +65,8 @@ struct ThreadControl {
   TLSDescriptor tls{};
   UnwindRoot unwind_root{};
   PriorityProtectionState priority_protection;
+  bool apply_scheduling = false;
+  int scheduling_policy = 0, scheduling_priority = 0;
   CancellationState cancellation;
   cpp::Atomic<CancellationPoint *> cancellation_point{nullptr};
   cpp::Atomic<uint64_t> cancellation_suppression{0}, cancellation_transfer{0};

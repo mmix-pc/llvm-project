@@ -138,6 +138,7 @@ function(mmix_configure_threaded_libc)
                "robust_mutex|${LIBC_MMIX_BUILD_ROBUST_MUTEX}"
                "pi_mutex|${LIBC_MMIX_BUILD_PI_MUTEX}"
                "protect_mutex|${LIBC_MMIX_BUILD_PROTECT_MUTEX}"
+               "pthread_scheduling|${LIBC_MMIX_BUILD_PTHREAD_SCHEDULING}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")
@@ -161,6 +162,12 @@ function(mmix_configure_threaded_libc)
   endforeach()
   file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-threaded-libc/inputs.json"
     CONTENT "${manifest}\n")
+  if(LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-threaded-libc/scheduling-abi"
+      CONTENT "mmix-linux-pthread-attr-v2\n")
+  else()
+    file(REMOVE "${CMAKE_BINARY_DIR}/mmix-threaded-libc/scheduling-abi")
+  endif()
   # Package this alongside libc.a; internal and single-thread archives do not
   # advertise the public static pthread composition to the Clang driver.
   if(NOT LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)

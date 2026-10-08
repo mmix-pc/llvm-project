@@ -16,6 +16,7 @@ namespace mmix {
 
 // Only admitted internal attributes are represented here. Public wrappers must
 // reject unsupported scheduling/affinity policies before preparing resources.
+// Scheduling requests are applied before the child publishes READY.
 struct ThreadPreparation {
   ThreadStyle style = ThreadStyle::POSIX;
   ThreadRunner runner{};
@@ -24,6 +25,8 @@ struct ThreadPreparation {
   size_t stack_size = 65536;
   size_t guard_size = 8192;
   bool detached = false;
+  bool apply_scheduling = false;
+  int scheduling_policy = 0, scheduling_priority = 0;
   uint64_t saved_signal_mask = 0;
   TLSImage image{};
   uintptr_t page_size = 8192;

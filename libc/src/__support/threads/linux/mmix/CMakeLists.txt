@@ -17,12 +17,25 @@ add_object_library(
 if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
+  if(LIBC_MMIX_BUILD_PROTECT_MUTEX OR LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+    if(LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+      set(mmix_scheduling_options -DLIBC_MMIX_PTHREAD_SCHEDULING)
+    endif()
+    add_object_library(
+      priority_protection
+      SRCS priority_protection.cpp priority_kernel.cpp
+      HDRS priority_protection_state.h
+      DEPENDS .lifecycle .robust_mutex libc.src.__support.OSUtil.osutil
+        libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto -ftls-model=local-exec ${mmix_scheduling_options}
+    )
+  endif()
   if(LIBC_MMIX_BUILD_PROTECT_MUTEX)
     add_object_library(
       protect_mutex
-      SRCS protect_mutex.cpp priority_protection.cpp priority_kernel.cpp
+      SRCS protect_mutex.cpp
       HDRS protect_mutex.h priority_protection_state.h mutex_flags.h
-      DEPENDS .lifecycle .robust_mutex libc.src.__support.OSUtil.osutil
+      DEPENDS .priority_protection .lifecycle .robust_mutex libc.src.__support.OSUtil.osutil
         libc.include.sys_syscall
       COMPILE_OPTIONS -fno-lto -ftls-model=local-exec
     )
@@ -44,6 +57,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     set(mmix_robust_options -DLIBC_MMIX_ROBUST_MUTEX)
   endif()
   set(mmix_main_errno_dependency libc.src.errno.errno)
+  if(LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+    add_object_library(
+      thread_scheduling
+      SRCS thread_scheduling.cpp
+      HDRS thread_scheduling.h
+      DEPENDS .priority_protection .lifecycle libc.hdr.signal_macros
+        libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto
+    )
+    set(mmix_scheduling_dependency .thread_scheduling)
+  endif()
   set(mmix_main_lifecycle_dependency .lifecycle)
   # Internal primitives; only explicit lifecycle/public compositions select workers.
   add_object_library(
@@ -95,6 +119,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     HDRS thread_start.h
     DEPENDS
       ${mmix_robust_dependency}
+      ${mmix_scheduling_dependency}
       .thread_entry
       .lifecycle
       libc.src.__support.threads.thread_common
@@ -103,6 +128,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.OSUtil.linux.mmix.syscall
       libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls ${mmix_robust_options}
+      ${mmix_scheduling_options}
   )
   add_object_library(
     thread_create
@@ -110,6 +136,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     HDRS thread_create.h thread_reaper.h
     DEPENDS
       .thread_reaper_service
+      ${mmix_scheduling_dependency}
       .thread_reclaim
       .resources
       .thread_entry
@@ -120,7 +147,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.CPP.limits
       libc.src.__support.OSUtil.linux.mmix.syscall
       libc.include.sys_syscall
-    COMPILE_OPTIONS -fno-lto
+    COMPILE_OPTIONS -fno-lto ${mmix_scheduling_options}
   )
   add_object_library(
     thread_adapter
