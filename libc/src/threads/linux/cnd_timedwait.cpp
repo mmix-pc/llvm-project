@@ -49,6 +49,8 @@ LLVM_LIBC_FUNCTION(int, cnd_timedwait,
   case CndVarResult::Timeout:
     return thrd_timedout;
   case CndVarResult::MutexError:
+  case CndVarResult::OwnerDead:
+  case CndVarResult::NotRecoverable:
     return thrd_error;
   }
   __builtin_unreachable();

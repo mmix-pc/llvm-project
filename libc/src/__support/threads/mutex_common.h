@@ -21,7 +21,13 @@ enum class MutexError : int {
   UNLOCK_WITHOUT_LOCK,
   BAD_LOCK_STATE,
   OVERFLOW,
+  OWNER_DEAD,
+  NOT_RECOVERABLE,
 };
+
+inline bool mutex_owns_lock(MutexError result) {
+  return result == MutexError::NONE || result == MutexError::OWNER_DEAD;
+}
 
 } // namespace LIBC_NAMESPACE_DECL
 

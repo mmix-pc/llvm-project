@@ -30,6 +30,8 @@ enum class CndVarResult {
   Success,
   MutexError,
   Timeout,
+  OwnerDead,
+  NotRecoverable,
 };
 
 class CndVar {
@@ -256,7 +258,8 @@ public:
   // It is not used in wait directly.
   LIBC_INLINE bool default_clock_is_realtime() const { return is_realtime; }
 
-  LIBC_INLINE CndVarResult wait(Mutex *mutex,
+  template <typename WaitMutex>
+  LIBC_INLINE CndVarResult wait(WaitMutex *mutex,
                                 cpp::optional<Timeout> timeout = cpp::nullopt) {
     return wait_with(
         mutex, timeout,
@@ -268,8 +271,9 @@ public:
 
   // A throwing wait policy must leave barrier ownership with the cleanup.
   // Notification and stack-node lifetime remain owned by this queue algorithm.
-  template <typename Wait, typename Check, typename WaitShared = SharedWait>
-  LIBC_INLINE CndVarResult wait_with(Mutex *mutex,
+  template <typename Wait, typename Check, typename WaitShared = SharedWait,
+            typename WaitMutex>
+  LIBC_INLINE CndVarResult wait_with(WaitMutex *mutex,
                                      cpp::optional<Timeout> timeout,
                                      Wait wait_barrier, Check check_cancel,
                                      WaitShared wait_shared = {}) {
@@ -284,7 +288,7 @@ public:
       mutex->unlock();
       struct SharedCleanup {
         CndVar *cond;
-        Mutex *mutex;
+        WaitMutex *mutex;
         bool registered = true, reacquired = false;
         // A throwing wait policy can leave its wake result unknown.
         // Conservatively replace a possible consumed signal; spurious condition
@@ -296,7 +300,7 @@ public:
             return;
           if (registered)
             cond->shared_waiters.fetch_sub(1);
-          if (!reacquired && mutex->lock() != MutexError::NONE)
+          if (!reacquired && !mutex_owns_lock(mutex->lock()))
             __builtin_trap();
           if (consumed_signal)
             cond->notify(/*is_broadcast=*/false);
@@ -306,11 +310,17 @@ public:
       shared_waiters.fetch_sub(1);
       cleanup.registered = false;
       MutexError mutex_result = mutex->lock();
-      cleanup.reacquired = mutex_result == MutexError::NONE;
+      cleanup.reacquired = mutex_owns_lock(mutex_result);
       cleanup.consumed_signal = result.has_value();
-      if (mutex_result == MutexError::NONE)
+      if (cleanup.reacquired)
         check_cancel();
       cleanup.enabled = false;
+      if (mutex_result == MutexError::OWNER_DEAD)
+        return CndVarResult::OwnerDead;
+      if (mutex_result == MutexError::NOT_RECOVERABLE)
+        return CndVarResult::NotRecoverable;
+      if (!mutex_owns_lock(mutex_result))
+        return CndVarResult::MutexError;
       if (!result.has_value() && result.error() == ETIMEDOUT)
         return CndVarResult::Timeout;
       return mutex_result == MutexError::NONE ? CndVarResult::Success
@@ -329,7 +339,7 @@ public:
     struct Cleanup {
       CndVar *cond;
       CndWaiter *waiter;
-      Mutex *mutex;
+      WaitMutex *mutex;
       bool active = true;
       bool finished = false, consumed_signal = false;
       ~Cleanup() {
@@ -338,9 +348,12 @@ public:
         if (finished) {
           if (consumed_signal)
             cond->notify(/*is_broadcast=*/false);
-        } else if (cond->finish_wait(*waiter, mutex, false, true) ==
-                   CndVarResult::MutexError)
-          __builtin_trap();
+        } else {
+          CndVarResult result = cond->finish_wait(*waiter, mutex, false, true);
+          if (result == CndVarResult::MutexError ||
+              result == CndVarResult::NotRecoverable)
+            __builtin_trap();
+        }
       }
     } cleanup{this, &waiter, mutex};
     // Notice that lock is already initialized as LOCKED. We abuse the LOCKED
@@ -348,16 +361,20 @@ public:
     bool locked = wait_barrier(waiter.barrier, timeout);
     CndVarResult result = finish_wait(waiter, mutex, locked, false);
     cleanup.finished = true;
-    cleanup.consumed_signal = result == CndVarResult::Success;
+    cleanup.consumed_signal =
+        result == CndVarResult::Success || result == CndVarResult::OwnerDead;
     // Cancellation arriving during raw mutex reacquisition still belongs to
     // this wait. The node is retired, but a consumed signal needs replacement.
-    check_cancel();
+    if (result != CndVarResult::NotRecoverable &&
+        result != CndVarResult::MutexError)
+      check_cancel();
     cleanup.active = false;
     return result;
   }
 
 private:
-  LIBC_INLINE CndVarResult finish_wait(CndWaiter &waiter, Mutex *mutex,
+  template <typename WaitMutex>
+  LIBC_INLINE CndVarResult finish_wait(CndWaiter &waiter, WaitMutex *mutex,
                                        bool locked, bool abandoned) {
     // if we wake up and find that we are still waiting, this means
     // timeout has been reached.
@@ -419,12 +436,16 @@ private:
         }
       }
     }
-    if (mutex_result != MutexError::NONE)
-      return CndVarResult::MutexError;
     // A canceled waiter must not consume a signal intended for other waiters.
     // Complete the detached propagation ring before issuing a replacement.
     if (abandoned && old_state != Waiting)
       notify(/*is_broadcast=*/false);
+    if (mutex_result == MutexError::OWNER_DEAD)
+      return CndVarResult::OwnerDead;
+    if (mutex_result == MutexError::NOT_RECOVERABLE)
+      return CndVarResult::NotRecoverable;
+    if (mutex_result != MutexError::NONE)
+      return CndVarResult::MutexError;
     return old_state == Waiting ? CndVarResult::Timeout : CndVarResult::Success;
   }
 
