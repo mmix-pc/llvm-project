@@ -133,6 +133,7 @@ function(mmix_configure_threaded_libc)
                "timed_mutex|${LIBC_MMIX_BUILD_TIMED_MUTEX}"
                "rwlocks|${LIBC_MMIX_BUILD_PTHREAD_RWLOCK}"
                "barriers|${LIBC_MMIX_BUILD_PTHREAD_BARRIER}"
+               "spinlocks|${LIBC_MMIX_BUILD_PTHREAD_SPIN}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")

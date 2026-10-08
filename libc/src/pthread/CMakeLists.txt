@@ -950,10 +950,14 @@ add_entrypoint_object(
     libc.src.__support.threads.unix_rwlock
 )
 
+set(pthread_spin_init_source pthread_spin_init.cpp)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(pthread_spin_init_source linux/mmix/pthread_spin_init.cpp)
+endif()
 add_entrypoint_object(
   pthread_spin_init
   SRCS
-    pthread_spin_init.cpp
+    ${pthread_spin_init_source}
   HDRS
     pthread_spin_init.h
   DEPENDS

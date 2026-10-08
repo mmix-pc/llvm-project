@@ -1,0 +1,11 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: clang --no-default-config --target=mmix-unknown-linux -ffreestanding -nostdinc -std=c17 -I %S/../../../../libc/include -fsyntax-only %t/storage.c
+
+#--- storage.c
+#include "llvm-libc-types/pthread_spinlock_t.h"
+
+_Static_assert(sizeof(pthread_spinlock_t) == 8, "spinlock storage");
+_Static_assert(_Alignof(pthread_spinlock_t) == 4, "spinlock alignment");
+_Static_assert(sizeof(((pthread_spinlock_t *)0)->__lockword) == 1, "lock byte");
+_Static_assert(__builtin_offsetof(pthread_spinlock_t, __owner) == 4, "owner alignment");
