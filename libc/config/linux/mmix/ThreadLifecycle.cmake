@@ -43,6 +43,11 @@ endif()
 if(LIBC_MMIX_BUILD_ROBUST_MUTEX)
   list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_mutex_consistent)
 endif()
+if(LIBC_MMIX_BUILD_PI_MUTEX)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.pthread.pthread_mutexattr_getprotocol
+    libc.src.pthread.pthread_mutexattr_setprotocol)
+endif()
 if(LIBC_MMIX_BUILD_PTHREAD_COND)
   foreach(operation init destroy wait signal broadcast timedwait clockwait)
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_cond_${operation})

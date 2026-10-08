@@ -13,8 +13,9 @@
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_mutex_trylock, (pthread_mutex_t * mutex)) {
   return mmix::mutex_result(
-      mutex->__robust ? reinterpret_cast<mmix::RobustMutex *>(mutex)->try_lock()
-                      : reinterpret_cast<Mutex *>(mutex)->try_lock(),
+      (mutex->__robust || mutex->__priority_inherit)
+          ? reinterpret_cast<mmix::RobustMutex *>(mutex)->try_lock()
+          : reinterpret_cast<Mutex *>(mutex)->try_lock(),
       true);
 }
 } // namespace LIBC_NAMESPACE_DECL

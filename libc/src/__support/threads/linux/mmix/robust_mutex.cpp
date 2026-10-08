@@ -60,13 +60,17 @@ public:
 
 void insert(RobustMutex &mutex) {
   mutex.link.next = head.list.next;
-  __atomic_store_n(&head.list.next, &mutex.link, __ATOMIC_SEQ_CST);
+  auto *tagged = reinterpret_cast<robust_list *>(
+      reinterpret_cast<uintptr_t>(&mutex.link) | mutex.priority_inherit);
+  __atomic_store_n(&head.list.next, tagged, __ATOMIC_SEQ_CST);
 }
 
 void remove(RobustMutex &mutex) {
   robust_list *previous = &head.list;
-  while (previous->next != &mutex.link) {
-    previous = previous->next;
+  while ((reinterpret_cast<uintptr_t>(previous->next) & ~uintptr_t(1)) !=
+         reinterpret_cast<uintptr_t>(&mutex.link)) {
+    previous = reinterpret_cast<robust_list *>(
+        reinterpret_cast<uintptr_t>(previous->next) & ~uintptr_t(1));
     if (!previous || previous == &head.list)
       __builtin_trap();
   }
@@ -94,7 +98,11 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
                                 bool try_only) {
   if (register_robust_list())
     return MutexError::BAD_LOCK_STATE;
-  Operation operation(&link);
+  auto *pending =
+      robust ? reinterpret_cast<robust_list *>(
+                   reinterpret_cast<uintptr_t>(&link) | priority_inherit)
+             : nullptr;
+  Operation operation(pending);
   uint32_t tid = uint32_t(internal::gettid());
   if (!tid || (tid & ~FUTEX_TID_MASK))
     return MutexError::BAD_LOCK_STATE;
@@ -112,6 +120,29 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
       if (error_checking)
         return MutexError::DEADLOCK;
     }
+#ifdef LIBC_MMIX_PI_MUTEX
+    if (priority_inherit) {
+      operation.pause();
+      MutexError result = acquire_pi(timeout, try_only);
+      operation.resume();
+      if (result != MutexError::NONE)
+        return result;
+      value = futex.load(cpp::MemoryOrder::RELAXED);
+      if (unrecoverable) {
+        if (release_pi() != MutexError::NONE)
+          __builtin_trap();
+        return MutexError::NOT_RECOVERABLE;
+      }
+      bool died = value & FUTEX_OWNER_DIED;
+      if (died)
+        futex.fetch_and(~uint32_t(FUTEX_OWNER_DIED), cpp::MemoryOrder::ACQUIRE);
+      inconsistent = died;
+      lock_count = 1;
+      if (robust)
+        insert(*this);
+      return died ? MutexError::OWNER_DEAD : MutexError::NONE;
+    }
+#endif
     if (!(value & FUTEX_TID_MASK)) {
       uint32_t desired = tid | (value & FUTEX_WAITERS);
       bool died = value & FUTEX_OWNER_DIED;
@@ -154,7 +185,11 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
 }
 
 MutexError RobustMutex::unlock() {
-  Operation operation(&link);
+  auto *pending =
+      robust ? reinterpret_cast<robust_list *>(
+                   reinterpret_cast<uintptr_t>(&link) | priority_inherit)
+             : nullptr;
+  Operation operation(pending);
   if ((futex.load(cpp::MemoryOrder::RELAXED) & FUTEX_TID_MASK) !=
       uint32_t(internal::gettid()))
     return MutexError::UNLOCK_WITHOUT_LOCK;
@@ -162,10 +197,27 @@ MutexError RobustMutex::unlock() {
     --lock_count;
     return MutexError::NONE;
   }
-  remove(*this);
+  if (robust)
+    remove(*this);
+  bool poisoned = unrecoverable;
   if (inconsistent)
     unrecoverable = 1;
   lock_count = 0;
+#ifdef LIBC_MMIX_PI_MUTEX
+  if (priority_inherit) {
+    MutexError result = release_pi();
+    if (result != MutexError::NONE) {
+      // Failure did not hand off ownership; restore the registered state.
+      lock_count = 1;
+      unrecoverable = poisoned;
+      if (robust)
+        insert(*this);
+    }
+    return result;
+  }
+#else
+  (void)poisoned;
+#endif
   uint32_t old = futex.exchange(0, cpp::MemoryOrder::RELEASE);
   if (old & FUTEX_WAITERS)
     futex.notify_all(/*is_shared=*/true);

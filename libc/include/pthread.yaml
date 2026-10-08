@@ -20,6 +20,12 @@ macros:
     macro_header: pthread-macros.h
   - macro_name: "PTHREAD_MUTEX_ROBUST"
     macro_header: pthread-macros.h
+  - macro_name: "PTHREAD_PRIO_NONE"
+    macro_header: pthread-macros.h
+  - macro_name: "PTHREAD_PRIO_INHERIT"
+    macro_header: pthread-macros.h
+  - macro_name: "PTHREAD_PRIO_PROTECT"
+    macro_header: pthread-macros.h
   - macro_name: "PTHREAD_BARRIER_SERIAL_THREAD"
     macro_header: pthread-macros.h
   - macro_name: "PTHREAD_ONCE_INIT"
@@ -341,6 +347,16 @@ functions:
     arguments:
       - type: const pthread_mutexattr_t *__restrict
       - type: int *__restrict
+  - name: pthread_mutexattr_getprotocol
+    return_type: int
+    arguments:
+      - type: const pthread_mutexattr_t *__restrict
+      - type: int *__restrict
+  - name: pthread_mutexattr_setprotocol
+    return_type: int
+    arguments:
+      - type: pthread_mutexattr_t *
+      - type: int
   - name: pthread_mutexattr_getrobust
     return_type: int
     arguments:

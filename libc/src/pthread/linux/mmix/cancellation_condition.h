@@ -90,7 +90,7 @@ inline int condition_wait_impl(CndVar *cond, WaitMutex *mutex,
 inline int condition_wait(CndVar *cond, pthread_mutex_t *mutex,
                           cpp::optional<CndVar::Timeout> timeout) {
 #ifdef LIBC_MMIX_ROBUST_MUTEX
-  if (mutex->__robust)
+  if (mutex->__robust || mutex->__priority_inherit)
     return condition_wait_impl(cond, reinterpret_cast<RobustMutex *>(mutex),
                                timeout);
 #endif

@@ -19,6 +19,15 @@ if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     list(APPEND mmix_wait_dependencies ${mmix_robust_dependency})
     list(APPEND mmix_wait_options -DLIBC_MMIX_ROBUST_MUTEX)
     set(mmix_robust_options -DLIBC_MMIX_ROBUST_MUTEX)
+    if(LIBC_MMIX_BUILD_PI_MUTEX)
+      list(APPEND mmix_robust_options -DLIBC_MMIX_PI_MUTEX)
+      foreach(operation getprotocol setprotocol)
+        add_entrypoint_object(pthread_mutexattr_${operation}
+          SRCS linux/mmix/pthread_mutexattr_${operation}.cpp
+          HDRS pthread_mutexattr_${operation}.h linux/mmix/mutex_protocol.h
+          DEPENDS libc.include.pthread .pthread_mutexattr libc.hdr.errno_macros)
+      endforeach()
+    endif()
   endif()
 endif()
 

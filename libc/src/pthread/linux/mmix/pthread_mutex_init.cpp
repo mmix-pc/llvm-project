@@ -15,6 +15,9 @@
 #ifdef LIBC_MMIX_ROBUST_MUTEX
 #include "src/__support/threads/linux/mmix/robust_mutex.h"
 #endif
+#ifdef LIBC_MMIX_PI_MUTEX
+#include "mutex_protocol.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -25,13 +28,26 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
                    (pthread_mutex_t * mutex,
                     const pthread_mutexattr_t *__restrict attr)) {
   auto value = attr ? *attr : DEFAULT_MUTEXATTR;
-  constexpr unsigned known = unsigned(PThreadMutexAttrPos::TYPE_MASK) |
-                             unsigned(PThreadMutexAttrPos::ROBUST_MASK) |
-                             unsigned(PThreadMutexAttrPos::PSHARED_MASK);
+  unsigned known = unsigned(PThreadMutexAttrPos::TYPE_MASK) |
+                   unsigned(PThreadMutexAttrPos::ROBUST_MASK) |
+                   unsigned(PThreadMutexAttrPos::PSHARED_MASK);
+#ifdef LIBC_MMIX_PI_MUTEX
+  known |= mmix::MUTEX_PROTOCOL_MASK;
+#endif
   if (value & ~known)
     return EINVAL;
-  // Reject unqualified modes before touching the destination. Protocol has
-  // no attribute encoding yet; unknown bits cannot silently select it.
+  // Reject unqualified modes before touching the destination.
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  bool inherit = false;
+#endif
+#ifdef LIBC_MMIX_PI_MUTEX
+  int protocol = mmix::mutex_protocol(value);
+  if (protocol == PTHREAD_PRIO_PROTECT)
+    return ENOTSUP;
+  if (protocol != PTHREAD_PRIO_NONE && protocol != PTHREAD_PRIO_INHERIT)
+    return EINVAL;
+  inherit = protocol == PTHREAD_PRIO_INHERIT;
+#endif
   bool recursive = false;
   bool error_checking = false;
   switch (get_mutexattr_type(value)) {
@@ -63,12 +79,19 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
 #endif
 #ifdef LIBC_MMIX_ROBUST_MUTEX
   if (get_mutexattr_robust(value) == PTHREAD_MUTEX_ROBUST) {
-    new (mutex) mmix::RobustMutex(recursive, shared, error_checking);
+    new (mutex) mmix::RobustMutex(recursive, shared, error_checking, inherit);
     return 0;
   }
 #endif
   if (get_mutexattr_robust(value) != PTHREAD_MUTEX_STALLED)
     return ENOTSUP;
+#ifdef LIBC_MMIX_PI_MUTEX
+  if (inherit) {
+    new (mutex)
+        mmix::RobustMutex(recursive, shared, error_checking, true, false);
+    return 0;
+  }
+#endif
   new (mutex) Mutex(false, recursive, false, shared, error_checking);
   return 0;
 }

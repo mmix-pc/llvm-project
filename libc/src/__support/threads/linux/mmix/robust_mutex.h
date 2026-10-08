@@ -33,11 +33,14 @@ struct RobustMutex {
   robust_list link;
   size_t lock_count;
 
-  constexpr RobustMutex(bool recurse, bool shared, bool check)
-      : futex(0), priority_inherit(0), recursive(recurse), robust(1),
-        pshared(shared), error_checking(check), inconsistent(0),
-        unrecoverable(0), link{nullptr}, lock_count(0) {}
+  constexpr RobustMutex(bool recurse, bool shared, bool check,
+                        bool inherit = false, bool recoverable = true)
+      : futex(0), priority_inherit(inherit), recursive(recurse),
+        robust(recoverable), pshared(shared), error_checking(check),
+        inconsistent(0), unrecoverable(0), link{nullptr}, lock_count(0) {}
   MutexError acquire(cpp::optional<Futex::Timeout> timeout, bool try_only);
+  MutexError acquire_pi(cpp::optional<Futex::Timeout> timeout, bool try_only);
+  MutexError release_pi();
   MutexError lock() { return acquire(cpp::nullopt, false); }
   MutexError try_lock() { return acquire(cpp::nullopt, true); }
   MutexError timed_lock(Futex::Timeout timeout) {

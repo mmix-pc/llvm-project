@@ -18,13 +18,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
   if(LIBC_MMIX_BUILD_ROBUST_MUTEX)
+    if(LIBC_MMIX_BUILD_PI_MUTEX)
+      set(mmix_pi_sources pi_mutex.cpp)
+      set(mmix_pi_options -DLIBC_MMIX_PI_MUTEX)
+    endif()
     add_object_library(
       robust_mutex
-      SRCS robust_mutex.cpp
+      SRCS robust_mutex.cpp ${mmix_pi_sources}
       HDRS robust_mutex.h
       DEPENDS libc.src.__support.threads.raw_mutex
         libc.src.__support.OSUtil.osutil libc.include.sys_syscall
-      COMPILE_OPTIONS -fno-lto -ftls-model=local-exec
+      COMPILE_OPTIONS -fno-lto -ftls-model=local-exec ${mmix_pi_options}
     )
     set(mmix_robust_dependency .robust_mutex)
     set(mmix_robust_options -DLIBC_MMIX_ROBUST_MUTEX)

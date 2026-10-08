@@ -43,7 +43,7 @@ LIBC_INLINE int mutex_clocklock(pthread_mutex_t *storage, clockid_t clock,
     return EINVAL;
   LIBC_CRASH_ON_NULLPTR(storage);
 #ifdef LIBC_MMIX_ROBUST_MUTEX
-  if (storage->__robust) {
+  if (storage->__robust || storage->__priority_inherit) {
     auto *robust = reinterpret_cast<RobustMutex *>(storage);
     MutexError initial = robust->try_lock();
     if (initial != MutexError::BUSY)
