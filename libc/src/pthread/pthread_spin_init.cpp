@@ -30,7 +30,7 @@ LLVM_LIBC_FUNCTION(int, pthread_spin_init,
   // The spin lock here is a simple atomic flag, so we don't need to do any
   // special handling for pshared.
   ::new (&lock->__lockword) SpinLock();
-  lock->__owner = 0;
+  cpp::AtomicRef(lock->__owner).store(0, cpp::MemoryOrder::RELAXED);
   return 0;
 }
 

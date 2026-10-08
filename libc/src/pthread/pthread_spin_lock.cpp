@@ -36,11 +36,13 @@ LLVM_LIBC_FUNCTION(int, pthread_spin_lock, (pthread_spinlock_t * lock)) {
   // to pthread_spin_lock() refers to a spin lock object for which the calling
   // thread already holds the lock, it is recommended that the function should
   // fail and report an [EDEADLK] error.
-  if (lock->__owner == self_tid)
+  // Owner checks precede flag acquisition, so competing owners must access
+  // this metadata atomically. The flag still supplies protected-data ordering.
+  if (cpp::AtomicRef(lock->__owner).load(cpp::MemoryOrder::RELAXED) == self_tid)
     return EDEADLK;
 
   spin_lock->lock();
-  lock->__owner = self_tid;
+  cpp::AtomicRef(lock->__owner).store(self_tid, cpp::MemoryOrder::RELAXED);
   return 0;
 }
 

@@ -40,7 +40,7 @@ LLVM_LIBC_FUNCTION(int, pthread_spin_destroy,
 
   // poison the lock
   spin_lock->~SpinLock();
-  lock->__owner = 0;
+  cpp::AtomicRef(lock->__owner).store(0, cpp::MemoryOrder::RELAXED);
   return 0;
 }
 

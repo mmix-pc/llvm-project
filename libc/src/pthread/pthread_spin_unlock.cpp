@@ -34,10 +34,11 @@ LLVM_LIBC_FUNCTION(int, pthread_spin_unlock, (pthread_spinlock_t * lock)) {
   // to pthread_spin_unlock() refers to a spin lock object for which the current
   // thread does not hold the lock, it is recommended that the function should
   // fail and report an [EPERM] error.
-  if (lock->__owner != internal::gettid())
+  if (cpp::AtomicRef(lock->__owner).load(cpp::MemoryOrder::RELAXED) !=
+      internal::gettid())
     return EPERM;
   // Release the lock.
-  lock->__owner = 0;
+  cpp::AtomicRef(lock->__owner).store(0, cpp::MemoryOrder::RELAXED);
   spin_lock->unlock();
   return 0;
 }

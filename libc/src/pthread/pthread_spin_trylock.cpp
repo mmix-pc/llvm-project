@@ -34,7 +34,8 @@ LLVM_LIBC_FUNCTION(int, pthread_spin_trylock, (pthread_spinlock_t * lock)) {
   if (!spin_lock->try_lock())
     return EBUSY;
   // We have acquired the lock. Update the owner field.
-  lock->__owner = internal::gettid();
+  cpp::AtomicRef(lock->__owner)
+      .store(internal::gettid(), cpp::MemoryOrder::RELAXED);
   return 0;
 }
 

@@ -1,0 +1,50 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+resource = subprocess.check_output(['clang', '--print-resource-dir'], text=True).strip()
+base = ['clang', '-cc1', '-std=c++17', '-ffreestanding', '-O2', '-emit-llvm',
+        '-mrelocation-model', 'static',
+        '-internal-isystem', resource + '/include', '-I', str(root), '-I', str(libc),
+        '-DLIBC_FULL_BUILD', '-DLIBC_NAMESPACE=spin_test', '-include', str(root / 'identity.h')]
+# The real lock byte is i8; only the public pid metadata uses i32 atomics.
+# Checking operations, not variable names or inheritance, catches any owner
+# access that is accidentally changed back to an ordinary load/store.
+expected = {'init': (0, 1), 'destroy': (0, 1), 'lock': (1, 1),
+            'trylock': (0, 1), 'unlock': (1, 1)}
+for target in ('x86_64-unknown-linux-gnu', 'mmix-unknown-linux'):
+    for name, (loads, stores) in expected.items():
+        output = root / (target + '-' + name + '.ll')
+        subprocess.run([*base, '-triple', target, '-o', str(output),
+                        str(libc / 'src/pthread' / ('pthread_spin_' + name + '.cpp'))], check=True)
+        ir = output.read_text()
+        assert len(re.findall(r'\bload atomic i32\b', ir)) == loads, output
+        assert len(re.findall(r'\bstore atomic i32\b', ir)) == stores, output
+
+# Isolate the compiled owner-access contract from external kernel headers.
+# Actual thread identity and contention are covered by native/guest tests.
+#--- pthread.h
+#include "include/llvm-libc-types/pthread_spinlock_t.h"
+#define PTHREAD_PROCESS_PRIVATE 0
+#define PTHREAD_PROCESS_SHARED 1
+
+#--- linux/errno.h
+#include "include/llvm-libc-macros/generic-error-number-macros.h"
+#define EDEADLK 35
+
+#--- identity.h
+#define LLVM_LIBC_SRC___SUPPORT_THREADS_IDENTIFIER_H
+#include "hdr/types/pid_t.h"
+#include "src/__support/macros/config.h"
+namespace LIBC_NAMESPACE_DECL {
+namespace internal {
+pid_t gettid();
+}
+}

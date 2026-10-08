@@ -7,6 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/errno_macros.h"
+#include "src/__support/CPP/atomic.h"
+#include "src/__support/threads/identifier.h"
 #include "src/pthread/pthread_create.h"
 #include "src/pthread/pthread_join.h"
 #include "src/pthread/pthread_spin_destroy.h"
@@ -18,6 +20,26 @@
 #include <pthread.h>
 
 namespace {
+void owner_metadata_test() {
+  pthread_spinlock_t lock;
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_spin_init(&lock, PTHREAD_PROCESS_PRIVATE),
+            0);
+  LIBC_NAMESPACE::cpp::AtomicRef owner(lock.__owner);
+  ASSERT_EQ(owner.load(LIBC_NAMESPACE::cpp::MemoryOrder::RELAXED), 0);
+  auto tid = LIBC_NAMESPACE::internal::gettid();
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_spin_lock(&lock), 0);
+  ASSERT_EQ(owner.load(LIBC_NAMESPACE::cpp::MemoryOrder::RELAXED), tid);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_spin_trylock(&lock), EBUSY);
+  ASSERT_EQ(owner.load(LIBC_NAMESPACE::cpp::MemoryOrder::RELAXED), tid);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_spin_unlock(&lock), 0);
+  ASSERT_EQ(owner.load(LIBC_NAMESPACE::cpp::MemoryOrder::RELAXED), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_spin_trylock(&lock), 0);
+  ASSERT_EQ(owner.load(LIBC_NAMESPACE::cpp::MemoryOrder::RELAXED), tid);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_spin_unlock(&lock), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_spin_destroy(&lock), 0);
+  ASSERT_EQ(owner.load(LIBC_NAMESPACE::cpp::MemoryOrder::RELAXED), 0);
+}
+
 void smoke_test() {
   pthread_spinlock_t lock;
   ASSERT_EQ(LIBC_NAMESPACE::pthread_spin_init(&lock, PTHREAD_PROCESS_PRIVATE),
@@ -132,6 +154,7 @@ void multi_thread_test() {
 } // namespace
 
 TEST_MAIN() {
+  owner_metadata_test();
   smoke_test();
   trylock_test();
   destroy_held_lock_test();
