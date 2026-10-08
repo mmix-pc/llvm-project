@@ -24,8 +24,10 @@ LLVM_LIBC_FUNCTION(int, pthread_spin_init,
   if (!lock ||
       (pshared != PTHREAD_PROCESS_PRIVATE && pshared != PTHREAD_PROCESS_SHARED))
     return EINVAL;
+#ifndef LIBC_MMIX_PROCESS_SHARED
   if (pshared == PTHREAD_PROCESS_SHARED)
     return ENOTSUP;
+#endif
   ::new (&lock->__lockword) SpinLock();
   cpp::AtomicRef(lock->__owner).store(0, cpp::MemoryOrder::RELAXED);
   return 0;

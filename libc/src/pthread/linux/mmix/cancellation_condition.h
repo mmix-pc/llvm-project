@@ -44,7 +44,31 @@ inline int condition_wait(CndVar *cond, Mutex *mutex,
         __builtin_trap();
     }
   };
-  switch (cond->wait_with(mutex, timeout, wait, [] { test_cancel(); })) {
+  auto shared_wait =
+      [](Futex &futex, FutexWordType expected,
+         cpp::optional<CndVar::Timeout> deadline) -> ErrorOr<int> {
+    for (;;) {
+      test_cancel();
+      int operation = FUTEX_WAIT_BITSET;
+      const timespec *ts = nullptr;
+      if (deadline) {
+        ts = &deadline->get_timespec();
+        if (deadline->is_realtime())
+          operation |= FUTEX_CLOCK_REALTIME;
+      }
+      long ret = cancellation_syscall(
+          SYS_futex, reinterpret_cast<long>(&futex.val), operation, expected,
+          reinterpret_cast<long>(ts), 0, FUTEX_BITSET_MATCH_ANY);
+      if (ret == 0 || ret == -EAGAIN)
+        return 0;
+      if (ret == -ETIMEDOUT)
+        return cpp::unexpected(ETIMEDOUT);
+      if (ret != -EINTR)
+        __builtin_trap();
+    }
+  };
+  switch (cond->wait_with(
+      mutex, timeout, wait, [] { test_cancel(); }, shared_wait)) {
   case CndVarResult::Success:
     return 0;
   case CndVarResult::Timeout:

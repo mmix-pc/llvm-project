@@ -32,9 +32,12 @@ LLVM_LIBC_FUNCTION(int, pthread_cond_init,
        value.pshared != PTHREAD_PROCESS_SHARED))
     return EINVAL;
   // Do not construct a usable-looking object for an unqualified shared mode.
+#ifndef LIBC_MMIX_PROCESS_SHARED
   if (value.pshared == PTHREAD_PROCESS_SHARED)
     return ENOTSUP;
-  new (cond) CndVar(false, value.clock == CLOCK_REALTIME);
+#endif
+  new (cond) CndVar(value.pshared == PTHREAD_PROCESS_SHARED,
+                    value.clock == CLOCK_REALTIME);
   return 0;
 }
 

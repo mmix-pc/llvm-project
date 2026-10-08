@@ -134,6 +134,7 @@ function(mmix_configure_threaded_libc)
                "rwlocks|${LIBC_MMIX_BUILD_PTHREAD_RWLOCK}"
                "barriers|${LIBC_MMIX_BUILD_PTHREAD_BARRIER}"
                "spinlocks|${LIBC_MMIX_BUILD_PTHREAD_SPIN}"
+               "process_shared|${LIBC_MMIX_BUILD_PROCESS_SHARED}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")

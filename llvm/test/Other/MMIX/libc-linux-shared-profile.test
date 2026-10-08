@@ -1,0 +1,31 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:])
+script = root / 'mode.cmake'
+script.write_text('cmake_minimum_required(VERSION 3.20)\ninclude("' +
+                  str(libc.resolve() / 'config/linux/mmix/RuntimeMode.cmake') +
+                  '")\nmmix_check_runtime_mode()\n')
+components = ('THREAD_LIFECYCLE', 'RUNTIME_STATE', 'PTHREAD_CREATION',
+              'PTHREAD_LIFECYCLE', 'PTHREAD_MUTEX', 'MUTEX_TYPES', 'PTHREAD_COND',
+              'PTHREAD_RWLOCK', 'PTHREAD_BARRIER', 'PTHREAD_SPIN')
+base = {'LIBC_MMIX_BUILD_' + name: 'ON' for name in components}
+base.update(LIBC_MMIX_BUILD_PROCESS_SHARED='ON', LIBC_MMIX_ENABLE_STATIC_TLS='ON',
+            LIBC_CONF_THREAD_MODE='LIBC_THREAD_MODE_PLATFORM',
+            LIBC_CONF_ERRNO_MODE='LIBC_ERRNO_MODE_THREAD_LOCAL',
+            LIBC_COMPILE_OPTIONS_DEFAULT='-ftls-model=local-exec;-fno-lto')
+for missing in (None, 'PTHREAD_MUTEX', 'MUTEX_TYPES', 'PTHREAD_COND',
+                'PTHREAD_RWLOCK', 'PTHREAD_BARRIER', 'PTHREAD_SPIN'):
+    config = dict(base)
+    if missing:
+        config['LIBC_MMIX_BUILD_' + missing] = 'OFF'
+    result = subprocess.run(['cmake', *[f'-D{k}={v}' for k,v in config.items()],
+                             '-P', str(script)], capture_output=True, text=True)
+    assert (result.returncode == 0) == (missing is None), result.stderr
+    if missing:
+        assert 'MMIX process sharing requires ' + missing in result.stderr

@@ -256,6 +256,11 @@ add_entrypoint_object(
     .pthread_cond_utils
 )
 
+set(pthread_shared_options)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+   LIBC_MMIX_BUILD_PROCESS_SHARED)
+  set(pthread_shared_options -DLIBC_MMIX_PROCESS_SHARED)
+endif()
 set(pthread_cond_init_source pthread_cond_init.cpp)
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(pthread_cond_init_source linux/mmix/pthread_cond_init.cpp)
@@ -275,6 +280,7 @@ add_entrypoint_object(
     libc.src.__support.CPP.new
     libc.src.__support.macros.null_check
     libc.src.__support.threads.CndVar
+  COMPILE_OPTIONS ${pthread_shared_options}
 )
 
 add_entrypoint_object(
@@ -440,6 +446,7 @@ add_entrypoint_object(
     libc.src.errno.errno
     libc.include.pthread
     libc.src.__support.threads.linux.barrier
+  COMPILE_OPTIONS ${pthread_shared_options}
 )
 
 add_entrypoint_object(
@@ -488,6 +495,7 @@ add_entrypoint_object(
     libc.include.pthread
     libc.src.__support.threads.mutex
   COMPILE_OPTIONS ${pthread_mutex_init_options}
+    ${pthread_shared_options}
 )
 
 add_entrypoint_object(
@@ -831,6 +839,7 @@ add_entrypoint_object(
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock
     libc.src.__support.CPP.new
+  COMPILE_OPTIONS ${pthread_shared_options}
 )
 
 add_entrypoint_object(
@@ -965,6 +974,7 @@ add_entrypoint_object(
     libc.src.__support.threads.spin_lock
     libc.src.__support.threads.identifier
     libc.hdr.errno_macros
+  COMPILE_OPTIONS ${pthread_shared_options}
 )
 
 add_entrypoint_object(

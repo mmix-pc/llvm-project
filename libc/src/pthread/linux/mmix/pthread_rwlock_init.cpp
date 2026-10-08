@@ -38,12 +38,15 @@ LLVM_LIBC_FUNCTION(int, pthread_rwlock_init,
   default:
     return EINVAL;
   }
+#ifndef LIBC_MMIX_PROCESS_SHARED
   if (selected.pshared == PTHREAD_PROCESS_SHARED)
     return ENOTSUP;
-  if (selected.pshared != PTHREAD_PROCESS_PRIVATE)
+#endif
+  if (selected.pshared != PTHREAD_PROCESS_PRIVATE &&
+      selected.pshared != PTHREAD_PROCESS_SHARED)
     return EINVAL;
   // Preserve the destination when attributes select an unsupported mode.
-  new (rwlock) RwLock(preference, false);
+  new (rwlock) RwLock(preference, selected.pshared == PTHREAD_PROCESS_SHARED);
   return 0;
 }
 

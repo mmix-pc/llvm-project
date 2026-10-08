@@ -19,11 +19,11 @@ LLVM_LIBC_FUNCTION(int, pthread_barrier_init,
                     unsigned count)) {
   if (!barrier || count == 0)
     return EINVAL;
+#ifndef LIBC_MMIX_PROCESS_SHARED
   if (attr && attr->pshared)
     return ENOTSUP;
-  // The common initializer still asserts on non-null attributes. Validated
-  // private attributes are equivalent to its existing null/default selection.
-  return Barrier::init(reinterpret_cast<Barrier *>(barrier), nullptr, count);
+#endif
+  return Barrier::init(reinterpret_cast<Barrier *>(barrier), attr, count);
 }
 
 } // namespace LIBC_NAMESPACE_DECL
