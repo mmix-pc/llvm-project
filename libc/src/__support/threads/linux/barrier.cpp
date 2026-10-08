@@ -14,10 +14,8 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-int Barrier::init(Barrier *b,
-                  [[maybe_unused]] const pthread_barrierattr_t *attr,
+int Barrier::init(Barrier *b, const pthread_barrierattr_t *attr,
                   unsigned count) {
-  LIBC_ASSERT(attr == nullptr); // TODO implement barrierattr
   if (count == 0)
     return EINVAL;
 

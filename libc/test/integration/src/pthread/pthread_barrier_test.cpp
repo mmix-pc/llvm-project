@@ -19,12 +19,26 @@
 #include "src/pthread/pthread_mutex_unlock.h"
 #include "src/string/memset.h"
 
+#include "hdr/errno_macros.h"
 #include "test/IntegrationTest/test.h"
 
 #include <pthread.h>
 
 pthread_barrier_t barrier;
 LIBC_NAMESPACE::cpp::Atomic<int> counter;
+
+void nonnull_attributes_test() {
+  const bool sharing[] = {false, true};
+  for (bool shared : sharing) {
+    pthread_barrierattr_t attr{shared};
+    pthread_barrier_t value;
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_barrier_init(&value, &attr, 0), EINVAL);
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_barrier_init(&value, &attr, 1), 0);
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_barrier_wait(&value),
+              PTHREAD_BARRIER_SERIAL_THREAD);
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_barrier_destroy(&value), 0);
+  }
+}
 
 void *increment_counter_and_wait(void *) {
   counter.fetch_add(1);
@@ -108,6 +122,7 @@ void *barrier_wait(void *) {
 }
 
 TEST_MAIN() {
+  nonnull_attributes_test();
   // don't create any additional threads; only use main thread
   single_use_barrier_test(1);
 
