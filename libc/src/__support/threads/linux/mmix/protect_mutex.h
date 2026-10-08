@@ -8,8 +8,8 @@
 //===----------------------------------------------------------------------===//
 #ifndef LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_PROTECT_MUTEX_H
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_PROTECT_MUTEX_H
-#include "mutex_flags.h"
 #include "hdr/types/pid_t.h"
+#include "mutex_flags.h"
 #include "src/__support/threads/raw_mutex.h"
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -40,7 +40,8 @@ struct ProtectMutex : RawMutex {
   }
   bool has_flag(uint32_t mask) const { return mutex_flags(this) & mask; }
   int acquire(cpp::optional<Futex::Timeout> timeout = cpp::nullopt,
-              bool try_only = false);
+              bool try_only = false, bool condition_recovery = false);
+  bool owned_by_current();
   int release();
   int set_ceiling(int value, int *previous);
   int destroy();

@@ -22,9 +22,11 @@ struct PriorityProtectionState {
 };
 PriorityProtectionState &priority_protection_state();
 int priority_range(int &minimum, int &maximum);
-int priority_enter(int ceiling, bool check_base = true);
+int priority_enter(int ceiling, bool check_base = true,
+                   bool condition_recovery = false);
 int priority_leave(int ceiling);
-int priority_replace(int previous, int replacement);
+int priority_replace(int previous, int replacement,
+                     bool condition_recovery = false);
 // Kernel transport is separate from the ownership/state algorithm.
 int priority_kernel_read(int &policy, int &priority);
 int priority_kernel_set(int policy, int priority);

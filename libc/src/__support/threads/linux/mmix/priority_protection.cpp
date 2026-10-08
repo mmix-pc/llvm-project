@@ -62,15 +62,15 @@ int apply(PriorityProtectionState &state) {
   state.restore_pending = false;
   return 0;
 }
-int prepare(PriorityProtectionState &state) {
-  if (state.restore_pending) {
+int prepare(PriorityProtectionState &state, bool condition_recovery = false) {
+  if (state.restore_pending && !condition_recovery) {
     if (int error = apply(state))
       return error;
   }
   int policy, priority;
   if (int error = priority_kernel_read(policy, priority))
     return error;
-  if (empty(state)) {
+  if (empty(state) && !state.restore_pending) {
     state.policy = policy;
     state.base = state.applied = priority;
   } else if (policy != state.policy || priority != state.applied) {
@@ -82,10 +82,10 @@ int prepare(PriorityProtectionState &state) {
   return 0;
 }
 } // namespace
-int priority_enter(int ceiling, bool check_base) {
+int priority_enter(int ceiling, bool check_base, bool condition_recovery) {
   auto &state = priority_protection_state();
   Guard guard(state);
-  if (int error = prepare(state))
+  if (int error = prepare(state, condition_recovery))
     return error;
   if (check_base && state.base > ceiling)
     return EINVAL;
@@ -94,6 +94,14 @@ int priority_enter(int ceiling, bool check_base) {
   if (state.contributions[ceiling] == cpp::numeric_limits<unsigned>::max())
     return EAGAIN;
   ++state.contributions[ceiling];
+  // A condition recovery must not lower and then re-raise a retained boost.
+  // Reconstruct ownership at a verified sufficient priority, preserving debt
+  // if another lowering is still needed. Ordinary acquisitions do not use it.
+  if (condition_recovery && state.restore_pending &&
+      desired(state) <= state.applied) {
+    state.restore_pending = desired(state) != state.applied;
+    return 0;
+  }
   if (int error = apply(state)) {
     --state.contributions[ceiling];
     state.restore_pending = desired(state) != state.applied;
@@ -111,10 +119,10 @@ int priority_leave(int ceiling) {
   // A failed lowering leaves a disclosed debt, never a fictitious success.
   return apply(state);
 }
-int priority_replace(int previous, int replacement) {
+int priority_replace(int previous, int replacement, bool condition_recovery) {
   auto &state = priority_protection_state();
   Guard guard(state);
-  if (int error = prepare(state))
+  if (int error = prepare(state, condition_recovery))
     return error;
   if (!state.contributions[previous])
     __builtin_trap();
@@ -122,6 +130,11 @@ int priority_replace(int previous, int replacement) {
     return EAGAIN;
   --state.contributions[previous];
   ++state.contributions[replacement];
+  if (condition_recovery && state.restore_pending &&
+      desired(state) <= state.applied) {
+    state.restore_pending = desired(state) != state.applied;
+    return 0;
+  }
   if (int error = apply(state)) {
     --state.contributions[replacement];
     ++state.contributions[previous];

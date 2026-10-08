@@ -34,8 +34,8 @@ int withdraw(int ceiling, int original) {
   return error ? error : original;
 }
 } // namespace
-int ProtectMutex::acquire(cpp::optional<Futex::Timeout> timeout,
-                          bool try_only) {
+int ProtectMutex::acquire(cpp::optional<Futex::Timeout> timeout, bool try_only,
+                          bool condition_recovery) {
   Operation operation;
   pid_t tid = internal::gettid();
   if (owner.load(cpp::MemoryOrder::RELAXED) == tid) {
@@ -51,7 +51,7 @@ int ProtectMutex::acquire(cpp::optional<Futex::Timeout> timeout,
       return EDEADLK;
   }
   int reserved = ceiling();
-  if (int error = priority_enter(reserved))
+  if (int error = priority_enter(reserved, true, condition_recovery))
     return error;
   bool shared = has_flag(MUTEX_SHARED);
   bool acquired =
@@ -63,8 +63,9 @@ int ProtectMutex::acquire(cpp::optional<Futex::Timeout> timeout,
     // A setter may change the ceiling while we wait. Replace the reservation
     // only after ownership; do not retain a stale priority contribution.
     auto &state = priority_protection_state();
-    int error =
-        state.base > actual ? EINVAL : priority_replace(reserved, actual);
+    int error = state.base > actual
+                    ? EINVAL
+                    : priority_replace(reserved, actual, condition_recovery);
     if (error) {
       RawMutex::unlock(shared);
       return withdraw(reserved, error);
@@ -73,6 +74,9 @@ int ProtectMutex::acquire(cpp::optional<Futex::Timeout> timeout,
   owner.store(tid, cpp::MemoryOrder::RELAXED);
   lock_count = 1;
   return 0;
+}
+bool ProtectMutex::owned_by_current() {
+  return owner.load(cpp::MemoryOrder::RELAXED) == internal::gettid();
 }
 int ProtectMutex::release() {
   Operation operation;

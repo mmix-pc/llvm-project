@@ -18,64 +18,66 @@
 #include "src/__support/threads/linux/mmix/robust_mutex.h"
 #endif
 #ifdef LIBC_MMIX_PROTECT_MUTEX
-#include "src/__support/threads/linux/mmix/protect_mutex.h"
+#include "protect_condition.h"
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
+inline bool condition_private_wait(RawMutex &barrier,
+                                   cpp::optional<CndVar::Timeout> deadline) {
+  constexpr FutexWordType UNLOCKED = 0, IN_CONTENTION = 2;
+  auto &futex = barrier.get_raw_futex();
+  for (;;) {
+    test_cancel();
+    if (futex.exchange(IN_CONTENTION, cpp::MemoryOrder::ACQUIRE) == UNLOCKED)
+      return true;
+    int operation = FUTEX_WAIT_BITSET_PRIVATE;
+    const timespec *ts = nullptr;
+    if (deadline) {
+      ts = &deadline->get_timespec();
+      if (deadline->is_realtime())
+        operation |= FUTEX_CLOCK_REALTIME;
+    }
+    long ret = cancellation_syscall(
+        SYS_futex, reinterpret_cast<long>(&futex.val), operation, IN_CONTENTION,
+        reinterpret_cast<long>(ts), 0, FUTEX_BITSET_MATCH_ANY);
+    if (ret == -ETIMEDOUT) {
+      test_cancel();
+      return false;
+    }
+    if (ret != 0 && ret != -EINTR && ret != -EAGAIN)
+      __builtin_trap();
+  }
+}
+inline ErrorOr<int>
+condition_shared_wait(Futex &futex, FutexWordType expected,
+                      cpp::optional<CndVar::Timeout> deadline) {
+  for (;;) {
+    test_cancel();
+    int operation = FUTEX_WAIT_BITSET;
+    const timespec *ts = nullptr;
+    if (deadline) {
+      ts = &deadline->get_timespec();
+      if (deadline->is_realtime())
+        operation |= FUTEX_CLOCK_REALTIME;
+    }
+    long ret = cancellation_syscall(
+        SYS_futex, reinterpret_cast<long>(&futex.val), operation, expected,
+        reinterpret_cast<long>(ts), 0, FUTEX_BITSET_MATCH_ANY);
+    if (ret == 0 || ret == -EAGAIN)
+      return 0;
+    if (ret == -ETIMEDOUT)
+      return cpp::unexpected(ETIMEDOUT);
+    if (ret != -EINTR)
+      __builtin_trap();
+  }
+}
 template <typename WaitMutex>
 inline int condition_wait_impl(CndVar *cond, WaitMutex *mutex,
                                cpp::optional<CndVar::Timeout> timeout) {
-  auto wait = [](RawMutex &barrier, cpp::optional<CndVar::Timeout> deadline) {
-    constexpr FutexWordType UNLOCKED = 0, IN_CONTENTION = 2;
-    auto &futex = barrier.get_raw_futex();
-    for (;;) {
-      test_cancel();
-      if (futex.exchange(IN_CONTENTION, cpp::MemoryOrder::ACQUIRE) == UNLOCKED)
-        return true;
-      int operation = FUTEX_WAIT_BITSET_PRIVATE;
-      const timespec *ts = nullptr;
-      if (deadline) {
-        ts = &deadline->get_timespec();
-        if (deadline->is_realtime())
-          operation |= FUTEX_CLOCK_REALTIME;
-      }
-      long ret = cancellation_syscall(
-          SYS_futex, reinterpret_cast<long>(&futex.val), operation,
-          IN_CONTENTION, reinterpret_cast<long>(ts), 0, FUTEX_BITSET_MATCH_ANY);
-      if (ret == -ETIMEDOUT) {
-        test_cancel();
-        return false;
-      }
-      if (ret != 0 && ret != -EINTR && ret != -EAGAIN)
-        __builtin_trap();
-    }
-  };
-  auto shared_wait =
-      [](Futex &futex, FutexWordType expected,
-         cpp::optional<CndVar::Timeout> deadline) -> ErrorOr<int> {
-    for (;;) {
-      test_cancel();
-      int operation = FUTEX_WAIT_BITSET;
-      const timespec *ts = nullptr;
-      if (deadline) {
-        ts = &deadline->get_timespec();
-        if (deadline->is_realtime())
-          operation |= FUTEX_CLOCK_REALTIME;
-      }
-      long ret = cancellation_syscall(
-          SYS_futex, reinterpret_cast<long>(&futex.val), operation, expected,
-          reinterpret_cast<long>(ts), 0, FUTEX_BITSET_MATCH_ANY);
-      if (ret == 0 || ret == -EAGAIN)
-        return 0;
-      if (ret == -ETIMEDOUT)
-        return cpp::unexpected(ETIMEDOUT);
-      if (ret != -EINTR)
-        __builtin_trap();
-    }
-  };
   switch (cond->wait_with(
-      mutex, timeout, wait, [] { test_cancel(); }, shared_wait)) {
+      mutex, timeout, condition_private_wait, [] { test_cancel(); },
+      condition_shared_wait)) {
   case CndVarResult::Success:
     return 0;
   case CndVarResult::Timeout:
@@ -93,10 +95,10 @@ inline int condition_wait_impl(CndVar *cond, WaitMutex *mutex,
 inline int condition_wait(CndVar *cond, pthread_mutex_t *mutex,
                           cpp::optional<CndVar::Timeout> timeout) {
 #ifdef LIBC_MMIX_PROTECT_MUTEX
-  // FIXME: Admit protection only after condition waits can propagate an
-  // unlock's post-release priority-restoration error without losing ownership.
   if (uses_protect_mutex(mutex))
-    return ENOTSUP;
+    return protect_condition_wait(
+        cond, reinterpret_cast<ProtectMutex *>(mutex), timeout,
+        condition_private_wait, [] { test_cancel(); }, condition_shared_wait);
 #endif
 #ifdef LIBC_MMIX_ROBUST_MUTEX
   if (uses_kernel_mutex(mutex))
