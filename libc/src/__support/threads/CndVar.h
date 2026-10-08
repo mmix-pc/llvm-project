@@ -37,6 +37,12 @@ public:
   using Timeout = internal::AbsTimeout;
 
 private:
+  struct SharedWait {
+    LIBC_INLINE ErrorOr<int> operator()(Futex &futex, FutexWordType expected,
+                                        cpp::optional<Timeout> timeout) const {
+      return futex.wait(expected, timeout, /*is_shared=*/true);
+    }
+  };
   // A single-waiter multiple-notifier barrier used to keep
   // track of cancellation threads. We use this barrier to
   // ensure in-queue threads that have posted their cancellation
@@ -262,10 +268,11 @@ public:
 
   // A throwing wait policy must leave barrier ownership with the cleanup.
   // Notification and stack-node lifetime remain owned by this queue algorithm.
-  template <typename Wait, typename Check>
+  template <typename Wait, typename Check, typename WaitShared = SharedWait>
   LIBC_INLINE CndVarResult wait_with(Mutex *mutex,
                                      cpp::optional<Timeout> timeout,
-                                     Wait wait_barrier, Check check_cancel) {
+                                     Wait wait_barrier, Check check_cancel,
+                                     WaitShared wait_shared = {}) {
 #ifdef LIBC_COPT_TIMEOUT_ENSURE_MONOTONICITY
     if (timeout)
       ensure_monotonicity(*timeout);
@@ -275,10 +282,35 @@ public:
       shared_waiters.fetch_add(1);
       FutexWordType old_val = shared_futex.load();
       mutex->unlock();
-      ErrorOr<int> result =
-          shared_futex.wait(old_val, timeout, /*is_pshared=*/true);
+      struct SharedCleanup {
+        CndVar *cond;
+        Mutex *mutex;
+        bool registered = true, reacquired = false;
+        // A throwing wait policy can leave its wake result unknown.
+        // Conservatively replace a possible consumed signal; spurious condition
+        // wakes are valid.
+        bool consumed_signal = true;
+        bool enabled = true;
+        ~SharedCleanup() {
+          if (!enabled)
+            return;
+          if (registered)
+            cond->shared_waiters.fetch_sub(1);
+          if (!reacquired && mutex->lock() != MutexError::NONE)
+            __builtin_trap();
+          if (consumed_signal)
+            cond->notify(/*is_broadcast=*/false);
+        }
+      } cleanup{this, mutex};
+      ErrorOr<int> result = wait_shared(shared_futex, old_val, timeout);
       shared_waiters.fetch_sub(1);
+      cleanup.registered = false;
       MutexError mutex_result = mutex->lock();
+      cleanup.reacquired = mutex_result == MutexError::NONE;
+      cleanup.consumed_signal = result.has_value();
+      if (mutex_result == MutexError::NONE)
+        check_cancel();
+      cleanup.enabled = false;
       if (!result.has_value() && result.error() == ETIMEDOUT)
         return CndVarResult::Timeout;
       return mutex_result == MutexError::NONE ? CndVarResult::Success
