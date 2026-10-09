@@ -32,6 +32,10 @@ for suffix, args, success in [
 #--- CMakeLists.txt
 cmake_minimum_required(VERSION 3.20)
 project(MMIXPthreadAttributes NONE)
+include(${LIBC_SOURCE}/src/pthread/linux/mmix/Scheduling.cmake)
+if(NOT pthread_attr_init_source STREQUAL "linux/mmix/pthread_attr_init.cpp")
+  message(FATAL_ERROR "MMIX attribute initialization must match the Linux layout without scheduling")
+endif()
 set(TARGET_LIBC_ENTRYPOINTS libc.src.errno.errno)
 include(${LIBC_SOURCE}/config/linux/mmix/PthreadAttributes.cmake)
 include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
