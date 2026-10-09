@@ -78,6 +78,19 @@ types:
     standards:
       - llvm_libc_ext
 functions:
+  - name: pthread_getcpuclockid
+    return_type: int
+    arguments:
+      - type: pthread_t
+      - type: clockid_t *
+  - name: pthread_getconcurrency
+    return_type: int
+    arguments:
+      - type: void
+  - name: pthread_setconcurrency
+    return_type: int
+    arguments:
+      - type: int
   - name: pthread_attr_getschedpolicy
     return_type: int
     arguments:

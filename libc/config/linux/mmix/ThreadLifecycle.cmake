@@ -3,6 +3,14 @@ if(NOT LIBC_MMIX_BUILD_THREAD_LIFECYCLE)
   return()
 endif()
 mmix_check_runtime_mode()
+if(LIBC_MMIX_BUILD_PTHREAD_CLOCKS)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_getcpuclockid
+    libc.src.time.clock_gettime)
+endif()
+if(LIBC_MMIX_BUILD_CONCURRENCY_HINTS)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.pthread.pthread_getconcurrency libc.src.pthread.pthread_setconcurrency)
+endif()
 if(LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
   foreach(operation getschedparam setschedparam setschedprio
       attr_getschedparam attr_setschedparam attr_getschedpolicy attr_setschedpolicy

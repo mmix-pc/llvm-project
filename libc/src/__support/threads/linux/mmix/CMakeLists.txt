@@ -17,6 +17,26 @@ add_object_library(
 if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
+  if(LIBC_MMIX_BUILD_PTHREAD_CLOCKS)
+    add_object_library(
+      thread_clock
+      SRCS thread_clock.cpp thread_clock_kernel.cpp
+      HDRS thread_clock.h
+      DEPENDS .lifecycle libc.hdr.signal_macros libc.hdr.types.clockid_t
+        libc.hdr.types.struct_timespec libc.src.__support.CPP.bit
+        libc.src.__support.OSUtil.osutil libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto
+    )
+  endif()
+  if(LIBC_MMIX_BUILD_CONCURRENCY_HINTS)
+    add_object_library(
+      concurrency_hint
+      SRCS concurrency_hint.cpp
+      HDRS concurrency_hint.h
+      DEPENDS libc.src.__support.CPP.atomic libc.hdr.errno_macros
+      COMPILE_OPTIONS -fno-lto
+    )
+  endif()
   if(LIBC_MMIX_BUILD_PROTECT_MUTEX OR LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
     if(LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
       set(mmix_scheduling_options -DLIBC_MMIX_PTHREAD_SCHEDULING)

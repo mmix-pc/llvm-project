@@ -139,6 +139,8 @@ function(mmix_configure_threaded_libc)
                "pi_mutex|${LIBC_MMIX_BUILD_PI_MUTEX}"
                "protect_mutex|${LIBC_MMIX_BUILD_PROTECT_MUTEX}"
                "pthread_scheduling|${LIBC_MMIX_BUILD_PTHREAD_SCHEDULING}"
+               "pthread_clocks|${LIBC_MMIX_BUILD_PTHREAD_CLOCKS}"
+               "concurrency_hints|${LIBC_MMIX_BUILD_CONCURRENCY_HINTS}"
                "tls_destructors|${LIBC_MMIX_BUILD_TLS_DESTRUCTORS}"
                "cxx_runtime_dependencies|${LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES}")
     string(REPLACE "|" ";" pair "${pair}")
