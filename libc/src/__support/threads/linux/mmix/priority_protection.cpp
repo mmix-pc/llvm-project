@@ -5,9 +5,13 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include "cancellation_point.h"
 #include "hdr/errno_macros.h"
+#include "hdr/signal_macros.h"
 #include "priority_protection_state.h"
 #include "src/__support/CPP/limits.h"
+#include "src/__support/OSUtil/linux/syscall.h"
+#include <sys/syscall.h>
 #ifdef LIBC_FULL_BUILD
 #include "lifecycle.h"
 #endif
@@ -26,12 +30,21 @@ PriorityProtectionState &priority_protection_state() {
 namespace {
 struct Guard {
   PriorityProtectionState &state;
+  uint64_t saved_mask = 0;
   explicit Guard(PriorityProtectionState &value) : state(value) {
+    // Async landing must not abandon a held ledger guard or partial update.
+    uint64_t mask = CANCEL_MASK;
+    if (syscall_impl<long>(SYS_rt_sigprocmask, SIG_BLOCK, &mask, &saved_mask,
+                           sizeof(mask)))
+      __builtin_trap();
     if (state.guard.lock() != MutexError::NONE)
       __builtin_trap();
   }
   ~Guard() {
     if (state.guard.unlock() != MutexError::NONE)
+      __builtin_trap();
+    if (syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &saved_mask, 0,
+                           sizeof(saved_mask)))
       __builtin_trap();
   }
 };

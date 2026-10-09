@@ -141,8 +141,7 @@ add_header(posix_spawn_file_actions_t HDR posix_spawn_file_actions_t.h)
 add_header(posix_spawnattr_t HDR posix_spawnattr_t.h)
 add_header(posix_tnode HDR posix_tnode.h)
 if(LIBC_TARGET_OS STREQUAL "linux" AND
-   LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
-   LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+   LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   add_header(pthread_attr_t HDR linux/mmix/pthread_attr_t.h
     DEST_HDR pthread_attr_t.h DEPENDS .size_t)
 else()

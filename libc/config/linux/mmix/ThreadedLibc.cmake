@@ -129,6 +129,7 @@ function(mmix_configure_threaded_libc)
                "cancellation_windows|${LIBC_MMIX_BUILD_CANCELLATION_WINDOWS}"
                "cancellation_runtime_locks|${LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS}"
                "asynchronous_cancellation|${LIBC_MMIX_BUILD_ASYNC_CANCELLATION}"
+               "extended_pthread|${LIBC_MMIX_BUILD_EXTENDED_PTHREAD}"
                "mutex_types|${LIBC_MMIX_BUILD_MUTEX_TYPES}"
                "timed_mutex|${LIBC_MMIX_BUILD_TIMED_MUTEX}"
                "rwlocks|${LIBC_MMIX_BUILD_PTHREAD_RWLOCK}"
@@ -167,7 +168,7 @@ function(mmix_configure_threaded_libc)
     CONTENT "${manifest}\n")
   if(LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
     file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/mmix-threaded-libc/scheduling-abi"
-      CONTENT "mmix-linux-pthread-attr-v2\n")
+      CONTENT "mmix-linux-pthread-attributes-48\n")
   else()
     file(REMOVE "${CMAKE_BINARY_DIR}/mmix-threaded-libc/scheduling-abi")
   endif()

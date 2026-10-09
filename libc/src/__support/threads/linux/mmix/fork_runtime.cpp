@@ -41,11 +41,7 @@ ForkOperation::ForkOperation() {
     error_code = ENOTSUP;
     return;
   }
-  if (!serializer.mutex.try_lock()) {
-    error_code = EAGAIN;
-    return;
-  }
-  serial = active_fork = true;
+  // Do not leave the serializer owned if async delivery interrupts admission.
   uint64_t full = UINT64_MAX;
   long result = syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &full,
                                    &saved_mask, sizeof(saved_mask));
@@ -56,6 +52,11 @@ ForkOperation::ForkOperation() {
   if (result)
     __builtin_trap();
   masked = true;
+  if (!serializer.mutex.try_lock()) {
+    error_code = EAGAIN;
+    return;
+  }
+  serial = active_fork = true;
   if (caller->cancellation_transfer.load() ||
       caller->cancellation_point.load() ||
       caller->cancellation_suppression.load() || !once_can_fork()) {

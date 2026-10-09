@@ -1,0 +1,43 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+script = root / 'mode.cmake'
+script.write_text('cmake_minimum_required(VERSION 3.20)\ninclude("' +
+                  str(libc.resolve() / 'config/linux/mmix/RuntimeMode.cmake') +
+                  '")\nmmix_check_runtime_mode()\n')
+features = ('THREADED_LIBC MUTEX_TYPES TIMED_MUTEX PTHREAD_RWLOCK PTHREAD_BARRIER '
+            'PTHREAD_SPIN PROCESS_SHARED ROBUST_MUTEX PI_MUTEX PROTECT_MUTEX '
+            'PTHREAD_SCHEDULING PTHREAD_CLOCKS CONCURRENCY_HINTS COORDINATED_FORK '
+            'DEFERRED_CANCELLATION CANCELLATION_WINDOWS CANCELLATION_RUNTIME_LOCKS '
+            'ASYNC_CANCELLATION CXX_RUNTIME_DEPENDENCIES UNWIND_DIAGNOSTICS '
+            'UNWIND_ROOTS TLS_DESTRUCTORS FORCED_EXIT THREAD_LIFECYCLE RUNTIME_STATE '
+            'PTHREAD_CREATION PTHREAD_LIFECYCLE PTHREAD_MUTEX PTHREAD_COND '
+            'PTHREAD_ONCE PTHREAD_TSS PTHREAD_SIGNALS CONCURRENT_ALLOCATION '
+            'CONCURRENT_STDIO').split()
+args = {f'LIBC_MMIX_BUILD_{feature}': 'ON' for feature in features}
+args.update(LIBC_MMIX_BUILD_EXTENDED_PTHREAD='ON', LIBC_MMIX_ENABLE_STATIC_TLS='ON',
+            LIBC_CONF_THREAD_MODE='LIBC_THREAD_MODE_PLATFORM',
+            LIBC_CONF_ERRNO_MODE='LIBC_ERRNO_MODE_THREAD_LOCAL',
+            LIBC_COMPILE_OPTIONS_DEFAULT='-ftls-model=local-exec;-fno-lto')
+
+def configure(values):
+    return subprocess.run(['cmake', *[f'-D{k}={v}' for k, v in values.items()],
+                           '-P', str(script)], capture_output=True, text=True)
+
+result = configure(args)
+assert result.returncode == 0, result.stderr
+for feature in ('PTHREAD_SCHEDULING', 'ASYNC_CANCELLATION', 'PROTECT_MUTEX',
+                'COORDINATED_FORK', 'PTHREAD_CLOCKS', 'CONCURRENCY_HINTS'):
+    result = configure(dict(args, **{f'LIBC_MMIX_BUILD_{feature}': 'OFF'}))
+    assert result.returncode != 0
+    assert f'MMIX extended pthread requires {feature}' in result.stderr
+result = configure(dict(args, LIBC_MMIX_BUILD_EXTENDED_PTHREAD='OFF'))
+assert result.returncode != 0
+assert 'deferred-only' in result.stderr

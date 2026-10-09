@@ -3,6 +3,8 @@
 # RUN: %python %t/check.py %S/../../../../libc %t
 # RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/pthread.h %S/../../../../libc/include/pthread.yaml
 # RUN: clang --target=mmix-unknown-linux -std=c17 -ffreestanding -nostdlibinc -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang --target=mmix-unknown-unknown -std=c17 -ffreestanding -nostdlibinc -I %S/../../../../libc/include -fsyntax-only %t/retained-layout.c
+# RUN: clang --target=x86_64-unknown-linux -std=c17 -ffreestanding -nostdlibinc -I %S/../../../../libc/include -fsyntax-only %t/retained-layout.c
 
 #--- check.py
 import pathlib
@@ -51,7 +53,10 @@ endif()
 
 #define CHECK(T, S, A) _Static_assert(sizeof(T) == S && _Alignof(T) == A, #T)
 CHECK(pthread_t, 8, 8);
-CHECK(pthread_attr_t, 32, 8);
+CHECK(pthread_attr_t, 48, 8);
+#if defined(pthread_create) || defined(pthread_attr_init)
+#error pthread entrypoints must use ordinary symbols
+#endif
 CHECK(pthread_mutex_t, 24, 8);
 CHECK(pthread_mutexattr_t, 4, 4);
 CHECK(pthread_cond_t, 24, 8);
@@ -72,3 +77,9 @@ int attributes(pthread_attr_t *attr, void *stack) {
          pthread_attr_setdetachstate(attr, PTHREAD_CREATE_DETACHED) +
          pthread_attr_setschedparam(attr, 0);
 }
+
+#--- retained-layout.c
+// Generic has no pthread runtime; inspect only the unchanged attribute type.
+#include "llvm-libc-types/pthread_attr_t.h"
+_Static_assert(sizeof(pthread_attr_t) == 32 && _Alignof(pthread_attr_t) == 8,
+               "non-MMIX-Linux attribute layout");
