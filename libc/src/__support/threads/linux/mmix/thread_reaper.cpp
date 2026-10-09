@@ -25,6 +25,11 @@ struct ReaperBootstrap {
 };
 static LIBC_CONSTINIT ReaperBootstrap bootstrap;
 
+void restore_reaper_after_fork() {
+  RawMutex::init(&bootstrap.mutex);
+  bootstrap.attributes = nullptr;
+}
+
 static void *reaper_runner(void *) {
   if (!internal::self.attrib)
     __builtin_trap();

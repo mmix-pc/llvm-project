@@ -16,11 +16,15 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_once,
                    (pthread_once_t * flag, void (*func)(void))) {
   auto *word = reinterpret_cast<CallOnceFlag *>(flag);
+#ifdef LIBC_MMIX_COORDINATED_FORK
+  return mmix::fork_aware_once(word, func);
+#else
   return callonce(word, [=]() {
     // Unwind unlinks this record before the common guard resets and wakes.
     // Direct C exit instead drains the record at thread completion.
     mmix::OnceInitializer active(word);
     func();
   });
+#endif
 }
 } // namespace LIBC_NAMESPACE_DECL

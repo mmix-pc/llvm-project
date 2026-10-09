@@ -23,6 +23,7 @@ ThreadCreationResult ensure_thread_reaper(const TLSImage &image,
 // Sole reaper only, with signals/cancellation blocked. One pass handles only
 // the initial queue length; delayed clear or references rotate to its tail.
 bool reap_detached_pass();
+void restore_reaper_after_fork();
 
 // A returning service is a fatal loss of detached cleanup.
 extern "C" __attribute__((visibility("hidden"))) void

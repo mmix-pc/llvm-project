@@ -80,6 +80,22 @@ bool restore_main_thread_after_fork() {
          control->attributes.tid;
 }
 
+bool adopt_fork_survivor() {
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes || !control->fork_child)
+    return false;
+  active_attributes = self.attrib;
+  phase = Phase::Active;
+  control->clear_tid.value.store(UINT32_MAX);
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  if (mmix::register_robust_list(true))
+    return false;
+#endif
+  return syscall_impl(SYS_set_tid_address,
+                      reinterpret_cast<long>(&control->clear_tid.value.val)) ==
+         control->attributes.tid;
+}
+
 bool activate_main_thread(MainThreadState &state) {
   if (phase != Phase::Uninitialized || self.attrib || state.attributes.tid <= 0)
     return false;

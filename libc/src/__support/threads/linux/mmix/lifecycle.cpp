@@ -15,6 +15,46 @@ namespace mmix {
 
 LIBC_CONSTINIT ThreadRegistry thread_registry;
 
+bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression) {
+  mutex.value.lock();
+  if (exiting || reservations || process_operation ||
+      caller.registry != this || !caller.listed ||
+      caller.execution != ThreadExecution::Running || caller.callbacks_started ||
+      caller.fork_child || caller.cancellation_transfer.load() ||
+      caller.cancellation_suppression.load() != suppression ||
+      caller.cancellation_point.load()) {
+    mutex.value.unlock();
+    return false;
+  }
+  return true;
+}
+
+void ThreadRegistry::release_after_fork() { mutex.value.unlock(); }
+
+void ThreadRegistry::restore_fork_child(ThreadControl &survivor) {
+  // Only the survivor exists in this copied address space. Do not traverse or
+  // reclaim vanished stacks, copied pins, leases or reaper queue entries.
+  head = &survivor;
+  reap_head = reap_tail = nullptr;
+  reap_count = reservations = 0;
+  live = 1;
+  exiting = process_cleanup_claimed = process_operation = false;
+  main_registered = creation_started = true;
+  exec_child = true;
+  survivor.registry = this;
+  survivor.next = survivor.reap_next = nullptr;
+  survivor.queued = survivor.creator_pin = survivor.leases_open = false;
+  survivor.listed = survivor.counted = survivor.lifecycle_pin = true;
+  survivor.process_lifetime = true;
+  survivor.internal_helper = survivor.callbacks_started = false;
+  survivor.api_pins = survivor.leases = 0;
+  survivor.owner = ThreadOwner::Joinable;
+  survivor.execution = ThreadExecution::Running;
+  survivor.fork_child = true;
+  event.value.store(0);
+  RawMutex::init(&mutex.value);
+}
+
 ThreadRegistryLock::ThreadRegistryLock(ThreadRegistry &r) : registry(r) {
   registry.mutex.value.lock();
 }
@@ -38,7 +78,7 @@ uint32_t ThreadRegistryLock::sequence() {
 }
 
 bool ThreadRegistryLock::reserve() {
-  if (registry.exiting || registry.process_operation ||
+  if (registry.exiting || registry.process_operation || registry.exec_child ||
       registry.reservations == SIZE_MAX)
     return false;
   registry.creation_started = true;
@@ -48,7 +88,7 @@ bool ThreadRegistryLock::reserve() {
 }
 
 bool ThreadRegistryLock::begin_helper_creation() {
-  if (registry.exiting || registry.process_operation)
+  if (registry.exiting || registry.process_operation || registry.exec_child)
     return false;
   registry.creation_started = true;
   return true;

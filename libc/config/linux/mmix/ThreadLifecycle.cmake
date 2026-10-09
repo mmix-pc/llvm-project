@@ -3,6 +3,10 @@ if(NOT LIBC_MMIX_BUILD_THREAD_LIFECYCLE)
   return()
 endif()
 mmix_check_runtime_mode()
+if(LIBC_MMIX_BUILD_COORDINATED_FORK)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_atfork
+    libc.src.unistd.execve)
+endif()
 if(LIBC_MMIX_BUILD_PTHREAD_CLOCKS)
   list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_getcpuclockid
     libc.src.time.clock_gettime)

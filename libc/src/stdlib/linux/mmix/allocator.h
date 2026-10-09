@@ -18,6 +18,8 @@ namespace mmix {
 void *allocate(size_t size, size_t alignment = 1);
 void *resize(void *ptr, size_t size);
 void deallocate(void *ptr);
+void allocator_fork_prepare();
+void allocator_fork_release();
 
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

@@ -66,6 +66,7 @@ struct ThreadControl {
   UnwindRoot unwind_root{};
   PriorityProtectionState priority_protection;
   bool apply_scheduling = false;
+  bool fork_child = false;
   int scheduling_policy = 0, scheduling_priority = 0;
   CancellationState cancellation;
   cpp::Atomic<CancellationPoint *> cancellation_point{nullptr};
@@ -111,6 +112,7 @@ struct ThreadControl {
   }
 
 private:
+  friend class ThreadRegistry;
   friend class ThreadRegistryLock;
   ThreadRegistry *registry = nullptr;
   ThreadControl *next = nullptr;
@@ -146,9 +148,14 @@ class ThreadRegistry {
   bool main_registered = false;
   bool creation_started = false;
   bool process_operation = false;
+  bool exec_child = false;
 
 public:
   constexpr ThreadRegistry() = default;
+  // Dedicated clone snapshot scope; never use the ordinary API lock across it.
+  bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0);
+  void release_after_fork();
+  void restore_fork_child(ThreadControl &survivor);
   // Snapshot under ThreadRegistryLock; wait only after releasing it. Callers
   // supply a bounded deadline and recheck predicates even after timeout/wrap.
   ErrorOr<int> wait(uint32_t sequence, Futex::Timeout deadline) {

@@ -159,7 +159,11 @@ set(fork_source fork.cpp)
 set(fork_extra_deps "")
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(fork_source mmix/fork.cpp)
-  set(fork_extra_deps
+  if(LIBC_MMIX_BUILD_COORDINATED_FORK)
+    set(fork_source mmix/coordinated_fork.cpp)
+    list(APPEND fork_extra_deps libc.src.__support.threads.linux.mmix.fork_runtime)
+  endif()
+  list(APPEND fork_extra_deps
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
     libc.src.__support.threads.linux.mmix.process_operation_h)
 endif()

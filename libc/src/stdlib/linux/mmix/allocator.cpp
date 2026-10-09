@@ -31,8 +31,8 @@ struct Region {
 static_assert(alignof(Region) <= BlockRef::MIN_ALIGN);
 
 // One private, nonallocating lock protects both the list and each region's heap.
-// Allocation from signal handlers is unsupported. FIXME: Coordinate this lock
-// with fork when fork from a multithreaded process is admitted.
+// Allocation from signal handlers is unsupported. Coordinated fork takes this
+// lock after stream locks; child execution remains restricted to exec/_exit.
 LIBC_CONSTINIT RawMutex regions_mutex;
 Region *regions = nullptr;
 
@@ -127,6 +127,9 @@ void *resize_unlocked(void *ptr, size_t size) {
 }
 
 } // namespace
+
+void allocator_fork_prepare() { regions_mutex.lock(); }
+void allocator_fork_release() { regions_mutex.unlock(); }
 
 void *allocate(size_t size, size_t alignment) {
   cpp::lock_guard lock(regions_mutex);

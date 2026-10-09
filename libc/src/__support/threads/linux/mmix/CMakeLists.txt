@@ -17,6 +17,19 @@ add_object_library(
 if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
+  if(LIBC_MMIX_BUILD_COORDINATED_FORK)
+    add_object_library(
+      fork_runtime
+      SRCS fork_runtime.cpp atfork_callbacks.cpp
+      HDRS fork_runtime.h atfork_callbacks.h
+      DEPENDS .lifecycle .once .main_thread .thread_create .robust_mutex
+        libc.src.__support.File.file libc.src.stdlib.environ_internal
+        libc.src.stdlib.linux.mmix.allocator libc.src.__support.OSUtil.osutil
+        libc.src.stdio.stdin libc.src.stdio.stdout libc.src.stdio.stderr
+        libc.src.__support.CPP.new libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto
+    )
+  endif()
   if(LIBC_MMIX_BUILD_PTHREAD_CLOCKS)
     add_object_library(
       thread_clock

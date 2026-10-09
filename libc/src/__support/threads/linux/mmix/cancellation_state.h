@@ -24,6 +24,9 @@ class CancellationState {
 
 public:
   constexpr CancellationState() = default;
+  void restore_after_fork() {
+    bits.fetch_and(ENABLED | ASYNC, cpp::MemoryOrder::RELAXED);
+  }
   bool enabled() { return bits.load(cpp::MemoryOrder::ACQUIRE) & ENABLED; }
   bool ready() {
     return (bits.load(cpp::MemoryOrder::ACQUIRE) &

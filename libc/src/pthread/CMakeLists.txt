@@ -1094,11 +1094,14 @@ add_entrypoint_object(
 
 set(pthread_once_source pthread_once.cpp)
 set(pthread_once_options)
+if(LIBC_MMIX_BUILD_COORDINATED_FORK)
+  list(APPEND pthread_once_options -DLIBC_MMIX_COORDINATED_FORK)
+endif()
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(pthread_once_source linux/mmix/pthread_once.cpp)
   set(pthread_once_dependency libc.src.__support.threads.linux.mmix.once)
   if(LIBC_MMIX_BUILD_FORCED_EXIT)
-    set(pthread_once_options -fno-lto -fexceptions -funwind-tables)
+    list(APPEND pthread_once_options -fno-lto -fexceptions -funwind-tables)
   endif()
 endif()
 add_entrypoint_object(
@@ -1114,15 +1117,21 @@ add_entrypoint_object(
   COMPILE_OPTIONS ${pthread_once_options}
 )
 
+set(pthread_atfork_source pthread_atfork.cpp)
+if(LIBC_MMIX_BUILD_COORDINATED_FORK)
+  set(pthread_atfork_source linux/mmix/pthread_atfork.cpp)
+  set(pthread_atfork_dependencies libc.src.__support.threads.linux.mmix.fork_runtime)
+endif()
 add_entrypoint_object(
   pthread_atfork
   SRCS
-    pthread_atfork.cpp
+    ${pthread_atfork_source}
   HDRS
     pthread_atfork.h
   DEPENDS
     libc.include.pthread
     libc.src.__support.threads.fork_callbacks
+    ${pthread_atfork_dependencies}
     libc.src.errno.errno
 )
 
