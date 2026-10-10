@@ -201,6 +201,33 @@ void recursive_mutex_test() {
   ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_destroy(&recursive_mutex), 0);
 }
 
+void init_from_nonzero_storage_test() {
+  const int types[] = {PTHREAD_MUTEX_NORMAL, PTHREAD_MUTEX_RECURSIVE,
+                       PTHREAD_MUTEX_ERRORCHECK};
+  const unsigned char seeds[] = {0xa5, 0xff};
+  for (int type : types) {
+    pthread_mutexattr_t attr;
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_mutexattr_init(&attr), 0);
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_mutexattr_settype(&attr, type), 0);
+    for (unsigned char seed : seeds) {
+      pthread_mutex_t value;
+      unsigned char bytes[sizeof(value)];
+      for (auto &byte : bytes)
+        byte = seed;
+      LIBC_NAMESPACE::inline_memcpy(&value, bytes, sizeof(value));
+      ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_init(&value, &attr), 0);
+      ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_lock(&value), 0);
+      ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_trylock(&value),
+                type == PTHREAD_MUTEX_RECURSIVE ? 0 : EBUSY);
+      if (type == PTHREAD_MUTEX_RECURSIVE)
+        ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_unlock(&value), 0);
+      ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_unlock(&value), 0);
+      ASSERT_EQ(LIBC_NAMESPACE::pthread_mutex_destroy(&value), 0);
+    }
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_mutexattr_destroy(&attr), 0);
+  }
+}
+
 void recursive_overflow_test() {
   pthread_mutexattr_t attr;
   pthread_mutex_t value;
@@ -352,6 +379,7 @@ TEST_MAIN() {
   wait_and_step();
   trylock_test();
   recursive_mutex_test();
+  init_from_nonzero_storage_test();
   recursive_overflow_test();
   initializer_acts_the_same_as_null_attr();
   error_checking_mutex_test();

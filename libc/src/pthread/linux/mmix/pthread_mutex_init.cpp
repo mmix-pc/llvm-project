@@ -10,8 +10,10 @@
 #include "hdr/errno_macros.h"
 #include "src/__support/CPP/new.h"
 #include "src/__support/common.h"
+#include "src/__support/threads/linux/mmix/mutex_flags.h"
 #include "src/__support/threads/mutex.h"
 #include "src/pthread/pthread_mutexattr.h"
+#include "src/string/memory_utils/inline_memcpy.h"
 #ifdef LIBC_MMIX_ROBUST_MUTEX
 #include "src/__support/threads/linux/mmix/robust_mutex.h"
 #endif
@@ -119,6 +121,13 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
   }
 #endif
   new (mutex) Mutex(false, recursive, false, shared, error_checking);
+  // Initialize the whole flag word: ordinary bitfield constructors leave
+  // padding that MMIX dispatch also uses for the protection tag and ceiling.
+  uint32_t flags = (recursive ? mmix::MUTEX_RECURSIVE : 0) |
+                   (shared ? mmix::MUTEX_SHARED : 0) |
+                   (error_checking ? mmix::MUTEX_ERRORCHECK : 0);
+  inline_memcpy(reinterpret_cast<unsigned char *>(mutex) + sizeof(uint32_t),
+                &flags, sizeof(flags));
   return 0;
 }
 
