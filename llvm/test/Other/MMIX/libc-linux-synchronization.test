@@ -57,6 +57,10 @@ for opt in ("0", "2"):
 #define SYS_futex 100
 #define SYS_write 101
 #--- linux/futex.h
+#pragma once
+struct robust_list {
+  struct robust_list *next;
+};
 #define FUTEX_WAIT_BITSET 9
 #define FUTEX_WAIT_BITSET_PRIVATE 137
 #define FUTEX_CLOCK_REALTIME 256
