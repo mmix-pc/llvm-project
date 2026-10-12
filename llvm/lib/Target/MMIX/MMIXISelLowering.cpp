@@ -831,7 +831,7 @@ MMIXTargetLowering::MMIXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BR_CC, MVT::f64, Expand);
   setOperationAction(ISD::BRCOND, MVT::Other, Legal);
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
-  RejectOperation(ISD::BRIND, MVT::Other);
+  setOperationAction(ISD::BRIND, MVT::Other, Legal);
   setOperationAction(ISD::TRAP, MVT::Other, Legal);
   setOperationAction(ISD::ATOMIC_LOAD, MVT::i64, Legal);
   setOperationAction(ISD::ATOMIC_CMP_SWAP, MVT::i64, Legal);
@@ -1101,10 +1101,6 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
   }
   if (Op.getOpcode() == ISD::INTRINSIC_WO_CHAIN)
     return SDValue();
-  if (Op.getOpcode() == ISD::BRIND)
-    reportFatalUsageError(
-        Twine("MMIX does not support indirect branches in ordinary function '") +
-        F.getName() + "'");
   if (Op->isStrictFPOpcode())
     report_fatal_error(
         "MMIX constrained floating-point lowering is not implemented");

@@ -360,6 +360,7 @@ public:
 
     if (MI->isPseudo() && MI->getOpcode() != MMIX::PseudoB &&
         MI->getOpcode() != MMIX::PseudoJMP &&
+        MI->getOpcode() != MMIX::PseudoIndirectBranch &&
         MI->getOpcode() != MMIX::PseudoPUSHJ &&
         MI->getOpcode() != MMIX::PseudoPUSHGO &&
         MI->getOpcode() != MMIX::PseudoDirectCall &&

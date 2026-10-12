@@ -189,7 +189,8 @@ void MMIXMCInstLower::lower(const MachineInstr &MI, MCInst &OutMI) const {
   unsigned Opcode = MI.getOpcode();
   unsigned PredicateOperand = ~0U;
   if (Opcode == MMIX::PseudoMaterializedDirectTail ||
-      Opcode == MMIX::PseudoIndirectTail) {
+      Opcode == MMIX::PseudoIndirectTail ||
+      Opcode == MMIX::PseudoIndirectBranch) {
     unsigned CalleeOperand =
         Opcode == MMIX::PseudoMaterializedDirectTail ? 1 : 0;
     OutMI.setOpcode(MMIX::GOI);

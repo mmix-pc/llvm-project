@@ -189,8 +189,8 @@ unlikely:
   ret i64 0
 }
 
-; MMIX keeps switches as compare-and-branch chains until indirect jump-table
-; control transfer and ELF table-entry semantics are defined.
+; Automatic switch jump tables remain disabled independently of support for
+; explicit blockaddress/indirectbr control flow.
 ; CHECK-LABEL: switch_chain:
 ; CHECK-NOT:   GO
 ; CHECK-COUNT-2: BZ

@@ -2435,6 +2435,15 @@ let isBranch = true, isTerminator = true in {
 }
 
 let isBranch = true, isTerminator = true, isBarrier = true in {
+  // GO discards its link result in reserved r255 without changing rJ, the
+  // software frame or the register window of this same-function transfer.
+  def PseudoIndirectBranch
+      : MMIXPseudoInstruction<(outs), (ins GPR64Op:$target), ""> {
+    let Size = 4;
+    let isIndirectBranch = true;
+    let Defs = [R255];
+    let Pattern = [(brind i64:$target)];
+  }
   def PseudoJMP
       : MMIXPseudoInstruction<(outs), (ins MMIXJumpTarget:$target), ""> {
     let Size = 4;
