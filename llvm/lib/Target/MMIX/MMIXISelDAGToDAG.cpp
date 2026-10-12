@@ -311,6 +311,16 @@ private:
       return;
     }
 
+    if (Node->getOpcode() == MMIXISD::PIC_LITERAL ||
+        Node->getOpcode() == MMIXISD::GOT_LITERAL) {
+      CurDAG->SelectNodeTo(Node,
+                          Node->getOpcode() == MMIXISD::PIC_LITERAL
+                              ? MMIX::PIC_LITERAL
+                              : MMIX::GOT_LITERAL,
+                          MVT::i64, Node->getOperand(0));
+      return;
+    }
+
     if (Node->getOpcode() == MMIXISD::CALL ||
         Node->getOpcode() == MMIXISD::DIRECT_CALL) {
       SmallVector<SDValue, 20> Ops;

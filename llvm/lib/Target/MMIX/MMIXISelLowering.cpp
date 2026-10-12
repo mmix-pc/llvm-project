@@ -935,6 +935,24 @@ SDValue MMIXTargetLowering::PerformDAGCombine(SDNode *N,
                            Store->getMemOperand());
 }
 
+static SDValue lowerMMIXPICAddress(SDValue Target, bool UseGOT, const SDLoc &DL,
+                                 SelectionDAG &DAG) {
+  SDValue Base = DAG.getNode(UseGOT ? MMIXISD::GOT_LITERAL : MMIXISD::PIC_LITERAL,
+                            DL, MVT::i64, Target);
+  const auto Flags = MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant |
+                     MachineMemOperand::MODereferenceable;
+  SDValue Delta = DAG.getLoad(
+      MVT::i64, DL, DAG.getEntryNode(), Base,
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), Align(8),
+      Flags);
+  SDValue Address = DAG.getNode(ISD::ADD, DL, MVT::i64, Base, Delta);
+  if (UseGOT)
+    Address = DAG.getLoad(MVT::i64, DL, DAG.getEntryNode(), Address,
+                         MachinePointerInfo::getGOT(DAG.getMachineFunction()),
+                         Align(8), Flags);
+  return Address;
+}
+
 SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
                                            SelectionDAG &DAG) const {
   const Function &F = DAG.getMachineFunction().getFunction();
@@ -1331,16 +1349,19 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
       Op.getOpcode() == ISD::ExternalSymbol ||
       Op.getOpcode() == ISD::BlockAddress ||
       Op.getOpcode() == ISD::ConstantPool || Op.getOpcode() == ISD::JumpTable) {
-    if (getTargetMachine().getRelocationModel() != Reloc::Static)
-      report_fatal_error("MMIX supports only the static relocation model");
-
+    const bool IsPIC = getTargetMachine().isPositionIndependent();
+    bool UseGOT = false;
+    int64_t Offset = 0;
     SDValue Target;
-    if (auto *GA = dyn_cast<GlobalAddressSDNode>(Op))
+    if (auto *GA = dyn_cast<GlobalAddressSDNode>(Op)) {
+      UseGOT = IsPIC && !getTargetMachine().shouldAssumeDSOLocal(GA->getGlobal());
+      Offset = UseGOT ? GA->getOffset() : 0;
       Target = DAG.getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64,
-                                          GA->getOffset());
-    else if (auto *ES = dyn_cast<ExternalSymbolSDNode>(Op))
+                                          UseGOT ? 0 : GA->getOffset());
+    } else if (auto *ES = dyn_cast<ExternalSymbolSDNode>(Op)) {
+      UseGOT = IsPIC;
       Target = DAG.getTargetExternalSymbol(ES->getSymbol(), MVT::i64);
-    else if (auto *BA = dyn_cast<BlockAddressSDNode>(Op))
+    } else if (auto *BA = dyn_cast<BlockAddressSDNode>(Op))
       Target = DAG.getTargetBlockAddress(BA->getBlockAddress(), MVT::i64,
                                          BA->getOffset());
     else if (auto *CP = dyn_cast<ConstantPoolSDNode>(Op)) {
@@ -1354,7 +1375,14 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
       auto *JT = cast<JumpTableSDNode>(Op);
       Target = DAG.getTargetJumpTable(JT->getIndex(), MVT::i64);
     }
-    return DAG.getNode(MMIXISD::LOAD_ADDR, DL, MVT::i64, Target);
+    if (!IsPIC)
+      return DAG.getNode(MMIXISD::LOAD_ADDR, DL, MVT::i64, Target);
+    SDValue Address = lowerMMIXPICAddress(Target, UseGOT, DL, DAG);
+    // A source offset adjusts the resolved object, not its GOT slot address.
+    if (Offset)
+      Address = DAG.getNode(ISD::ADD, DL, MVT::i64, Address,
+                           DAG.getConstant(Offset, DL, MVT::i64));
+    return Address;
   }
 
   SDValue LHS = Op.getOperand(0);
@@ -2251,7 +2279,24 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   SDValue Callee = OriginalCallee;
   SDValue DirectCallee;
-  if (auto GlobalCallee = getMMIXDirectGlobalCallee(Callee)) {
+  const bool IsPIC = getTargetMachine().isPositionIndependent();
+  if (IsPIC) {
+    if (auto GlobalCallee = getMMIXDirectGlobalCallee(Callee)) {
+      const GlobalValue *GV = GlobalCallee->first->getGlobal();
+      bool UseGOT = !getTargetMachine().shouldAssumeDSOLocal(GV);
+      SDValue Target = DAG.getTargetGlobalAddress(
+          GV, CLI.DL, MVT::i64, UseGOT ? 0 : GlobalCallee->second);
+      Callee = lowerMMIXPICAddress(Target, UseGOT, CLI.DL, DAG);
+      if (UseGOT && GlobalCallee->second)
+        Callee = DAG.getNode(ISD::ADD, CLI.DL, MVT::i64, Callee,
+                            DAG.getConstant(GlobalCallee->second, CLI.DL,
+                                            MVT::i64));
+    } else if (auto *ES = dyn_cast<ExternalSymbolSDNode>(Callee)) {
+      Callee = lowerMMIXPICAddress(
+          DAG.getTargetExternalSymbol(ES->getSymbol(), MVT::i64), true,
+          CLI.DL, DAG);
+    }
+  } else if (auto GlobalCallee = getMMIXDirectGlobalCallee(Callee)) {
     const GlobalAddressSDNode *GA = GlobalCallee->first;
     SDValue Target = DAG.getTargetGlobalAddress(
         GA->getGlobal(), CLI.DL, MVT::i64, GlobalCallee->second);
@@ -2295,7 +2340,8 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   unsigned CallOpcode;
   if (IsTailCall)
-    CallOpcode = IsDirectCallee ? MMIXISD::DIRECT_TAIL : MMIXISD::INDIRECT_TAIL;
+    CallOpcode = IsDirectCallee && !IsPIC ? MMIXISD::DIRECT_TAIL
+                                        : MMIXISD::INDIRECT_TAIL;
   else
     CallOpcode = DirectCallee ? MMIXISD::DIRECT_CALL : MMIXISD::CALL;
   Chain = DAG.getNode(CallOpcode, CLI.DL, DAG.getVTList(MVT::Other, MVT::Glue),

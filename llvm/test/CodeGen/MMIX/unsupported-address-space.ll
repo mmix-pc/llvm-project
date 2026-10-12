@@ -2,6 +2,8 @@
 ; RUN: test ! -s %t.s
 ; RUN: not llc -mtriple=mmix -filetype=obj %s -o %t.o 2>&1 | FileCheck %s
 ; RUN: test ! -s %t.o
+; RUN: not llc -mtriple=mmix-unknown-linux -relocation-model=pic -filetype=obj %s -o %t.pic.o 2>&1 | FileCheck %s
+; RUN: test ! -s %t.pic.o
 
 ; CHECK: LLVM ERROR: MMIX does not support nonzero address spaces in function 'load_nonzero_address_space'
 

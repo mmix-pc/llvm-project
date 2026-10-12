@@ -11,6 +11,7 @@
 #include "MCTargetDesc/MMIXBaseInfo.h"
 #include "MCTargetDesc/MMIXInstPrinter.h"
 #include "MCTargetDesc/MMIXMCTargetDesc.h"
+#include "MCTargetDesc/MMIXTargetStreamer.h"
 #include "MMIXALModuleValidator.h"
 #include "MMIXAddressEmission.h"
 #include "MMIXMCInstLower.h"
@@ -30,6 +31,7 @@
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstBuilder.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -307,6 +309,31 @@ public:
   }
 
   void emitInstruction(const MachineInstr *MI) override {
+    if (MI->getOpcode() == MMIX::PIC_LITERAL ||
+        MI->getOpcode() == MMIX::GOT_LITERAL) {
+      MMIXMCInstLower Lower(OutContext, *this, EmissionMode);
+      const MCExpr *Address = Lower.lowerAddressOperand(MI->getOperand(1));
+      MCSymbol *Literal = OutContext.createTempSymbol("pic_literal");
+      MCSymbol *End = OutContext.createTempSymbol("pic_end");
+      const MCExpr *Base = MCSymbolRefExpr::create(Literal, OutContext);
+      emitCheckedMCInstruction(MCInstBuilder(MMIX::GETA)
+                                   .addReg(MI->getOperand(0).getReg())
+                                   .addExpr(Base));
+      emitCheckedMCInstruction(
+          MCInstBuilder(MMIX::JMP)
+              .addExpr(MCSymbolRefExpr::create(End, OutContext)));
+      OutStreamer->emitValueToAlignment(Align(8));
+      OutStreamer->emitLabel(Literal);
+      if (MI->getOpcode() == MMIX::GOT_LITERAL)
+        static_cast<MMIXTargetStreamer *>(OutStreamer->getTargetStreamer())
+            ->emitGOTPC64(Address, SMLoc());
+      else
+        OutStreamer->emitValue(
+            MCBinaryExpr::createSub(Address, Base, OutContext), 8);
+      OutStreamer->emitLabel(End);
+      return;
+    }
+
     if (MI->getOpcode() == MMIX::LOAD_CALL_ADDR) {
       // Materialize unresolved callees even in ELF: section-end call stubs
       // need not be reachable from a call in a large input section.

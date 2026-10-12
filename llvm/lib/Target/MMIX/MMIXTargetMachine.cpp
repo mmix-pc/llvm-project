@@ -21,8 +21,14 @@
 
 using namespace llvm;
 
-static Reloc::Model getEffectiveRelocModel(std::optional<Reloc::Model> RM) {
+static Reloc::Model getEffectiveRelocModel(std::optional<Reloc::Model> RM,
+                                         const Triple &TT,
+                                         const TargetOptions &Options) {
   Reloc::Model Model = RM.value_or(Reloc::Static);
+  if (Model == Reloc::PIC_ && TT.isOSLinux() &&
+      Options.MCOptions.OutputAsmVariant.value_or(MMIXII::CanonicalAsmVariant) ==
+          MMIXII::CanonicalAsmVariant)
+    return Model;
   if (Model != Reloc::Static)
     report_fatal_error("MMIX supports only the static relocation model");
   return Model;
@@ -49,7 +55,7 @@ MMIXTargetMachine::MMIXTargetMachine(const Target &T, const Triple &TT,
                                      CodeGenOptLevel OL, bool JIT)
     : CodeGenTargetMachineImpl(
           T, TT.computeDataLayout(), TT, CPU, FS, Options,
-          getEffectiveRelocModel(RM),
+          getEffectiveRelocModel(RM, TT, Options),
           getMMIXEffectiveCodeModel(CM), OL),
       TLOF(std::make_unique<MMIXTargetObjectFile>()),
       Subtarget(TT, CPU, FS, *this) {

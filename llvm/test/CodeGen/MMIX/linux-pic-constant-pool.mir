@@ -1,0 +1,31 @@
+# RUN: llc -mtriple=mmix-unknown-linux -relocation-model=pic -start-before=postrapseudos -verify-machineinstrs -filetype=obj %s -o %t.o
+# RUN: llvm-readobj --sections --section-data --relocations %t.o | FileCheck %s
+# RUN: llvm-objdump --no-print-imm-hex -d %t.o | FileCheck %s --check-prefix=CODE
+# CHECK: Name: .rodata.cst8
+# CHECK: 11223344 55667788
+# CHECK: 0x8 R_MMIX_PC_64 .rodata.cst8 0x0
+# CODE-LABEL: <constant_pool_address>:
+# CODE: GETA r0, 2
+# CODE-NEXT: {{.*}} JMP 3
+# CODE: LDOU r1, r0, 0
+# CODE-NEXT: {{.*}} ADDU r0, r0, r1
+# CODE-NEXT: {{.*}} POP 0, 0
+--- |
+  define void @constant_pool_address() nounwind {
+    ret void
+  }
+...
+---
+name: constant_pool_address
+tracksRegLiveness: true
+constants:
+  - id: 0
+    value: 'i64 1234605616436508552'
+    alignment: 8
+body: |
+  bb.0:
+    $r0 = PIC_LITERAL %const.0
+    $r1 = LDOUI $r0, 0
+    $r0 = ADDU $r0, killed $r1
+    POP 0, 0
+...

@@ -33,6 +33,8 @@ enum NodeType : unsigned {
   UDIVREM,
   LOAD_ADDR,
   LOAD_CALL_ADDR,
+  PIC_LITERAL,
+  GOT_LITERAL,
   FCMP,
   FEQL,
   FUN,

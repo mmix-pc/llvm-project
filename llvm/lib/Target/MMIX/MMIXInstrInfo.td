@@ -2501,6 +2501,16 @@ class MMIXAddressProducerPseudo<string Use>
 }
 
 def LOAD_ADDR : MMIXAddressProducerPseudo<"static-address">;
+// One indivisible GETA/branch/literal group; Size includes worst-case padding.
+// Loads and arithmetic are separate DAG operations with allocated registers.
+class MMIXPICLiteral : MMIXAddressProducerPseudo<"pic-literal"> {
+  let Size = 20;
+  let hasSideEffects = false;
+  let mayLoad = false;
+  let mayStore = false;
+}
+def PIC_LITERAL : MMIXPICLiteral;
+def GOT_LITERAL : MMIXPICLiteral;
 // Keep the full TP-relative offset together until after register allocation.
 def LOAD_TLS_ADDR
     : MMIXPseudoInstruction<(outs GPR64CodeGen:$dst),

@@ -1,4 +1,8 @@
 ; RUN: split-file %s %t
+; RUN: llc -mtriple=mmix-unknown-linux -relocation-model=pic -O0 -verify-machineinstrs -filetype=obj %t/supported.ll -o %t/pic.o0.o
+; RUN: llvm-objdump --no-print-imm-hex -d %t/pic.o0.o | FileCheck %s --check-prefixes=PIC,PIC0
+; RUN: llc -mtriple=mmix-unknown-linux -relocation-model=pic -O2 -verify-machineinstrs -filetype=obj %t/supported.ll -o %t/pic.o2.o
+; RUN: llvm-objdump --no-print-imm-hex -d %t/pic.o2.o | FileCheck %s --check-prefix=PIC
 ; RUN: llc -mtriple=mmix -O0 -verify-machineinstrs %t/supported.ll -o - \
 ; RUN:   | FileCheck %s --check-prefix=ASM
 ; RUN: llc -mtriple=mmix -O0 -verify-machineinstrs -filetype=obj \
@@ -68,6 +72,25 @@
 ; ASM: GO r255
 ; OBJ-LABEL: <required_pair_result>:
 ; OBJ: GO r255
+
+; PIC-LABEL: <required_direct>:
+; PIC: GO r255,
+; PIC-LABEL: <required_indirect>:
+; PIC: GO r255,
+; PIC-LABEL: <required_recursive>:
+; PIC: GO r255,
+; PIC-LABEL: <required_stack_arguments>:
+; PIC0: SUBU r254, r254,
+; PIC0: ADDU r254, r254,
+; PIC: GO r255,
+; PIC-LABEL: <required_pair_result>:
+; PIC: GO r255,
+; PIC-LABEL: <required_sret>:
+; PIC: GO r255,
+; PIC-LABEL: <required_fast_direct>:
+; PIC: GO r255,
+; PIC-LABEL: <required_fast_indirect>:
+; PIC: GO r255,
 
 ; ASM-LABEL: required_sret:
 ; ASM-NOT: PUSH
