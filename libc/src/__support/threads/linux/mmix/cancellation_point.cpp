@@ -26,9 +26,7 @@
 #include <sys/syscall.h>
 #include <ucontext.h>
 
-#if !defined(MMIX_SIGCONTEXT_HAS_CHAIN_ID) || MMIX_SIGCONTEXT_HAS_CHAIN_ID != 1
-#error "MMIX cancellation windows require the matched interrupted-chain UAPI"
-#endif
+#include "notification_validation.h"
 
 extern "C" {
 long __llvm_libc_mmix_cancel_leaf(unsigned long, long, long, long, long, long,
@@ -40,20 +38,6 @@ void __llvm_libc_mmix_cancel_after();
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
-struct CancellationPoint {
-  volatile uintptr_t ro = 0, sp = 0;
-  CancellationState *state;
-  ThreadControl *owner;
-  CancellationPoint *previous;
-  uint64_t identity, generation, chain, mask;
-  volatile int saved_errno;
-  jmp_buf environment{};
-};
-static_assert(__builtin_offsetof(CancellationPoint, ro) == 0);
-static_assert(__builtin_offsetof(CancellationPoint, sp) == 8);
-static_assert(__builtin_offsetof(CancellationPoint, state) == 16);
-static_assert(sizeof(CancellationState) == sizeof(uint64_t));
-static_assert(__atomic_always_lock_free(sizeof(CancellationPoint *), nullptr));
 namespace {
 cpp::Atomic<uint64_t> identities{1};
 long process_id = 0;
@@ -153,9 +137,8 @@ void restore_mask(uint64_t mask) {
 void notification(int signal, siginfo_t *info, void *context) {
   int saved_errno = libc_errno;
   auto *control = current_control;
-  if (signal != CANCEL_SIGNAL || !info || !context ||
-      info->si_signo != CANCEL_SIGNAL || info->si_code != SI_TKILL ||
-      info->si_pid != process_id || !control ||
+  if (!notification_origin_matches(signal, info, context, process_id) ||
+      !control ||
       !control->cancellation.ready() ||
       control->cancellation_suppression.load(cpp::MemoryOrder::ACQUIRE) ||
       control->cancellation_transfer.load(cpp::MemoryOrder::ACQUIRE))
@@ -184,15 +167,10 @@ void notification(int signal, siginfo_t *info, void *context) {
   }
 #endif
   uintptr_t pc = saved.sc_regs.pc;
-  if (!point || point->owner != control ||
-      point->identity != control->cancellation_identity || !point->generation ||
-      point->generation > control->cancellation_generation ||
-      !control->unwind_root.active ||
-      point->chain != control->unwind_root.chain ||
-      saved.sc_chain_id != point->chain || saved.sc_regs.r_o != point->ro ||
-      saved.sc_regs.regs[254] != point->sp ||
-      pc < reinterpret_cast<uintptr_t>(&__llvm_libc_mmix_cancel_entry) ||
-      pc >= reinterpret_cast<uintptr_t>(&__llvm_libc_mmix_cancel_after))
+  if (!deferred_notification_context_matches(
+          point, control, saved, pc,
+          reinterpret_cast<uintptr_t>(&__llvm_libc_mmix_cancel_entry),
+          reinterpret_cast<uintptr_t>(&__llvm_libc_mmix_cancel_after)))
     return;
   uint64_t expected = 0;
   if (!control->cancellation_transfer.compare_exchange_strong(
