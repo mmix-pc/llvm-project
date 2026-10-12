@@ -44,7 +44,7 @@
 # BASE: MMIX Linux does not support R_MMIX_BASE_PLUS_OFFSET requiring loader-initialized global registers
 # SHARED: Type: SharedObject
 # SHARED: Entry: 0x0
-# PIE: MMIX does not support PIE output
+# PIE: MMIX Linux dynamic executables require interpreter /lib/ld-llvm-mmix.so.1
 # LOCAL: R_MMIX_LOCAL register $230 is not local; first global register is $230
 # ALIAS: unknown emulation: elf64mmixlinux
 # PAGE: MMIX Linux requires maximum and common page sizes of at least 8192 bytes

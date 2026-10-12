@@ -372,6 +372,10 @@ private:
   bool isRegisterContentReference(const Symbol &sym) const;
   bool isRegisterContentSymbol(const Symbol &sym) const;
   void validateInputRelocations(InputSectionBase &sec) const;
+  bool isDynamicOutput() const {
+    return ctx.arg.shared || ctx.arg.pie || !ctx.arg.dynamicLinker.empty() ||
+           !ctx.sharedFiles.empty();
+  }
   void validateLinuxLayout() const;
   void validateDynamicRelocations() const;
   void validateSharedInput(SharedFile &file) const;
@@ -402,20 +406,20 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
 
   if (ctx.arg.shared && !isLinux())
     ErrAlways(ctx) << "MMIX does not support shared object output";
-  else if (ctx.arg.pie)
+  else if (ctx.arg.pie && !isLinux())
     ErrAlways(ctx) << "MMIX does not support PIE output";
   else if (ctx.arg.relocatable && !ctx.bitcodeFiles.empty())
     ErrAlways(ctx) << "MMIX does not support relocatable links with bitcode "
                       "input";
 
-  if (!ctx.arg.dynamicLinker.empty())
+  if (!ctx.arg.dynamicLinker.empty() && !isLinux())
     ErrAlways(ctx) << "MMIX does not support a dynamic linker";
   if (ctx.arg.oFormatBinary)
     ErrAlways(ctx) << "MMIX lld supports only ELF output";
   if (ctx.arg.osabi != ELFOSABI_NONE &&
-      !(isLinux() && ctx.arg.shared && ctx.arg.osabi == ELFOSABI_LINUX))
+      !(isLinux() && isDynamicOutput() && ctx.arg.osabi == ELFOSABI_LINUX))
     ErrAlways(ctx) << "MMIX supports only the System V ELF OSABI";
-  if (!ctx.sharedFiles.empty() && (!isLinux() || !ctx.arg.shared))
+  if (!ctx.sharedFiles.empty() && !isLinux())
     ErrAlways(ctx) << "MMIX does not support dynamic shared object inputs";
   for (InputFile *file : ctx.objectFiles)
     if (file->abiVersion != 0)
@@ -430,23 +434,30 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
       for (const ELF64BE::Sym &sym : file->getELFSyms<ELF64BE>())
         if (sym.getType() == STT_GNU_IFUNC)
           Fatal(ctx) << file << ": MMIX Linux does not support IFUNC symbols";
-        else if (ctx.arg.shared && sym.getBinding() == STB_GNU_UNIQUE)
+        else if (isDynamicOutput() && sym.getBinding() == STB_GNU_UNIQUE)
           ErrAlways(ctx) << file
                          << ": MMIX Linux does not support GNU_UNIQUE symbols";
     }
 
-  if (isLinux() && ctx.arg.shared) {
-    // Shared objects use eager GOT binding; neither a PLT nor a lazy resolver
+  if (isLinux() && isDynamicOutput()) {
+    // Dynamic images use eager GOT binding; neither a PLT nor a lazy resolver
     // is part of this ABI. Emit both hash tables for all supported consumers.
     ctx.arg.zNow = true;
     ctx.arg.sysvHash = ctx.arg.gnuHash = true;
-    if (ctx.arg.warnMissingEntry || ctx.arg.entry != "_start")
-      ErrAlways(ctx) << "MMIX Linux shared objects do not own a program entry";
-    ctx.arg.entry = "";
+    if (ctx.arg.shared) {
+      if (ctx.arg.warnMissingEntry || ctx.arg.entry != "_start")
+        ErrAlways(ctx) << "MMIX Linux shared objects do not own a program entry";
+      ctx.arg.entry = "";
+      if (!ctx.arg.dynamicLinker.empty())
+        ErrAlways(ctx) << "MMIX Linux shared objects do not support PT_INTERP";
+    } else if (ctx.arg.dynamicLinker != "/lib/ld-llvm-mmix.so.1") {
+      ErrAlways(ctx) << "MMIX Linux dynamic executables require interpreter "
+                       "/lib/ld-llvm-mmix.so.1";
+    }
     if (!ctx.arg.isRela || ctx.arg.relrPackDynRelocs ||
         ctx.arg.androidPackDynRelocs)
       ErrAlways(ctx)
-          << "MMIX Linux shared objects require unpacked RELA relocations";
+          << "MMIX Linux dynamic images require unpacked RELA relocations";
     if (!ctx.arg.zText)
       ErrAlways(ctx) << "MMIX Linux does not support text relocations";
     if (ctx.arg.bsymbolic != BsymbolicKind::None || ctx.arg.zGlobal ||
@@ -454,7 +465,7 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
         ctx.arg.zNodlopen || ctx.arg.zOrigin || !ctx.arg.filterList.empty() ||
         !ctx.arg.auxiliaryList.empty())
       ErrAlways(ctx)
-          << "MMIX Linux shared object requests unsupported dynamic semantics";
+          << "MMIX Linux dynamic image requests unsupported dynamic semantics";
     if (ctx.arg.versionDefinitions.size() > 2)
       ErrAlways(ctx) << "MMIX Linux does not support symbol versions";
     for (SharedFile *file : ctx.sharedFiles)
@@ -1058,7 +1069,7 @@ RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
     return R_NONE;
   }
   if (isTPRel(type)) {
-    if (!isLinux() || ctx.arg.isPic) {
+    if (!isLinux() || isDynamicOutput()) {
       Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type << " against "
                << &s << " requires MMIX Linux static output";
       return R_NONE;
@@ -1389,9 +1400,9 @@ bool MMIX::relaxOnce(int) const {
 
     uint32_t valueMask = rel.type == R_MMIX_JMP ? pc27ValueMask : pc19ValueMask;
     bool direct = isDirectMMIXTransfer(target, place, valueMask);
-    if (isLinux() && ctx.arg.shared && !direct) {
+    if (isLinux() && ctx.arg.isPic && !direct) {
       Err(ctx) << site.section << ": " << rel.type
-               << " cannot expand to an absolute address in a shared object; "
+               << " cannot expand to an absolute address in a shared object or PIE; "
                   "rebuild with PC-relative literals";
       site.state = RelaxationState::Invalid;
       rel.expr = R_NONE;
@@ -1552,17 +1563,17 @@ void MMIX::validateLinuxLayout() const {
                << sec->name;
   }
 
-  if (ctx.arg.shared) {
+  if (isDynamicOutput()) {
     if (!ehdr.ptLoad || !(ehdr.ptLoad->p_flags & PF_R) ||
         phdr.ptLoad != ehdr.ptLoad)
-      Err(ctx) << "MMIX Linux shared objects require mapped readable ELF and "
+      Err(ctx) << "MMIX Linux dynamic images require mapped readable ELF and "
                   "program headers";
     if (llvm::count_if(ctx.phdrs, [](const auto &p) {
           return p->p_type == PT_DYNAMIC;
         }) != 1)
-      Err(ctx) << "MMIX Linux shared objects require exactly one PT_DYNAMIC";
+      Err(ctx) << "MMIX Linux dynamic images require exactly one PT_DYNAMIC";
     for (const auto &p : ctx.phdrs) {
-      if (p->p_type == PT_INTERP)
+      if (p->p_type == PT_INTERP && ctx.arg.shared)
         Err(ctx) << "MMIX Linux shared objects do not support PT_INTERP";
       if (p->p_type == PT_DYNAMIC) {
         const OutputSection *out = ctx.in.dynamic->getParent();
@@ -1577,12 +1588,35 @@ void MMIX::validateLinuxLayout() const {
         Err(ctx) << "MMIX Linux PT_PHDR must describe the program header table";
       else if (p->p_type == PT_LOAD &&
                (p->p_flags & (PF_W | PF_X)) == (PF_W | PF_X))
-        Err(ctx) << "MMIX Linux shared objects do not support writable "
+        Err(ctx) << "MMIX Linux dynamic images do not support writable "
                     "executable loads";
     }
     if (llvm::count_if(ctx.phdrs,
                        [](const auto &p) { return p->p_type == PT_PHDR; }) > 1)
-      Err(ctx) << "MMIX Linux shared objects require at most one PT_PHDR";
+      Err(ctx) << "MMIX Linux dynamic images require at most one PT_PHDR";
+    if (!ctx.arg.shared) {
+      if (llvm::count_if(ctx.phdrs, [](const auto &p) {
+            return p->p_type == PT_PHDR;
+          }) != 1)
+        Err(ctx) << "MMIX Linux dynamic executables require exactly one PT_PHDR";
+      if (llvm::count_if(ctx.phdrs, [](const auto &p) {
+            return p->p_type == PT_INTERP;
+          }) != 1)
+        Err(ctx) << "MMIX Linux dynamic executables require exactly one PT_INTERP";
+      for (const auto &p : ctx.phdrs)
+        if (p->p_type == PT_INTERP) {
+          const OutputSection *out = nullptr;
+          for (const OutputSection *sec : ctx.outputSections)
+            if (sec->name == ".interp")
+              out = sec;
+          if (!out || p->firstSec != out || p->lastSec != out ||
+              out->size != ctx.arg.dynamicLinker.size() + 1 ||
+              !out->ptLoad || !(out->ptLoad->p_flags & PF_R) ||
+              !(p->p_flags & PF_R) || out->type == SHT_NOBITS)
+            Err(ctx) << "MMIX Linux PT_INTERP must describe the complete "
+                        "mapped interpreter path";
+        }
+    }
     if (llvm::count_if(ctx.phdrs,
                        [](const auto &p) {
                          return p->p_type == PT_GNU_STACK &&
@@ -1592,11 +1626,15 @@ void MMIX::validateLinuxLayout() const {
           return p->p_type == PT_GNU_STACK;
         }) != 1)
       Err(ctx)
-          << "MMIX Linux shared objects require a non-executable GNU_STACK";
+          << "MMIX Linux dynamic images require a non-executable GNU_STACK";
     InputSection *metadata[] = {ctx.in.dynamic.get(), ctx.in.dynSymTab.get(),
                                 ctx.in.dynStrTab.get(), ctx.in.hashTab.get(),
                                 ctx.in.gnuHashTab.get()};
     for (InputSection *sec : metadata) {
+      if (!sec) {
+        Err(ctx) << "MMIX Linux dynamic output requires both hash tables";
+        continue;
+      }
       const OutputSection *out = sec->getParent();
       if (!out || !out->ptLoad || !(out->ptLoad->p_flags & PF_R) ||
           out->type == SHT_NOBITS)
@@ -1610,7 +1648,8 @@ void MMIX::validateLinuxLayout() const {
       else if (sym->binding == STB_GNU_UNIQUE)
         Err(ctx) << "MMIX Linux does not support GNU_UNIQUE symbols: " << sym;
     validateDynamicRelocations();
-    return;
+    if (ctx.arg.shared)
+      return;
   }
 
   uint64_t entry = 0;
