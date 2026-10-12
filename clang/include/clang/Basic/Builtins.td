@@ -3450,6 +3450,8 @@ def StrLen : LibBuiltin<"string.h"> {
 
 // C99 stdio.h
 // FIXME: This list is incomplete.
+// Stream I/O may propagate cancellation unwind; unlike memory formatting,
+// its builtin declarations must not imply nothrow.
 def Printf : LibBuiltin<"stdio.h"> {
   let Spellings = ["printf"];
   let Attributes = [PrintfFormat<0>, NonNull<NonOptimizing, [0]>];
@@ -3459,14 +3461,14 @@ def Printf : LibBuiltin<"stdio.h"> {
 // FIXME: The builtin and library function should have the same signature.
 def BuiltinPrintf : Builtin {
   let Spellings = ["__builtin_printf"];
-  let Attributes = [NoThrow, PrintfFormat<0>, FunctionWithBuiltinPrefix,
+  let Attributes = [PrintfFormat<0>, FunctionWithBuiltinPrefix,
                     NonNull<NonOptimizing, [0]>];
   let Prototype = "int(char const* restrict, ...)";
 }
 
 def FPrintf : LibBuiltin<"stdio.h"> {
   let Spellings = ["fprintf"];
-  let Attributes = [NoThrow, PrintfFormat<1>, NonNull<NonOptimizing, [0, 1]>];
+  let Attributes = [PrintfFormat<1>, NonNull<NonOptimizing, [0, 1]>];
   let Prototype = "int(FILE* restrict, char const* restrict, ...)";
   let AddBuiltinPrefixedAlias = 1;
 }
@@ -3487,14 +3489,14 @@ def SPrintf : LibBuiltin<"stdio.h"> {
 
 def VPrintf : LibBuiltin<"stdio.h"> {
   let Spellings = ["vprintf"];
-  let Attributes = [NoThrow, VPrintfFormat<0>, NonNull<NonOptimizing, [0]>];
+  let Attributes = [VPrintfFormat<0>, NonNull<NonOptimizing, [0]>];
   let Prototype = "int(char const* restrict, __builtin_va_list)";
   let AddBuiltinPrefixedAlias = 1;
 }
 
 def VfPrintf : LibBuiltin<"stdio.h"> {
   let Spellings = ["vfprintf"];
-  let Attributes = [NoThrow, VPrintfFormat<1>, NonNull<NonOptimizing, [0, 1]>];
+  let Attributes = [VPrintfFormat<1>, NonNull<NonOptimizing, [0, 1]>];
   let Prototype = "int(FILE* restrict, char const* restrict, __builtin_va_list)";
   let AddBuiltinPrefixedAlias = 1;
 }
