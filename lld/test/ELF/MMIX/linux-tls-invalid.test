@@ -34,7 +34,7 @@
 # RUN: not ld.lld -m elf64mmix_linux %t/overflow.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=RANGE
 
 # PROFILE: requires MMIX Linux static output
-# SHARED: MMIX does not support shared object output
+# SHARED: requires MMIX Linux static output
 # PIE: MMIX does not support PIE output
 # FIELD: requires a complete aligned matching instruction
 # TYPE: requires an STT_TLS symbol

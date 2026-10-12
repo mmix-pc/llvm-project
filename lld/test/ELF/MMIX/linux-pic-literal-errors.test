@@ -18,9 +18,9 @@
 # RUN: yaml2obj -D TYPE=STT_OBJECT -D RELOC=R_MMIX_PC_64 -D ADDEND=-9223372036854775808 %s -o %t.o
 # RUN: not ld.lld -m elf64mmix_linux %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
 # RUN: yaml2obj -D TYPE=STT_OBJECT -D ADDEND=9223372036854775807 %s -o %t.o
-# RUN: not ld.lld -m elf64mmix_linux --section-start=.data=0x10000 --section-start=.got=0x20000 %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: not ld.lld -m elf64mmix_linux --image-base=0 --section-start=.data=0x10000 --section-start=.got=0x20000 %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
 # RUN: yaml2obj -D TYPE=STT_OBJECT -D ADDEND=-9223372036854775808 %s -o %t.o
-# RUN: not ld.lld -m elf64mmix_linux --section-start=.data=0x20000 --section-start=.got=0x10000 %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: not ld.lld -m elf64mmix_linux --image-base=0 --section-start=.data=0x20000 --section-start=.got=0x10000 %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
 # RUN: yaml2obj -D TYPE=STT_OBJECT -D RELOC=R_MMIX_PC_64 -D VALUE=0x800000000000ffff %s -o %t.o
 # RUN: ld.lld -m elf64mmix_linux --image-base=0 --section-start=.data=0x10000 %t.o -o %t.out
 # RUN: llvm-objdump -s --section=.data %t.out | FileCheck %s --check-prefix=MAX

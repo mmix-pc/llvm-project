@@ -20,7 +20,8 @@
 # RUN: llvm-as %t/input.ll -o %t/input.bc
 # RUN: ld.lld -m elf64mmix_linux %t/input.bc -o %t/bitcode
 # RUN: llvm-readobj --file-headers %t/bitcode | FileCheck %s --check-prefix=HEADER
-# RUN: not ld.lld -m elf64mmix_linux -shared %t/start.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=SHARED
+# RUN: ld.lld -m elf64mmix_linux -shared %t/start.o -o %t/shared.so
+# RUN: llvm-readobj --file-headers %t/shared.so | FileCheck %s --check-prefix=SHARED
 # RUN: not ld.lld -m elf64mmix_linux -pie %t/start.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PIE
 # RUN: yaml2obj -DREG=229 %t/local.yaml -o %t/local.o
 # RUN: ld.lld -m elf64mmix_linux %t/start.o %t/local.o -o %t/local
@@ -41,7 +42,8 @@
 # HEADER: Type: Executable
 # GREG: MMIX Linux does not support loader-initialized register contents
 # BASE: MMIX Linux does not support R_MMIX_BASE_PLUS_OFFSET requiring loader-initialized global registers
-# SHARED: MMIX does not support shared object output
+# SHARED: Type: SharedObject
+# SHARED: Entry: 0x0
 # PIE: MMIX does not support PIE output
 # LOCAL: R_MMIX_LOCAL register $230 is not local; first global register is $230
 # ALIAS: unknown emulation: elf64mmixlinux
