@@ -72,6 +72,7 @@ enum Specifier : uint16_t {
   S_TPREL_ML,
   S_TPREL_MH,
   S_TPREL_HI,
+  S_GOT_PC64,
 };
 
 inline bool isTPRELSpecifier(unsigned Specifier) {

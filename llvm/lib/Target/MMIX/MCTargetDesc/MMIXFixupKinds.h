@@ -29,6 +29,7 @@ enum FixupKind {
   fixup_mmix_tprel_ml,
   fixup_mmix_tprel_mh,
   fixup_mmix_tprel_hi,
+  fixup_mmix_got_pc64,
   LastTargetFixupKind,
   NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
 };

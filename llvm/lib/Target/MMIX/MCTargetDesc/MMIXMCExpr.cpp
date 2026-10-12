@@ -19,7 +19,7 @@
 
 using namespace llvm;
 
-bool MMIX::getTPRELValue(const MCExpr &Expr, MCValue &Value) {
+bool MMIX::getSymbolAddendValue(const MCExpr &Expr, MCValue &Value) {
   const MCExpr *Symbol = &Expr;
   int64_t Addend = 0;
   if (const auto *Binary = dyn_cast<MCBinaryExpr>(&Expr)) {
@@ -76,7 +76,7 @@ bool MMIX::validateTPRELInstruction(const MCInst &Inst,
       return Error(
           "MMIX TLS modifier does not match the instruction's wyde operand");
     MCValue Value;
-    if (!getTPRELValue(*Expr->getSubExpr(), Value))
+    if (!getSymbolAddendValue(*Expr->getSubExpr(), Value))
       return Error(
           "MMIX TLS expression requires one symbol plus a signed addend");
   }

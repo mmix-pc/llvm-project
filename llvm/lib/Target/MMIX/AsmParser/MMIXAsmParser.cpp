@@ -221,6 +221,7 @@ class MMIXAsmParser : public MCTargetAsmParser {
   bool parseDirectiveData24(SMLoc DirectiveLoc, bool IsPCRel);
   bool parseOperandExpression(const MCExpr *&Expr);
   bool parseTPRELExpression(const MCExpr *&Expr);
+  bool parseSymbolAddend(const MCExpr *&Expr, StringRef Kind);
   void onBeginOfFile() override;
 
 public:
@@ -263,6 +264,23 @@ bool MMIXAsmParser::parseDirectiveData24(SMLoc DirectiveLoc, bool IsPCRel) {
 }
 
 ParseStatus MMIXAsmParser::parseDirective(AsmToken DirectiveID) {
+  if (DirectiveID.getString() == ".mmix_got_pc64") {
+    if (!getSTI().getTargetTriple().isOSLinux() ||
+        getContext().getAsmInfo().getOutputAssemblerDialect() !=
+            MMIXII::CanonicalAsmVariant)
+      return Error(DirectiveID.getLoc(),
+                   "MMIX GOT literals require Linux canonical assembly");
+    const SMLoc Loc = Parser.getTok().getLoc();
+    const MCExpr *Value;
+    if (parseSymbolAddend(Value, "GOT") || Parser.parseEOL())
+      return true;
+    auto *TS = Parser.getStreamer().getTargetStreamer();
+    if (!TS)
+      return Error(DirectiveID.getLoc(),
+                   "MMIX GOT literal is unavailable for this output");
+    static_cast<MMIXTargetStreamer *>(TS)->emitGOTPC64(Value, Loc);
+    return false;
+  }
   if (DirectiveID.getString() == ".mmix_24")
     return parseDirectiveData24(DirectiveID.getLoc(), /*IsPCRel=*/false);
   if (DirectiveID.getString() == ".mmix_pc_24")
@@ -303,12 +321,19 @@ bool MMIXAsmParser::parseRegister(MCRegister &Reg, SMLoc &StartLoc,
 }
 
 bool MMIXAsmParser::parseTPRELExpression(const MCExpr *&Expr) {
+  if (parseSymbolAddend(Expr, "TLS"))
+    return true;
+  return Parser.parseToken(AsmToken::RParen,
+                           "expected ')' after MMIX TLS symbol and addend");
+}
+
+bool MMIXAsmParser::parseSymbolAddend(const MCExpr *&Expr, StringRef Kind) {
   // Check the literal magnitude before MC's ordinary int64_t expression folding
   // can wrap an unrepresentable signed RELA addend.
   StringRef Name;
   const SMLoc Loc = Parser.getTok().getLoc();
   if (Parser.parseIdentifier(Name))
-    return Error(Loc, "MMIX TLS expression requires a symbol");
+    return Error(Loc, Twine("MMIX ") + Kind + " expression requires a symbol");
   Expr = MCSymbolRefExpr::create(getContext().getOrCreateSymbol(Name),
                                  getContext(), Loc);
   if (Parser.getTok().is(AsmToken::Plus) ||
@@ -322,20 +347,20 @@ bool MMIXAsmParser::parseTPRELExpression(const MCExpr *&Expr) {
     }
     const AsmToken &Token = Parser.getTok();
     if (!Token.is(AsmToken::Integer) && !Token.is(AsmToken::BigNum))
-      return Error(Token.getLoc(), "expected integer MMIX TLS addend");
+      return Error(Token.getLoc(),
+                   Twine("expected integer MMIX ") + Kind + " addend");
     const APInt Magnitude = Token.getAPIntVal();
     if (Magnitude.getActiveBits() > (Negative ? 64u : 63u) ||
         (Negative && Magnitude.getZExtValue() > (uint64_t(1) << 63)))
-      return Error(Token.getLoc(),
-                   "MMIX TLS addend is outside signed 64-bit range");
+      return Error(Token.getLoc(), Twine("MMIX ") + Kind +
+                                       " addend is outside signed 64-bit range");
     const uint64_t Bits = Magnitude.getZExtValue();
     const int64_t Addend = static_cast<int64_t>(Negative ? -Bits : Bits);
     Expr = MCBinaryExpr::createAdd(
         Expr, MCConstantExpr::create(Addend, getContext()), getContext());
     Parser.Lex();
   }
-  return Parser.parseToken(AsmToken::RParen,
-                           "expected ')' after MMIX TLS symbol and addend");
+  return false;
 }
 
 bool MMIXAsmParser::parseOperandExpression(const MCExpr *&Expr) {

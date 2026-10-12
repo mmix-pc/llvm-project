@@ -18,7 +18,7 @@ class MCValue;
 
 namespace MMIX {
 // Decode a normalized symbol-plus-signed-addend without folding the symbol.
-bool getTPRELValue(const MCExpr &Expr, MCValue &Value);
+bool getSymbolAddendValue(const MCExpr &Expr, MCValue &Value);
 bool validateTPRELInstruction(const MCInst &Inst, const MCSubtargetInfo &STI,
                               MCContext &Ctx);
 } // namespace MMIX

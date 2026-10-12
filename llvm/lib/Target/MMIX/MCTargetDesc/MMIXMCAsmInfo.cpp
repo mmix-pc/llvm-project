@@ -38,6 +38,9 @@ MMIXMCAsmInfo::MMIXMCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
 void MMIXMCAsmInfo::printSpecifierExpr(raw_ostream &OS,
                                        const MCSpecifierExpr &Expr) const {
   switch (Expr.getSpecifier()) {
+  case MMIXII::S_GOT_PC64:
+    OS << "%got_pc64(";
+    break;
   case MMIXII::S_GETA:
     OS << "%geta(";
     break;
@@ -63,7 +66,8 @@ void MMIXMCAsmInfo::printSpecifierExpr(raw_ostream &OS,
 bool MMIXMCAsmInfo::evaluateAsRelocatableImpl(const MCSpecifierExpr &Expr,
                                               MCValue &Value,
                                               const MCAssembler *Asm) const {
-  if (MMIXII::isTPRELSpecifier(Expr.getSpecifier()))
-    return MMIX::getTPRELValue(*Expr.getSubExpr(), Value);
+  if (MMIXII::isTPRELSpecifier(Expr.getSpecifier()) ||
+      Expr.getSpecifier() == MMIXII::S_GOT_PC64)
+    return MMIX::getSymbolAddendValue(*Expr.getSubExpr(), Value);
   return MCAsmInfoELF::evaluateAsRelocatableImpl(Expr, Value, Asm);
 }
