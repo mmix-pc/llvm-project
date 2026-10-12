@@ -174,6 +174,7 @@ unsigned getRelocationFieldSize(RelType type) {
     return 4;
   case R_MMIX_64:
   case R_MMIX_PC_64:
+  case R_MMIX_GOT_PC64:
     return 8;
   default:
     return 0;
@@ -286,6 +287,7 @@ public:
   }
   bool relaxOnce(int pass) const override;
   void finalizeRelax(int passes) const override;
+  void relocateAlloc(InputSection &sec, uint8_t *buf) const override;
   void relocate(uint8_t *loc, const Relocation &rel,
                 uint64_t val) const override;
 
@@ -382,6 +384,7 @@ private:
 } // namespace
 
 MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
+  symbolicRel = R_MMIX_64;
   if (isLinux()) {
     // Linux fixes rG at process entry; the loader does not initialize GREGs.
     firstGlobalRegister = 230;
@@ -412,9 +415,14 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
                      << static_cast<unsigned>(file->abiVersion);
 
   if (isLinux())
-    for (ELFFileBase *file : ctx.objectFiles)
+    for (ELFFileBase *file : ctx.objectFiles) {
       if (file->getObj<ELF64BE>().getHeader().e_flags)
         ErrAlways(ctx) << file << ": MMIX Linux does not support ELF e_flags";
+      // Stop before generic IFUNC processing can create resolver entries.
+      for (const ELF64BE::Sym &sym : file->getELFSyms<ELF64BE>())
+        if (sym.getType() == STT_GNU_IFUNC)
+          Fatal(ctx) << file << ": MMIX Linux does not support IFUNC symbols";
+    }
 
   collectRegisterModel();
 }
@@ -461,6 +469,17 @@ void MMIX::validateInputRelocations(InputSectionBase &sec) const {
     if (rela.r_offset < contents.size())
       loc += rela.r_offset;
     (void)getRelExpr(type, sym, loc);
+    if (isLinux() &&
+        (type == R_MMIX_GOT_PC64 ||
+         (type == R_MMIX_PC_64 && (sec.flags & SHF_ALLOC)))) {
+      uint64_t offset = rela.r_offset;
+      if (!(sec.flags & SHF_ALLOC) || sec.type == SHT_NOBITS ||
+          offset > contents.size() || contents.size() - offset < 8 ||
+          (offset & 7) || sec.addralign < 8)
+        Err(ctx) << &sec << ": relocation " << type << " at offset " << offset
+                 << " requires a complete aligned 8-byte literal in an "
+                    "allocated file-backed section";
+    }
   }
 }
 
@@ -900,6 +919,32 @@ std::optional<uint8_t> MMIX::resolveRegister(const Relocation &rel,
 
 RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
                          const uint8_t *loc) const {
+  if (type == R_MMIX_GOT_PC64) {
+    if (!isLinux()) {
+      Err(ctx) << getErrorLoc(ctx, loc)
+               << "R_MMIX_GOT_PC64 requires MMIX Linux output";
+      return R_NONE;
+    }
+    if (s.type != STT_NOTYPE && !s.isObject() && !s.isFunc()) {
+      Err(ctx) << getErrorLoc(ctx, loc)
+               << "R_MMIX_GOT_PC64 requires an ordinary address symbol: " << &s;
+      return R_NONE;
+    }
+    if (registerSymbols.contains(&s) || isRegisterContentReference(s)) {
+      Err(ctx) << getErrorLoc(ctx, loc)
+               << "R_MMIX_GOT_PC64 cannot reference a register symbol: " << &s;
+      return R_NONE;
+    }
+    return R_GOT_PC;
+  }
+  if (s.isPreemptible &&
+      (isTerminalRelocation(type) || getRelaxationSequence(type) ||
+       isStubbableCall(type) || type == R_MMIX_PC_64)) {
+    Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
+             << " cannot bind directly to preemptible symbol " << &s
+             << "; use a GOT-relative address";
+    return R_NONE;
+  }
   if (isTPRel(type)) {
     if (!isLinux() || ctx.arg.isPic) {
       Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type << " against "
@@ -1277,6 +1322,31 @@ bool MMIX::relaxOnce(int) const {
   return changed;
 }
 
+void MMIX::relocateAlloc(InputSection &sec, uint8_t *buf) const {
+  if (isLinux()) {
+    for (const Relocation &rel : sec.relocs()) {
+      if (rel.type != R_MMIX_PC_64 && rel.type != R_MMIX_GOT_PC64)
+        continue;
+      uint64_t target = rel.type == R_MMIX_GOT_PC64
+                            ? rel.sym->getGotVA(ctx)
+                            : rel.sym->getVA(ctx);
+      // Check the mathematical difference before the generic relocation path
+      // truncates it to the output word. Addends describe the slot, not its value.
+      APInt delta = APInt(128, target) + APInt(128, rel.addend, true) -
+                    APInt(128, sec.getVA(rel.offset));
+      if (!delta.isSignedIntN(64))
+        Err(ctx) << getErrorLoc(ctx, sec.content().data() + rel.offset)
+                 << "relocation " << rel.type
+                 << " out of signed 64-bit range";
+      if (sec.getVA(rel.offset) & 7)
+        Err(ctx) << getErrorLoc(ctx, sec.content().data() + rel.offset)
+                 << "relocation " << rel.type
+                 << " literal address is not 8-byte aligned";
+    }
+  }
+  TargetInfo::relocateAlloc(sec, buf);
+}
+
 void MMIX::finalizeRelax(int passes) const {
   Log(ctx) << "MMIX relaxation passes: " << passes;
   updateRegisterModel();
@@ -1429,6 +1499,7 @@ void MMIX::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
     return;
   case R_MMIX_64:
   case R_MMIX_PC_64:
+  case R_MMIX_GOT_PC64:
     write64be(loc, val);
     return;
   case R_MMIX_ADDR19:

@@ -1,0 +1,73 @@
+# REQUIRES: mmix
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o %t.out 2>&1 | FileCheck %s --check-prefix=TLS
+# RUN: yaml2obj -D TYPE=STT_GNU_IFUNC %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o %t.out 2>&1 | FileCheck %s --check-prefix=IFUNC
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D OFFSET=1 %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: not ld.lld -m elf64mmix_linux --gc-sections %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: not ld.lld -m elf64mmix_linux -r %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D OFFSET=8 %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D FLAGS=0 %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D ALIGN=4 %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=FIELD
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D RELOC=R_MMIX_PC_64 -D VALUE=0xffffffffffffffff %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D RELOC=R_MMIX_PC_64 -D ADDEND=-9223372036854775808 %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D ADDEND=9223372036854775807 %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux --section-start=.data=0x10000 --section-start=.got=0x20000 %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D ADDEND=-9223372036854775808 %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux --section-start=.data=0x20000 --section-start=.got=0x10000 %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D RELOC=R_MMIX_PC_64 -D VALUE=0x800000000000ffff %s -o %t.o
+# RUN: ld.lld -m elf64mmix_linux --image-base=0 --section-start=.data=0x10000 %t.o -o %t.out
+# RUN: llvm-objdump -s --section=.data %t.out | FileCheck %s --check-prefix=MAX
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D ADDEND=-9223372036854710272 %s -o %t.o
+# RUN: ld.lld -m elf64mmix_linux --image-base=0 --section-start=.data=0x20000 --section-start=.got=0x10000 %t.o -o %t.out
+# RUN: llvm-objdump -s --section=.data %t.out | FileCheck %s --check-prefix=MIN
+# RUN: yaml2obj -D TYPE=STT_OBJECT -D SECTIONTYPE=SHT_NOBITS -D 'PAYLOAD=Size: 8' %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=FIELD
+# TLS: R_MMIX_GOT_PC64 requires an ordinary address symbol
+# IFUNC: MMIX Linux does not support IFUNC symbols
+# FIELD: requires a complete aligned 8-byte literal in an allocated file-backed section
+# RANGE: out of signed 64-bit range
+# MAX: 7fffffff ffffffff
+# MIN: 80000000 00000000
+
+--- !ELF
+FileHeader:
+  Class: ELFCLASS64
+  Data: ELFDATA2MSB
+  Type: ET_REL
+  Machine: EM_MMIX
+Sections:
+  - Name: .text
+    Type: SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign: 4
+    Content: FD000000
+  - Name: .data
+    Type: [[SECTIONTYPE=SHT_PROGBITS]]
+    ShFlags: [[FLAGS=2]]
+    AddressAlign: [[ALIGN=8]]
+    [[PAYLOAD=Content: '0000000000000000']]
+  - Name: .rela.data
+    Type: SHT_RELA
+    Link: .symtab
+    Info: .data
+    Relocations:
+      - Offset: [[OFFSET=0]]
+        Type: [[RELOC=R_MMIX_GOT_PC64]]
+        Symbol: target
+        Addend: [[ADDEND=0]]
+Symbols:
+  - Name: _start
+    Section: .text
+    Binding: STB_GLOBAL
+  - Name: target
+    Binding: STB_GLOBAL
+    Index: SHN_ABS
+    Value: [[VALUE=0]]
+    Type: [[TYPE=STT_TLS]]
