@@ -1,0 +1,96 @@
+## Numeric records and named YAML must agree independently of MC/lld support.
+## These synthetic records do not establish emission or application support.
+# RUN: yaml2obj %s -o %t.o
+# RUN: llvm-readobj --relocations --expand-relocs %t.o | FileCheck %s
+# RUN: llvm-readelf --relocations %t.o | FileCheck %s --check-prefix=NAMES
+# RUN: llvm-objdump -r %t.o | FileCheck %s --check-prefix=NAMES
+# RUN: obj2yaml %t.o | FileCheck %s --check-prefix=YAML
+# RUN: obj2yaml %t.o | yaml2obj -o %t.roundtrip.o
+# RUN: cmp %t.o %t.roundtrip.o
+# RUN: yaml2obj %s -DR0=R_MMIX_RELATIVE -DR1=R_MMIX_GLOB_DAT -DR2=R_MMIX_GOT_PC64 -DR3=R_MMIX_DTPMOD64 -DR4=R_MMIX_DTPOFF64 -DR5=R_MMIX_TPOFF64 -DR6=R_MMIX_TLSGD_PC64 -DR7=R_MMIX_TLSLD_PC64 -DR8=R_MMIX_GOTTPREL_PC64 -o %t.named.o
+# RUN: cmp %t.o %t.named.o
+
+# CHECK:      Offset: 0x0
+# CHECK-NEXT: Type: R_MMIX_RELATIVE (41)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+# CHECK:      Offset: 0x8
+# CHECK-NEXT: Type: R_MMIX_GLOB_DAT (42)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+# CHECK:      Offset: 0x10
+# CHECK-NEXT: Type: R_MMIX_GOT_PC64 (43)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+# CHECK:      Offset: 0x18
+# CHECK-NEXT: Type: R_MMIX_DTPMOD64 (44)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+# CHECK:      Offset: 0x20
+# CHECK-NEXT: Type: R_MMIX_DTPOFF64 (45)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+# CHECK:      Offset: 0x28
+# CHECK-NEXT: Type: R_MMIX_TPOFF64 (46)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+# CHECK:      Offset: 0x30
+# CHECK-NEXT: Type: R_MMIX_TLSGD_PC64 (47)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+# CHECK:      Offset: 0x38
+# CHECK-NEXT: Type: R_MMIX_TLSLD_PC64 (48)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+# CHECK:      Offset: 0x40
+# CHECK-NEXT: Type: R_MMIX_GOTTPREL_PC64 (49)
+# CHECK-NEXT: Symbol: - (0)
+# CHECK-NEXT: Addend: 0x0
+
+# NAMES: R_MMIX_RELATIVE
+# NAMES: R_MMIX_GLOB_DAT
+# NAMES: R_MMIX_GOT_PC64
+# NAMES: R_MMIX_DTPMOD64
+# NAMES: R_MMIX_DTPOFF64
+# NAMES: R_MMIX_TPOFF64
+# NAMES: R_MMIX_TLSGD_PC64
+# NAMES: R_MMIX_TLSLD_PC64
+# NAMES: R_MMIX_GOTTPREL_PC64
+
+# YAML: Type: R_MMIX_RELATIVE
+# YAML: Type: R_MMIX_GLOB_DAT
+# YAML: Type: R_MMIX_GOT_PC64
+# YAML: Type: R_MMIX_DTPMOD64
+# YAML: Type: R_MMIX_DTPOFF64
+# YAML: Type: R_MMIX_TPOFF64
+# YAML: Type: R_MMIX_TLSGD_PC64
+# YAML: Type: R_MMIX_TLSLD_PC64
+# YAML: Type: R_MMIX_GOTTPREL_PC64
+
+--- !ELF
+FileHeader:
+  Class: ELFCLASS64
+  Data: ELFDATA2MSB
+  Type: ET_REL
+  Machine: EM_MMIX
+Sections:
+  - Name: .data
+    Type: SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_WRITE ]
+    AddressAlign: 8
+    Size: 72
+  - Name: .rela.data
+    Type: SHT_RELA
+    Link: .symtab
+    Info: .data
+    Relocations:
+      - { Offset: 0, Type: '[[R0=41]]', Addend: 0 }
+      - { Offset: 8, Type: '[[R1=42]]', Addend: 0 }
+      - { Offset: 16, Type: '[[R2=43]]', Addend: 0 }
+      - { Offset: 24, Type: '[[R3=44]]', Addend: 0 }
+      - { Offset: 32, Type: '[[R4=45]]', Addend: 0 }
+      - { Offset: 40, Type: '[[R5=46]]', Addend: 0 }
+      - { Offset: 48, Type: '[[R6=47]]', Addend: 0 }
+      - { Offset: 56, Type: '[[R7=48]]', Addend: 0 }
+      - { Offset: 64, Type: '[[R8=49]]', Addend: 0 }
+Symbols: []
