@@ -3,6 +3,9 @@
 .globl alpha, beta, gamma, hook
 .type alpha,@function
 .type beta,@function
+.protected beta
+.weak weak_hook, optional
+.type weak_hook,@function
 .type gamma,@function
 .hidden hook
 .p2align 2
@@ -10,6 +13,7 @@ alpha: POP 0,0
 beta: POP 0,0
 gamma: POP 0,0
 hook: POP 0,0
+weak_hook: POP 0,0
 .data
 .p2align 3
 .globl pointer
@@ -17,6 +21,7 @@ hook: POP 0,0
 .size pointer,8
 pointer: .quad alpha
 .quad missing
+.quad optional
 .section .init_array,"aw",@init_array
 .p2align 3
 .quad hook

@@ -8,6 +8,7 @@
 
 #include "loader/linux/graph.h"
 #include "hdr/errno_macros.h"
+#include "loader/linux/symbols.h"
 #include "loader/linux/syscall.h"
 #include "loader/linux/target.h"
 #include "src/__support/CPP/new.h"
@@ -15,6 +16,30 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
+
+long StartupSymbols::open(const StartupGraph &graph, Arena &arena,
+                          StartupSymbols &out) {
+  out.objects = {};
+  if (!graph.scope() || !graph.size())
+    return -EINVAL;
+  if (graph.size() > __SIZE_MAX__ / sizeof(SymbolObject))
+    return -EOVERFLOW;
+  void *storage;
+  long error = arena.allocate(graph.size() * sizeof(SymbolObject),
+                              alignof(SymbolObject), storage);
+  if (error)
+    return error;
+  auto *views = static_cast<SymbolObject *>(storage);
+  size_t i = 0;
+  for (const auto *node = graph.scope(); node; node = node->next()) {
+    if (i == graph.size() || !node->fully_discovered())
+      return -EINVAL;
+    new (views + i++) SymbolObject{node->image(), node->metadata()};
+  }
+  if (i != graph.size())
+    return -EINVAL;
+  return open({views, i}, out) == SymbolError::None ? 0 : -EINVAL;
+}
 
 StartupGraph::Node *StartupGraph::make_node(long &error) {
   void *storage;

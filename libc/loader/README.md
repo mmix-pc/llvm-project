@@ -176,6 +176,26 @@ a native syscall/filesystem model. It covers diamonds, cycles, path aliases,
 same-SONAME distinct files, device-sensitive identity, failed acquisitions and
 cleanup. It does not qualify actual target statx, getcwd, mapping or startup.
 
+## Startup Symbol Binding
+
+`StartupSymbols` borrows a completed graph's immutable main-first BFS scope.
+Lookup uses validated GNU hashes when present, otherwise SysV hashes. The first
+eligible definition wins, including a weak definition before a later strong
+one. Default-visible references are preemptible; local, hidden, internal and
+protected definitions bind internally. Protected definitions remain exported.
+Ordinary function addresses identify the definition directly, without a PLT.
+
+Regular definitions retain checked LOAD extents and executable function
+addresses; SHN_ABS values are unbiased constants. Missing weak references yield
+zero, distinguished from an absolute definition of zero. All symbolic relocation
+references can be checked before writes or initialization. Unreferenced undefined
+dynsym entries do not create startup obligations. The graph and descriptor arena
+must outlive the resolver. This is not a public dlsym or handle interface.
+
+Native binding tests and linked MMIX DSO inspection cover these rules without
+executing target instructions. Dependency relocation and startup composition
+remain separate work.
+
 ## Bootstrap Support
 
 Linux bootstrap helpers preserve raw negative syscall errors without errno or

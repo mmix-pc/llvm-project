@@ -157,6 +157,59 @@ static bool lookup_definition(const Elf64_Sym &symbol) {
          (symbol.st_other == STV_DEFAULT || symbol.st_other == STV_PROTECTED);
 }
 
+bool DynamicInfo::find_definition(Bytes name, Address &out) const {
+  out = 0;
+  if (!valid || name.empty())
+    return false;
+  auto matches = [&](Address index) {
+    Elf64_Sym symbol;
+    Bytes candidate;
+    if (!read_symbol(index, symbol) || !lookup_definition(symbol) ||
+        !read_string(symbol.st_name, candidate) ||
+        candidate.size() != name.size())
+      return false;
+    for (size_t i = 0; i < name.size(); ++i)
+      if (candidate[i] != name[i])
+        return false;
+    out = index;
+    return true;
+  };
+  if (!gnu.empty()) {
+    Address buckets = integer(gnu.data(), 4, big);
+    Address start = integer(gnu.data() + 4, 4, big);
+    Address blooms = integer(gnu.data() + 8, 4, big);
+    Address shift = integer(gnu.data() + 12, 4, big);
+    Elf64_Word hash = name_hash(name, true);
+    Address bloom = integer(gnu.data() + 16 + (hash / 64 % blooms) * 8, 8, big);
+    Address mask =
+        (Address(1) << (hash % 64)) | (Address(1) << ((hash >> shift) % 64));
+    if ((bloom & mask) != mask)
+      return false;
+    Address table = 16 + blooms * 8;
+    Address index = integer(gnu.data() + table + (hash % buckets) * 4, 4, big);
+    if (index < start)
+      return false;
+    for (; index < symbol_count(); ++index) {
+      Address chain = integer(
+          gnu.data() + table + buckets * 4 + (index - start) * 4, 4, big);
+      if ((chain | 1) == (Address(hash) | 1) && matches(index))
+        return true;
+      if (chain & 1)
+        break;
+    }
+    return false;
+  }
+  Address buckets = integer(sysv.data(), 4, big);
+  Address index =
+      integer(sysv.data() + 8 + (name_hash(name, false) % buckets) * 4, 4, big);
+  for (Address steps = 0; index && steps < symbol_count(); ++steps) {
+    if (matches(index))
+      return true;
+    index = integer(sysv.data() + 8 + (buckets + index) * 4, 4, big);
+  }
+  return false;
+}
+
 DynamicError DynamicInfo::validate_hashes(const ElfImage &image) {
   auto has = [this](DynamicTag t) { return seen & (Address(1) << slot(t)); };
   auto word = [this](Bytes b, Address index) {

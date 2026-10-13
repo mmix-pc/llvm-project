@@ -8,6 +8,7 @@
 
 #include "dynamic_fixture.h"
 #include "loader/linux/graph.h"
+#include "loader/linux/symbols.h"
 #include "loader/linux/syscall.h"
 #include <assert.h>
 #include <errno.h>
@@ -263,6 +264,13 @@ extern "C" int main() {
     ++n;
   }
   CHECK(n == 5 && nodes[0]->image() == &main);
+  Arena symbol_storage(page);
+  StartupSymbols symbols;
+  CHECK(StartupSymbols::open(graph, symbol_storage, symbols) == 0);
+  SymbolValue bound;
+  CHECK(symbols.resolve(4, 1, bound) == SymbolError::None);
+  CHECK(bound.object == 0 && bound.address == bias + 0x2000);
+  CHECK(symbol_storage.reset() == 0);
   auto *edge = nodes[0]->dependencies();
   CHECK(edge->target == nodes[1]);
   edge = edge->next;

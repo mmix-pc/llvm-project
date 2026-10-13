@@ -8,8 +8,10 @@
 
 #include "loader/linux/dynamic.h"
 #include "loader/linux/self_relocation.h"
+#include "loader/linux/symbols.h"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 using namespace LIBC_NAMESPACE::loader;
@@ -104,8 +106,51 @@ int main(int argc, char **argv) {
   if (role == ImageRole::SharedObject) {
     check(metadata.lifecycle_array(DynamicTag::InitArray).size() == 8);
     check(metadata.lifecycle_array(DynamicTag::FiniArray).size() == 8);
-    std::puts("linked DSO: dynamic file/mapped views and five malformed "
-              "mutations passed");
+    ElfImage second;
+    DynamicInfo second_metadata;
+    check(ElfImage::open_file({file.data(), file.size()}, role, bias * 2, page,
+                              second) == ElfError::None);
+    check(DynamicInfo::open(second, second_metadata) == DynamicError::None);
+    SymbolObject objects[] = {{&image, &metadata}, {&second, &second_metadata}};
+    StartupSymbols symbols;
+    check(StartupSymbols::open(objects, symbols) == SymbolError::None);
+    auto name = [](const char *s) {
+      return Bytes(reinterpret_cast<const unsigned char *>(s), std::strlen(s));
+    };
+    auto index = [&](const char *s) {
+      for (Address i = 1; i < metadata.symbol_count(); ++i) {
+        Elf64_Sym symbol;
+        Bytes text;
+        check(metadata.symbol(i, symbol) &&
+              metadata.string(symbol.st_name, text));
+        if (text.size() == std::strlen(s) &&
+            std::memcmp(text.data(), s, text.size()) == 0)
+          return i;
+      }
+      check(false);
+      return Address(0);
+    };
+    SymbolValue value, pointer;
+    check(symbols.lookup(name("alpha"), value) == SymbolError::None);
+    check(symbols.resolve(1, index("alpha"), pointer) == SymbolError::None);
+    check(value.object == 0 && pointer.address == value.address);
+    check(symbols.lookup(name("beta"), value) == SymbolError::None);
+    check(symbols.resolve(1, index("beta"), pointer) == SymbolError::None);
+    check(value.object == 0 && pointer.object == 1 &&
+          pointer.address == value.address + bias);
+    check(symbols.lookup(name("weak_hook"), value) == SymbolError::None &&
+          value.object == 0);
+    check(symbols.lookup(name("hook"), value) == SymbolError::Undefined);
+    check(symbols.resolve(1, index("optional"), value) == SymbolError::None &&
+          value.weak_zero && value.address == 0);
+    check(symbols.resolve(1, index("missing"), value) ==
+          SymbolError::Undefined);
+    SymbolFailure failure;
+    check(symbols.validate_references(failure) == SymbolError::Undefined &&
+          failure.object == 0 && failure.symbol == index("missing"));
+    std::puts(
+        "linked DSO: dynamic file/mapped views and five malformed "
+        "mutations, preemption/protected/weak/function address checks passed");
     return 0;
   }
   Bytes dyn = image.file_backed_bytes(dynamic.p_vaddr, dynamic.p_filesz);

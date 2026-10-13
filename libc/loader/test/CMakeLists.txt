@@ -56,7 +56,7 @@ set_tests_properties(loader-self-relocation PROPERTIES TIMEOUT 30)
 # Supplied a real cross-linked fixture by the artifact validation runner.
 # This validates mapped bytes on the host; it never executes target code.
 add_executable(loader-linked-image-test linked_image_test.cpp
-  ../linux/dynamic.cpp ../linux/self_relocation.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+  ../linux/dynamic.cpp ../linux/symbols.cpp ../linux/self_relocation.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-linked-image-test PRIVATE ../..)
 target_compile_definitions(loader-linked-image-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
 target_compile_features(loader-linked-image-test PRIVATE cxx_std_17)
@@ -93,7 +93,7 @@ add_test(NAME loader-search COMMAND loader-search-test)
 set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
 
 add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
-  ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
+  ../linux/symbols.cpp ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
   ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-graph-test PRIVATE ../..)
 target_compile_definitions(loader-graph-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
@@ -103,3 +103,12 @@ target_link_options(loader-graph-test PRIVATE -no-pie)
 target_compile_features(loader-graph-test PRIVATE cxx_std_17)
 add_test(NAME loader-graph COMMAND loader-graph-test)
 set_tests_properties(loader-graph PROPERTIES TIMEOUT 30)
+
+add_executable(loader-symbols-test symbols_test.cpp ../linux/symbols.cpp
+  ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-symbols-test PRIVATE ../..)
+target_compile_definitions(loader-symbols-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-symbols-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-symbols-test PRIVATE cxx_std_17)
+add_test(NAME loader-symbols COMMAND loader-symbols-test)
+set_tests_properties(loader-symbols PROPERTIES TIMEOUT 30)

@@ -100,6 +100,8 @@ public:
     return valid && read_relocation(index, out);
   }
   bool needed(Address index, Bytes &out) const;
+  // First externally visible definition in the validated hash chain.
+  bool find_definition(Bytes name, Address &index) const;
   Bytes sysv_hash() const { return valid ? sysv : Bytes(); }
   Bytes gnu_hash() const { return valid ? gnu : Bytes(); }
   Bytes lifecycle_array(DynamicTag tag) const;
