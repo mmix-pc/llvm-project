@@ -134,6 +134,10 @@ public:
   // Do finalize relaxation after collecting relaxation infos.
   virtual void finalizeRelax(int passes) const {}
 
+  // Validate target ABI layout constraints after final file offsets and
+  // program headers are available, before opening the output file.
+  virtual void validateOutput(uint64_t fileSize) const {}
+
   virtual void applyJumpInstrMod(uint8_t *loc, JumpModType type,
                                  JumpModType val) const {}
   virtual void applyBranchToBranchOpt() const {}

@@ -290,6 +290,7 @@ public:
   }
   bool relaxOnce(int pass) const override;
   void finalizeRelax(int passes) const override;
+  void validateOutput(uint64_t fileSize) const override;
   void relocateAlloc(InputSection &sec, uint8_t *buf) const override;
   void relocate(uint8_t *loc, const Relocation &rel,
                 uint64_t val) const override;
@@ -440,14 +441,18 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
     }
 
   if (isLinux() && isDynamicOutput()) {
+    // Relocation protection operates on whole Linux pages, including the
+    // boundary between RELRO and ordinary mutable data.
+    ctx.arg.zSeparate = SeparateSegmentKind::Loadable;
     // Dynamic images use eager GOT binding; neither a PLT nor a lazy resolver
     // is part of this ABI. Emit both hash tables for all supported consumers.
     ctx.arg.zNow = true;
     ctx.arg.sysvHash = ctx.arg.gnuHash = true;
     if (ctx.arg.shared) {
-      if (ctx.arg.warnMissingEntry || ctx.arg.entry != "_start")
-        ErrAlways(ctx) << "MMIX Linux shared objects do not own a program entry";
-      ctx.arg.entry = "";
+      // An explicit entry does not identify a process interpreter. Its
+      // bootstrap restrictions belong to the runtime producer and consumer.
+      if (!ctx.arg.warnMissingEntry)
+        ctx.arg.entry = "";
       if (!ctx.arg.dynamicLinker.empty())
         ErrAlways(ctx) << "MMIX Linux shared objects do not support PT_INTERP";
     } else if (ctx.arg.dynamicLinker != "/lib/ld-llvm-mmix.so.1") {
@@ -1516,7 +1521,7 @@ void MMIX::finalizeRelax(int passes) const {
 
   if (registerContentsOutput)
     registerContentsOutput->addr = uint64_t(firstGlobalRegister) * 8;
-  if (isLinux())
+  if (isLinux() && !isDynamicOutput())
     validateLinuxLayout();
 }
 
@@ -1648,7 +1653,7 @@ void MMIX::validateLinuxLayout() const {
       else if (sym->binding == STB_GNU_UNIQUE)
         Err(ctx) << "MMIX Linux does not support GNU_UNIQUE symbols: " << sym;
     validateDynamicRelocations();
-    if (ctx.arg.shared)
+    if (ctx.arg.shared && ctx.arg.entry.empty())
       return;
   }
 
@@ -1669,6 +1674,100 @@ void MMIX::validateLinuxLayout() const {
                entry >= sec->addr && entry - sec->addr < sec->size;
       }))
     Err(ctx) << "MMIX Linux entry is not in a loaded executable section";
+}
+
+void MMIX::validateOutput(uint64_t fileSize) const {
+  if (!isLinux() || !isDynamicOutput() || ctx.arg.relocatable)
+    return;
+  validateLinuxLayout();
+  constexpr uint64_t userLimit = uint64_t(1) << 63;
+  SmallVector<const PhdrEntry *, 4> loads;
+  const PhdrEntry *relro = nullptr;
+  for (const auto &header : ctx.phdrs) {
+    const PhdrEntry &p = *header;
+    if (p.p_offset > fileSize || p.p_filesz > fileSize - p.p_offset)
+      Err(ctx) << "MMIX Linux program header exceeds output file bounds";
+    if (p.p_filesz > p.p_memsz || p.p_vaddr >= userLimit ||
+        p.p_memsz > userLimit - p.p_vaddr) {
+      Err(ctx) << "MMIX Linux program header has invalid memory extents";
+      continue;
+    }
+    if (p.p_type == PT_GNU_RELRO) {
+      if (relro)
+        Err(ctx) << "MMIX Linux requires at most one PT_GNU_RELRO";
+      relro = &p;
+    }
+    if (p.p_type != PT_LOAD)
+      continue;
+    if (p.p_align > 1 &&
+        (!isPowerOf2_64(p.p_align) ||
+         p.p_vaddr % p.p_align != p.p_offset % p.p_align))
+      Err(ctx) << "MMIX Linux PT_LOAD has invalid alignment or congruence";
+    if (p.p_vaddr % linuxPageSize != p.p_offset % linuxPageSize)
+      Err(ctx) << "MMIX Linux PT_LOAD lacks Linux page congruence";
+    if (!(p.p_flags & PF_R) ||
+        (p.p_flags & (PF_W | PF_X)) == (PF_W | PF_X))
+      Err(ctx) << "MMIX Linux PT_LOAD requires readable non-W+X permissions";
+    if (p.p_memsz)
+      loads.push_back(&p);
+  }
+  llvm::sort(loads, [](const auto *a, const auto *b) {
+    return a->p_vaddr < b->p_vaddr;
+  });
+  for (size_t i = 1; i < loads.size(); ++i) {
+    const PhdrEntry &prev = *loads[i - 1];
+    uint64_t end = alignTo(prev.p_vaddr + prev.p_memsz, linuxPageSize);
+    if (alignDown(loads[i]->p_vaddr, linuxPageSize) < end)
+      Err(ctx) << "MMIX Linux PT_LOAD ranges overlap after page rounding";
+  }
+  auto fileBacked = [&](uint64_t va, uint64_t off, uint64_t size) {
+    return llvm::any_of(loads, [&](const PhdrEntry *p) {
+      return (p->p_flags & PF_R) && va >= p->p_vaddr && off >= p->p_offset &&
+             va - p->p_vaddr == off - p->p_offset &&
+             off - p->p_offset <= p->p_filesz &&
+             size <= p->p_filesz - (off - p->p_offset);
+    });
+  };
+  const OutputSection &ehdr = *ctx.out.elfHeader;
+  const OutputSection &phdr = *ctx.out.programHeaders;
+  if (ctx.phdrs.empty() || ctx.phdrs.size() >= PN_XNUM ||
+      phdr.size < ctx.phdrs.size() * 56 ||
+      !fileBacked(ehdr.addr, 0, 64) ||
+      !fileBacked(phdr.addr, 64, phdr.size))
+    Err(ctx) << "MMIX Linux requires complete file-backed ELF and program headers";
+  for (const OutputSection *sec : ctx.outputSections)
+    if ((sec->flags & SHF_ALLOC) && !(sec->flags & SHF_EXECINSTR) &&
+        sec->size && sec->ptLoad && (sec->ptLoad->p_flags & PF_X))
+      Err(ctx) << "MMIX Linux non-code section requires a non-executable load: "
+               << sec->name;
+  for (const auto &header : ctx.phdrs) {
+    const PhdrEntry &p = *header;
+    if (p.p_type == PT_PHDR &&
+        (p.p_offset != 64 || p.p_vaddr != phdr.addr ||
+         p.p_filesz != phdr.size || p.p_memsz != phdr.size))
+      Err(ctx) << "MMIX Linux PT_PHDR does not cover the complete header table";
+    if ((p.p_type == PT_DYNAMIC || p.p_type == PT_INTERP) &&
+        !fileBacked(p.p_vaddr, p.p_offset, p.p_filesz))
+      Err(ctx) << "MMIX Linux dynamic metadata lacks file-backed load coverage";
+    if (p.p_type == PT_DYNAMIC && (!p.p_filesz || p.p_filesz % 16))
+      Err(ctx) << "MMIX Linux PT_DYNAMIC requires complete Elf64_Dyn records";
+  }
+  if (relro && relro->p_memsz) {
+    const auto &r = *relro;
+    if (r.p_vaddr % linuxPageSize || r.p_memsz % linuxPageSize ||
+        !llvm::any_of(loads, [&](const PhdrEntry *p) {
+          return p->p_flags == (PF_R | PF_W) && r.p_vaddr >= p->p_vaddr &&
+                 r.p_vaddr - p->p_vaddr <= p->p_memsz &&
+                 r.p_memsz <= p->p_memsz - (r.p_vaddr - p->p_vaddr);
+        }))
+      Err(ctx) << "MMIX Linux RELRO must cover whole pages within a RW/NX load";
+    for (const OutputSection *sec : ctx.outputSections)
+      if ((sec->flags & (SHF_ALLOC | SHF_WRITE)) == (SHF_ALLOC | SHF_WRITE) &&
+          sec->size && !sec->relro && sec->addr < r.p_vaddr + r.p_memsz &&
+          r.p_vaddr < sec->addr + sec->size)
+        Err(ctx) << "MMIX Linux RELRO covers unrelated mutable section "
+                 << sec->name;
+  }
 }
 
 void MMIX::validateDynamicRelocations() const {

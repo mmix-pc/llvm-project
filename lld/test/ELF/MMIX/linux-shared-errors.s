@@ -34,7 +34,7 @@
 # RELA: require unpacked RELA relocations
 # TEXT: does not support text relocations
 # SEMANTICS: requests unsupported dynamic semantics
-# ENTRY: shared objects do not own a program entry
+# ENTRY: entry is not in a loaded executable section
 # VERSION: does not support symbol versions
 # READONLY: relocation R_MMIX_64 cannot be used against
 # TLS: relocation R_MMIX_64 against TLS symbol tls is unsupported

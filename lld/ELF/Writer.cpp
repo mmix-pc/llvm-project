@@ -326,6 +326,7 @@ template <class ELFT> void Writer<ELFT>::run() {
     assignFileOffsetsBinary();
 
   setPhdrs();
+  ctx.target->validateOutput(fileSize);
 
   // Handle --print-map(-M)/--Map and --cref. Dump them before checkSections()
   // because the files may be useful in case checkSections() or openFile()
