@@ -13,6 +13,14 @@
 # RUN: not ld.lld -shared %t/consumer.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=GENERIC
 # RUN: not ld.lld -m elf64mmix_linux %t/consumer.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=STATIC
 # RUN: %python %t/mutate.py %t/provider.so %t
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/plt.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=TAG
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/rel.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=TAG
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/relr.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=TAG
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/tlsdesc.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=TAG
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/audit.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=TAG
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/unknown.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=TAG
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/flags1.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=FLAGS1
+# RUN: ld.lld -m elf64mmix_linux -shared %t/empty.o %t/checksum.so -o %t/checksum-consumer.so
 # RUN: ld.lld -m elf64mmix_linux -shared -z defs %t/consumer.o %t/linux.so -o %t/linux-consumer.so
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/abi.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=ABI
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/osabi.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=ABI
@@ -44,6 +52,7 @@
 # UNIQUE: MMIX Linux does not support GNU_UNIQUE symbols
 # SEMANTICS: unsupported MMIX Linux DT_FLAGS
 # TAG: unsupported MMIX Linux dynamic tag
+# FLAGS1: unsupported MMIX Linux DT_FLAGS_1
 # NULL: dynamic sections must be DT_NULL terminated
 
 #--- provider.s
@@ -101,6 +110,14 @@ for i in range(shnum):
             tag, value = struct.unpack_from(">qQ", data, p)
             if tag == 0:
                 change("no-null", p, ">q", 24)
+            if tag == 30:
+                for name, replacement in (("plt", 20), ("rel", 17),
+                    ("relr", 36), ("tlsdesc", 0x6ffffef6),
+                    ("audit", 0x6ffffefc), ("unknown", 0x60001234),
+                    ("checksum", 0x6ffffdf8)):
+                    change(name, p, ">q", replacement)
+            if tag == 0x6ffffffb:
+                change("flags1", p + 8, ">Q", value | 0x80)
             if tag == 30:
                 change("semantic", p + 8, ">Q", value | 4)
                 # DT_VERNEEDNUM advertises unsupported symbol-version semantics.

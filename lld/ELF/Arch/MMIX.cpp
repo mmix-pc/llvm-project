@@ -1047,6 +1047,26 @@ std::optional<uint8_t> MMIX::resolveRegister(const Relocation &rel,
 
 RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
                          const uint8_t *loc) const {
+  if (isLinux()) {
+    switch (type) {
+    case R_MMIX_RELATIVE:
+    case R_MMIX_GLOB_DAT:
+      Err(ctx) << getErrorLoc(ctx, loc) << "runtime relocation " << type
+               << " cannot be used in relocatable input";
+      return R_NONE;
+    case R_MMIX_DTPMOD64:
+    case R_MMIX_DTPOFF64:
+    case R_MMIX_TPOFF64:
+    case R_MMIX_TLSGD_PC64:
+    case R_MMIX_TLSLD_PC64:
+    case R_MMIX_GOTTPREL_PC64:
+      Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
+               << " requires unsupported MMIX Linux dynamic TLS";
+      return R_NONE;
+    default:
+      break;
+    }
+  }
   if (type == R_MMIX_GOT_PC64) {
     if (!isLinux()) {
       Err(ctx) << getErrorLoc(ctx, loc)

@@ -1,0 +1,41 @@
+# REQUIRES: mmix
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld -m elf64mmix_linux -shared --error-limit=0 %t.o -o /dev/null 2>&1 | FileCheck %s
+# CHECK-DAG: runtime relocation R_MMIX_RELATIVE cannot be used in relocatable input
+# CHECK-DAG: runtime relocation R_MMIX_GLOB_DAT cannot be used in relocatable input
+# CHECK-DAG: relocation R_MMIX_DTPMOD64 requires unsupported MMIX Linux dynamic TLS
+# CHECK-DAG: relocation R_MMIX_DTPOFF64 requires unsupported MMIX Linux dynamic TLS
+# CHECK-DAG: relocation R_MMIX_TPOFF64 requires unsupported MMIX Linux dynamic TLS
+# CHECK-DAG: relocation R_MMIX_TLSGD_PC64 requires unsupported MMIX Linux dynamic TLS
+# CHECK-DAG: relocation R_MMIX_TLSLD_PC64 requires unsupported MMIX Linux dynamic TLS
+# CHECK-DAG: relocation R_MMIX_GOTTPREL_PC64 requires unsupported MMIX Linux dynamic TLS
+# CHECK-DAG: unknown relocation (255) against symbol target
+
+--- !ELF
+FileHeader:
+  Class: ELFCLASS64
+  Data: ELFDATA2MSB
+  Type: ET_REL
+  Machine: EM_MMIX
+Sections:
+  - Name: .data
+    Type: SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_WRITE ]
+    AddressAlign: 8
+    Size: 72
+  - Name: .rela.data
+    Type: SHT_RELA
+    Info: .data
+    Link: .symtab
+    Relocations:
+      - { Offset: 0, Type: R_MMIX_RELATIVE, Symbol: target }
+      - { Offset: 8, Type: R_MMIX_GLOB_DAT, Symbol: target }
+      - { Offset: 16, Type: R_MMIX_DTPMOD64, Symbol: target }
+      - { Offset: 24, Type: R_MMIX_DTPOFF64, Symbol: target }
+      - { Offset: 32, Type: R_MMIX_TPOFF64, Symbol: target }
+      - { Offset: 40, Type: R_MMIX_TLSGD_PC64, Symbol: target }
+      - { Offset: 48, Type: R_MMIX_TLSLD_PC64, Symbol: target }
+      - { Offset: 56, Type: R_MMIX_GOTTPREL_PC64, Symbol: target }
+      - { Offset: 64, Type: 255, Symbol: target }
+Symbols:
+  - { Name: target, Section: .data, Binding: STB_GLOBAL }
