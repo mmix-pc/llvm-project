@@ -81,3 +81,13 @@ target_link_options(loader-mapping-test PRIVATE -no-pie)
 target_compile_features(loader-mapping-test PRIVATE cxx_std_17)
 add_test(NAME loader-mapping COMMAND loader-mapping-test)
 set_tests_properties(loader-mapping PROPERTIES TIMEOUT 30)
+
+add_executable(loader-search-test search_test.cpp ../linux/search.cpp
+  ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp ../linux/dynamic.cpp
+  ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-search-test PRIVATE ../..)
+target_compile_definitions(loader-search-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-search-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS} -UNDEBUG)
+target_compile_features(loader-search-test PRIVATE cxx_std_17)
+add_test(NAME loader-search COMMAND loader-search-test)
+set_tests_properties(loader-search PROPERTIES TIMEOUT 30)

@@ -1,6 +1,14 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  search
+  SRCS search.cpp
+  HDRS search.h
+  DEPENDS .mapping libc.hdr.errno_macros
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   mapping
   SRCS mapping.cpp
   HDRS mapping.h

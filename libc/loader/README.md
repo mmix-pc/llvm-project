@@ -110,6 +110,40 @@ failures into the production path. Its low-address native memory model checks
 ownership and requested protections; it does not establish target kernel mmap,
 mprotect or fault behavior. Real target observations remain integration work.
 
+## Dependency Search
+
+`linux/search.h` separates bounded startup environment admission, candidate
+selection and transactional DSO mapping. It reads no host configuration and
+uses no public getenv or allocation. Callers supply immutable readable strings
+without terminating NUL bytes, absolute origin directories established from
+image provenance, and nearest-parent-first ancestry. Origin discovery and the
+dependency graph are separate responsibilities; argv[0] is not an origin.
+
+Secure startup is rejected before reading environment strings. LD_LIBRARY_PATH
+is the only supported nonempty loader environment setting. Nonempty LD_PRELOAD
+and other LD_ settings are rejected; the parser exposes the rejected setting
+for diagnostics. Duplicate LD_LIBRARY_PATH entries are rejected, ordinary
+non-loader variables are ignored, and empty loader settings have no effect.
+
+A slash-containing expanded name is attempted directly, including an explicitly
+relative pathname. Otherwise, a requester without RUNPATH searches its RPATH
+and ancestor RPATH entries (excluding ancestors with RUNPATH), followed by
+LD_LIBRARY_PATH, the requester's direct-only RUNPATH, /lib and /usr/lib. RUNPATH
+presence suppresses inherited RPATH even when empty. Empty colon-separated
+elements do not imply the current directory. Explicit nonempty relative
+elements remain relative pathnames, not an implicit fallback.
+
+Only $ORIGIN and ${ORIGIN} are expanded, using each path owner's directory;
+environment expansion uses the main executable's origin. Unknown tokens,
+embedded NUL and paths exceeding 4095 bytes are rejected. Applicable search
+elements are preflighted before attempting any candidate. ENOENT/ENOTDIR and
+EACCES permit continued search, with EACCES preserved if no candidate succeeds.
+Other errors and any cleanup error stop immediately. The production adapter
+uses DsoMapping; the candidate callback also exposes the selected spelling to
+later graph bookkeeping. No cache, hardware-capability directory or preload
+provider is consulted. Native model tests establish this selection/error policy,
+not installed target filesystem or startup execution.
+
 ## Bootstrap Support
 
 Linux bootstrap helpers preserve raw negative syscall errors without errno or
