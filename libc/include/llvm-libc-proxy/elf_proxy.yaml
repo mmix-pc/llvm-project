@@ -441,6 +441,10 @@ macros:
     macro_value: '0x6ffffffb'
   - macro_name: DF_1_NOW
     macro_value: '0x1'
+  - macro_name: DF_1_NODELETE
+    macro_value: '0x8'
+  - macro_name: DF_1_PIE
+    macro_value: '0x08000000'
   - macro_name: DT_CHECKSUM
     macro_value: '0x6ffffdf8'
   # Notes used in ET_CORE.

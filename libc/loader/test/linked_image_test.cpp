@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "loader/linux/dynamic.h"
 #include "loader/linux/self_relocation.h"
 #include <cstdio>
 #include <cstdlib>
@@ -13,9 +14,11 @@
 
 using namespace LIBC_NAMESPACE::loader;
 
-static void check(bool condition) {
-  if (!condition)
+static void check(bool condition, int line = __builtin_LINE()) {
+  if (!condition) {
+    std::fprintf(stderr, "linked-image check failed at line %d\n", line);
     std::abort();
+  }
 }
 
 static Address read_octa(const unsigned char *bytes) {
@@ -26,7 +29,8 @@ static Address read_octa(const unsigned char *bytes) {
 }
 
 int main(int argc, char **argv) {
-  check(argc == 2);
+  check(argc == 2 || (argc == 3 && argv[2][0] == 's'));
+  ImageRole role = argc == 2 ? ImageRole::Interpreter : ImageRole::SharedObject;
   FILE *input = std::fopen(argv[1], "rb");
   check(input && std::fseek(input, 0, SEEK_END) == 0);
   long size = std::ftell(input);
@@ -36,9 +40,43 @@ int main(int argc, char **argv) {
   check(std::fclose(input) == 0);
   constexpr Address bias = 0x1000000, page = 8192;
   ElfImage image;
-  check(ElfImage::open_file({file.data(), file.size()}, ImageRole::Interpreter,
-                            bias, page, image) == ElfError::None);
+  check(ElfImage::open_file({file.data(), file.size()}, role, bias, page,
+                            image) == ElfError::None);
   const auto header = *image.header();
+  DynamicInfo metadata;
+  check(DynamicInfo::open(image, metadata) == DynamicError::None);
+  check(metadata.symbol_count() >= (argc == 2 ? 1 : 4));
+  // The runtime parser must not consult section headers, even when the producer
+  // supplies them. Keep the original file size and mapped bytes unchanged.
+  for (unsigned i = 40; i < 48; ++i)
+    file[i] = 0;
+  for (unsigned i = 58; i < 64; ++i)
+    file[i] = 0;
+  check(ElfImage::open_file({file.data(), file.size()}, role, bias, page,
+                            image) == ElfError::None);
+  check(DynamicInfo::open(image, metadata) == DynamicError::None);
+  auto reject_byte = [&](Bytes view, Address offset,
+                         unsigned char replacement) {
+    check(offset < view.size());
+    // The view refers to our mutable fixture, not production input storage.
+    auto *byte = file.data() + (view.data() - file.data()) + offset;
+    unsigned char saved = *byte;
+    *byte = replacement;
+    DynamicInfo rejected;
+    check(DynamicInfo::open(image, rejected) != DynamicError::None);
+    check(!rejected.symbol_count());
+    *byte = saved;
+  };
+  reject_byte(metadata.sysv_hash(), 3, 0); // Actual fixture has <256 buckets.
+  reject_byte(metadata.gnu_hash(), 11, 0); // Empty bloom table.
+  reject_byte(image.file_backed_bytes(metadata.value(DynamicTag::Strtab),
+                                      metadata.value(DynamicTag::Strsz)),
+              0, 1);
+  reject_byte(image.file_backed_bytes(metadata.value(DynamicTag::Symtab), 24),
+              4, 1);
+  reject_byte(image.file_backed_bytes(metadata.value(DynamicTag::Rela),
+                                      metadata.value(DynamicTag::Relasz)),
+              15, 44);
   check(header.e_phoff + Address(header.e_phnum) * 56 <= page);
   std::vector<std::vector<unsigned char>> storage;
   storage.reserve(header.e_phnum);
@@ -61,8 +99,15 @@ int main(int argc, char **argv) {
       writable.push_back({p.p_vaddr, {bytes.data(), bytes.size()}});
   }
   check(ElfImage::open_mapped({mapped.data(), mapped.size()}, 0, header.e_phoff,
-                              ImageRole::Interpreter, bias, page,
-                              image) == ElfError::None);
+                              role, bias, page, image) == ElfError::None);
+  check(DynamicInfo::open(image, metadata) == DynamicError::None);
+  if (role == ImageRole::SharedObject) {
+    check(metadata.lifecycle_array(DynamicTag::InitArray).size() == 8);
+    check(metadata.lifecycle_array(DynamicTag::FiniArray).size() == 8);
+    std::puts("linked DSO: dynamic file/mapped views and five malformed "
+              "mutations passed");
+    return 0;
+  }
   Bytes dyn = image.file_backed_bytes(dynamic.p_vaddr, dynamic.p_filesz);
   Address rela = 0, relasz = 0;
   for (Address i = 0; i < dyn.size(); i += 16) {
@@ -84,5 +129,6 @@ int main(int argc, char **argv) {
     Bytes value = image.mapped_memory_bytes(offset, 8, PF_R | PF_W);
     check(value.size() == 8 && read_octa(value.data()) == bias + addend);
   }
-  std::puts("linked bootstrap: mapped admission and RELATIVE values passed");
+  std::puts("linked bootstrap: dynamic views, five malformed mutations and "
+            "RELATIVE values passed");
 }

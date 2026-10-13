@@ -113,6 +113,9 @@ public:
   Bytes file_backed_bytes(Address vaddr, Address size) const {
     return admitted ? read_file_bytes(vaddr, size) : Bytes();
   }
+  // Bound tables without explicit sizes (hash chains and dynamic symbols) by
+  // contiguous readable file-backed storage, never a section header or BSS.
+  Bytes file_backed_tail(Address vaddr) const;
   Bytes mapped_memory_bytes(Address vaddr, Address size, unsigned flags) const {
     return admitted && mapped && coverage(vaddr, size, flags, false, 0, false)
                ? mapped_bytes(vaddr, size)

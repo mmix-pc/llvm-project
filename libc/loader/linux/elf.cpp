@@ -79,6 +79,45 @@ bool decode_program_header(Bytes bytes, bool big, Elf64_Phdr &h) {
   return true;
 }
 
+Bytes ElfImage::file_backed_tail(Address vaddr) const {
+  if (!admitted)
+    return {};
+  for (unsigned i = 0; i < ehdr.e_phnum; ++i) {
+    Elf64_Phdr p;
+    if (!read_program_header(i, p))
+      return {};
+    if (p.p_type != PT_LOAD || !(p.p_flags & PF_R) ||
+        !contains(p.p_vaddr, p.p_filesz, vaddr, 1))
+      continue;
+    Address size = p.p_filesz - (vaddr - p.p_vaddr);
+    Address offset = p.p_offset + (vaddr - p.p_vaddr);
+    for (unsigned j = i + 1; j < ehdr.e_phnum; ++j) {
+      Elf64_Phdr next;
+      if (!read_program_header(j, next))
+        return {};
+      if (next.p_type != PT_LOAD || !next.p_memsz)
+        continue;
+      if (!(next.p_flags & PF_R) || next.p_vaddr != vaddr + size ||
+          (!mapped && next.p_offset != offset + size))
+        break;
+      size += next.p_filesz;
+    }
+    if (mapped) {
+      for (const auto &r : regions) {
+        if (!contains(r.vaddr, r.bytes.size(), vaddr, 1))
+          continue;
+        Address available = r.bytes.size() - (vaddr - r.vaddr);
+        if (size > available)
+          size = available;
+        return read_file_bytes(vaddr, size);
+      }
+      return {};
+    }
+    return read_file_bytes(vaddr, size);
+  }
+  return {};
+}
+
 bool ElfImage::read_program_header(unsigned index, Elf64_Phdr &out) const {
   return index < ehdr.e_phnum &&
          decode_program_header(slice(phdrs, Address(index) * 56, 56),

@@ -37,5 +37,13 @@ bool is_relative_relocation(Elf64_Xword info) {
   return info == 41; // R_MMIX_RELATIVE.
 }
 
+bool is_supported_dynamic_relocation(Elf64_Xword info) {
+  if (is_relative_relocation(info))
+    return true;
+  // R_MMIX_64 and R_MMIX_GLOB_DAT require an ordinary dynamic symbol.
+  Elf64_Word type = static_cast<Elf64_Word>(info);
+  return (info >> 32) != 0 && (type == 5 || type == 42);
+}
+
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

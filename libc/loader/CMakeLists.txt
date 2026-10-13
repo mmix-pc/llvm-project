@@ -19,4 +19,5 @@ add_subdirectory(linux)
 add_custom_target(libc-loader DEPENDS
   libc.loader.linux.mmix.target libc.loader.linux.io libc.loader.linux.arena
   libc.loader.linux.elf libc.loader.linux.entry libc.loader.linux.mmix.entry
-  libc.loader.linux.mmix.bootstrap libc.loader.linux.self_relocation)
+  libc.loader.linux.mmix.bootstrap libc.loader.linux.self_relocation
+  libc.loader.linux.dynamic)

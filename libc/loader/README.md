@@ -55,8 +55,30 @@ runtime addresses remain separate. Target hooks own machine identity, page
 size, user-address bounds, entry alignment and interpreter pathname.
 
 The byte decoders support either ELF64 byte order; target admission still
-selects the supported machine. General dynamic lookup metadata, dependency
-relocations, loading and startup transfer are separate implementation steps.
+selects the supported machine. Dependency relocation, loading, symbol
+resolution and startup transfer are separate implementation steps.
+
+## Dynamic Metadata
+
+`linux/dynamic.h` admits immutable dynamic metadata without allocations or
+section headers. It preserves ordered NEEDED entries, validates singleton tags
+and flags, bounded strings and ordinary symbols, RELA geometry and writable
+destinations, and file-backed lifecycle-array views. Failed opens invalidate
+the result. INIT/FINI addresses must be executable; PREINIT is main-only.
+Array pointer contents are interpreted only after relocation, not by this view.
+
+SysV symbol counts and GNU chain-derived counts are bounded by actual readable
+file-backed storage. Hash checks cover indexes, termination/cycles, bucket and
+name agreement, GNU bloom bits, reachable definitions and agreement when both
+formats are present. Contiguous readable loads can cover a table, while holes,
+BSS and bytes beyond a supplied mapped region cannot extend it. The parser
+rejects deferred TLS, version, IFUNC, GNU_UNIQUE, PLT and unknown semantics.
+It does not resolve symbols across images or call lifecycle functions.
+
+`dynamic_test.cpp` exercises sectionless synthetic inputs and malformed
+metadata. `loader-linked-image-test` also parses actual linked fixtures with
+section metadata removed and rejects mutations of their hash, string, symbol
+and relocation tables; its optional `shared` argument selects the DSO fixture.
 
 ## Bootstrap Support
 
