@@ -83,6 +83,8 @@ macros:
     macro_value: 40
   - macro_name: EM_X86_64
     macro_value: 62
+  - macro_name: EM_MMIX
+    macro_value: 80
   - macro_name: EM_AARCH64
     macro_value: 183
   - macro_name: EM_RISCV

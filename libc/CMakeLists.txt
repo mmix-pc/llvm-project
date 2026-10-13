@@ -435,6 +435,7 @@ add_subdirectory(config)
 add_subdirectory(hdr)
 add_subdirectory(src)
 add_subdirectory(utils)
+add_subdirectory(loader)
 
 if(LLVM_LIBC_FULL_BUILD AND NOT LIBC_TARGET_ARCHITECTURE_IS_SPIRV)
   # The startup system can potentially depend on the library components so add
