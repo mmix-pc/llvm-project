@@ -132,10 +132,6 @@ public:
           << "conflicting MMIX Linux link modes" << TC.getTripleString();
       return;
     }
-    if (Dynamic && (LTOMode != LTOK_None || HasIRInput)) {
-      Reject("dynamic LTO linking for MMIX Linux");
-      return;
-    }
 
     const bool StartFiles =
         !Relocatable &&
@@ -191,6 +187,10 @@ public:
     if (LTOMode == LTOK_Full || HasIRInput)
       tools::addLTOOptions(TC, Args, CmdArgs, Output, Inputs,
                            /*IsThinLTO=*/false);
+    // Dynamic ET_EXEC also needs GOT-based references. Include archive-only
+    // bitcode inputs, whose type is not visible to the Driver.
+    if (Dynamic)
+      CmdArgs.append({"-mllvm", "-relocation-model=pic"});
     tools::AddLinkerInputs(TC, Inputs, Args, CmdArgs, JA);
     if (DefaultLibs) {
       CmdArgs.push_back("--start-group");
