@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "loader/linux/entry.h"
+#include "loader/linux/arena.h"
 
 using namespace LIBC_NAMESPACE::loader;
 
@@ -18,8 +19,8 @@ __attribute__((visibility("hidden"))) const void *volatile loader_test_pointer =
     &loader_test_data;
 __attribute__((visibility("hidden"))) Address
 __llvm_libc_loader_after_relocation(const InitialStack *stack,
-                                    const ElfImage *) {
-  return loader_test_pointer == &loader_test_data
+                                    const ElfImage *, Arena *bootstrap) {
+  return !bootstrap->reset() && loader_test_pointer == &loader_test_data
              ? stack->value(AuxField::Entry)
              : 0;
 }

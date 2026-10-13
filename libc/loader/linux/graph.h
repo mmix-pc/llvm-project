@@ -31,6 +31,7 @@ public:
     const ElfImage *borrowed = nullptr;
     DynamicInfo main_dynamic;
     FileIdentity identity;
+    bool identity_known = false;
     Bytes pathname;
     Node *parent = nullptr, *scope_next = nullptr, *owned_next = nullptr;
     Edge *edges = nullptr, *edge_tail = nullptr;
@@ -73,11 +74,17 @@ public:
       : page_size(page_size), arena(page_size) {}
   StartupGraph(const StartupGraph &) = delete;
   StartupGraph &operator=(const StartupGraph &) = delete;
-  // Borrow the admitted kernel main image and its independently established
-  // file identity/path. No main mapping is adopted or released. Input metadata
-  // and environment stay immutable; startup is serialized with no cwd changes.
-  MapResult build(const ElfImage &main, FileIdentity identity, Bytes path,
+  // Borrow the admitted kernel main image. A null identity and empty path
+  // independently denote unavailable provenance. Unknown identities never
+  // participate in fd-based deduplication. No main mapping is adopted or
+  // released. Input metadata and environment stay immutable; startup is
+  // serialized with no cwd changes.
+  MapResult build(const ElfImage &main, const FileIdentity *identity, Bytes path,
                   const SearchEnvironment &environment);
+  MapResult build(const ElfImage &main, FileIdentity identity, Bytes path,
+                  const SearchEnvironment &environment) {
+    return build(main, &identity, path, environment);
+  }
   // Explicit lifetime, as for DsoMapping. Failed cleanup blocks reuse and keeps
   // storage alive for retry; all node/edge views are invalid after reset.
   long reset();

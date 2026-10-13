@@ -121,6 +121,35 @@ extern "C" int main() {
   }
 
   CHECK(environment.parse(false, {}, {}) == 0);
+  // Missing main provenance disables only paths requiring its ORIGIN.
+  const Bytes optional_origin[] = {
+      bytes("LD_LIBRARY_PATH=$ORIGIN/env:/absolute:${ORIGIN}/other")};
+  CHECK(environment.parse(false, optional_origin, {}) == 0);
+  requester = {{}, bytes("$ORIGIN/rpath:/rpath"), {}, false};
+  files = FileModel{};
+  CHECK(DependencySearch::resolve(bytes("libx.so"), requester, {}, environment,
+                                  FileModel::load, &files).error == -ENOENT);
+  CHECK(files.count == 4);
+  CHECK(!strcmp(files.attempted[0], "/rpath/libx.so"));
+  CHECK(!strcmp(files.attempted[1], "/absolute/libx.so"));
+  CHECK(!strcmp(files.attempted[2], "/lib/libx.so"));
+  CHECK(!strcmp(files.attempted[3], "/usr/lib/libx.so"));
+  requester.has_runpath = true;
+  requester.runpath = bytes("$ORIGIN/run:/run");
+  files = FileModel{};
+  files.success = "/run/libx.so";
+  CHECK(!DependencySearch::resolve(bytes("libx.so"), requester, {}, environment,
+                                   FileModel::load, &files).error);
+  CHECK(files.count == 2);
+  requester.origin = bytes("/dso");
+  files = FileModel{};
+  files.success = "/dso/run/libx.so";
+  CHECK(!DependencySearch::resolve(bytes("libx.so"), requester, {}, environment,
+                                   FileModel::load, &files).error);
+  CHECK(files.count == 2); // Main origin is unknown, DSO origin is not.
+  const Bytes hidden_invalid[] = {bytes("LD_LIBRARY_PATH=$ORIGIN/$LIB")};
+  CHECK(environment.parse(false, hidden_invalid, {}) == -ENOTSUP);
+  CHECK(environment.parse(false, {}, {}) == 0);
   requester = {{}, {}, {}, false};
   files = FileModel{};
   files.denied = "/lib/libx.so";
@@ -170,7 +199,7 @@ extern "C" int main() {
   files = FileModel{};
   CHECK(DependencySearch::resolve(bytes("$ORIGIN/x.so"), requester, {},
                                   environment, FileModel::load, &files)
-                .error == -EINVAL &&
+                .error == -ENOENT &&
         !files.count);
   requester.origin = bytes("relative");
   CHECK(DependencySearch::resolve(bytes("${ORIGIN}/x.so"), requester, {},

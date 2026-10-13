@@ -9,6 +9,7 @@
 #include "dynamic_fixture.h"
 #include "loader/linux/graph.h"
 #include "loader/linux/initialization.h"
+#include "loader/linux/startup.h"
 #include "loader/linux/symbols.h"
 #include "loader/linux/syscall.h"
 #include <assert.h>
@@ -97,6 +98,9 @@ struct Allocation {
 static Allocation allocations[128];
 static size_t used;
 static unsigned allocations_count;
+static long failed_syscall;
+static Address borrowed_main;
+static const char *executable_name = "/lib/main";
 
 static unsigned live() {
   unsigned count = 0;
@@ -107,6 +111,7 @@ static unsigned live() {
 static void start() {
   assert(!fd_live && !live());
   calls = fail_at = closes = opens = mapped_files = 0;
+  failed_syscall = 0;
   used = allocations_count = 0;
   fail_unmaps = no_identity = interrupt_stat = false;
 }
@@ -129,8 +134,10 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
     fd_live = false;
     ++closes;
   }
-  if (calls == fail_at)
+  if (calls == fail_at) {
+    failed_syscall = number;
     return -EIO;
+  }
   if (number == SYS_openat) {
     assert(!fd_live);
     for (unsigned i = 0; i < file_count; ++i) {
@@ -146,6 +153,15 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
   }
   if (number == SYS_close)
     return 0;
+  if (number == SYS_readlinkat) {
+    assert(fd_live && a == AT_FDCWD);
+    assert(!strcmp(reinterpret_cast<const char *>(b), "/proc/self/fd/7"));
+    size_t length = strlen(executable_name);
+    if (length > size_t(d))
+      length = d;
+    memcpy(reinterpret_cast<void *>(c), executable_name, length);
+    return length;
+  }
   if (number == SYS_statx) {
     assert(fd_live && a == 7);
     assert(!*reinterpret_cast<const char *>(b) && c == AT_EMPTY_PATH &&
@@ -214,6 +230,8 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
   }
   if (number == SYS_mprotect) {
     assert(owner(a, b) ||
+           (borrowed_main && Address(a) >= borrowed_main &&
+            Address(a + b) <= borrowed_main + 3 * page) ||
            (Address(a) >= bias && Address(a + b) <= bias + 3 * page));
     assert((c & (PROT_EXEC | PROT_WRITE)) != (PROT_EXEC | PROT_WRITE));
     return 0;
@@ -255,7 +273,159 @@ static void record_init(Address address, int argc, char **argv, char **envp) {
   trace[trace_count++] = address;
 }
 
+static void record_startup(Address address, int argc, char **argv, char **envp) {
+  assert(trace_count < 32 && argc == 2 &&
+         reinterpret_cast<Address>(argv) == arguments.argv &&
+         reinterpret_cast<Address>(envp) == arguments.envp);
+  trace[trace_count++] = address;
+}
+
+static int startup_tests() {
+  alignas(page) static Library executable(ImageRole::MainPIE);
+  alignas(page) static Fixture interpreter(ImageRole::Interpreter);
+  alignas(8) static unsigned char env[16];
+  static unsigned char random[16];
+  static const char setting[] = "LD_LIBRARY_PATH=/lib";
+  borrowed_main = reinterpret_cast<Address>(executable.bytes);
+  Address self_base = reinterpret_cast<Address>(interpreter.bytes);
+  MappedRegion regions[] = {
+      {0, Bytes(interpreter.bytes, page)},
+      {page, Bytes(interpreter.bytes + page, page)},
+      {2 * page, Bytes(interpreter.bytes + 2 * page, page)}};
+  ElfImage self;
+  CHECK(ElfImage::open_mapped(regions, 0, 64, ImageRole::Interpreter,
+                            self_base, page, self) == ElfError::None);
+  arguments.valid = true;
+  arguments.big_endian = true;
+  arguments.argc = 2;
+  arguments.argv = 0x8000;
+  arguments.envp = reinterpret_cast<Address>(env);
+  arguments.auxv = arguments.envp + sizeof(env);
+  Address pointer = reinterpret_cast<Address>(setting);
+  for (unsigned i = 0; i < 8; ++i)
+    env[7 - i] = pointer >> (8 * i);
+  arguments.values[unsigned(AuxField::Phdr)] = borrowed_main + 64;
+  arguments.values[unsigned(AuxField::Phent)] = 56;
+  arguments.values[unsigned(AuxField::Phnum)] = 8;
+  arguments.values[unsigned(AuxField::Pagesz)] = page;
+  arguments.values[unsigned(AuxField::Base)] = self_base;
+  arguments.values[unsigned(AuxField::Entry)] = borrowed_main + page;
+  arguments.values[unsigned(AuxField::Random)] = reinterpret_cast<Address>(random);
+  arguments.values[unsigned(AuxField::Secure)] = 0;
+  executable.initializers(true);
+  files[0] = {"/proc/self/exe", &executable, {1, 1, 0}};
+  file_count = 1;
+  start();
+  Startup startup(page);
+  CHECK(!startup.prepare(arguments, self).error);
+  unsigned boundaries = calls;
+  CHECK(startup.entry() == borrowed_main + page && !trace_count);
+  CHECK(!startup.run(record_startup) && trace_count == 4);
+  CHECK(trace[0] == borrowed_main + page + 12);
+  CHECK(!startup.run(record_startup) && trace_count == 4);
+  CHECK(startup.prepare(arguments, self).error == -EBUSY);
+  CHECK(!startup.reset() && !live() && !fd_live && closes == opens);
+  trace_count = 0;
+
+  for (unsigned failure = 1; failure <= boundaries; ++failure) {
+    start();
+    fail_at = failure;
+    Startup failed(page);
+    auto result = failed.prepare(arguments, self);
+    bool optional = failed_syscall == SYS_openat || failed_syscall == SYS_statx ||
+                    failed_syscall == SYS_readlinkat;
+    CHECK(result.error == (optional ? 0 : -EIO));
+    if (optional) {
+      CHECK(failed.entry() == borrowed_main + page);
+      CHECK(!failed.run(record_startup) && trace_count == 4);
+      trace_count = 0;
+    } else {
+      CHECK(!failed.entry() && failed.run(record_startup) == -EINVAL);
+    }
+    CHECK(!failed.reset() && !live() && !fd_live && opens == closes);
+    CHECK(!trace_count && executable.bytes[0] == 0x7f);
+  }
+  start();
+  executable_name = "/lib/main (deleted)";
+  Startup deleted(page);
+  CHECK(!deleted.prepare(arguments, self).error);
+  CHECK(!deleted.reset() && !live() && !fd_live);
+  executable_name = "/lib/main";
+  start();
+  files[0].path = "/unavailable/proc/self/exe";
+  Startup no_proc(page);
+  CHECK(!no_proc.prepare(arguments, self).error);
+  CHECK(!no_proc.run(record_startup) && trace_count == 4);
+  CHECK(!no_proc.reset() && !live() && !fd_live && !opens);
+  trace_count = 0;
+  files[0].path = "/proc/self/exe";
+  start();
+  arguments.values[unsigned(AuxField::Secure)] = 1;
+  Startup secure(page);
+  CHECK(secure.prepare(arguments, self).error == -EINVAL && !calls);
+  arguments.values[unsigned(AuxField::Secure)] = 0;
+  // The same physical main image can be a fixed ET_EXEC: all linked virtual
+  // addresses become absolute while AT_ENTRY/AT_PHDR remain runtime addresses.
+  executable.put(16, 2, ET_EXEC);
+  executable.put(24, 8, borrowed_main + page);
+  for (unsigned i = 0; i < 8; ++i) {
+    Elf64_Phdr p;
+    CHECK(decode_program_header(executable.view().subspan(ph(i), 56), true, p));
+    if (p.p_type != PT_GNU_STACK)
+      executable.put(ph(i, 16), 8, p.p_vaddr + borrowed_main);
+  }
+  executable.set(DT_STRTAB, borrowed_main + 0x700);
+  executable.set(DT_SYMTAB, borrowed_main + 0x800);
+  executable.set(DT_HASH, borrowed_main + 0x900);
+  executable.set(DT_GNU_HASH, borrowed_main + 0xa00);
+  executable.set(DT_RELA, borrowed_main + 0xb00);
+  executable.set(DT_INIT, borrowed_main + 0x2000);
+  executable.set(DT_INIT_ARRAY, borrowed_main + 0x4900);
+  executable.set(DT_PREINIT_ARRAY, borrowed_main + 0x4920);
+  executable.put(0x820, 8, borrowed_main + 0x2000);
+  for (unsigned i = 0; i < 3; ++i) {
+    executable.put(0xb00 + 24 * i, 8,
+                   borrowed_main + (i == 2 ? 0x4920 : 0x4900 + 8 * i));
+    executable.put(0xb10 + 24 * i, 8, borrowed_main + 0x2004 + 4 * i);
+  }
+  start();
+  Startup fixed(page);
+  CHECK(!fixed.prepare(arguments, self).error);
+  CHECK(fixed.entry() == borrowed_main + page);
+  CHECK(!fixed.run(record_startup) && trace_count == 4);
+  CHECK(!fixed.reset() && !live() && !fd_live);
+  trace_count = 0;
+  borrowed_main = 0;
+  return 0;
+}
+
 extern "C" int main() {
+  CHECK(startup_tests() == 0);
+  {
+    // Unknown main identity cannot collide with a real all-zero file identity.
+    // DSO aliases still deduplicate when main provenance is absent.
+    Library anonymous(ImageRole::MainPIE), dependency;
+    anonymous.need("A.so");
+    anonymous.need("alias.so");
+    MappedRegion regions[] = {{0, Bytes(anonymous.bytes, page)},
+                             {page, Bytes(anonymous.bytes + page, page)},
+                             {2 * page, Bytes(anonymous.bytes + 2 * page, page)}};
+    ElfImage image;
+    CHECK(ElfImage::open_mapped(regions, 0, 64, ImageRole::MainPIE, bias, page,
+                                image) == ElfError::None);
+    files[0] = {"/lib/A.so", &dependency, {0, 0, 0}};
+    files[1] = {"/lib/alias.so", &dependency, {0, 0, 0}};
+    file_count = 2;
+    SearchEnvironment environment;
+    CHECK(!environment.parse(false, {}, {}));
+    start();
+    StartupGraph graph(page);
+    CHECK(!graph.build(image, nullptr, {}, environment).error);
+    CHECK(graph.size() == 2 && graph.scope()->path().empty() && mapped_files == 1);
+    CHECK(graph.scope()->dependencies()->target ==
+          graph.scope()->dependencies()->next->target);
+    CHECK(!graph.reset() && !live() && opens == closes);
+  }
   Library main_file(ImageRole::MainPIE), a, b, c, d;
   main_file.need("A.so");
   main_file.need("B.so");

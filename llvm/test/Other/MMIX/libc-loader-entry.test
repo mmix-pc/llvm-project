@@ -13,15 +13,16 @@
 # ENTRY-NEXT: {{.*}} PUSHJ r31, 0x0
 # ENTRY-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE __llvm_libc_loader_bootstrap
 # ENTRY-NEXT: {{.*}} OR r254, r0, 0x0
+# ENTRY-NEXT: {{.*}} PUT rL, 0x0
 # ENTRY-NEXT: {{.*}} GO r255, r231, 0x0
 # ENTRY-NEXT: {{.*}} TRAP 0xff, 0x0, 0x0
 # ENTRY-NOT: {{[0-9a-f]+:}}
 # SYMBOL: Name: _start
-# SYMBOL: Size: 28
+# SYMBOL: Size: 32
 # SYMBOL: STV_HIDDEN
 # SYMBOL: Name: __llvm_libc_loader_bootstrap
 # SYMBOL: STV_HIDDEN
 # SYMBOL: Section: Undefined
 
-# The hidden bootstrap continuation is intentionally unresolved until the
-# self-relocation component is linked. This object is not a runnable loader.
+# This object needs the bootstrap and startup components before it can become
+# a runnable interpreter; the final jump must never create another window.

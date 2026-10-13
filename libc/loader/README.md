@@ -24,6 +24,17 @@ a bootstrap-safe interpreter.
 `LIBC_BUILD_LOADER=ON` enables loader components in a normal runtimes/libc build.
 The default is OFF. Build `libc-loader` explicitly; components are not part of
 `libc.a` or the default installation. Enabled builds require a supported target.
+The target links the production interpreter, without CRT or public runtime
+providers. Install only its explicit `libc-loader` component into an isolated
+target root:
+
+```sh
+cmake --build "$RUNTIME_BUILD" --target libc-loader --parallel 4
+cmake --install "$RUNTIME_BUILD" --component libc-loader --prefix "$TARGET_ROOT"
+```
+
+This installs `lib/ld-llvm-mmix.so.1`; it does not install tools, a shared libc,
+or the freestanding test entry as a public CRT.
 
 Host tests use a separate native build, with an explicit host Clang:
 
@@ -115,9 +126,13 @@ mprotect or fault behavior. Real target observations remain integration work.
 `linux/search.h` separates bounded startup environment admission, candidate
 selection and transactional DSO mapping. It reads no host configuration and
 uses no public getenv or allocation. Callers supply immutable readable strings
-without terminating NUL bytes, absolute origin directories established from
-image provenance, and nearest-parent-first ancestry. Origin discovery and the
+without terminating NUL bytes, absolute origin directories when known, and
+nearest-parent-first ancestry. Origin discovery and the
 dependency graph are separate responsibilities; argv[0] is not an origin.
+An unknown origin disables only search elements containing ORIGIN; other
+directories remain eligible. Direct dependency names requiring an unknown
+ORIGIN fail without trying a different pathname. Unknown tokens remain errors,
+including tokens after an unavailable ORIGIN in the same element.
 
 Secure startup is rejected before reading environment strings. LD_LIBRARY_PATH
 is the only supported nonempty loader environment setting. Nonempty LD_PRELOAD
@@ -147,10 +162,13 @@ not installed target filesystem or startup execution.
 ## Startup Dependency Graph
 
 `linux/graph.h` borrows the admitted kernel main image and constructs a
-main-first breadth-first scope. Callers establish the main file identity and
-absolute pathname independently, retain its immutable mapped metadata and
+main-first breadth-first scope. Main file identity and absolute pathname are
+independently optional; callers retain its immutable mapped metadata and
 supply an admitted environment with the matching main origin. This component
-does not infer kernel file provenance from ELF headers or argv[0].
+does not infer kernel file provenance from ELF headers or argv[0]. An unknown
+main identity never participates in file-identity deduplication. Consequently,
+an alias of the main executable cannot be recognized that way; a candidate
+still must pass DSO admission, with no guessed identity or SONAME substitution.
 
 Each candidate is opened once, identified with raw statx(AT_EMPTY_PATH), and
 mapped through transfer of that same fd. Identity is the device major/minor
@@ -299,9 +317,29 @@ returning through the kernel's initial rJ. The hidden
 performs self-relocation before calling the hidden
 `__llvm_libc_loader_after_relocation` continuation. The latter must complete
 main-image validation and startup before returning the admitted main entry;
-startup failure terminates instead of returning. It is intentionally unresolved
-until startup composition is implemented. No test stub is provided as a
-production interpreter.
+startup failure terminates instead of returning. The production continuation
+retains its private startup state in BSS-backed process-lifetime storage.
+It does not use the test continuation as an interpreter implementation.
+After all bootstrap windows return, entry restores SP and clears rL before GO;
+no extra call window or public service argument is introduced.
+
+`linux/startup.h` owns main-image views, dependency state and the initializer
+plan. It validates the actual AT_PHDR mapping, derives the ET_EXEC/PIE bias,
+checks entry identity, parses environment strings and optionally opens `/proc/self/exe`.
+File identity and the `/proc/self/fd/<fd>` pathname refer to the same descriptor;
+argv[0] and cwd are never substitutes for executable provenance. Missing procfs
+or failed metadata queries leave the corresponding identity/path unknown.
+Deleted or unrepresentable paths likewise leave origin unknown; they do not
+invalidate the kernel-mapped executable. Failure to close an acquired fd is
+still terminal and never causes a retry of that consumed descriptor.
+Main and interpreter mappings stay kernel-owned. Preparation failures release
+owned graph and arena resources without calling initializers. Bootstrap scratch
+storage is released before any callback; failed cleanup is terminal.
+
+The no-TLS handoff preserves TP=0 and rG. Shared-libc adoption and a private
+loader-services hook remain future work. The separate `handoff.S`/`handoff.c`
+fixture checks entry registers, argc/argv/envp, AT_ENTRY and imported data/calls,
+then exits with a raw syscall. Building it is not evidence of guest execution.
 
 Supplied stack and mapped spans must already be readable. These helpers do not
 probe arbitrary addresses or recover from a corrupt kernel pointer. Their host
@@ -322,8 +360,9 @@ any byte. Destinations cannot overlap each other or validation metadata.
 Unknown dynamic semantics, dependencies, TLS, PLT and initializers are rejected.
 Byte-wise stores support unaligned destinations without native pointer casts.
 Self RELRO is protected before entering the ordinary hidden continuation.
-Temporary views are borrowed until that continuation returns; it must copy any
-state needed later before the private arena is released.
+Temporary self views are borrowed until startup preparation finishes. The
+continuation releases the bootstrap arena before calling initializers; retained
+main/graph state belongs to a different process-lifetime arena.
 
 `self_relocation_test.cpp` covers malformed metadata and failure atomicity.
 `bootstrap_continuation.cpp` is a test-only link fixture with a relocated
@@ -339,11 +378,12 @@ Only MMIX Linux is currently admitted, using Clang. Its implementation in
 `linux/mmix/` contains machine identity admission on decoded ELF headers and a
 raw syscall adapter reusing libc's hidden MMIX assembly leaf. Its current Linux
 policy selects 8192-byte pages, the 43-bit user-address limit, null-page
-exclusion and four-byte entry alignment. Parser and self-relocation components
-are built, but dependency relocation and process startup remain incomplete.
+exclusion and four-byte entry alignment. The production no-TLS startup path
+composes parsing, mapping, relocation, protection and initializers. Host-model
+tests and artifact inspection do not establish successful target execution.
 Support for other architectures requires their target implementations and
 validation.
 
-The intended MMIX interpreter artifact is `ld-llvm-mmix.so.1`. No executable or
-install rule is provided until complete startup composition; the current build
-does not provide a runnable dynamic loader.
+The MMIX interpreter artifact is `ld-llvm-mmix.so.1`. Its explicit install
+component is experimental: TLS, shared libc, public dynamic-loading services,
+unload and finalization are not supplied by this no-TLS profile.

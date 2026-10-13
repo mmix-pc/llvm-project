@@ -21,8 +21,10 @@ _start:
   GETAB r232,.Lentry
   PUSHJ r31,__llvm_libc_loader_bootstrap
   // Bootstrap returns the validated main entry after all of its windows have
-  // unwound and libc has adopted loader state. Preserve the installed TP.
+  // unwound. The freestanding profile leaves TP and rG unchanged; it does not
+  // install TLS or claim shared-libc adoption.
   OR r254,r0,0
+  PUT rL,0
   GO r255,r231,0
   TRAP 255,0,0
   .size _start,.-_start

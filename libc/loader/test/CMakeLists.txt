@@ -102,6 +102,7 @@ add_test(NAME loader-search COMMAND loader-search-test)
 set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
 
 add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
+  ../linux/startup.cpp ../linux/entry.cpp
   ../linux/initialization.cpp ../linux/relocation.cpp ../linux/protection.cpp ../linux/symbols.cpp ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
   ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-graph-test PRIVATE ../..)

@@ -1,4 +1,12 @@
 add_object_library(
+  continuation
+  SRCS continuation.cpp
+  DEPENDS libc.loader.linux.startup libc.loader.linux.io
+    libc.hdr.func.free libc.src.__support.common
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   bootstrap
   SRCS bootstrap.cpp
   DEPENDS
@@ -34,5 +42,6 @@ add_object_library(
   SRCS syscall.cpp
   HDRS ../syscall.h
   DEPENDS libc.src.__support.OSUtil.linux.mmix.syscall
+    libc.src.__support.OSUtil.linux.mmix.syscall_asm
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )

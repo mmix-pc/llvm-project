@@ -27,6 +27,7 @@ static bool token_character(unsigned char c) {
 
 static long expand(Bytes input, Bytes origin, char *out) {
   size_t used = 0;
+  bool missing_origin = false;
   for (size_t i = 0; i < input.size();) {
     if (!input[i])
       return -EINVAL;
@@ -46,7 +47,12 @@ static long expand(Bytes input, Bytes origin, char *out) {
     if (!equal(Bytes(input.data() + start, i - start), "ORIGIN") ||
         (braces && (i == input.size() || input[i++] != '}')))
       return -ENOTSUP;
-    if (origin.empty() || origin[0] != '/')
+    if (origin.empty()) {
+      // Still validate later tokens instead of hiding unsupported syntax.
+      missing_origin = true;
+      continue;
+    }
+    if (origin[0] != '/')
       return -EINVAL;
     for (auto c : origin) {
       if (!c || c == '$')
@@ -57,7 +63,7 @@ static long expand(Bytes input, Bytes origin, char *out) {
     }
   }
   out[used] = 0;
-  return 0;
+  return missing_origin ? -ENOENT : 0;
 }
 
 // One traversal is used for both preflight and attempts. Preflight validates
@@ -76,6 +82,8 @@ static MapResult visit_paths(Bytes list, Bytes origin, const char *name,
     if (start == end)
       continue;
     long error = expand(Bytes(list.data() + start, end - start), origin, path);
+    if (error == -ENOENT)
+      continue; // An unavailable ORIGIN disables this element, not the list.
     if (error)
       return {error, 0};
     size_t used = 0;

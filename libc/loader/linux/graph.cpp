@@ -123,7 +123,7 @@ MapResult StartupGraph::candidate(void *context, const char *path) {
   if (error)
     return {error, fd.close()};
   for (Node *node = graph.head; node; node = node->scope_next) {
-    if (node->identity == identity) {
+    if (node->identity_known && node->identity == identity) {
       error = fd.close();
       if (!error)
         request.found = node;
@@ -145,6 +145,7 @@ MapResult StartupGraph::candidate(void *context, const char *path) {
     return result;
   }
   node->identity = identity;
+  node->identity_known = true;
   node->parent = request.parent;
   graph.tail->scope_next = node;
   graph.tail = node;
@@ -201,7 +202,7 @@ MapResult StartupGraph::discover(const SearchEnvironment &environment) {
   return {0, 0};
 }
 
-MapResult StartupGraph::build(const ElfImage &main, FileIdentity identity,
+MapResult StartupGraph::build(const ElfImage &main, const FileIdentity *identity,
                               Bytes path,
                               const SearchEnvironment &environment) {
   if (storage_owned || owned)
@@ -216,8 +217,11 @@ MapResult StartupGraph::build(const ElfImage &main, FileIdentity identity,
   if (!root)
     return {error, reset()};
   root->borrowed = &main;
-  root->identity = identity;
-  error = set_path(*root, path);
+  if (identity) {
+    root->identity = *identity;
+    root->identity_known = true;
+  }
+  error = path.empty() ? 0 : set_path(*root, path);
   if (!error &&
       DynamicInfo::open(main, root->main_dynamic) != DynamicError::None)
     error = -ENOEXEC;

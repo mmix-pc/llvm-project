@@ -21,7 +21,7 @@ extern const unsigned char __ehdr_start[] __attribute__((visibility("hidden")));
 // Borrowed startup views remain alive until this ordinary hidden continuation
 // returns. It must adopt persistent state before returning the main entry PC.
 __attribute__((visibility("hidden"))) Address
-__llvm_libc_loader_after_relocation(const InitialStack *, const ElfImage *);
+__llvm_libc_loader_after_relocation(const InitialStack *, const ElfImage *, Arena *);
 }
 
 // The kernel supplies a valid readable initial stack. Check address arithmetic
@@ -122,8 +122,8 @@ __llvm_libc_loader_bootstrap(Address sp, Address entry_pc) {
   const ElfImage *images[] = {&self};
   if (finalize_image_protections(images, page))
     fatal_startup();
-  Address entry = __llvm_libc_loader_after_relocation(&stack, &self);
-  if (entry != stack.value(AuxField::Entry) || arena.reset())
+  Address entry = __llvm_libc_loader_after_relocation(&stack, &self, &arena);
+  if (entry != stack.value(AuxField::Entry))
     fatal_startup();
   return entry;
 }

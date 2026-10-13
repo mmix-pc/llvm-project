@@ -14,12 +14,29 @@ endif()
 include(CompileOptions.cmake)
 add_subdirectory(linux)
 
-# Entry and relocation support must exist before producing or installing
-# ld-llvm-mmix.so.1. Do not publish a placeholder interpreter.
-add_custom_target(libc-loader DEPENDS
-  libc.loader.linux.mmix.target libc.loader.linux.io libc.loader.linux.arena
-  libc.loader.linux.elf libc.loader.linux.entry libc.loader.linux.mmix.entry
-  libc.loader.linux.mmix.bootstrap libc.loader.linux.self_relocation
-  libc.loader.linux.dynamic libc.loader.linux.mapping libc.loader.linux.search
-  libc.loader.linux.graph libc.loader.linux.symbols libc.loader.linux.relocation
-  libc.loader.linux.protection libc.loader.linux.initialization)
+include(LLVMLibCLibraryRules)
+set(loader_deps)
+foreach(root IN ITEMS libc.loader.linux.mmix.entry
+    libc.loader.linux.mmix.bootstrap libc.loader.linux.mmix.continuation)
+  collect_object_file_deps(${root} deps)
+  list(APPEND loader_deps ${deps})
+endforeach()
+list(REMOVE_DUPLICATES loader_deps)
+set(loader_objects)
+foreach(dep IN LISTS loader_deps)
+  get_target_property(objects ${dep} OBJECT_FILES)
+  list(APPEND loader_objects ${objects})
+endforeach()
+
+# Link with explicit ELF policy and no Driver-selected CRT, libc or runtimes.
+# The installed path is target-relative; it is never a host library search path.
+set(loader_image "${CMAKE_CURRENT_BINARY_DIR}/ld-llvm-mmix.so.1")
+add_custom_command(OUTPUT "${loader_image}"
+  COMMAND "${CMAKE_LINKER}" -m elf64mmix_linux -shared -e _start
+    -z now -z relro --hash-style=both --no-undefined
+    -o "${loader_image}" ${loader_objects}
+  DEPENDS ${loader_deps} ${loader_objects}
+  COMMAND_EXPAND_LISTS VERBATIM)
+add_custom_target(libc-loader DEPENDS "${loader_image}")
+install(PROGRAMS "${loader_image}" DESTINATION lib COMPONENT libc-loader
+  EXCLUDE_FROM_ALL)

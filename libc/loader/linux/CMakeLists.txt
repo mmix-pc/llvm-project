@@ -1,6 +1,16 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  startup
+  SRCS startup.cpp
+  HDRS startup.h
+  DEPENDS .initialization .entry .graph .io .arena .mmix.target .mmix.syscall
+    libc.hdr.errno_macros libc.hdr.fcntl_macros libc.include.sys_syscall
+    libc.hdr.func.free libc.src.__support.common
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   initialization
   SRCS initialization.cpp
   HDRS initialization.h

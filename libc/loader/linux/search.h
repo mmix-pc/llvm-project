@@ -17,6 +17,8 @@ namespace loader {
 // Strings are bounded readable bytes excluding the terminating NUL. Storage
 // remains immutable throughout search. Origins are absolute directory names
 // established from image provenance, never argv[0] or an implicit cwd fallback.
+// An empty origin is unknown: search elements needing ORIGIN are skipped;
+// a direct dependency needing it fails rather than changing its pathname.
 struct SearchObject {
   Bytes origin, rpath, runpath;
   bool has_runpath;
