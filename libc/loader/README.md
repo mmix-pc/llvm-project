@@ -25,7 +25,7 @@ a bootstrap-safe interpreter.
 The default is OFF. Build `libc-loader` explicitly; components are not part of
 `libc.a` or the default installation. Enabled builds require a supported target.
 
-Host policy tests use a separate native build, with an explicit host Clang:
+Host tests use a separate native build, with an explicit host Clang:
 
 ```sh
 cmake -S libc/loader/test -B build/loader-host-tests -G Ninja \
@@ -34,15 +34,32 @@ cmake --build build/loader-host-tests --parallel 4
 ctest --test-dir build/loader-host-tests --output-on-failure
 ```
 
-These tests run target policy on decoded host values and check configuration
-admission. They do not qualify target execution or byte-order-aware file
-decoding.
+These tests run target policy on decoded host values, check configuration
+admission and inject syscall results into production bootstrap support code.
+They do not qualify target execution or byte-order-aware file decoding.
+
+## Bootstrap Support
+
+Linux bootstrap helpers preserve raw negative syscall errors without errno or
+TLS. I/O reports partial progress and retries interrupted reads/writes.
+Descriptor ownership is consumed on close, including errors, so cleanup never
+retries a potentially reused descriptor. Fatal startup writes a fixed diagnostic
+with at most eight attempts, calls exit_group(127), and traps if it returns.
+The attempt limit does not bound time spent in a blocking syscall.
+
+The private mmap-backed arena accepts an explicit validated page size, checks
+allocation arithmetic and supports suballocation without public malloc/free.
+Owners must call reset explicitly; failed unmaps remain owned for retry. All
+previous allocations become invalid on reset, including partial failure.
+There is no individual free or synchronization: this is startup-only storage,
+not yet a concurrent dynamic-loading allocator.
 
 ## Current Target Support
 
 Only MMIX Linux is currently admitted, using Clang. Its implementation in
-`linux/mmix/` contains machine identity admission on decoded ELF headers; it
-does not yet parse input, relocate images or start a process. Support for other
+`linux/mmix/` contains machine identity admission on decoded ELF headers and a
+raw syscall adapter reusing libc's hidden MMIX assembly leaf. It does not yet
+parse input, relocate images or start a process. Support for other
 architectures requires their target implementations and validation.
 
 The intended MMIX interpreter artifact is `ld-llvm-mmix.so.1`. No executable or

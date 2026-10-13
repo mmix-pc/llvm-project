@@ -16,3 +16,12 @@ target_compile_features(loader-target-test PRIVATE cxx_std_17)
 add_test(NAME loader-target COMMAND loader-target-test)
 add_test(NAME loader-configuration
   COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/config_test.cmake)
+
+add_executable(loader-support-test support_test.cpp ../linux/io.cpp
+  ../linux/arena.cpp)
+target_include_directories(loader-support-test PRIVATE ../..)
+target_compile_definitions(loader-support-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-support-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-support-test PRIVATE cxx_std_17)
+add_test(NAME loader-support COMMAND loader-support-test)
+set_tests_properties(loader-support PROPERTIES TIMEOUT 30)
