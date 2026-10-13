@@ -80,6 +80,36 @@ metadata. `loader-linked-image-test` also parses actual linked fixtures with
 section metadata removed and rejects mutations of their hash, string, symbol
 and relocation tables; its optional `shared` argument selects the DSO fixture.
 
+## Dependency Mappings
+
+`linux/mapping.h` owns one DSO transaction for an exact pathname. It stages the
+seekable file in private anonymous storage and validates ELF and dynamic
+metadata before reserving any image address range. Input files must remain
+stable throughout loading; this is not protection against concurrent file
+truncation or mutation. The temporary full-file copy is released before a
+successful return and is not retained as a second loaded image.
+
+The mapper reserves the full load span with sufficient over-alignment padding,
+checks the actual load bias, and replaces only pages inside that reservation.
+File-backed pages use private mappings; partial-page BSS is explicitly zeroed
+and remaining BSS uses anonymous mappings. Holes and alignment padding remain
+PROT_NONE. Temporary zero-fill access is RW, never W+X, before restoring final
+segment permissions. RELRO protection follows relocation in later startup work.
+Mapped metadata is revalidated before exposing the image and dynamic views.
+
+Failure invalidates both views, consumes the fd once, and releases owned
+storage. A single reservation owns all replacement mappings and holes; no
+segment is separately unmapped. Failed unmaps remain owned for explicit reset,
+and the object cannot be reused while cleanup remains pending. As with Arena,
+callers must reset before destruction. There is no API to adopt or release
+kernel-owned main or interpreter images. Successful mapping does not publish
+an image, resolve symbols, relocate dependencies or run lifecycle functions.
+
+`mapping_test.cpp` injects every acquisition/commit syscall failure and cleanup
+failures into the production path. Its low-address native memory model checks
+ownership and requested protections; it does not establish target kernel mmap,
+mprotect or fault behavior. Real target observations remain integration work.
+
 ## Bootstrap Support
 
 Linux bootstrap helpers preserve raw negative syscall errors without errno or

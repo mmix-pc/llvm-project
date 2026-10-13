@@ -1,6 +1,16 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  mapping
+  SRCS mapping.cpp
+  HDRS mapping.h
+  DEPENDS .dynamic .elf .arena .io .mmix.target .mmix.syscall
+    libc.hdr.errno_macros libc.hdr.stdio_macros libc.hdr.sys_mman_macros
+    libc.include.sys_syscall libc.hdr.func.free libc.src.__support.common
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   dynamic
   SRCS dynamic.cpp
   HDRS dynamic.h
