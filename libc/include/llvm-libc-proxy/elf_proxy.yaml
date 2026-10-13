@@ -437,6 +437,12 @@ macros:
     macro_value: '0x8'
   - macro_name: DF_STATIC_TLS
     macro_value: '0x10'
+  - macro_name: DT_FLAGS_1
+    macro_value: '0x6ffffffb'
+  - macro_name: DF_1_NOW
+    macro_value: '0x1'
+  - macro_name: DT_CHECKSUM
+    macro_value: '0x6ffffdf8'
   # Notes used in ET_CORE.
   - macro_name: NN_PRSTATUS
     macro_value: '"CORE"'

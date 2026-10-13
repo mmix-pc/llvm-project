@@ -36,9 +36,9 @@ enum class ElfError {
   Entry,
 };
 
-// Regions are sorted, disjoint, readable, immutable storage owned by the
-// caller. vaddr is a linked address, not a host pointer or a bias-adjusted
-// runtime PC.
+// Regions are sorted, disjoint, readable storage owned by the caller. ELF
+// metadata remains immutable; relocation may modify admitted writable data.
+// vaddr is a linked address, not a host pointer or a bias-adjusted runtime PC.
 struct MappedRegion {
   Address vaddr;
   Bytes bytes;
@@ -87,8 +87,8 @@ public:
     image_role = other.image_role;
     return *this;
   }
-  // A failed open invalidates out. The supplied storage must remain unchanged
-  // and alive for the lifetime of the admitted view. No allocations are
+  // A failed open invalidates out. ELF metadata must remain unchanged and all
+  // storage alive for the lifetime of the admitted view. No allocations are
   // performed.
   static ElfError open_file(Bytes file, ImageRole role, Address bias,
                             Address page_size, ElfImage &out);
@@ -112,6 +112,11 @@ public:
   // Only file-backed readable bytes are returned, never zero-fill BSS.
   Bytes file_backed_bytes(Address vaddr, Address size) const {
     return admitted ? read_file_bytes(vaddr, size) : Bytes();
+  }
+  Bytes mapped_memory_bytes(Address vaddr, Address size, unsigned flags) const {
+    return admitted && mapped && coverage(vaddr, size, flags, false, 0, false)
+               ? mapped_bytes(vaddr, size)
+               : Bytes();
   }
   bool runtime_address(Address vaddr, Address size, unsigned flags,
                        Address &out) const;

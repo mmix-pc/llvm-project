@@ -43,3 +43,20 @@ target_compile_options(loader-entry-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
 target_compile_features(loader-entry-test PRIVATE cxx_std_17)
 add_test(NAME loader-entry COMMAND loader-entry-test)
 set_tests_properties(loader-entry PROPERTIES TIMEOUT 30)
+
+add_executable(loader-self-relocation-test self_relocation_test.cpp
+  ../linux/self_relocation.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-self-relocation-test PRIVATE ../..)
+target_compile_definitions(loader-self-relocation-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-self-relocation-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-self-relocation-test PRIVATE cxx_std_17)
+add_test(NAME loader-self-relocation COMMAND loader-self-relocation-test)
+set_tests_properties(loader-self-relocation PROPERTIES TIMEOUT 30)
+
+# Supplied a real cross-linked fixture by the artifact validation runner.
+# This validates mapped bytes on the host; it never executes target code.
+add_executable(loader-linked-image-test linked_image_test.cpp
+  ../linux/self_relocation.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-linked-image-test PRIVATE ../..)
+target_compile_definitions(loader-linked-image-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_features(loader-linked-image-test PRIVATE cxx_std_17)

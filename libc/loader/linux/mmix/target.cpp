@@ -32,5 +32,10 @@ bool is_aligned_entry(Elf64_Addr address) { return (address & 3) == 0; }
 
 const char *interpreter_path() { return "/lib/ld-llvm-mmix.so.1"; }
 
+bool is_relative_relocation(Elf64_Xword info) {
+  // The upper half is the symbol index, which must be zero for RELATIVE.
+  return info == 41; // R_MMIX_RELATIVE.
+}
+
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

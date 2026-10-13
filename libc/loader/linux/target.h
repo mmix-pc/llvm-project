@@ -23,6 +23,7 @@ bool is_supported_page_size(Elf64_Xword page_size);
 bool is_user_range(Elf64_Addr address, Elf64_Xword size);
 bool is_aligned_entry(Elf64_Addr address);
 const char *interpreter_path();
+bool is_relative_relocation(Elf64_Xword info);
 
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

@@ -1,4 +1,21 @@
 add_object_library(
+  bootstrap
+  SRCS bootstrap.cpp
+  DEPENDS
+    libc.loader.linux.entry
+    libc.loader.linux.elf
+    libc.loader.linux.arena
+    libc.loader.linux.io
+    libc.loader.linux.self_relocation
+    .syscall
+    libc.hdr.sys_mman_macros
+    libc.include.sys_syscall
+    libc.hdr.func.free
+    libc.src.__support.common
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   entry
   SRCS entry.S
 )
