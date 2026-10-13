@@ -224,16 +224,6 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
     if (Value != "none" && Value != "libunwind" && Value != "platform")
       Reject(A);
   }
-  if (const Arg *A = Args.getLastArg(
-          options::OPT_fPIC, options::OPT_fpic, options::OPT_fPIE,
-          options::OPT_fpie, options::OPT_fno_PIC, options::OPT_fno_pic,
-          options::OPT_fno_PIE, options::OPT_fno_pie)) {
-    if (A->getOption().matches(options::OPT_fPIC) ||
-        A->getOption().matches(options::OPT_fpic) ||
-        A->getOption().matches(options::OPT_fPIE) ||
-        A->getOption().matches(options::OPT_fpie))
-      Reject(A);
-  }
   for (const Arg *A : Args.filtered(
            options::OPT_shared, options::OPT_dynamic, options::OPT_rdynamic,
            options::OPT_pie, options::OPT_static_pie,

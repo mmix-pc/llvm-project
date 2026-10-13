@@ -9,8 +9,8 @@
 // RUN: not %clang --target=mmix-unknown-linux -femulated-tls -### -c %s 2>&1 | FileCheck %s --check-prefix=EMULATED
 // RUN: %clang --target=mmix-unknown-linux -femulated-tls -fno-emulated-tls -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
 // RUN: not %clang --target=mmix-unknown-linux -fno-emulated-tls -femulated-tls -### -c %s 2>&1 | FileCheck %s --check-prefix=EMULATED
-// RUN: not %clang --target=mmix-unknown-linux -fPIC -### -c %s 2>&1 | FileCheck %s --check-prefix=PIC
-// RUN: not %clang --target=mmix-unknown-linux -fPIE -### -c %s 2>&1 | FileCheck %s --check-prefix=PIC
+// RUN: not %clang --target=mmix-unknown-linux -fPIC -c %s -o %t.pic.o 2>&1 | FileCheck %s --check-prefix=PIC
+// RUN: not %clang --target=mmix-unknown-linux -fPIE -c %s -o %t.pie.o 2>&1 | FileCheck %s --check-prefix=PIC
 // RUN: not %clang --target=mmix-unknown-linux -shared -### %s 2>&1 | FileCheck %s --check-prefix=SHARED
 // RUN: not %clang --target=mmix-unknown-linux -pthread -### -c %s 2>&1 | FileCheck %s --check-prefix=THREAD
 // RUN: %clang --target=mmix-unknown-linux -ffreestanding -O0 -S -emit-llvm %s -o - | FileCheck %s --check-prefix=IR
@@ -24,7 +24,7 @@
 // GENERIC-NOT: "-ftls-model=local-exec"
 // MODEL: error: unsupported option '-ftls-model={{.*}}' for target 'mmix-unknown-linux'
 // EMULATED: error: unsupported option '-femulated-tls'
-// PIC: error: unsupported option '-fP{{IC|IE}}'
+// PIC: error: MMIX Linux requires static non-PIE code
 // SHARED: error: unsupported option '-shared'
 // THREAD: error: unsupported option '-pthread'
 // IR: @value = external thread_local(localexec) global i64
