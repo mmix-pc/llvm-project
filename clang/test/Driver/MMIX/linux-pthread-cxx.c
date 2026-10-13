@@ -19,7 +19,7 @@
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fsjlj-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fseh-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fwasm-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -shared -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -shared -### %t/input.c 2>&1 | FileCheck %s --check-prefix=DYNAMIC
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -ftls-model=initial-exec -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: mv %t/root/usr/lib/libc.a %t/saved
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
@@ -73,6 +73,7 @@
 // IR: attributes #[[DECL]] = {
 // IR-NOT: nounwind
 // REJECT: error: unsupported option
+// DYNAMIC: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
 // MISSING: error: no such file or directory:
 // STALE: error: the clang compiler does not support 'C++ or unwind runtime linking with MMIX Linux pthread'
 // WRONG: error: the clang compiler does not support 'unrecognized MMIX Linux pthread libc profile'

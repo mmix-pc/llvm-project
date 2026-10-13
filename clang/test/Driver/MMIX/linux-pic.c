@@ -15,8 +15,8 @@
 // RUN: %clang --target=mmix-unknown-linux -fPIC -E -dM %s | FileCheck %s --check-prefix=MACRO-LARGE --implicit-check-not=__PIE__
 // RUN: %clang --target=mmix-unknown-linux -fpie -E -dM %s | FileCheck %s --check-prefixes=MACRO-SMALL,MACRO-PIE-SMALL
 // RUN: %clang --target=mmix-unknown-linux -fPIE -E -dM %s | FileCheck %s --check-prefixes=MACRO-LARGE,MACRO-PIE-LARGE
-// RUN: not %clang --target=mmix-unknown-linux -fPIC -shared -nostdlib -### %s 2>&1 | FileCheck %s --check-prefix=SHARED
-// RUN: not %clang --target=mmix-unknown-linux -fPIE -pie -nostdlib -### %s 2>&1 | FileCheck %s --check-prefix=LINK-PIE
+// RUN: not %clang --target=mmix-unknown-linux -fPIC -shared -### %s 2>&1 | FileCheck %s --check-prefix=RUNTIME
+// RUN: not %clang --target=mmix-unknown-linux -fPIE -pie -### %s 2>&1 | FileCheck %s --check-prefix=RUNTIME
 // SMALL: "-mrelocation-model" "pic"
 // SMALL-SAME: "-pic-level" "1"
 // LARGE: "-mrelocation-model" "pic"
@@ -28,8 +28,7 @@
 // MACRO-LARGE: #define __PIC__ 2
 // MACRO-PIE-SMALL: #define __PIE__ 1
 // MACRO-PIE-LARGE: #define __PIE__ 2
-// SHARED: error: unsupported option '-shared'
-// LINK-PIE: error: unsupported option '-pie'
+// RUNTIME: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
 
 extern long value;
 long *address(void) { return &value; }

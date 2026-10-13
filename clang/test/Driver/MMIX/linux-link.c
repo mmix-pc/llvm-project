@@ -19,8 +19,6 @@
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/missing -resource-dir %t/resource -### %t/input.o 2>&1 | FileCheck %s --check-prefix=MISSING-CRT
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/missing -resource-dir %t/resource -nostartfiles -L%t/root/usr/lib -B%t/root/usr/lib -### %t/input.o 2>&1 | FileCheck %s --check-prefix=MISSING-LIBC
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/missing-resource -### %t/input.o 2>&1 | FileCheck %s --check-prefix=MISSING-RT
-// RUN: not %clang --target=mmix-unknown-linux -nostdlib -shared -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux -nostdlib -pie -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -static-pie -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -Wl,-shared -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -Xlinker --dynamic-linker=/bad/ld.so -### %t/input.o 2>&1 | FileCheck %s --check-prefix=REJECT

@@ -20,8 +20,8 @@
 // RUN: %clang --target=mmix-unknown-linux -nostartfiles -nodefaultlibs -### %t.o 2>&1 | FileCheck %s --check-prefix=LINK-STATIC
 // RUN: not %clang --target=mmix-unknown-linux -fuse-ld=lld -### %t.o 2>&1 | FileCheck %s --check-prefix=LINK --implicit-check-not='"-cc1"' --implicit-check-not='"ld"' --implicit-check-not='"ld.lld"'
 // RUN: not %clang --target=mmix-unknown-linux -fno-integrated-as -### -c %s 2>&1 | FileCheck %s --check-prefix=ASSEMBLER
-// RUN: not %clang --target=mmix-unknown-linux -shared -### -c %s 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux -pie -### -c %s 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: %clang --target=mmix-unknown-linux -shared -### -c %s 2>&1 | FileCheck %s --check-prefix=COMPILE
+// RUN: %clang --target=mmix-unknown-linux -pie -### -c %s 2>&1 | FileCheck %s --check-prefix=COMPILE
 // RUN: not %clang --target=mmix-unknown-linux -static-pie -### -c %s 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -pthread -### -c %s 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux --cstdlib=newlib -### -c %s 2>&1 | FileCheck %s --check-prefix=REJECT

@@ -25,7 +25,7 @@
 // MODEL: error: unsupported option '-ftls-model={{.*}}' for target 'mmix-unknown-linux'
 // EMULATED: error: unsupported option '-femulated-tls'
 // PIC: error: MMIX Linux requires static non-PIE code
-// SHARED: error: unsupported option '-shared'
+// SHARED: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
 // THREAD: error: unsupported option '-pthread'
 // IR: @value = external thread_local(localexec) global i64
 // OBJ: R_MMIX_TPREL_LO16 value

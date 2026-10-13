@@ -21,8 +21,8 @@
 // RUN: not %clang --target=mmix-unknown-linux -r -flto=full -### %t/native.o 2>&1 | FileCheck %s --check-prefix=PARTIAL
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto=full -Wl,-plugin,bad.so -### %t/entry.bc 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto=full --ld-path=bad -### %t/entry.bc 2>&1 | FileCheck %s --check-prefix=CUSTOM
-// RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto=full -shared -### %t/entry.bc 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto=full -pie -### %t/entry.bc 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto=full -shared -### %t/entry.bc 2>&1 | FileCheck %s --check-prefix=DYNAMIC
+// RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto=full -pie -### %t/entry.bc 2>&1 | FileCheck %s --check-prefix=DYNAMIC
 // RUN: not %clang --target=mmix-unknown-linux -nostdlib -flto=full -O2 %t/entry.bc -Wl,-e,_start,--threads=1 -o %t/missing 2>&1 | FileCheck %s --check-prefix=MISSING
 
 // TRACE: provider.a({{.*}}provider.bc)
@@ -39,6 +39,7 @@
 // THIN: error: the clang compiler does not support 'ThinLTO linking for MMIX Linux'
 // PARTIAL: error: the clang compiler does not support 'LTO relocatable linking for MMIX Linux'
 // REJECT: error: unsupported option
+// DYNAMIC: error: the clang compiler does not support 'dynamic LTO linking for MMIX Linux'
 // CUSTOM: error: the clang compiler does not support 'custom linker selection for MMIX Linux'
 // MISSING: undefined symbol: provider
 

@@ -8,7 +8,7 @@
 // RUN: %clang --target=mmix-unknown-linux-unknown --sysroot=%t/root -resource-dir %t/resource -pthread -E -dM %t/input.c | FileCheck %s --check-prefix=MACRO
 // RUN: %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=LINK --implicit-check-not=-lpthread --implicit-check-not=mmix_thread_lifecycle --implicit-check-not=libunwind --implicit-check-not=libc++
 // RUN: %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -flto=full -### %t/input.o 2>&1 | FileCheck %s --check-prefix=LINK
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -shared -### %t/input.o 2>&1 | FileCheck %s --check-prefix=MODE
+// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -shared -### %t/input.o 2>&1 | FileCheck %s --check-prefix=DYNAMIC
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -ftls-model=global-dynamic -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MODE
 // RUN: not %clangxx --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=UNWIND
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fexceptions -### %t/input.o 2>&1 | FileCheck %s --check-prefix=UNWIND
@@ -38,6 +38,7 @@
 // LINK-SAME: "--start-group" "{{.*}}/root/usr/lib/libc.a" "{{.*}}/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a" "--end-group"
 // LINK-SAME: "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtend.o"
 // MODE: error: unsupported option
+// DYNAMIC: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
 // UNWIND: error: the clang compiler does not support 'C++ or unwind runtime linking with MMIX Linux pthread'
 // PROFILE: error: no such file or directory: '{{.*}}/absent/usr/lib/mmix-libc-profile'
 // HEADER: error: no such file or directory: '{{.*}}/root/usr/include/pthread.h'

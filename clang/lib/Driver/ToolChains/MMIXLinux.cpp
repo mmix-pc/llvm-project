@@ -92,13 +92,25 @@ public:
       Reject("custom linker selection for MMIX Linux");
       return;
     }
-    // Do not let forwarded mode switches override the reviewed static profile.
+    const bool Shared = Args.hasArg(options::OPT_shared);
+    const bool PIE = Args.hasFlag(options::OPT_pie, options::OPT_no_pie, false);
+    bool DynamicInputs = false;
+    // Mode selection belongs to the Driver, except the explicit -Bdynamic
+    // selector for dynamic ET_EXEC. Do not allow forwarded role overrides.
     for (const Arg *A :
          Args.filtered(options::OPT_Wl_COMMA, options::OPT_Xlinker)) {
       for (StringRef V : A->getValues()) {
         StringRef Option = V.split('=').first;
+        if (V == "-Bdynamic") {
+          DynamicInputs = true;
+          continue;
+        }
         if (Option == "-shared" || Option == "--shared" || Option == "-pie" ||
-            Option == "--pie" || Option == "-Bdynamic" || Option == "-dy" ||
+            Option == "--pie" || Option == "-dy" ||
+            Option == "-static" || Option == "--static" ||
+            Option == "-Bstatic" || Option == "-dn" ||
+            Option == "-no-pie" || Option == "--no-pie" ||
+            Option == "--no-dynamic-linker" ||
             Option == "--dynamic-linker" || Option == "-dynamic-linker" ||
             Option == "-I" || V.starts_with("-I") || Option == "-plugin" ||
             Option == "--plugin" || Option == "-r" ||
@@ -111,16 +123,47 @@ public:
       }
     }
 
+    const bool Dynamic = Shared || PIE || DynamicInputs;
+    if ((Shared && PIE) ||
+        (Dynamic && (Relocatable || Args.hasArg(options::OPT_static))) ||
+        (DynamicInputs && !Shared && !PIE &&
+         !Args.hasArg(options::OPT_no_pie))) {
+      D.Diag(diag::err_drv_unsupported_opt_for_target)
+          << "conflicting MMIX Linux link modes" << TC.getTripleString();
+      return;
+    }
+    if (Dynamic && (LTOMode != LTOK_None || HasIRInput)) {
+      Reject("dynamic LTO linking for MMIX Linux");
+      return;
+    }
+
     const bool StartFiles =
         !Relocatable &&
         !Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles);
     const bool DefaultLibs =
         !Relocatable &&
         !Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs);
+    if (Dynamic && (DefaultLibs || StartFiles)) {
+      Reject("MMIX Linux dynamic CRT and runtime providers are not yet available; "
+             "use -nostdlib with explicit inputs");
+      return;
+    }
     ArgStringList CmdArgs{"-m", "elf64mmix_linux"};
-    CmdArgs.push_back(Relocatable ? "-r" : "-static");
+    if (Relocatable)
+      CmdArgs.push_back("-r");
+    else if (Shared)
+      CmdArgs.push_back("-shared");
+    else if (PIE)
+      CmdArgs.push_back("-pie");
+    else if (!Dynamic)
+      CmdArgs.push_back("-static");
     if (!Relocatable) {
-      CmdArgs.push_back("--no-dynamic-linker");
+      if (!Dynamic || Shared)
+        CmdArgs.push_back("--no-dynamic-linker");
+      else
+        CmdArgs.push_back("--dynamic-linker=/lib/ld-llvm-mmix.so.1");
+      if (Dynamic)
+        CmdArgs.append({"-z", "now", "-z", "relro", "-z", "text"});
       CmdArgs.push_back("--eh-frame-hdr");
       // MMIX Linux loads segments with 8192-byte page congruence.
       CmdArgs.append(
@@ -131,11 +174,13 @@ public:
     Args.ClaimAllArgs(options::OPT_r);
     Args.ClaimAllArgs(options::OPT_static);
     Args.ClaimAllArgs(options::OPT_no_pie);
+    Args.ClaimAllArgs(options::OPT_pie);
+    Args.ClaimAllArgs(options::OPT_shared);
     Args.ClaimAllArgs(options::OPT_g_Group);
     Args.ClaimAllArgs(options::OPT_emit_llvm);
     Args.ClaimAllArgs(options::OPT_w);
     Args.addAllArgs(CmdArgs, {options::OPT_L, options::OPT_s, options::OPT_t,
-                              options::OPT_u_Group});
+                              options::OPT_u_Group, options::OPT_e});
     TC.AddFilePathLibArgs(Args, CmdArgs);
     if (StartFiles) {
       CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("crt1.o")));
@@ -225,8 +270,7 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
       Reject(A);
   }
   for (const Arg *A : Args.filtered(
-           options::OPT_shared, options::OPT_dynamic, options::OPT_rdynamic,
-           options::OPT_pie, options::OPT_static_pie,
+           options::OPT_dynamic, options::OPT_rdynamic, options::OPT_static_pie,
            options::OPT_gcc_toolchain, options::OPT_gcc_install_dir_EQ,
            options::OPT_gcc_triple_EQ))
     Reject(A);
