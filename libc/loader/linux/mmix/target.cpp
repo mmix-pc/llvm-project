@@ -20,5 +20,17 @@ bool is_supported_target(const Elf64_Ehdr &header) {
          header.e_ident[EI_ABIVERSION] == 0 && header.e_flags == 0;
 }
 
+bool is_supported_page_size(Elf64_Xword page_size) { return page_size == 8192; }
+
+bool is_user_range(Elf64_Addr address, Elf64_Xword size) {
+  // Current Linux MMIX TASK_SIZE; keep platform limits out of the ELF parser.
+  constexpr Elf64_Addr limit = Elf64_Addr(1) << 43;
+  return address >= 8192 && address < limit && size <= limit - address;
+}
+
+bool is_aligned_entry(Elf64_Addr address) { return (address & 3) == 0; }
+
+const char *interpreter_path() { return "/lib/ld-llvm-mmix.so.1"; }
+
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

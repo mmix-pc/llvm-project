@@ -35,8 +35,28 @@ ctest --test-dir build/loader-host-tests --output-on-failure
 ```
 
 These tests run target policy on decoded host values, check configuration
-admission and inject syscall results into production bootstrap support code.
-They do not qualify target execution or byte-order-aware file decoding.
+admission, parse ELF byte fixtures and inject syscall results into production
+bootstrap support code. They do not qualify target execution.
+
+## ELF Views
+
+`linux/elf.h` provides checked ELF64 views without native-struct casts or
+section-header dependencies. File views validate declared file extents; mapped
+views accept independently established readable regions and recheck metadata
+without claiming to reconstruct kernel mapping provenance. Input storage must
+remain readable, immutable and alive for the view's lifetime. Failed opens
+invalidate the output view.
+
+Admission distinguishes dynamic ET_EXEC, PIE, interpreter and DSO roles. Checks
+cover load permissions, alignment, disjoint rounded pages, metadata provenance,
+the interpreter path, bounded dynamic termination, stack policy, RELRO and
+executable entry. Link-time addresses, file offsets and checked bias-adjusted
+runtime addresses remain separate. Target hooks own machine identity, page
+size, user-address bounds, entry alignment and interpreter pathname.
+
+The byte decoders support either ELF64 byte order; target admission still
+selects the supported machine. Dynamic tag semantics, relocations, dependency
+loading and startup transfer are separate implementation steps.
 
 ## Bootstrap Support
 
@@ -58,8 +78,10 @@ not yet a concurrent dynamic-loading allocator.
 
 Only MMIX Linux is currently admitted, using Clang. Its implementation in
 `linux/mmix/` contains machine identity admission on decoded ELF headers and a
-raw syscall adapter reusing libc's hidden MMIX assembly leaf. It does not yet
-parse input, relocate images or start a process. Support for other
+raw syscall adapter reusing libc's hidden MMIX assembly leaf. Its current Linux
+policy selects 8192-byte pages, the 43-bit user-address limit, null-page
+exclusion and four-byte entry alignment. The common parser is built, but it
+does not yet relocate images or start a process. Support for other
 architectures requires their target implementations and validation.
 
 The intended MMIX interpreter artifact is `ld-llvm-mmix.so.1`. No executable or

@@ -1,4 +1,5 @@
-//===-- Linux loader target admission ----------------------------*- C++ -*-===//
+//===-- Linux loader target admission ----------------------------*- C++
+//-*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -18,6 +19,10 @@ namespace loader {
 // The caller supplies a decoded header. File bounds, magic, versions and image
 // role are the common parser's responsibility, not this machine identity hook.
 bool is_supported_target(const Elf64_Ehdr &header);
+bool is_supported_page_size(Elf64_Xword page_size);
+bool is_user_range(Elf64_Addr address, Elf64_Xword size);
+bool is_aligned_entry(Elf64_Addr address);
+const char *interpreter_path();
 
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

@@ -9,6 +9,8 @@ endforeach()
 set(LIBC_LOADER_COMPILE_OPTIONS
   -ffreestanding -fno-builtin -fPIC -fvisibility=hidden
   -fno-exceptions -fno-rtti -fno-threadsafe-statics
+  # Pattern initialization can introduce out-of-line memset before relocation.
+  -ftrivial-auto-var-init=uninitialized
   -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables
   -fno-lto -fno-sanitize=all -fno-profile-instr-generate
   -fno-profile-generate -fno-profile-arcs -fno-test-coverage

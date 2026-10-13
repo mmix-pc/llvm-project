@@ -25,3 +25,12 @@ target_compile_options(loader-support-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS
 target_compile_features(loader-support-test PRIVATE cxx_std_17)
 add_test(NAME loader-support COMMAND loader-support-test)
 set_tests_properties(loader-support PROPERTIES TIMEOUT 30)
+
+add_executable(loader-elf-test elf_test.cpp ../linux/elf.cpp
+  ../linux/mmix/target.cpp)
+target_include_directories(loader-elf-test PRIVATE ../..)
+target_compile_definitions(loader-elf-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-elf-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-elf-test PRIVATE cxx_std_17)
+add_test(NAME loader-elf COMMAND loader-elf-test)
+set_tests_properties(loader-elf PROPERTIES TIMEOUT 30)

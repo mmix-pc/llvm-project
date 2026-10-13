@@ -17,4 +17,5 @@ add_subdirectory(linux)
 # Entry and relocation support must exist before producing or installing
 # ld-llvm-mmix.so.1. Do not publish a placeholder interpreter.
 add_custom_target(libc-loader DEPENDS
-  libc.loader.linux.mmix.target libc.loader.linux.io libc.loader.linux.arena)
+  libc.loader.linux.mmix.target libc.loader.linux.io libc.loader.linux.arena
+  libc.loader.linux.elf)

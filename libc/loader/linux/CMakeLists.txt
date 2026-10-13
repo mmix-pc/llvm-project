@@ -1,6 +1,14 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  elf
+  SRCS elf.cpp
+  HDRS elf.h
+  DEPENDS .mmix.target libc.hdr.elf_proxy libc.src.__support.CPP.span
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   io
   SRCS io.cpp
   HDRS io.h syscall.h
