@@ -8,6 +8,7 @@
 
 #include "dynamic_fixture.h"
 #include "loader/linux/graph.h"
+#include "loader/linux/initialization.h"
 #include "loader/linux/symbols.h"
 #include "loader/linux/syscall.h"
 #include <assert.h>
@@ -54,6 +55,26 @@ struct Library : DynamicFixture {
       assert(string_size < 0x100);
       bytes[0x700 + string_size++] = *name;
     } while (*name++);
+    finish();
+  }
+  void initializers(bool main = false) {
+    add(DT_INIT, 0x2000);
+    add(DT_INIT_ARRAY, 0x4900);
+    add(DT_INIT_ARRAYSZ, 16);
+    if (main) {
+      add(DT_PREINIT_ARRAY, 0x4920);
+      add(DT_PREINIT_ARRAYSZ, 8);
+    }
+    unsigned count = main ? 3 : 2;
+    for (unsigned i = 0; i < count; ++i) {
+      put(0xb00 + 24 * i, 8, i == 2 ? 0x4920 : 0x4900 + 8 * i);
+      put(0xb08 + 24 * i, 8, 41);
+      put(0xb10 + 24 * i, 8, 0x2004 + 4 * i);
+    }
+    add(DT_RELA, 0xb00);
+    add(DT_RELASZ, count * 24);
+    add(DT_RELAENT, 24);
+    add(DT_RELACOUNT, count);
     finish();
   }
 };
@@ -192,7 +213,8 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
     return address;
   }
   if (number == SYS_mprotect) {
-    assert(owner(a, b) || (Address(a) >= bias && Address(a + b) <= bias + 3 * page));
+    assert(owner(a, b) ||
+           (Address(a) >= bias && Address(a + b) <= bias + 3 * page));
     assert((c & (PROT_EXEC | PROT_WRITE)) != (PROT_EXEC | PROT_WRITE));
     return 0;
   }
@@ -218,6 +240,20 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
       return 1;                                                                \
     }                                                                          \
   } while (false)
+
+static Address trace[32];
+static size_t trace_count;
+static StartupGraph *active_graph;
+static StartupInitializers *active_initializers;
+static InitialStack arguments{};
+static void record_init(Address address, int argc, char **argv, char **envp) {
+  assert(trace_count < 32 && argc == 2 &&
+         reinterpret_cast<Address>(argv) == arguments.argv &&
+         reinterpret_cast<Address>(envp) == arguments.envp);
+  assert(active_initializers->run(arguments, record_init) == -EBUSY);
+  assert(active_graph->reset() == -EBUSY);
+  trace[trace_count++] = address;
+}
 
 extern "C" int main() {
   Library main_file(ImageRole::MainPIE), a, b, c, d;
@@ -290,8 +326,12 @@ extern "C" int main() {
   CHECK(main.header() && main_file.bytes[0] == 0x7f && graph.reset() == 0);
 
   start();
-  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
   unsigned before_protection = calls;
+  CHECK(graph.finalize_protections().error == -EINVAL);
+  CHECK(graph.relocate().error == 0);
+  before_protection = calls;
   CHECK(graph.finalize_protections().error == 0);
   unsigned protection_calls = calls - before_protection;
   CHECK(protection_calls == 20);
@@ -300,7 +340,9 @@ extern "C" int main() {
   CHECK(graph.reset() == 0 && !live());
   for (unsigned fail = 1; fail <= protection_calls; ++fail) {
     start();
-    CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+    CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+          0);
+    CHECK(graph.relocate().error == 0);
     fail_at = calls + fail;
     auto result = graph.finalize_protections();
     CHECK(result.error == -EIO && !result.cleanup_error);
@@ -308,30 +350,39 @@ extern "C" int main() {
     CHECK(graph.finalize_protections().error == -EINVAL);
   }
   start();
-  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
+  CHECK(graph.relocate().error == 0);
   fail_at = calls + 20;
   fail_unmaps = true;
   auto protection_failure = graph.finalize_protections();
-  CHECK(protection_failure.error == -EIO && protection_failure.cleanup_error == -EIO);
+  CHECK(protection_failure.error == -EIO &&
+        protection_failure.cleanup_error == -EIO);
   CHECK(!graph.scope() && live());
   fail_unmaps = false;
   CHECK(graph.reset() == 0 && !live() && main_file.bytes[0] == 0x7f);
 
   start();
   files[4].identity = {2, 1, 1};
-  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
   CHECK(graph.size() == 5 && mapped_files == 4);
   CHECK(graph.reset() == 0 && !live());
   files[4].identity = {2, 2, 0};
   start();
   StartupGraph wrong_page(4096);
-  CHECK(wrong_page.build(main, {1, 1, 0}, text("/lib/main"), environment).error == -EINVAL);
+  CHECK(
+      wrong_page.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+      -EINVAL);
   CHECK(!calls);
-  CHECK(graph.build(main, {1, 1, 0}, text("relative-main"), environment).error == -EINVAL);
+  CHECK(
+      graph.build(main, {1, 1, 0}, text("relative-main"), environment).error ==
+      -EINVAL);
   CHECK(!live());
   SearchEnvironment rejected;
   start();
-  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), rejected).error == -EINVAL);
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), rejected).error ==
+        -EINVAL);
   CHECK(!calls);
 
   // Includes graph storage, fd identity, mapper acquisitions, edge/ancestry
@@ -372,6 +423,94 @@ extern "C" int main() {
         -ENOENT);
   CHECK(mapped_files == 3 && !live() && !graph.scope() && opens == closes);
   files[2].path = "/lib/C.so";
+
+  main_file.initializers(true);
+  a.initializers();
+  b.initializers();
+  c.initializers();
+  d.initializers();
+  arguments.valid = true;
+  arguments.argc = 2;
+  arguments.argv = 0x8000;
+  arguments.envp = 0x9000;
+  active_graph = &graph;
+  // Dependency cycle A/C is emitted in BFS order, before B which needs C.
+  // Back-edges to main do not move main initialization before dependencies.
+  start();
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
+  Arena init_storage(page);
+  StartupInitializers initializers;
+  active_initializers = &initializers;
+  CHECK(initializers.prepare(graph, init_storage) == -EINVAL);
+  CHECK(graph.relocate().error == 0);
+  CHECK(initializers.prepare(graph, init_storage) == -EINVAL);
+  CHECK(graph.finalize_protections().error == 0);
+  CHECK(initializers.prepare(graph, init_storage) == 0);
+  CHECK(initializers.prepare(graph, init_storage) == -EBUSY);
+  CHECK(initializers.run(arguments, record_init) == 0);
+  CHECK(trace_count == 16 && trace[0] == bias + 0x200c);
+  const char *init_paths[] = {"/lib/A.so", "/lib/C.so", "/lib/B.so",
+                              "/lib/D.so", "/lib/main"};
+  CHECK(initializers.completed_count() == 5 &&
+        !initializers.completed_object(5));
+  for (unsigned i = 0; i < 5; ++i) {
+    const auto *node = initializers.completed_object(i);
+    CHECK(node->path().size() == strlen(init_paths[i]));
+    CHECK(!memcmp(node->path().data(), init_paths[i], node->path().size()));
+    for (unsigned j = 0; j < 3; ++j)
+      CHECK(trace[1 + i * 3 + j] ==
+            node->image()->load_bias() + 0x2000 + 4 * j);
+  }
+  CHECK(initializers.run(arguments, record_init) == 0 && trace_count == 16);
+  StartupInitializers duplicate;
+  CHECK(duplicate.prepare(graph, init_storage) == -EBUSY);
+  CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
+  trace_count = 0;
+
+  const Address invalid_callbacks[] = {0, ~Address(0), bias + 0x2001,
+                                       bias + 0x4000, Address(1) << 43};
+  for (Address address : invalid_callbacks) {
+    start();
+    CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+          0);
+    CHECK(graph.relocate().error == 0);
+    // Model a bad relocated pointer in the last object's initializer array.
+    main_file.put(0x4900, 8, address);
+    CHECK(graph.finalize_protections().error == 0);
+    StartupInitializers bad;
+    CHECK(bad.prepare(graph, init_storage) == -ENOEXEC);
+    CHECK(bad.run(arguments, record_init) == -EINVAL && !trace_count);
+    CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
+  }
+  start();
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
+  CHECK(graph.relocate().error == 0);
+  fail_at = calls + 1;
+  CHECK(graph.finalize_protections().error == -EIO);
+  StartupInitializers unprotected;
+  CHECK(unprotected.prepare(graph, init_storage) == -EINVAL && !trace_count);
+  CHECK(graph.reset() == 0 && !live());
+
+  start();
+  a.put(0x81e, 2, SHN_UNDEF);
+  a.put(0x820, 8, 0);
+  a.bytes[0x81d] = STV_HIDDEN;
+  a.put(0xb20, 8, (Address(1) << 32) | 42);
+  a.set(DT_RELACOUNT, 1);
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
+  CHECK(graph.relocate().error == -ENOEXEC);
+  StartupInitializers unresolved;
+  CHECK(unresolved.prepare(graph, init_storage) == -EINVAL && !trace_count &&
+        !live());
+  a.put(0x81e, 2, 1);
+  a.put(0x820, 8, 0x2000);
+  a.bytes[0x81d] = STV_DEFAULT;
+  a.put(0xb20, 8, 41);
+  a.set(DT_RELACOUNT, 2);
+
   start();
   // Explicit relative dependencies use the actual startup cwd, not a host path.
   Library relative_main(ImageRole::MainPIE);
@@ -387,6 +526,67 @@ extern "C" int main() {
         0);
   CHECK(graph.size() == 3 && mapped_files == 2);
   CHECK(graph.reset() == 0 && !live());
-  puts("loader BFS graph, identity, cycles and transactional rollback passed");
+
+  Library diamond(ImageRole::MainPIE), left, right, leaf;
+  diamond.need("left.so");
+  diamond.need("right.so");
+  left.need("leaf.so");
+  right.need("leaf.so");
+  diamond.initializers(true);
+  left.initializers();
+  right.initializers();
+  leaf.initializers();
+  // The last left initializer is a preemptible pointer resolved into main.
+  left.set(DT_RELACOUNT, 1);
+  left.put(0xb20, 8, (Address(1) << 32) | 42);
+  left.put(0xb28, 8, 0);
+  files[0] = {"/lib/left.so", &left, {2, 1, 0}};
+  files[1] = {"/lib/right.so", &right, {3, 1, 0}};
+  files[2] = {"/lib/leaf.so", &leaf, {4, 1, 0}};
+  file_count = 3;
+  for (unsigned i = 0; i < 3; ++i)
+    regions[i].bytes = Bytes(diamond.bytes + i * page, page);
+  CHECK(ElfImage::open_mapped(regions, 0, 64, ImageRole::MainPIE, bias, page,
+                              main) == ElfError::None);
+  start();
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
+  CHECK(graph.relocate().error == 0 && graph.finalize_protections().error == 0);
+  StartupInitializers diamond_init;
+  fail_at = calls + 1;
+  CHECK(diamond_init.prepare(graph, init_storage) == -EIO && !trace_count);
+  fail_at = 0;
+  CHECK(diamond_init.prepare(graph, init_storage) == 0);
+  active_initializers = &diamond_init;
+  InitialStack invalid_arguments{};
+  CHECK(diamond_init.run(invalid_arguments, record_init) == -EINVAL &&
+        !trace_count);
+  CHECK(diamond_init.run(arguments, record_init) == 0 && trace_count == 13);
+  CHECK(trace[6] == bias + 0x2000);
+  const char *diamond_paths[] = {"/lib/leaf.so", "/lib/left.so",
+                                 "/lib/right.so", "/lib/main"};
+  for (unsigned i = 0; i < 4; ++i) {
+    const auto *node = diamond_init.completed_object(i);
+    CHECK(node && node->path().size() == strlen(diamond_paths[i]));
+    CHECK(!memcmp(node->path().data(), diamond_paths[i], node->path().size()));
+  }
+  CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
+  trace_count = 0;
+  Library empty_main(ImageRole::MainPIE);
+  for (unsigned i = 0; i < 3; ++i)
+    regions[i].bytes = Bytes(empty_main.bytes + i * page, page);
+  CHECK(ElfImage::open_mapped(regions, 0, 64, ImageRole::MainPIE, bias, page,
+                              main) == ElfError::None);
+  start();
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
+  CHECK(graph.relocate().error == 0 && graph.finalize_protections().error == 0);
+  StartupInitializers empty_init;
+  CHECK(empty_init.prepare(graph, init_storage) == 0);
+  CHECK(empty_init.run(arguments, record_init) == 0 && !trace_count);
+  CHECK(empty_init.completed_count() == 1);
+  CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
+  puts("loader graph, rollback, relocation/protection gating and initializer "
+       "traces passed");
   return 0;
 }

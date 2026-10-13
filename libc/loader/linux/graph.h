@@ -1,4 +1,5 @@
-//===-- Startup dependency graph ---------------------------------*- C++ -*-===//
+//===-- Startup dependency graph ---------------------------------*- C++
+//-*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -14,7 +15,10 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
+class StartupInitializers;
 class StartupGraph {
+  friend class StartupInitializers;
+
 public:
   class Node;
   struct Edge {
@@ -50,7 +54,8 @@ private:
   Address page_size;
   Arena arena;
   Node *owned = nullptr, *head = nullptr, *tail = nullptr;
-  bool storage_owned = false, ready = false, protected_images = false;
+  bool storage_owned = false, ready = false, relocated = false,
+       protected_images = false, initializing = false, initialized = false;
   size_t count = 0;
   Node *make_node(long &error);
   long set_path(Node &node, Bytes path);
@@ -76,9 +81,11 @@ public:
   // Explicit lifetime, as for DsoMapping. Failed cleanup blocks reuse and keeps
   // storage alive for retry; all node/edge views are invalid after reset.
   long reset();
-  // Caller has completed all relocations. Failure invalidates the graph and
+  MapResult relocate();
+  // Requires successful relocate(). Failure invalidates the graph and
   // resets owned DSOs, never the borrowed main; cleanup errors remain visible.
   MapResult finalize_protections();
+  bool protections_complete() const { return ready && protected_images; }
   const Node *scope() const { return ready ? head : nullptr; }
   size_t size() const { return ready ? count : 0; }
 };

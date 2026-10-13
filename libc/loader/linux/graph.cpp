@@ -9,6 +9,7 @@
 #include "loader/linux/graph.h"
 #include "hdr/errno_macros.h"
 #include "loader/linux/protection.h"
+#include "loader/linux/relocation.h"
 #include "loader/linux/symbols.h"
 #include "loader/linux/syscall.h"
 #include "loader/linux/target.h"
@@ -235,8 +236,60 @@ MapResult StartupGraph::build(const ElfImage &main, FileIdentity identity,
   return {0, 0};
 }
 
-MapResult StartupGraph::finalize_protections() {
+MapResult StartupGraph::relocate() {
   if (!ready)
+    return {-EINVAL, 0};
+  if (relocated)
+    return {0, 0};
+  void *storage;
+  if (count > __SIZE_MAX__ / sizeof(SymbolObject) ||
+      count > __SIZE_MAX__ / sizeof(cpp::span<const WritableRegion>))
+    return {-EOVERFLOW, reset()};
+  long error = arena.allocate(count * sizeof(SymbolObject),
+                              alignof(SymbolObject), storage);
+  if (error)
+    return {error, reset()};
+  auto *objects = static_cast<SymbolObject *>(storage);
+  error = arena.allocate(count * sizeof(cpp::span<const WritableRegion>),
+                         alignof(cpp::span<const WritableRegion>), storage);
+  if (error)
+    return {error, reset()};
+  auto *writes = static_cast<cpp::span<const WritableRegion> *>(storage);
+  size_t index = 0;
+  for (Node *node = head; node; node = node->scope_next, ++index) {
+    const ElfImage *image = node->image();
+    new (objects + index) SymbolObject{image, node->metadata()};
+    unsigned phnum = image->header()->e_phnum;
+    error = arena.allocate(phnum * sizeof(WritableRegion),
+                           alignof(WritableRegion), storage);
+    if (error)
+      return {error, reset()};
+    auto *regions = static_cast<WritableRegion *>(storage);
+    unsigned used = 0;
+    for (unsigned i = 0; i < phnum; ++i) {
+      Elf64_Phdr p;
+      image->program_header(i, p);
+      if (p.p_type != PT_LOAD || !p.p_memsz || !(p.p_flags & PF_W))
+        continue;
+      Bytes bytes =
+          image->mapped_memory_bytes(p.p_vaddr, p.p_memsz, PF_R | PF_W);
+      if (bytes.size() != p.p_memsz)
+        return {-ENOEXEC, reset()};
+      // Startup mappings are owned writable storage until final protection.
+      new (regions + used++) WritableRegion{
+          p.p_vaddr, {const_cast<unsigned char *>(bytes.data()), bytes.size()}};
+    }
+    new (writes + index) cpp::span<const WritableRegion>(regions, used);
+  }
+  if (relocate_startup({objects, count}, {writes, count}).error !=
+      StartupRelocationError::None)
+    return {-ENOEXEC, reset()};
+  relocated = true;
+  return {0, 0};
+}
+
+MapResult StartupGraph::finalize_protections() {
+  if (!ready || !relocated)
     return {-EINVAL, 0};
   if (protected_images)
     return {0, 0};
@@ -259,6 +312,9 @@ MapResult StartupGraph::finalize_protections() {
 }
 
 long StartupGraph::reset() {
+  if (initializing)
+    return -EBUSY;
+  initialized = relocated = false;
   protected_images = false;
   ready = false;
   long error = 0;

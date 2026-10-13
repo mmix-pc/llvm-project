@@ -213,7 +213,9 @@ big-endian bytes. Unsupported link-time/TLS records are errors.
 
 No dependency code executes on either success or failure. Initialization,
 production startup composition and guest execution are separate
-steps. Native tests exercise failure atomicity and arithmetic; linked MMIX DSO
+steps. `StartupGraph::relocate` composes the admitted image/storage views and
+records successful relocation before allowing final protection. Native tests
+exercise failure atomicity and arithmetic; linked MMIX DSO
 fixtures verify actual relocation contents without executing target instructions.
 
 ## Final Image Protection
@@ -232,11 +234,37 @@ The interpreter bootstrap uses this helper before its hidden continuation.
 idempotent on success, and invalidates the graph on failure. It releases only
 owned DSOs, preserves borrowed main mappings, and reports failed cleanup while
 retaining ownership for explicit reset retry. Callers must have completed
-relocation first; startup composition owns that sequencing.
+relocation first through the graph's checked relocation transition.
 
 Native syscall injection checks every transition and cleanup failures. Separate
 native subprocesses exercise real mprotect permissions with exact fault-address
 and access-error checks. These do not qualify MMIX Linux guest enforcement.
+
+## Startup Initialization
+
+`StartupInitializers::prepare` requires a relocated, protected graph. It computes
+dependency-first strongly connected components without recursive C calls and
+orders each component by BFS discovery. Edges back to main do not move main
+initialization ahead of dependencies. Main PREINIT_ARRAY runs first; each
+dependency then runs INIT followed by its INIT_ARRAY, and main runs last.
+Array order is preserved. Null and -1 array entries are rejected, not treated
+as legacy .ctors sentinels.
+
+All relocated callback addresses are checked for instruction alignment and
+executable four-byte coverage in the complete scope, then copied into private
+arena storage before any callback executes. Cross-image function pointers are
+allowed. The production invoker uses ordinary function pointers and passes
+argc/argv/envp from the decoded initial stack. Native trace tests use an internal
+invoker instead; they do not execute MMIX callbacks.
+
+Repeated initialization cannot call callbacks twice, and recursive entry or
+graph reset during a callback is rejected. The plan retains completed objects
+in initialization order for later reverse finalization; it does not run FINI
+or export exit/dlopen services. Keep the graph and plan arena alive throughout
+their use, and release plan storage explicitly after use. Callbacks must return
+normally; shared-libc TLS adoption, recursive loading and escaping exceptions
+are outside this freestanding subset. Effects after the first callback cannot
+be rolled back.
 
 ## Bootstrap Support
 

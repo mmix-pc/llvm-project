@@ -22,4 +22,4 @@ add_custom_target(libc-loader DEPENDS
   libc.loader.linux.mmix.bootstrap libc.loader.linux.self_relocation
   libc.loader.linux.dynamic libc.loader.linux.mapping libc.loader.linux.search
   libc.loader.linux.graph libc.loader.linux.symbols libc.loader.linux.relocation
-  libc.loader.linux.protection)
+  libc.loader.linux.protection libc.loader.linux.initialization)
