@@ -1,6 +1,14 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  relocation
+  SRCS relocation.cpp
+  HDRS relocation.h
+  DEPENDS .symbols .dynamic .elf .self_relocation .mmix.target
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   symbols
   SRCS symbols.cpp
   HDRS symbols.h

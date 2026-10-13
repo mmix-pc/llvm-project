@@ -45,5 +45,22 @@ bool is_supported_dynamic_relocation(Elf64_Xword info) {
   return (info >> 32) != 0 && (type == 5 || type == 42);
 }
 
+bool runtime_relocation_value(Elf64_Xword info, Elf64_Addr base,
+                              Elf64_Xword addend, Elf64_Addr &out) {
+  if (!is_supported_dynamic_relocation(info))
+    return false;
+  if (addend >> 63) {
+    Elf64_Xword magnitude = ~addend + 1;
+    if (base < magnitude)
+      return false;
+    out = base - magnitude;
+  } else if (__builtin_add_overflow(base, addend, &out)) {
+    return false;
+  }
+  // Symbolic pointers may be null, notably unresolved weak references.
+  // Otherwise both kinds must remain within the admitted user address range.
+  return (!is_relative_relocation(info) && out == 0) || is_user_range(out, 1);
+}
+
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

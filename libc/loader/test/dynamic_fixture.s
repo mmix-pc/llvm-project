@@ -14,6 +14,14 @@ beta: POP 0,0
 gamma: POP 0,0
 hook: POP 0,0
 weak_hook: POP 0,0
+.ifdef RESOLVE_MISSING
+.globl missing
+.type missing,@function
+missing: POP 0,0
+.endif
+.section .rodata,"a",@progbits
+.p2align 3
+.mmix_got_pc64 alpha
 .data
 .p2align 3
 .globl pointer
@@ -22,6 +30,9 @@ weak_hook: POP 0,0
 pointer: .quad alpha
 .quad missing
 .quad optional
+.quad alpha+8
+.quad alpha-8
+.quad hook
 .section .init_array,"aw",@init_array
 .p2align 3
 .quad hook

@@ -56,7 +56,16 @@ set_tests_properties(loader-self-relocation PROPERTIES TIMEOUT 30)
 # Supplied a real cross-linked fixture by the artifact validation runner.
 # This validates mapped bytes on the host; it never executes target code.
 add_executable(loader-linked-image-test linked_image_test.cpp
-  ../linux/dynamic.cpp ../linux/symbols.cpp ../linux/self_relocation.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+  ../linux/dynamic.cpp ../linux/symbols.cpp ../linux/relocation.cpp ../linux/self_relocation.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+
+add_executable(loader-relocation-test relocation_test.cpp ../linux/relocation.cpp
+  ../linux/symbols.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-relocation-test PRIVATE ../..)
+target_compile_definitions(loader-relocation-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-relocation-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-relocation-test PRIVATE cxx_std_17)
+add_test(NAME loader-relocation COMMAND loader-relocation-test)
+set_tests_properties(loader-relocation PROPERTIES TIMEOUT 30)
 target_include_directories(loader-linked-image-test PRIVATE ../..)
 target_compile_definitions(loader-linked-image-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
 target_compile_features(loader-linked-image-test PRIVATE cxx_std_17)

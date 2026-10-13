@@ -1,5 +1,4 @@
-//===-- Linux loader target admission ----------------------------*- C++
-//-*-===//
+//===-- Linux loader target admission ----------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -25,6 +24,8 @@ bool is_aligned_entry(Elf64_Addr address);
 const char *interpreter_path();
 bool is_relative_relocation(Elf64_Xword info);
 bool is_supported_dynamic_relocation(Elf64_Xword info);
+bool runtime_relocation_value(Elf64_Xword info, Elf64_Addr base,
+                              Elf64_Xword addend, Elf64_Addr &out);
 
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

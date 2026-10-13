@@ -193,8 +193,28 @@ dynsym entries do not create startup obligations. The graph and descriptor arena
 must outlive the resolver. This is not a public dlsym or handle interface.
 
 Native binding tests and linked MMIX DSO inspection cover these rules without
-executing target instructions. Dependency relocation and startup composition
-remain separate work.
+executing target instructions. Startup composition remains separate work.
+
+## Eager Startup Relocation
+
+`relocate_startup` accepts a completed main-first scope with matching writable
+mapped views. It revalidates dynamic metadata, then preflights all destinations,
+bindings and values across the entire scope before writing. Metadata and objects
+must remain immutable and nonaliasing during this serialized operation. Writable
+views must identify the exact admitted storage, not an unrelated buffer.
+
+MMIX RELATIVE computes B+A; GLOB_DAT and ordinary 64-bit pointers compute S+A.
+Signed addend arithmetic is checked without wrapping, then constrained to the
+user address range. Symbolic null pointers are allowed, including unresolved
+weak references; RELATIVE values must be valid user addresses. Every destination
+is an aligned eight-byte writable non-executable word, disjoint from metadata
+and other destinations. All relative writes precede all symbolic writes, using
+big-endian bytes. Unsupported link-time/TLS records are errors.
+
+No dependency code executes on either success or failure. Final protection,
+initialization, production startup composition and guest execution are separate
+steps. Native tests exercise failure atomicity and arithmetic; linked MMIX DSO
+fixtures verify actual relocation contents without executing target instructions.
 
 ## Bootstrap Support
 

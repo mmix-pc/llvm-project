@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "loader/linux/dynamic.h"
+#include "loader/linux/relocation.h"
 #include "loader/linux/self_relocation.h"
 #include "loader/linux/symbols.h"
 #include <cstdio>
@@ -31,7 +32,8 @@ static Address read_octa(const unsigned char *bytes) {
 }
 
 int main(int argc, char **argv) {
-  check(argc == 2 || (argc == 3 && argv[2][0] == 's'));
+  check(argc == 2 || (argc == 3 && (argv[2][0] == 's' || argv[2][0] == 'r')));
+  bool runtime = argc == 3 && argv[2][0] == 'r';
   ImageRole role = argc == 2 ? ImageRole::Interpreter : ImageRole::SharedObject;
   FILE *input = std::fopen(argv[1], "rb");
   check(input && std::fseek(input, 0, SEEK_END) == 0);
@@ -144,10 +146,50 @@ int main(int argc, char **argv) {
     check(symbols.resolve(1, index("optional"), value) == SymbolError::None &&
           value.weak_zero && value.address == 0);
     check(symbols.resolve(1, index("missing"), value) ==
-          SymbolError::Undefined);
+          (runtime ? SymbolError::None : SymbolError::Undefined));
     SymbolFailure failure;
-    check(symbols.validate_references(failure) == SymbolError::Undefined &&
-          failure.object == 0 && failure.symbol == index("missing"));
+    if (!runtime)
+      check(symbols.validate_references(failure) == SymbolError::Undefined &&
+            failure.object == 0 && failure.symbol == index("missing"));
+    else
+      check(symbols.validate_references(failure) == SymbolError::None);
+    SymbolObject relocating[] = {{&image, &metadata}};
+    LIBC_NAMESPACE::cpp::span<const WritableRegion> writes[] = {
+        {writable.data(), writable.size()}};
+    std::vector<Address> expected;
+    check(StartupSymbols::open(relocating, symbols) == SymbolError::None);
+    bool relative_seen = false, pointer_seen = false, got_seen = false;
+    for (Address i = 0; i < metadata.relocation_count(); ++i) {
+      DynamicRelocation r;
+      check(metadata.relocation(i, r));
+      Address resolved = bias;
+      if (r.info != 41) {
+        auto error = symbols.resolve(0, r.info >> 32, value);
+        check(error == SymbolError::None || !runtime);
+        resolved = value.address;
+      }
+      expected.push_back(
+          runtime
+              ? resolved + r.addend
+              : read_octa(image.mapped_memory_bytes(r.offset, 8, PF_R).data()));
+      relative_seen |= r.info == 41;
+      pointer_seen |= static_cast<Elf64_Word>(r.info) == 5;
+      got_seen |= static_cast<Elf64_Word>(r.info) == 42;
+    }
+    check(relative_seen && pointer_seen && got_seen);
+    check(relocate_startup(relocating, writes).error ==
+          (runtime ? StartupRelocationError::None
+                   : StartupRelocationError::Symbol));
+    for (Address i = 0; i < metadata.relocation_count(); ++i) {
+      DynamicRelocation r;
+      check(metadata.relocation(i, r));
+      check(read_octa(image.mapped_memory_bytes(r.offset, 8, PF_R).data()) ==
+            expected[i]);
+    }
+    std::puts(
+        runtime
+            ? "eager RELATIVE/GLOB_DAT/64 values passed"
+            : "missing strong symbol leaves all relocation bytes unchanged");
     std::puts(
         "linked DSO: dynamic file/mapped views and five malformed "
         "mutations, preemption/protected/weak/function address checks passed");
