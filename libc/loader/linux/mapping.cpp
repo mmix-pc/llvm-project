@@ -57,10 +57,30 @@ long DsoMapping::reset() {
   return error ? error : staging_error ? staging_error : image_error;
 }
 
+bool DsoMapping::busy() const {
+  return ready || fd.get() >= 0 || staging.size || reservation.size || arena_owned;
+}
+
 MapResult DsoMapping::open(const char *path) {
-  if (ready || fd.get() >= 0 || staging.size || reservation.size || arena_owned)
+  if (busy())
     return {-EBUSY, 0};
-  long error = populate(path);
+  if (!is_supported_page_size(page_size))
+    return {-EINVAL, 0};
+  long error = fd.open_readonly(path);
+  return error ? MapResult{error, 0} : finish_open();
+}
+
+MapResult DsoMapping::open(OwnedFd &source) {
+  if (busy())
+    return {-EBUSY, 0};
+  if (!is_supported_page_size(page_size))
+    return {-EINVAL, 0};
+  long error = fd.take(source);
+  return error ? MapResult{error, 0} : finish_open();
+}
+
+MapResult DsoMapping::finish_open() {
+  long error = populate();
   if (error)
     return {error, reset()};
   // Consume the fd even on close failure. Do not immediately retry a failed
@@ -124,18 +144,13 @@ long DsoMapping::map_segment(const Elf64_Phdr &p, Address bias) {
   return start < end ? replace(bias + start, end - start, prot, true, 0) : 0;
 }
 
-long DsoMapping::populate(const char *path) {
-  if (!is_supported_page_size(page_size))
-    return -EINVAL;
-  long error = fd.open_readonly(path);
-  if (error)
-    return error;
+long DsoMapping::populate() {
   long length = raw_syscall(SYS_lseek, fd.get(), 0, SEEK_END);
   if (length < 0)
     return length;
   if (length < 64)
     return -ENOEXEC;
-  error = raw_syscall(SYS_lseek, fd.get(), 0, SEEK_SET);
+  long error = raw_syscall(SYS_lseek, fd.get(), 0, SEEK_SET);
   if (error < 0)
     return error;
   Address stage_size;

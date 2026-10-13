@@ -20,6 +20,15 @@ struct IOResult {
   long error;
 };
 
+struct FileIdentity {
+  unsigned long long inode;
+  unsigned device_major, device_minor;
+  bool operator==(const FileIdentity &other) const {
+    return inode == other.inode && device_major == other.device_major &&
+           device_minor == other.device_minor;
+  }
+};
+
 // Reads stop at EOF. Both operations preserve progress on a later error.
 IOResult read_bytes(int fd, void *buffer, size_t size);
 IOResult write_bytes(int fd, const void *buffer, size_t size);
@@ -34,6 +43,8 @@ public:
   ~OwnedFd() { close(); }
   int get() const { return value; }
   long open_readonly(const char *path);
+  long identity(FileIdentity &out) const;
+  long take(OwnedFd &from);
   // Consumes ownership even on failure; never retry Linux close after EINTR.
   long close();
 };

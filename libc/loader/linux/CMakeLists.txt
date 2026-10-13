@@ -1,6 +1,15 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  graph
+  SRCS graph.cpp
+  HDRS graph.h
+  DEPENDS .search .mapping .io .arena libc.hdr.errno_macros
+    libc.include.sys_syscall libc.hdr.func.free libc.src.__support.common
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   search
   SRCS search.cpp
   HDRS search.h
@@ -59,6 +68,7 @@ add_object_library(
     libc.hdr.types.size_t
     libc.hdr.errno_macros
     libc.hdr.fcntl_macros
+    libc.hdr.sys_stat_macros
     libc.include.sys_syscall
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )

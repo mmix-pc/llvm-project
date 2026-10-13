@@ -12,6 +12,10 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
+// Keep construction beside clear so redundant member initialization cannot
+// become an external memset when this view is embedded in an allocated node.
+DynamicInfo::DynamicInfo() { clear(); }
+
 static Address integer(const unsigned char *p, unsigned width, bool big) {
   Address value = 0;
   for (unsigned i = 0; i < width; ++i)

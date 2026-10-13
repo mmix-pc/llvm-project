@@ -9,7 +9,9 @@
 #include "loader/linux/io.h"
 #include "hdr/errno_macros.h"
 #include "hdr/fcntl_macros.h"
+#include "hdr/sys_stat_macros.h"
 #include "loader/linux/syscall.h"
+#include <linux/stat.h>
 #include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
@@ -64,6 +66,34 @@ long OwnedFd::close() {
   int fd = value;
   value = -1;
   return raw_syscall(SYS_close, fd);
+}
+
+long OwnedFd::take(OwnedFd &from) {
+  if (value >= 0 || from.value < 0)
+    return -EINVAL;
+  value = from.value;
+  from.value = -1;
+  return 0;
+}
+
+long OwnedFd::identity(FileIdentity &out) const {
+  if (value < 0)
+    return -EBADF;
+  struct statx status;
+  __builtin_memset_inline(&status, 0, sizeof(status));
+  long result;
+  do {
+    result = raw_syscall(SYS_statx, value, reinterpret_cast<long>(""),
+                         AT_EMPTY_PATH, STATX_INO | STATX_TYPE,
+                         reinterpret_cast<long>(&status));
+  } while (result == -EINTR);
+  if (result < 0)
+    return result;
+  if ((status.stx_mask & (STATX_INO | STATX_TYPE)) != (STATX_INO | STATX_TYPE) ||
+      (status.stx_mode & S_IFMT) != S_IFREG)
+    return -ENOEXEC;
+  out = {status.stx_ino, status.stx_dev_major, status.stx_dev_minor};
+  return 0;
 }
 
 [[noreturn]] void fatal_startup() {

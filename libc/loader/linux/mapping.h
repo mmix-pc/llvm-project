@@ -39,7 +39,9 @@ class DsoMapping {
   ElfImage mapped;
   DynamicInfo dynamic;
 
-  long populate(const char *path);
+  long populate();
+  MapResult finish_open();
+  bool busy() const;
   long map_segment(const Elf64_Phdr &p, Address bias);
   long replace(Address address, Address size, int prot, bool anonymous,
                Address offset);
@@ -53,6 +55,8 @@ public:
   // Exact path only. A successful result means mapped, not relocated/published.
   // Errors use negative Linux errno; malformed/unsupported ELF uses ENOEXEC.
   MapResult open(const char *path);
+  // Transfer an already identified file without reopening its pathname.
+  MapResult open(OwnedFd &source);
   long reset();
   const ElfImage *image() const { return ready ? &mapped : nullptr; }
   const DynamicInfo *metadata() const { return ready ? &dynamic : nullptr; }

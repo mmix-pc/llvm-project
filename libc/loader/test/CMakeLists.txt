@@ -91,3 +91,15 @@ target_compile_options(loader-search-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS}
 target_compile_features(loader-search-test PRIVATE cxx_std_17)
 add_test(NAME loader-search COMMAND loader-search-test)
 set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
+
+add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
+  ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
+  ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-graph-test PRIVATE ../..)
+target_compile_definitions(loader-graph-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-graph-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS}
+  -UNDEBUG -fno-pie)
+target_link_options(loader-graph-test PRIVATE -no-pie)
+target_compile_features(loader-graph-test PRIVATE cxx_std_17)
+add_test(NAME loader-graph COMMAND loader-graph-test)
+set_tests_properties(loader-graph PROPERTIES TIMEOUT 30)

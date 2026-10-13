@@ -76,7 +76,7 @@ class DynamicInfo {
   bool read_relocation(Address index, DynamicRelocation &out) const;
 
 public:
-  DynamicInfo() { clear(); }
+  DynamicInfo();
   // Borrows immutable metadata, with no allocation or section-header access.
   // Failed opens invalidate every accessor. Lifecycle arrays remain unexecuted
   // and their pointer contents are not interpreted until after relocation.

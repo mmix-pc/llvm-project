@@ -144,6 +144,38 @@ later graph bookkeeping. No cache, hardware-capability directory or preload
 provider is consulted. Native model tests establish this selection/error policy,
 not installed target filesystem or startup execution.
 
+## Startup Dependency Graph
+
+`linux/graph.h` borrows the admitted kernel main image and constructs a
+main-first breadth-first scope. Callers establish the main file identity and
+absolute pathname independently, retain its immutable mapped metadata and
+supply an admitted environment with the matching main origin. This component
+does not infer kernel file provenance from ELF headers or argv[0].
+
+Each candidate is opened once, identified with raw statx(AT_EMPTY_PATH), and
+mapped through transfer of that same fd. Identity is the device major/minor
+and inode tuple; regular-file type and returned inode validity are required.
+Already discovered identities retain their first path and parent without a
+second mapping. Equal SONAME values never merge distinct files. Dependency
+edges preserve NEEDED order and repeats, including cycles back to the main
+image, while first-discovery parent links provide acyclic RPATH ancestry.
+Relative candidates are made absolute using raw getcwd before opening;
+the absolute load spelling, not a symlink-target canonicalization, owns ORIGIN.
+Startup is serialized and the working directory must not change during loading.
+
+All nodes, paths, edges and ancestry storage use the private arena. Owned DSO
+mappings are distinct from the borrowed main image. Failed discovery invalidates
+scope access, releases every owned DSO and retains any failed cleanup obligation
+with its descriptors for retry. Descriptor storage is released only after all
+DSO cleanup succeeds. As with the underlying owners, reset is explicit. Only a
+completed graph exposes its main-first scope. No dependency relocation, code,
+initializer, finalizer or externally published loader state is involved.
+
+`graph_test.cpp` executes the real search, graph and mapping components against
+a native syscall/filesystem model. It covers diamonds, cycles, path aliases,
+same-SONAME distinct files, device-sensitive identity, failed acquisitions and
+cleanup. It does not qualify actual target statx, getcwd, mapping or startup.
+
 ## Bootstrap Support
 
 Linux bootstrap helpers preserve raw negative syscall errors without errno or
