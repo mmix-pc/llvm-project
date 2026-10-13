@@ -7,6 +7,7 @@ add_object_library(
     libc.loader.linux.arena
     libc.loader.linux.io
     libc.loader.linux.self_relocation
+    libc.loader.linux.protection
     .syscall
     libc.hdr.sys_mman_macros
     libc.include.sys_syscall

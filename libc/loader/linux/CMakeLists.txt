@@ -1,6 +1,15 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  protection
+  SRCS protection.cpp
+  HDRS protection.h
+  DEPENDS .elf .mmix.target .mmix.syscall libc.hdr.errno_macros
+    libc.hdr.sys_mman_macros libc.include.sys_syscall
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   relocation
   SRCS relocation.cpp
   HDRS relocation.h
@@ -20,7 +29,7 @@ add_object_library(
   graph
   SRCS graph.cpp
   HDRS graph.h
-  DEPENDS .search .mapping .io .arena .symbols libc.hdr.errno_macros
+  DEPENDS .search .mapping .io .arena .symbols .protection libc.hdr.errno_macros
     libc.include.sys_syscall libc.hdr.func.free libc.src.__support.common
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )

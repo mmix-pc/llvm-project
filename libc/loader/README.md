@@ -211,10 +211,32 @@ is an aligned eight-byte writable non-executable word, disjoint from metadata
 and other destinations. All relative writes precede all symbolic writes, using
 big-endian bytes. Unsupported link-time/TLS records are errors.
 
-No dependency code executes on either success or failure. Final protection,
-initialization, production startup composition and guest execution are separate
+No dependency code executes on either success or failure. Initialization,
+production startup composition and guest execution are separate
 steps. Native tests exercise failure atomicity and arithmetic; linked MMIX DSO
 fixtures verify actual relocation contents without executing target instructions.
+
+## Final Image Protection
+
+`finalize_image_protections` rechecks all borrowed mapped layouts before the
+first syscall. It applies R/RX/RW permissions to each page-disjoint LOAD, then
+read-only permissions to page-bounded RELRO. Holes are never included in a
+transition; executable stacks and W+X LOADs are rejected during admission.
+The initial NX stack remains the kernel's responsibility, not a guessed range.
+Call this once after relocation with immutable nonaliasing images, before any
+publication or user execution. A syscall failure may leave partial protection;
+it is fatal to startup, not permission to continue or retry with weaker access.
+
+The interpreter bootstrap uses this helper before its hidden continuation.
+`StartupGraph::finalize_protections` handles main/dependency protection, becomes
+idempotent on success, and invalidates the graph on failure. It releases only
+owned DSOs, preserves borrowed main mappings, and reports failed cleanup while
+retaining ownership for explicit reset retry. Callers must have completed
+relocation first; startup composition owns that sequencing.
+
+Native syscall injection checks every transition and cleanup failures. Separate
+native subprocesses exercise real mprotect permissions with exact fault-address
+and access-error checks. These do not qualify MMIX Linux guest enforcement.
 
 ## Bootstrap Support
 

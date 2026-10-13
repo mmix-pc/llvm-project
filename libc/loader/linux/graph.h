@@ -50,7 +50,7 @@ private:
   Address page_size;
   Arena arena;
   Node *owned = nullptr, *head = nullptr, *tail = nullptr;
-  bool storage_owned = false, ready = false;
+  bool storage_owned = false, ready = false, protected_images = false;
   size_t count = 0;
   Node *make_node(long &error);
   long set_path(Node &node, Bytes path);
@@ -76,6 +76,9 @@ public:
   // Explicit lifetime, as for DsoMapping. Failed cleanup blocks reuse and keeps
   // storage alive for retry; all node/edge views are invalid after reset.
   long reset();
+  // Caller has completed all relocations. Failure invalidates the graph and
+  // resets owned DSOs, never the borrowed main; cleanup errors remain visible.
+  MapResult finalize_protections();
   const Node *scope() const { return ready ? head : nullptr; }
   size_t size() const { return ready ? count : 0; }
 };

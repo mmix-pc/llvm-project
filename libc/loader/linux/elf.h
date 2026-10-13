@@ -102,6 +102,13 @@ public:
                               ElfImage &out);
   const Elf64_Ehdr *header() const { return admitted ? &ehdr : nullptr; }
   bool is_mapped() const { return admitted && mapped; }
+  // Recheck borrowed layout before a whole-image protection transition.
+  ElfError revalidate_layout(Address page_size) const {
+    if (!admitted)
+      return ElfError::Header;
+    ElfImage copy = *this;
+    return copy.validate(image_role, page_size);
+  }
   ImageRole role() const { return image_role; }
   Address load_bias() const { return bias; }
   Address header_address() const { return header_vaddr; }

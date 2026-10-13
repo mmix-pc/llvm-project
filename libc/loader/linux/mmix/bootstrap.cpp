@@ -6,15 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "hdr/sys_mman_macros.h"
 #include "loader/linux/arena.h"
 #include "loader/linux/entry.h"
 #include "loader/linux/io.h"
+#include "loader/linux/protection.h"
 #include "loader/linux/self_relocation.h"
-#include "loader/linux/syscall.h"
 #include "loader/linux/target.h"
 #include "src/__support/CPP/new.h"
-#include <sys/syscall.h>
 
 using namespace LIBC_NAMESPACE::loader;
 
@@ -121,18 +119,9 @@ __llvm_libc_loader_bootstrap(Address sp, Address entry_pc) {
       actual_entry != entry_pc ||
       relocate_self(self, {writable, writes}) != RelocationError::None)
     fatal_startup();
-  for (unsigned i = 0; i < header.e_phnum; ++i) {
-    Elf64_Phdr p;
-    if (!self.program_header(i, p))
-      fatal_startup();
-    if (p.p_type != PT_GNU_RELRO || !p.p_memsz)
-      continue;
-    Address address;
-    if (!self.runtime_address(p.p_vaddr, p.p_memsz, PF_R | PF_W, address) ||
-        raw_syscall(SYS_mprotect, static_cast<long>(address),
-                    static_cast<long>(p.p_memsz), PROT_READ) != 0)
-      fatal_startup();
-  }
+  const ElfImage *images[] = {&self};
+  if (finalize_image_protections(images, page))
+    fatal_startup();
   Address entry = __llvm_libc_loader_after_relocation(&stack, &self);
   if (entry != stack.value(AuxField::Entry) || arena.reset())
     fatal_startup();

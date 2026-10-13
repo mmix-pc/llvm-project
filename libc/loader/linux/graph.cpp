@@ -8,6 +8,7 @@
 
 #include "loader/linux/graph.h"
 #include "hdr/errno_macros.h"
+#include "loader/linux/protection.h"
 #include "loader/linux/symbols.h"
 #include "loader/linux/syscall.h"
 #include "loader/linux/target.h"
@@ -234,7 +235,31 @@ MapResult StartupGraph::build(const ElfImage &main, FileIdentity identity,
   return {0, 0};
 }
 
+MapResult StartupGraph::finalize_protections() {
+  if (!ready)
+    return {-EINVAL, 0};
+  if (protected_images)
+    return {0, 0};
+  if (count > __SIZE_MAX__ / sizeof(const ElfImage *))
+    return {-EOVERFLOW, reset()};
+  void *storage;
+  long error = arena.allocate(count * sizeof(const ElfImage *),
+                              alignof(const ElfImage *), storage);
+  if (error)
+    return {error, reset()};
+  auto **images = static_cast<const ElfImage **>(storage);
+  size_t i = 0;
+  for (Node *node = head; node; node = node->scope_next)
+    images[i++] = node->image();
+  error = finalize_image_protections({images, count}, page_size);
+  if (error)
+    return {error, reset()};
+  protected_images = true;
+  return {0, 0};
+}
+
 long StartupGraph::reset() {
+  protected_images = false;
   ready = false;
   long error = 0;
   for (Node *node = owned; node; node = node->owned_next) {

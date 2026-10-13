@@ -192,7 +192,8 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
     return address;
   }
   if (number == SYS_mprotect) {
-    assert(owner(a, b));
+    assert(owner(a, b) || (Address(a) >= bias && Address(a + b) <= bias + 3 * page));
+    assert((c & (PROT_EXEC | PROT_WRITE)) != (PROT_EXEC | PROT_WRITE));
     return 0;
   }
   if (number == SYS_munmap) {
@@ -287,6 +288,34 @@ extern "C" int main() {
         -EBUSY);
   CHECK(graph.reset() == 0 && !live() && !fd_live && !graph.scope());
   CHECK(main.header() && main_file.bytes[0] == 0x7f && graph.reset() == 0);
+
+  start();
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+  unsigned before_protection = calls;
+  CHECK(graph.finalize_protections().error == 0);
+  unsigned protection_calls = calls - before_protection;
+  CHECK(protection_calls == 20);
+  CHECK(graph.finalize_protections().error == 0);
+  CHECK(calls == before_protection + protection_calls);
+  CHECK(graph.reset() == 0 && !live());
+  for (unsigned fail = 1; fail <= protection_calls; ++fail) {
+    start();
+    CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+    fail_at = calls + fail;
+    auto result = graph.finalize_protections();
+    CHECK(result.error == -EIO && !result.cleanup_error);
+    CHECK(!graph.scope() && !live() && main_file.bytes[0] == 0x7f);
+    CHECK(graph.finalize_protections().error == -EINVAL);
+  }
+  start();
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+  fail_at = calls + 20;
+  fail_unmaps = true;
+  auto protection_failure = graph.finalize_protections();
+  CHECK(protection_failure.error == -EIO && protection_failure.cleanup_error == -EIO);
+  CHECK(!graph.scope() && live());
+  fail_unmaps = false;
+  CHECK(graph.reset() == 0 && !live() && main_file.bytes[0] == 0x7f);
 
   start();
   files[4].identity = {2, 1, 1};

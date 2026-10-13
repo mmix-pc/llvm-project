@@ -102,7 +102,7 @@ add_test(NAME loader-search COMMAND loader-search-test)
 set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
 
 add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
-  ../linux/symbols.cpp ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
+  ../linux/protection.cpp ../linux/symbols.cpp ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
   ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-graph-test PRIVATE ../..)
 target_compile_definitions(loader-graph-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
@@ -121,3 +121,20 @@ target_compile_options(loader-symbols-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS
 target_compile_features(loader-symbols-test PRIVATE cxx_std_17)
 add_test(NAME loader-symbols COMMAND loader-symbols-test)
 set_tests_properties(loader-symbols PROPERTIES TIMEOUT 30)
+
+add_executable(loader-protection-test protection_test.cpp ../linux/protection.cpp
+  ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-protection-test PRIVATE ../..)
+target_compile_definitions(loader-protection-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-protection-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-protection-test PRIVATE cxx_std_17)
+add_test(NAME loader-protection COMMAND loader-protection-test)
+set_tests_properties(loader-protection PROPERTIES TIMEOUT 30)
+
+add_executable(loader-protection-fault-test protection_fault_test.cpp
+  ../linux/protection.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-protection-fault-test PRIVATE ../..)
+target_compile_definitions(loader-protection-fault-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_features(loader-protection-fault-test PRIVATE cxx_std_17)
+add_test(NAME loader-protection-fault COMMAND loader-protection-fault-test)
+set_tests_properties(loader-protection-fault PROPERTIES TIMEOUT 30)
