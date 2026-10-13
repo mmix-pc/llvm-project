@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20.0)
 project(LLVMLibCLoaderTests LANGUAGES CXX)
 
-# These tests exercise decoded ELF policy on the host, not target startup.
+# These tests exercise loader components on the host, not target startup.
 if(CMAKE_CROSSCOMPILING OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
    NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   message(FATAL_ERROR "Loader host tests require a native Linux Clang compiler")
@@ -34,3 +34,12 @@ target_compile_options(loader-elf-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
 target_compile_features(loader-elf-test PRIVATE cxx_std_17)
 add_test(NAME loader-elf COMMAND loader-elf-test)
 set_tests_properties(loader-elf PROPERTIES TIMEOUT 30)
+
+add_executable(loader-entry-test entry_test.cpp ../linux/entry.cpp
+  ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-entry-test PRIVATE ../..)
+target_compile_definitions(loader-entry-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-entry-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-entry-test PRIVATE cxx_std_17)
+add_test(NAME loader-entry COMMAND loader-entry-test)
+set_tests_properties(loader-entry PROPERTIES TIMEOUT 30)

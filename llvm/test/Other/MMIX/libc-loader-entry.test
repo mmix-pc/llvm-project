@@ -1,0 +1,27 @@
+# REQUIRES: mmix-registered-target
+# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %S/../../../../libc/loader/linux/mmix/entry.S -o %t.o
+# RUN: llvm-objdump -dr %t.o | FileCheck %s --check-prefix=ENTRY
+# RUN: llvm-readobj --symbols %t.o | FileCheck %s --check-prefix=SYMBOL
+
+# Preserve the original software stack in the root window, pass SP and actual
+# entry PC in the ordinary argument bank, then return through bootstrap windows
+# before the no-new-window main transfer. No incoming rJ or TP is read/written.
+# ENTRY-LABEL: <_start>:
+# ENTRY-NEXT: {{.*}} OR r0, r254, 0x0
+# ENTRY-NEXT: {{.*}} OR r231, r254, 0x0
+# ENTRY-NEXT: {{.*}} GETAB r232, -0x2
+# ENTRY-NEXT: {{.*}} PUSHJ r31, 0x0
+# ENTRY-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE __llvm_libc_loader_bootstrap
+# ENTRY-NEXT: {{.*}} OR r254, r0, 0x0
+# ENTRY-NEXT: {{.*}} GO r255, r231, 0x0
+# ENTRY-NEXT: {{.*}} TRAP 0xff, 0x0, 0x0
+# ENTRY-NOT: {{[0-9a-f]+:}}
+# SYMBOL: Name: _start
+# SYMBOL: Size: 28
+# SYMBOL: STV_HIDDEN
+# SYMBOL: Name: __llvm_libc_loader_bootstrap
+# SYMBOL: STV_HIDDEN
+# SYMBOL: Section: Undefined
+
+# The hidden bootstrap continuation is intentionally unresolved until the
+# self-relocation component is linked. This object is not a runnable loader.

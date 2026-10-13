@@ -1,5 +1,4 @@
-//===-- Checked loader ELF views ---------------------------------*- C++
-//-*-===//
+//===-- Checked loader ELF views ---------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -59,6 +58,7 @@ class ElfImage {
   Address bias = 0;
   bool mapped = false;
   bool admitted = false;
+  ImageRole image_role = ImageRole::SharedObject;
 
   Bytes mapped_bytes(Address address, Address size) const;
   bool coverage(Address address, Address size, unsigned flags, bool file_backed,
@@ -84,6 +84,7 @@ public:
     bias = other.bias;
     mapped = other.mapped;
     admitted = other.admitted;
+    image_role = other.image_role;
     return *this;
   }
   // A failed open invalidates out. The supplied storage must remain unchanged
@@ -100,6 +101,11 @@ public:
                               ImageRole role, Address bias, Address page_size,
                               ElfImage &out);
   const Elf64_Ehdr *header() const { return admitted ? &ehdr : nullptr; }
+  bool is_mapped() const { return admitted && mapped; }
+  ImageRole role() const { return image_role; }
+  Address load_bias() const { return bias; }
+  Address header_address() const { return header_vaddr; }
+  Address table_address() const { return table_vaddr; }
   bool program_header(unsigned index, Elf64_Phdr &out) const {
     return admitted && read_program_header(index, out);
   }

@@ -183,6 +183,7 @@ ElfError ElfImage::open_file(Bytes bytes, ImageRole role, Address load_bias,
   ElfError error = image.validate(role, page_size);
   if (error == ElfError::None) {
     image.admitted = true;
+    image.image_role = role;
     out = image;
   }
   return error;
@@ -216,6 +217,7 @@ ElfError ElfImage::open_mapped(cpp::span<const MappedRegion> mappings,
   ElfError error = image.validate(role, page_size);
   if (error == ElfError::None) {
     image.admitted = true;
+    image.image_role = role;
     out = image;
   }
   return error;

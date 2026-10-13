@@ -1,4 +1,9 @@
 add_object_library(
+  entry
+  SRCS entry.S
+)
+
+add_object_library(
   target
   SRCS target.cpp
   HDRS ../target.h

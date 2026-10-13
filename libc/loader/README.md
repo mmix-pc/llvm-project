@@ -74,6 +74,29 @@ previous allocations become invalid on reset, including partial failure.
 There is no individual free or synchronization: this is startup-only storage,
 not yet a concurrent dynamic-loading allocator.
 
+## Initial Entry
+
+The bounded stack decoder checks argc/argv/envp layout, mandatory auxv values,
+duplicates, page size and user-address arithmetic. It rejects AT_SECURE before
+any environment string is read. Main-image discovery derives bias from its
+PT_PHDR, not AT_BASE. Admission then cross-checks both mapped images, the actual
+interpreter PC, main entry, complete tables and readable random bytes, including
+rejection of overlapping main/interpreter load pages.
+
+The MMIX entry object captures original SP and its own PC, establishes a normal
+bootstrap call window, and preserves SP in the root register window. Its return
+path restores SP and jumps to the validated main entry without touching TP or
+returning through the kernel's initial rJ. The hidden
+`__llvm_libc_loader_bootstrap` continuation takes `(original_sp, entry_pc)` and
+returns the admitted main entry after completing startup; startup failure must
+terminate instead of returning. That continuation is deliberately unresolved
+until self-relocation and startup composition are implemented. No test stub is
+provided as a production interpreter.
+
+Supplied stack and mapped spans must already be readable. These helpers do not
+probe arbitrary addresses or recover from a corrupt kernel pointer. Their host
+tests and entry-object inspection do not qualify kernel entry or main transfer.
+
 ## Current Target Support
 
 Only MMIX Linux is currently admitted, using Clang. Its implementation in
@@ -85,5 +108,5 @@ does not yet relocate images or start a process. Support for other
 architectures requires their target implementations and validation.
 
 The intended MMIX interpreter artifact is `ld-llvm-mmix.so.1`. No executable or
-install rule is provided until entry and self-relocation exist; the current
-build does not provide a runnable dynamic loader.
+install rule is provided until entry is connected to self-relocation and
+startup; the current build does not provide a runnable dynamic loader.
