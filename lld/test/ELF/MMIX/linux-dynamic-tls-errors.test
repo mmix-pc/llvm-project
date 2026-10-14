@@ -1,0 +1,78 @@
+# REQUIRES: mmix
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld -m elf64mmix -r %t.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=GENERIC
+# RUN: yaml2obj %s -DSECTION=SHN_UNDEF -o %t.undefined.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.undefined.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=UNDEF
+# RUN: yaml2obj %s -DSECTION=SHN_UNDEF -DBINDING=STB_WEAK -o %t.weak.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.weak.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=UNDEF
+# RUN: yaml2obj %s -DREL=R_MMIX_TLSGD_PC64 -DSECTION=SHN_UNDEF -o %t.gd-undefined.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.gd-undefined.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=UNDEF
+# RUN: yaml2obj %s -DREL=R_MMIX_TLSLD_PC64 -DVIS=STV_DEFAULT -o %t.ld-preemptible.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.ld-preemptible.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=LOCAL
+# RUN: yaml2obj %s -DREL=R_MMIX_DTPOFF64 -DVIS=STV_DEFAULT -o %t.offset-preemptible.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.offset-preemptible.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=LOCAL
+# RUN: yaml2obj %s -DTYPE=STT_OBJECT -o %t.type.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.type.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=TYPE
+# RUN: yaml2obj %s -DSECTION=1 -o %t.section.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.section.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=SECTION
+# RUN: yaml2obj %s -DOFFSET=1 -o %t.unaligned.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.unaligned.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=STORAGE
+# RUN: yaml2obj %s -DALIGN=4 -o %t.align.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.align.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=STORAGE
+# RUN: yaml2obj %s -DSIZE=4 -o %t.short.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.short.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=STORAGE
+# RUN: yaml2obj %s -DFLAGS=SHF_WRITE -o %t.nonalloc.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.nonalloc.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=STORAGE
+# RUN: yaml2obj %s -DADDEND=0x7fffffffffffffff -o %t.ie-overflow.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.ie-overflow.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: yaml2obj %s -DREL=R_MMIX_TLSGD_PC64 -DADDEND=0x7fffffffffffffff -o %t.gd-overflow.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.gd-overflow.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: yaml2obj %s -DREL=R_MMIX_TLSLD_PC64 -DADDEND=0x7fffffffffffffff -o %t.ld-overflow.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.ld-overflow.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: yaml2obj %s -DREL=R_MMIX_DTPOFF64 -DADDEND=0x7fffffffffffffff -o %t.offset-overflow.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.offset-overflow.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=RANGE
+# RUN: yaml2obj %s -DVALUE=24 -o %t.extent.o
+# RUN: not ld.lld -m elf64mmix_linux -shared %t.extent.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=EXTENT
+# GENERIC: unknown relocation (49)
+# UNDEF: requires a defined TLS provider
+# LOCAL: requires a nonpreemptible local TLS definition
+# TYPE: requires an STT_TLS symbol
+# SECTION: requires a definition in an allocated TLS section
+# STORAGE: requires a complete aligned 8-byte literal in an allocated file-backed section
+# RANGE: out of signed 64-bit range
+# EXTENT: lies outside its section or PT_TLS
+
+--- !ELF
+FileHeader:
+  Class: ELFCLASS64
+  Data: ELFDATA2MSB
+  Type: ET_REL
+  Machine: EM_MMIX
+Sections:
+  - Name: .refs
+    Type: SHT_PROGBITS
+    Flags: [ [[FLAGS=SHF_ALLOC]] ]
+    AddressAlign: [[ALIGN=8]]
+    Size: [[SIZE=16]]
+  - Name: .tdata
+    Type: SHT_PROGBITS
+    Flags: [ SHF_ALLOC, SHF_WRITE, SHF_TLS ]
+    AddressAlign: 8
+    Size: 24
+  - Name: .rela.refs
+    Type: SHT_RELA
+    Info: .refs
+    Link: .symtab
+    Relocations:
+      - Offset: [[OFFSET=0]]
+        Type: [[REL=R_MMIX_GOTTPREL_PC64]]
+        Symbol: value
+        Addend: [[ADDEND=0]]
+Symbols:
+  - Name: value
+    Type: [[TYPE=STT_TLS]]
+    Binding: [[BINDING=STB_GLOBAL]]
+    Other: [ [[VIS=STV_HIDDEN]] ]
+    Index: [[SECTION=2]]
+    Value: [[VALUE=16]]
+    Size: 8

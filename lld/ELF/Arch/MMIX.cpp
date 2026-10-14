@@ -175,6 +175,10 @@ unsigned getRelocationFieldSize(RelType type) {
   case R_MMIX_64:
   case R_MMIX_PC_64:
   case R_MMIX_GOT_PC64:
+  case R_MMIX_GOTTPREL_PC64:
+  case R_MMIX_TLSGD_PC64:
+  case R_MMIX_TLSLD_PC64:
+  case R_MMIX_DTPOFF64:
     return 8;
   default:
     return 0;
@@ -401,6 +405,9 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
     defaultMaxPageSize = defaultCommonPageSize = linuxPageSize;
     relativeRel = R_MMIX_RELATIVE;
     gotRel = R_MMIX_GLOB_DAT;
+    tlsGotRel = R_MMIX_TPOFF64;
+    tlsModuleIndexRel = R_MMIX_DTPMOD64;
+    tlsOffsetRel = R_MMIX_DTPOFF64;
   }
   if (ctx.arg.ekind != ELF64BEKind)
     ErrAlways(ctx) << "MMIX supports only ELF64 big-endian input and output";
@@ -516,7 +523,7 @@ void MMIX::validateSharedInput(SharedFile &file) const {
     case DT_NULL:
       return;
     case DT_FLAGS:
-      if (entry.d_un.d_val & ~uint64_t(DF_BIND_NOW))
+      if (entry.d_un.d_val & ~uint64_t(DF_BIND_NOW | DF_STATIC_TLS))
         ErrAlways(ctx) << &file << ": unsupported MMIX Linux DT_FLAGS";
       break;
     case DT_FLAGS_1:
@@ -598,7 +605,9 @@ void MMIX::validateInputRelocations(InputSectionBase &sec) const {
       loc += rela.r_offset;
     (void)getRelExpr(type, sym, loc);
     if (isLinux() &&
-        (type == R_MMIX_GOT_PC64 ||
+        (type == R_MMIX_GOT_PC64 || type == R_MMIX_GOTTPREL_PC64 ||
+         type == R_MMIX_TLSGD_PC64 || type == R_MMIX_TLSLD_PC64 ||
+         type == R_MMIX_DTPOFF64 ||
          (type == R_MMIX_PC_64 && (sec.flags & SHF_ALLOC)))) {
       uint64_t offset = rela.r_offset;
       if (!(sec.flags & SHF_ALLOC) || sec.type == SHT_NOBITS ||
@@ -1051,18 +1060,50 @@ RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
     switch (type) {
     case R_MMIX_RELATIVE:
     case R_MMIX_GLOB_DAT:
+    case R_MMIX_DTPMOD64:
+    case R_MMIX_TPOFF64:
       Err(ctx) << getErrorLoc(ctx, loc) << "runtime relocation " << type
                << " cannot be used in relocatable input";
       return R_NONE;
-    case R_MMIX_DTPMOD64:
     case R_MMIX_DTPOFF64:
-    case R_MMIX_TPOFF64:
     case R_MMIX_TLSGD_PC64:
     case R_MMIX_TLSLD_PC64:
     case R_MMIX_GOTTPREL_PC64:
-      Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
-               << " requires unsupported MMIX Linux dynamic TLS";
-      return R_NONE;
+      if (!s.isTls()) {
+        Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
+                 << " requires an STT_TLS symbol: " << &s;
+        return R_NONE;
+      }
+      if (!ctx.arg.relocatable) {
+        if (s.isUndefined()) {
+          Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
+                   << " requires a defined TLS provider: " << &s;
+          return R_NONE;
+        }
+        if (const auto *d = dyn_cast<Defined>(&s)) {
+          if (!d->section || d->section == &InputSection::discarded ||
+              (d->section->flags & (SHF_ALLOC | SHF_TLS)) !=
+                  (SHF_ALLOC | SHF_TLS)) {
+            Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
+                     << " requires a definition in an allocated TLS section: "
+                     << &s;
+            return R_NONE;
+          }
+        }
+        if ((type == R_MMIX_TLSLD_PC64 || type == R_MMIX_DTPOFF64) &&
+            (!s.isDefined() || s.isPreemptible)) {
+          Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
+                   << " requires a nonpreemptible local TLS definition: " << &s;
+          return R_NONE;
+        }
+      }
+      if (type == R_MMIX_DTPOFF64)
+        return R_DTPREL;
+      if (type == R_MMIX_TLSGD_PC64)
+        return R_TLSGD_PC;
+      if (type == R_MMIX_TLSLD_PC64)
+        return R_TLSLD_PC;
+      return R_GOT_PC;
     default:
       break;
     }
@@ -1194,6 +1235,29 @@ void MMIX::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
     RelType type = it->getType(false);
     if (type == R_MMIX_NONE)
       continue;
+
+    if (isLinux() &&
+        (type == R_MMIX_GOTTPREL_PC64 || type == R_MMIX_TLSGD_PC64 ||
+         type == R_MMIX_TLSLD_PC64 || type == R_MMIX_DTPOFF64)) {
+      uint64_t offset = it->r_offset;
+      Symbol &sym = sec.getFile<ELFT>()->getSymbol(it->getSymbol(false));
+      if (offset > sec.content().size() || sec.content().size() - offset < 8)
+        continue; // Input validation already diagnosed an incomplete literal.
+      RelExpr expr = getRelExpr(type, sym, sec.content().data() + offset);
+      if (expr == R_NONE)
+        continue;
+      int64_t addend = rs.getAddend<ELFT>(*it, type);
+      if (type == R_MMIX_GOTTPREL_PC64)
+        rs.handleTlsIe<false>(expr, type, offset, addend, sym);
+      else if (type == R_MMIX_TLSGD_PC64)
+        rs.handleTlsGd(expr, R_NONE, R_NONE, type, offset, addend, sym);
+      else {
+        if (type == R_MMIX_TLSLD_PC64)
+          ctx.needsTlsLd.store(true, std::memory_order_relaxed);
+        sec.addReloc({expr, type, offset, addend, &sym});
+      }
+      continue;
+    }
 
     if (isTPRel(type)) {
       const uint64_t offset = it->r_offset;
@@ -1481,15 +1545,46 @@ bool MMIX::relaxOnce(int) const {
 void MMIX::relocateAlloc(InputSection &sec, uint8_t *buf) const {
   if (isLinux()) {
     for (const Relocation &rel : sec.relocs()) {
-      if (rel.type != R_MMIX_PC_64 && rel.type != R_MMIX_GOT_PC64)
+      uint64_t target;
+      bool pcRelative = true;
+      switch (rel.type) {
+      case R_MMIX_PC_64:
+        target = rel.sym->getVA(ctx);
+        break;
+      case R_MMIX_GOT_PC64:
+      case R_MMIX_GOTTPREL_PC64:
+        target = rel.sym->getGotVA(ctx);
+        break;
+      case R_MMIX_TLSGD_PC64:
+        target = ctx.in.got->getGlobalDynAddr(*rel.sym);
+        break;
+      case R_MMIX_TLSLD_PC64:
+        target = ctx.in.got->getTlsIndexVA();
+        break;
+      case R_MMIX_DTPOFF64:
+        target = rel.sym->getVA(ctx);
+        pcRelative = false;
+        break;
+      default:
         continue;
-      uint64_t target = rel.type == R_MMIX_GOT_PC64
-                            ? rel.sym->getGotVA(ctx)
-                            : rel.sym->getVA(ctx);
-      // Check the mathematical difference before the generic relocation path
-      // truncates it to the output word. Addends describe the slot, not its value.
+      }
+      if (rel.sym->isTls()) {
+        if (const auto *d = dyn_cast<Defined>(rel.sym)) {
+          const auto *input = dyn_cast_or_null<InputSectionBase>(d->section);
+          uint64_t offset = rel.sym->getVA(ctx);
+          if (!input || d->value > input->getSize() ||
+              d->size > input->getSize() - d->value || !ctx.tlsPhdr ||
+              offset > ctx.tlsPhdr->p_memsz ||
+              d->size > ctx.tlsPhdr->p_memsz - offset)
+            Err(ctx) << getErrorLoc(ctx, sec.content().data() + rel.offset)
+                     << "TLS symbol " << rel.sym
+                     << " lies outside its section or PT_TLS";
+        }
+      }
+      // Check the mathematical value before the generic path truncates it.
+      // PC-relative addends describe slots; DTPOFF addends describe TLS offsets.
       APInt delta = APInt(128, target) + APInt(128, rel.addend, true) -
-                    APInt(128, sec.getVA(rel.offset));
+                    APInt(128, pcRelative ? sec.getVA(rel.offset) : 0);
       if (!delta.isSignedIntN(64))
         Err(ctx) << getErrorLoc(ctx, sec.content().data() + rel.offset)
                  << "relocation " << rel.type
@@ -1796,8 +1891,10 @@ void MMIX::validateDynamicRelocations() const {
     const InputSectionBase &input = *rel.inputSec;
     const OutputSection *out = input.getOutputSection();
     uint64_t offset = rel.offsetInSec;
+    bool tls = rel.type == R_MMIX_DTPMOD64 || rel.type == R_MMIX_DTPOFF64 ||
+               rel.type == R_MMIX_TPOFF64;
     if (rel.type != R_MMIX_RELATIVE && rel.type != R_MMIX_GLOB_DAT &&
-        rel.type != R_MMIX_64)
+        rel.type != R_MMIX_64 && !tls)
       Err(ctx) << "unsupported MMIX Linux dynamic relocation " << rel.type;
     if (offset > input.getSize() || input.getSize() - offset < 8 || !out ||
         !out->ptLoad || !(out->flags & SHF_WRITE) ||
@@ -1813,7 +1910,9 @@ void MMIX::validateDynamicRelocations() const {
       Err(ctx) << &input
                << ": MMIX dynamic relocation target is not 8-byte aligned";
     places.push_back(place);
-    if (rel.sym->isTls())
+    if (tls && rel.needsDynSymIndex() && !rel.sym->isTls())
+      Err(ctx) << &input << ": MMIX dynamic TLS relocation requires STT_TLS";
+    if (!tls && rel.sym->isTls())
       Err(ctx) << &input
                << ": MMIX ordinary dynamic pointer cannot reference TLS";
     if (rel.type == R_MMIX_RELATIVE) {
@@ -1893,6 +1992,12 @@ void MMIX::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_MMIX_64:
   case R_MMIX_PC_64:
   case R_MMIX_GOT_PC64:
+  case R_MMIX_GOTTPREL_PC64:
+  case R_MMIX_TLSGD_PC64:
+  case R_MMIX_TLSLD_PC64:
+  case R_MMIX_DTPOFF64:
+  case R_MMIX_DTPMOD64:
+  case R_MMIX_TPOFF64:
     write64be(loc, val);
     return;
   case R_MMIX_ADDR19:

@@ -3,12 +3,12 @@
 # RUN: not ld.lld -m elf64mmix_linux -shared --error-limit=0 %t.o -o /dev/null 2>&1 | FileCheck %s
 # CHECK-DAG: runtime relocation R_MMIX_RELATIVE cannot be used in relocatable input
 # CHECK-DAG: runtime relocation R_MMIX_GLOB_DAT cannot be used in relocatable input
-# CHECK-DAG: relocation R_MMIX_DTPMOD64 requires unsupported MMIX Linux dynamic TLS
-# CHECK-DAG: relocation R_MMIX_DTPOFF64 requires unsupported MMIX Linux dynamic TLS
-# CHECK-DAG: relocation R_MMIX_TPOFF64 requires unsupported MMIX Linux dynamic TLS
-# CHECK-DAG: relocation R_MMIX_TLSGD_PC64 requires unsupported MMIX Linux dynamic TLS
-# CHECK-DAG: relocation R_MMIX_TLSLD_PC64 requires unsupported MMIX Linux dynamic TLS
-# CHECK-DAG: relocation R_MMIX_GOTTPREL_PC64 requires unsupported MMIX Linux dynamic TLS
+# CHECK-DAG: runtime relocation R_MMIX_DTPMOD64 cannot be used in relocatable input
+# CHECK-DAG: relocation R_MMIX_DTPOFF64 requires an STT_TLS symbol
+# CHECK-DAG: runtime relocation R_MMIX_TPOFF64 cannot be used in relocatable input
+# CHECK-DAG: relocation R_MMIX_TLSGD_PC64 requires an STT_TLS symbol
+# CHECK-DAG: relocation R_MMIX_TLSLD_PC64 requires an STT_TLS symbol
+# CHECK-DAG: relocation R_MMIX_GOTTPREL_PC64 requires an STT_TLS symbol
 # CHECK-DAG: unknown relocation (255) against symbol target
 
 --- !ELF
