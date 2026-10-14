@@ -10,6 +10,7 @@
 #define LLVM_LIBC_LOADER_LINUX_STARTUP_H
 
 #include "loader/linux/initialization.h"
+#include "loader/linux/unwind_images.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
@@ -22,9 +23,11 @@ class Startup {
   ElfImage main;
   StartupGraph graph;
   StartupInitializers initializers;
+  StartupUnwindImages unwind_images;
   InitialStack stack;
   long cleanup_error = 0;
   bool started = false, prepared = false, running = false;
+  bool callbacks_started = false;
   long prepare_impl(const InitialStack &input, const ElfImage &self);
 
 public:
@@ -36,6 +39,15 @@ public:
   MapResult prepare(const InitialStack &input, const ElfImage &self);
   long run(StartupInitializers::Invoker invoke = nullptr);
   Address entry() const { return prepared ? stack.value(AuxField::Entry) : 0; }
+  StartupUnwindImages *unwind_registry() {
+    if (!prepared)
+      return nullptr;
+    // Exporting the service commits its images and metadata to process lifetime.
+    if (!unwind_images.is_published() &&
+        (callbacks_started || !unwind_images.publish()))
+      return nullptr;
+    return &unwind_images;
+  }
   // Cleanup never releases main/interpreter/stack mappings. Failed releases
   // retain ownership for retry; a startup transaction cannot be reused.
   long reset();

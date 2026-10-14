@@ -21,6 +21,8 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 using namespace loader_test;
 template <size_t N> static Bytes text(const char (&s)[N]) {
@@ -320,7 +322,22 @@ static int startup_tests() {
   CHECK(!startup.prepare(arguments, self).error);
   unsigned boundaries = calls;
   CHECK(startup.entry() == borrowed_main + page && !trace_count);
+  pid_t child = fork();
+  CHECK(child >= 0);
+  if (!child) {
+    auto *registry = startup.unwind_registry();
+    CHECK(registry && registry->is_published());
+    CHECK(startup.unwind_registry() == registry);
+    CHECK(startup.reset() == -EBUSY);
+    CHECK(!startup.run(record_startup) && trace_count == 4);
+    CHECK(startup.unwind_registry() == registry);
+    _exit(0);
+  }
+  int status;
+  CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+        WEXITSTATUS(status) == 0);
   CHECK(!startup.run(record_startup) && trace_count == 4);
+  CHECK(!startup.unwind_registry()); // Publication must precede callbacks.
   CHECK(trace[0] == borrowed_main + page + 12);
   CHECK(!startup.run(record_startup) && trace_count == 4);
   CHECK(startup.prepare(arguments, self).error == -EBUSY);

@@ -411,6 +411,33 @@ Supplied stack and mapped spans must already be readable. These helpers do not
 probe arbitrary addresses or recover from a corrupt kernel pointer. Their host
 tests and entry-object inspection do not qualify kernel entry or main transfer.
 
+## Resident Unwind Images
+
+`linux/unwind_images.h` prepares an immutable main-first registry after
+relocation and before user callbacks. It records mapped program headers,
+readable LOAD ranges and validated `PT_GNU_EH_FRAME` indexes without section
+headers. The admitted version-1 indexes use signed PC-relative frame pointers,
+unsigned counts and signed data-relative table entries, each four or eight
+bytes. Complete CIE/FDE/LSDA parsing remains the unwind consumer's obligation;
+all reads must stay within the returned readable ranges.
+
+`Startup::unwind_registry()` publishes the private lookup context before
+callbacks and commits its images and metadata to process lifetime. Publication
+after callbacks have started is rejected. Published startup state cannot be
+reset. The private `find_unwind_image` returns a containing executable image
+or positive errno; missing frame metadata returns ENOENT. Lookup and release
+use no allocation, locks, TLS or callbacks. Release validates the registry's
+opaque token but never unmaps resident images; copied cursors may retain and
+release the same witness. Late loading and unloading require a different
+lifetime mechanism, not reuse of this process pin.
+
+`loader-unwind-images-test` covers malformed indexes, bounds, missing images,
+token ownership and preparation failures. Its optional DSO pathname inspects
+actual cross-linked bytes after removing section metadata. These native tests
+and the bootstrap closure checks do not establish shared runtime adoption or
+cross-image exception/forced-exit execution. The no-TLS continuation does not
+export these services to libc yet.
+
 ## Self Relocation
 
 The MMIX bootstrap uses hidden PC-relative references and raw syscall/private

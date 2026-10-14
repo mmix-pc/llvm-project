@@ -16,6 +16,22 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
+struct UnwindReadableRange {
+  uint64_t address;
+  uint64_t size;
+};
+
+struct UnwindImageView {
+  uint64_t load_bias;
+  uint64_t phdr_address;
+  uint64_t phdr_count;
+  uint64_t eh_frame_header;
+  uint64_t eh_frame_header_size;
+  uint64_t readable_ranges;
+  uint64_t range_count;
+  uint64_t token;
+};
+
 struct TLSIndex {
   uint64_t module_id;
   uint64_t offset;

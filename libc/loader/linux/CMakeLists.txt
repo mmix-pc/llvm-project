@@ -1,6 +1,16 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  unwind_images
+  SRCS unwind_images.cpp
+  HDRS unwind_images.h
+  DEPENDS .elf .arena .io libc.hdr.errno_macros
+    libc.src.__support.OSUtil.linux.loader_services
+    libc.hdr.func.free libc.src.__support.common
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   tls_resolver
   SRCS tls_resolver.cpp
   HDRS tls_resolver.h
@@ -29,7 +39,7 @@ add_object_library(
   startup
   SRCS startup.cpp
   HDRS startup.h
-  DEPENDS .initialization .entry .graph .io .arena .mmix.target .mmix.syscall
+  DEPENDS .initialization .entry .graph .io .arena .unwind_images .mmix.target .mmix.syscall
     libc.hdr.errno_macros libc.hdr.fcntl_macros libc.include.sys_syscall
     libc.hdr.func.free libc.src.__support.common
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}

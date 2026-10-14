@@ -180,7 +180,21 @@ long Startup::prepare_impl(const InitialStack &input, const ElfImage &self) {
     cleanup_error = result.cleanup_error;
   if (result.error)
     return result.error;
-  return initializers.prepare(graph, arena);
+  error = initializers.prepare(graph, arena);
+  if (error)
+    return error;
+  if (graph.size() > __SIZE_MAX__ / sizeof(const ElfImage *))
+    return -EOVERFLOW;
+  void *image_storage;
+  error = arena.allocate(graph.size() * sizeof(const ElfImage *),
+                          alignof(const ElfImage *), image_storage);
+  if (error)
+    return error;
+  auto **images = static_cast<const ElfImage **>(image_storage);
+  size_t index = 0;
+  for (auto *node = graph.scope(); node; node = node->next())
+    images[index++] = node->image();
+  return -unwind_images.prepare({images, index}, arena);
 }
 
 MapResult Startup::prepare(const InitialStack &input, const ElfImage &self) {
@@ -200,13 +214,14 @@ long Startup::run(StartupInitializers::Invoker invoke) {
   if (!prepared || running)
     return -EINVAL;
   running = true;
+  callbacks_started = true;
   long result = initializers.run(stack, invoke);
   running = false;
   return result;
 }
 
 long Startup::reset() {
-  if (running)
+  if (running || unwind_images.is_published())
     return -EBUSY;
   prepared = false;
   long error = graph.reset();
