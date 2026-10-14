@@ -9,6 +9,15 @@ endif()
 enable_testing()
 find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
+add_executable(loader-image-registry-test image_registry_test.cpp
+  ../linux/image_registry.cpp ../linux/arena.cpp ../linux/tls_layout.cpp
+  ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-image-registry-test PRIVATE ../..)
+target_compile_definitions(loader-image-registry-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-image-registry-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-image-registry-test PRIVATE cxx_std_17)
+add_test(NAME loader-image-registry COMMAND loader-image-registry-test)
+set_tests_properties(loader-image-registry PROPERTIES TIMEOUT 30)
 add_executable(loader-unwind-images-test unwind_images_test.cpp
   ../linux/unwind_images.cpp ../linux/arena.cpp ../linux/elf.cpp
   ../linux/mmix/target.cpp)

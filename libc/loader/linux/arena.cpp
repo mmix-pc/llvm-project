@@ -54,6 +54,20 @@ long Arena::allocate(size_t size, size_t alignment, void *&out) {
   return 0;
 }
 
+bool Arena::adopt(Arena &source) {
+  if (&source == this || source.page_size != page_size)
+    return false;
+  if (source.chunks) {
+    Chunk *tail = source.chunks;
+    while (tail->next)
+      tail = tail->next;
+    tail->next = chunks;
+    chunks = source.chunks;
+    source.chunks = nullptr;
+  }
+  return true;
+}
+
 long Arena::reset() {
   long error = 0;
   Chunk *chunk = chunks;

@@ -32,6 +32,9 @@ public:
   Arena &operator=(const Arena &) = delete;
   // No individual free. Alignment must be a power of two <= page_size.
   long allocate(size_t size, size_t alignment, void *&out);
+  // Transfer allocations without invalidating views. Both arenas must use the
+  // same page size; the source is empty on success. No allocation or syscall.
+  bool adopt(Arena &source);
   // Explicit release: report errors and retain failed mappings for retry.
   // All allocations are invalid after reset, even if some unmaps fail.
   long reset();
