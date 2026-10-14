@@ -1899,11 +1899,21 @@ void MMIX::validateDynamicRelocations() const {
       Err(ctx) << "unsupported MMIX Linux dynamic relocation " << rel.type;
     if (offset > input.getSize() || input.getSize() - offset < 8 || !out ||
         !out->ptLoad || !(out->flags & SHF_WRITE) ||
-        (out->flags & (SHF_EXECINSTR | SHF_TLS)) ||
+        (out->flags & SHF_EXECINSTR) ||
         (out->ptLoad->p_flags & (PF_R | PF_W | PF_X)) != (PF_R | PF_W)) {
       Err(ctx) << &input
                << ": MMIX dynamic relocation requires an eight-byte "
-                  "writable non-executable non-TLS PT_LOAD target";
+                  "writable non-executable PT_LOAD target";
+      return;
+    }
+    // Ordinary pointer initializers are relocated before the TLS template is
+    // copied. Runtime TLS slots are not template data, and .tbss has no bytes
+    // to copy after relocation.
+    if ((out->flags & SHF_TLS) &&
+        (tls || input.type == SHT_NOBITS || out->type == SHT_NOBITS)) {
+      Err(ctx) << &input
+               << ": MMIX TLS template requires an ordinary pointer relocation "
+                  "in file-backed storage";
       return;
     }
     uint64_t place = rel.getOffset();

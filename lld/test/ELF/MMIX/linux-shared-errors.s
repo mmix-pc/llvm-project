@@ -29,8 +29,6 @@
 # RUN: not ld.lld -m elf64mmix_linux -shared -T %t/rx.ld %t/good.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=WRITABLE
 # RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/narrow.s -o %t/narrow.o
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/narrow.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=NARROW
-# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/tls-slot.s -o %t/tls-slot.o
-# RUN: not ld.lld -m elf64mmix_linux -shared %t/tls-slot.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=WRITABLE
 # RELA: require unpacked RELA relocations
 # TEXT: does not support text relocations
 # SEMANTICS: requests unsupported dynamic semantics
@@ -44,7 +42,7 @@
 # DIRECT: cannot bind directly to preemptible symbol
 # ADDEND: invalid MMIX relative relocation symbol or addend
 # HEADER: overlaps ELF or program headers
-# WRITABLE: writable non-executable non-TLS PT_LOAD target
+# WRITABLE: writable non-executable PT_LOAD target
 # NARROW: relocation R_MMIX_32 cannot be used against
 
 #--- good.s
@@ -63,10 +61,6 @@ VERSION { global: object; };
 #--- narrow.s
 .data
 .long external
-#--- tls-slot.s
-.section .tdata,"awT",@progbits
-.p2align 3
-.quad external
 #--- tls.s
 .section .tdata,"awT",@progbits
 .type tls,@tls_object
