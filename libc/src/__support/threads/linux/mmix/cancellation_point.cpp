@@ -194,42 +194,50 @@ void notification(int signal, siginfo_t *info, void *context) {
 }
 } // namespace
 
+void initialize_cancellation_process() {
+  uint64_t old = mask_all();
+  if (initialized || !current_control ||
+      !current_control->retains_resources_until_process_exit())
+    __builtin_trap();
+  process_id = syscall_impl(SYS_getpid);
+  if (process_id <= 0)
+    __builtin_trap();
+  // Normalize inherited caught actions before any enabled user code runs.
+  for (int signal = 1; signal < NSIG; ++signal) {
+    if (signal == SIGKILL || signal == SIGSTOP || signal == CANCEL_SIGNAL)
+      continue;
+    KernelSigaction action{};
+    if (syscall_impl(SYS_rt_sigaction, signal, 0,
+                     reinterpret_cast<long>(&action), 8))
+      __builtin_trap();
+    uintptr_t handler = (action.sa_flags & SA_SIGINFO)
+                            ? reinterpret_cast<uintptr_t>(action.sa_sigaction)
+                            : reinterpret_cast<uintptr_t>(action.sa_handler);
+    if (handler > 1) {
+      action.sa_mask |= CANCEL_MASK;
+      if (syscall_impl(SYS_rt_sigaction, signal,
+                       reinterpret_cast<long>(&action), 0, 8))
+        __builtin_trap();
+    }
+  }
+  KernelSigaction action{};
+  action.sa_sigaction = notification;
+  action.sa_flags = SA_SIGINFO | SA_RESTART | SA_RESTORER;
+  action.sa_restorer = __llvm_libc_mmix_signal_trampoline;
+  action.sa_mask = UINT64_MAX;
+  if (syscall_impl(SYS_rt_sigaction, CANCEL_SIGNAL,
+                   reinterpret_cast<long>(&action), 0, 8))
+    __builtin_trap();
+  initialized = true;
+  restore_mask(old);
+}
+
 void initialize_cancellation_windows(ThreadControl &control) {
   uint64_t old = mask_all();
-  if (control.retains_resources_until_process_exit()) {
-    if (initialized)
-      __builtin_trap();
-    process_id = syscall_impl(SYS_getpid);
-    if (process_id <= 0)
-      __builtin_trap();
-    // Normalize inherited caught actions before any enabled user code runs.
-    for (int signal = 1; signal < NSIG; ++signal) {
-      if (signal == SIGKILL || signal == SIGSTOP || signal == CANCEL_SIGNAL)
-        continue;
-      KernelSigaction action{};
-      if (syscall_impl(SYS_rt_sigaction, signal, 0,
-                       reinterpret_cast<long>(&action), 8))
-        __builtin_trap();
-      uintptr_t handler = (action.sa_flags & SA_SIGINFO)
-                              ? reinterpret_cast<uintptr_t>(action.sa_sigaction)
-                              : reinterpret_cast<uintptr_t>(action.sa_handler);
-      if (handler > 1) {
-        action.sa_mask |= CANCEL_MASK;
-        if (syscall_impl(SYS_rt_sigaction, signal,
-                         reinterpret_cast<long>(&action), 0, 8))
-          __builtin_trap();
-      }
-    }
-    KernelSigaction action{};
-    action.sa_sigaction = notification;
-    action.sa_flags = SA_SIGINFO | SA_RESTART | SA_RESTORER;
-    action.sa_restorer = __llvm_libc_mmix_signal_trampoline;
-    action.sa_mask = UINT64_MAX;
-    if (syscall_impl(SYS_rt_sigaction, CANCEL_SIGNAL,
-                     reinterpret_cast<long>(&action), 0, 8))
-      __builtin_trap();
-    initialized = true;
-  } else if (!initialized)
+  if (control.retains_resources_until_process_exit() && !initialized)
+    initialize_cancellation_process();
+  if (!initialized || (control.retains_resources_until_process_exit() &&
+                       control.cancellation_identity))
     __builtin_trap();
   control.cancellation_identity =
       identities.fetch_add(1, cpp::MemoryOrder::ACQ_REL);

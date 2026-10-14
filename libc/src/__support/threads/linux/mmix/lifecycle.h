@@ -11,6 +11,9 @@
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_LIFECYCLE_H
 
 #include "priority_protection_state.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "src/__support/OSUtil/linux/loader_services.h"
+#endif
 #include "src/__support/threads/linux/mmix/cancellation_state.h"
 #include "src/__support/threads/linux/mmix/tls.h"
 #include "src/__support/threads/linux/mmix/unwind_root.h"
@@ -63,6 +66,9 @@ struct ThreadControl {
   uint64_t saved_signal_mask = 0;
   ThreadMapping control_mapping, stack_mapping;
   TLSDescriptor tls{};
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  loader::ThreadTLSAllocation shared_tls{};
+#endif
   UnwindRoot unwind_root{};
   PriorityProtectionState priority_protection;
   bool apply_scheduling = false;

@@ -1,0 +1,160 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-thread-resources.test %t/base
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import subprocess
+import sys
+libc, root = map(pathlib.Path, sys.argv[1:])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+flags = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+         "-DLIBC_NAMESPACE=resource_test", "-DLIBC_MMIX_SHARED_STARTUP",
+         "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+         "-I", str(root / "base/headers"), "-I", str(root / "sync"), "-I", str(libc)]
+sources = [libc / "src/__support/threads/linux/mmix" / name
+           for name in ("resources.cpp", "lifecycle.cpp")] + [root / "test.cpp"]
+for opt in ("0", "2"):
+    files = []
+    for i, source in enumerate(sources):
+        common = ["clang", "-cc1", "-internal-isystem", resource + "/include",
+                  *flags, "-O" + opt, str(source)]
+        subprocess.run([*common, "-triple", "mmix-unknown-linux", "-emit-obj",
+                        "-o", str(root / f"{i}-{opt}.o")], check=True)
+        bc = str(root / f"{i}-{opt}.bc")
+        subprocess.run(["clang", "-cc1", "-I", str(root / "base/fake"),
+            *common[2:], "-triple", "x86_64-unknown-linux-gnu", "-include",
+            str(root / "base/fake/src/__support/OSUtil/linux/syscall.h"),
+            "-disable-O0-optnone", "-emit-llvm-bc", "-o", bc], check=True)
+        files.append(bc)
+    linked = str(root / ("all-" + opt + ".bc"))
+    subprocess.run(["llvm-link", *files, "-o", linked], check=True)
+    subprocess.run(["opt", "-passes=function(sroa,lower-atomic)", linked,
+                    "-o", linked + ".lowered"], check=True)
+    subprocess.run(["lli", "-force-interpreter=true", linked + ".lowered"], check=True)
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/resources.h"
+#include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
+#include <sys/syscall.h>
+using namespace resource_test;
+using namespace resource_test::mmix;
+extern "C" int printf(const char *, ...);
+extern "C" void exit(int);
+static void check(bool ok, int line) {
+  if (!ok) { printf("shared resources failed: %d\n", line); exit(1); }
+}
+#define CHECK(x) check(bool(x), __LINE__)
+static unsigned char backing[2][98304];
+static uintptr_t bases[2];
+static bool live[2], tls_live, dtv_live;
+static unsigned maps, releases, prepares, release_mask;
+static bool fail_prepare, retain_failed_tls;
+static void *prepared_state;
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long,
+                                        long, long, long, long) {
+  if (n == SYS_futex || n == SYS_mprotect) return 0;
+  if (n == SYS_mmap) {
+    CHECK(maps < 2 && !live[maps]);
+    live[maps] = true;
+    return bases[maps++];
+  }
+  CHECK(n == SYS_munmap);
+  for (unsigned i = 0; i < 2; ++i)
+    if (bases[i] == uintptr_t(a)) {
+      CHECK(live[i]);
+      if (release_mask & (1u << i)) return -5;
+      live[i] = false;
+      return 0;
+    }
+  CHECK(false);
+  return -22;
+}
+namespace resource_test::mmix {
+long prepare_shared_thread_tls(void *state, loader::ThreadTLSAllocation &a) {
+  ++prepares;
+  CHECK(!a.tp && !a.tls_mapping_size && !a.dtv_mapping_size);
+  prepared_state = state;
+  if (fail_prepare) {
+    if (retain_failed_tls) { a.tls_mapping_base = 0x10000; a.tls_mapping_size = 8192; tls_live = true; }
+    return 12;
+  }
+  tls_live = dtv_live = true;
+  a = {0x10040, 0x10000, 8192, 0x20000, 8192, 123};
+  return 0;
+}
+long release_shared_thread_tls(loader::ThreadTLSAllocation &a) {
+  if (!a.tls_mapping_size && !a.dtv_mapping_size) return 0;
+  ++releases;
+  a.tp = a.registry_cookie = 0;
+  long error = 0;
+  if (a.dtv_mapping_size) {
+    CHECK(dtv_live);
+    if (release_mask & 8) error = 5;
+    else { dtv_live = false; a.dtv_mapping_base = a.dtv_mapping_size = 0; }
+  }
+  if (a.tls_mapping_size) {
+    CHECK(tls_live);
+    if (release_mask & 4) error = 5;
+    else { tls_live = false; a.tls_mapping_base = a.tls_mapping_size = 0; }
+  }
+  return error;
+}
+}
+static void *run(void *p) { return p; }
+static void reset() {
+  CHECK(!live[0] && !live[1] && !tls_live && !dtv_live);
+  maps = releases = prepares = release_mask = 0;
+  fail_prepare = retain_failed_tls = false;
+  for (unsigned i = 0; i < 2; ++i)
+    bases[i] = (uintptr_t(backing[i]) + 8191) & ~uintptr_t(8191);
+}
+extern "C" int main() {
+  for (unsigned mask = 0; mask < 16; ++mask) {
+    reset();
+    ThreadPreparation req;
+    req.runner.posix_runner = run;
+    // Dynamic startup must never interpret the static executable template.
+    req.image = {0, 1, 99, 3};
+    ThreadControl *c = nullptr;
+    CHECK(prepare_thread(req, c).error == ThreadPrepareError::None);
+    CHECK(c == prepared_state && c->is_prepared() && prepares == 1);
+    CHECK(c->tls.tp == 0x10040 && c->shared_tls.registry_cookie == 123);
+    CHECK(c->attributes.tls == 0x10000 && c->attributes.tls_size == 8192);
+    auto owner = thread_resources(*c);
+    release_mask = mask;
+    CHECK(release_thread_resources(owner) == (mask ? 5 : 0));
+    CHECK(!owner.tls.size && !owner.tls.tp);
+    CHECK(bool(owner.shared_tls.tls_mapping_size) == bool(mask & 4));
+    CHECK(bool(owner.shared_tls.dtv_mapping_size) == bool(mask & 8));
+    CHECK(owner.owns_mappings() == bool(mask));
+    CHECK(live[0] == bool(mask & 1) && live[1] == bool(mask & 2));
+    release_mask = 0;
+    CHECK(!release_thread_resources(owner));
+    CHECK(!release_thread_resources(owner));
+  }
+  for (unsigned retained = 0; retained != 2; ++retained) {
+    reset(); fail_prepare = true; retain_failed_tls = retained;
+    ThreadPreparation req; req.runner.posix_runner = run;
+    ThreadControl *c = nullptr;
+    auto failed = prepare_thread(req, c);
+    CHECK(failed.error == ThreadPrepareError::TLSFailed && failed.syscall_error == 12);
+    CHECK(!c && !releases && !live[0] && !live[1]);
+    CHECK(bool(failed.retained.shared_tls.tls_mapping_size) == retained);
+    CHECK(failed.retained.owns_mappings() == bool(retained));
+    CHECK(!release_thread_resources(failed.retained));
+  }
+  reset();
+  ThreadRegistry registry;
+  ThreadControl main;
+  main.attributes.tid = 1;
+  main.shared_tls = {1, 2, 8192, 3, 8192, 4};
+  ThreadRegistryLock lock(registry);
+  CHECK(lock.register_main(main));
+  auto resources = thread_resources(main);
+  CHECK(!resources.shared_tls.tls_mapping_size && !release_thread_resources(resources));
+  CHECK(!prepares && !releases);
+  return 0;
+}

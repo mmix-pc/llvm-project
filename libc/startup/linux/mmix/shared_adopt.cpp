@@ -14,6 +14,9 @@
 #include "src/errno/program_invocation_name.h"
 #include "src/errno/program_invocation_short_name.h"
 #include "src/unistd/environ.h"
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "src/__support/threads/linux/mmix/cancellation_point.h"
+#endif
 
 extern "C" __attribute__((visibility("hidden"))) void
 __llvm_libc_mmix_linux_init_guard(const unsigned char *);
@@ -23,6 +26,21 @@ AppProperties app;
 namespace mmix {
 static loader::LoaderServices services;
 static bool attempted;
+
+long prepare_shared_thread_tls(void *state,
+                               loader::ThreadTLSAllocation &allocation) {
+  if (!services.prepare_thread_tls)
+    return EINVAL;
+  return services.prepare_thread_tls(services.context, state, &allocation);
+}
+
+long release_shared_thread_tls(loader::ThreadTLSAllocation &allocation) {
+  if (!allocation.tls_mapping_size && !allocation.dtv_mapping_size)
+    return 0;
+  if (!services.release_thread_tls)
+    return EINVAL;
+  return services.release_thread_tls(services.context, &allocation);
+}
 
 static long find_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
   if (!out)
@@ -88,6 +106,9 @@ long adopt_shared_main(const loader::StartupProcessView *process,
                                   release_image};
   if (!__libunwind_mmix_adopt_startup_images(&unwind))
     return EINVAL;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  initialize_cancellation_process();
+#endif
   return 0;
 }
 } // namespace mmix

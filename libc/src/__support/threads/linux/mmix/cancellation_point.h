@@ -18,6 +18,9 @@ struct ThreadControl;
 constexpr int CANCEL_SIGNAL = 32;
 constexpr uint64_t CANCEL_MASK = uint64_t(1) << (CANCEL_SIGNAL - 1);
 void initialize_cancellation_windows(ThreadControl &control);
+// Initial-thread startup only, before callbacks or publishing any worker.
+// Installs notification handling without manufacturing an unwind root.
+void initialize_cancellation_process();
 bool cancellation_private_block();
 int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old);
 long cancellation_syscall(unsigned long number, long a1 = 0, long a2 = 0,

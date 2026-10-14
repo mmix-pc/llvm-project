@@ -15,6 +15,11 @@ namespace mmix {
 // The immutable context and service remain valid for the process lifetime.
 __attribute__((visibility("hidden"), no_instrument_function)) bool
 adopt_startup_tls_resolver(const loader::StartupTLSResolver &service);
+// Shared startup publishes these process-resident services before any clone.
+// Failed allocation/release retains all still-owned mappings in allocation.
+long prepare_shared_thread_tls(void *state,
+                               loader::ThreadTLSAllocation &allocation);
+long release_shared_thread_tls(loader::ThreadTLSAllocation &allocation);
 [[noreturn]] __attribute__((visibility("hidden"), no_instrument_function))
 void fatal_dynamic_tls();
 } // namespace mmix

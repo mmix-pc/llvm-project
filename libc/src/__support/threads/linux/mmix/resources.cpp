@@ -10,6 +10,9 @@
 #include "hdr/pthread_macros.h"
 #include "src/__support/CPP/new.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
+#endif
 #include <linux/mman.h>
 #include <sys/syscall.h>
 
@@ -61,16 +64,27 @@ ThreadResources thread_resources(const ThreadControl &control) {
   // process teardown; worker reclamation must not acquire these descriptors.
   if (control.retains_resources_until_process_exit())
     return {};
-  return {control.control_mapping, control.stack_mapping, control.tls};
+  ThreadResources result{control.control_mapping, control.stack_mapping,
+                         control.tls};
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  result.shared_tls = control.shared_tls;
+#endif
+  return result;
 }
 
 long release_thread_resources(ThreadResources &resources) {
   // Continue independent releases after a failure; descriptors live outside
   // the control and retain every mapping that the kernel did not release.
-  TLSResult tls = release_tls(resources.tls);
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  long tls_error = release_shared_thread_tls(resources.shared_tls);
+  // This descriptor is only a borrowed view used by clone and attributes.
+  resources.tls = {};
+#else
+  long tls_error = release_tls(resources.tls).syscall_error;
+#endif
   long stack = release_mapping(resources.stack);
   long control = release_mapping(resources.control);
-  return tls.syscall_error ? tls.syscall_error : stack ? stack : control;
+  return tls_error ? tls_error : stack ? stack : control;
 }
 
 static ThreadPreparationResult rollback(ThreadPrepareError error, long syscall,
@@ -89,10 +103,12 @@ ThreadPreparationResult prepare_thread(const ThreadPreparation &request,
                                          : !input.runner.stdc_runner))
     return {ThreadPrepareError::InvalidAttributes};
 
+#ifndef LIBC_MMIX_SHARED_STARTUP
   TLSLayout layout;
   TLSError tls_error = tls_layout(input.image, input.page_size, layout);
   if (tls_error != TLSError::None)
     return {ThreadPrepareError::InvalidTLS, 0, tls_error};
+#endif
 
   uintptr_t bottom = reinterpret_cast<uintptr_t>(input.stack);
   size_t stack_size = input.stack_size, guard_size = 0, control_size;
@@ -137,6 +153,23 @@ ThreadPreparationResult prepare_thread(const ThreadPreparation &request,
 
   auto *control =
       new (reinterpret_cast<void *>(resources.control.base)) ThreadControl;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  loader::ThreadTLSAllocation allocation{};
+  long tls_error = prepare_shared_thread_tls(control, allocation);
+  if (tls_error) {
+    // The loader already attempted TLS rollback. Release only independent
+    // mappings here, preserving its failed releases without an immediate retry.
+    auto result = rollback(ThreadPrepareError::TLSFailed, tls_error, resources);
+    result.retained.shared_tls = allocation;
+    if (allocation.tls_mapping_size || allocation.dtv_mapping_size)
+      result.rollback_error = tls_error;
+    return result;
+  }
+  resources.shared_tls = allocation;
+  resources.tls = {allocation.tls_mapping_size, allocation.tls_mapping_base,
+                   allocation.tp};
+  control->shared_tls = allocation;
+#else
   TLSResult tls =
       allocate_tls(input.image, input.page_size, control, resources.tls);
   if (tls.error != TLSError::None) {
@@ -149,6 +182,7 @@ ThreadPreparationResult prepare_thread(const ThreadPreparation &request,
       result.rollback_error = tls.syscall_error;
     return result;
   }
+#endif
 
   control->runner = input.runner;
   control->argument = input.argument;

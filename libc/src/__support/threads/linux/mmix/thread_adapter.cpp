@@ -33,9 +33,7 @@ int Thread::run(ThreadStyle style, ThreadRunner runner, void *arg, void *stack,
   ThreadAttributes *created = nullptr;
   mmix::ThreadCreationResult result = mmix::create_thread(request, created);
   // A public caller cannot assume ownership of a partially rolled-back mapping.
-  if (result.preparation.retained.control.size ||
-      result.preparation.retained.stack.size ||
-      result.preparation.retained.tls.size)
+  if (result.preparation.retained.owns_mappings())
     __builtin_trap();
   if (result.error)
     return static_cast<int>(-result.error);

@@ -37,6 +37,16 @@ struct ThreadPreparation {
 struct ThreadResources {
   ThreadMapping control, stack;
   TLSDescriptor tls;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  loader::ThreadTLSAllocation shared_tls{};
+#endif
+  bool owns_mappings() const {
+    bool owned = control.size || stack.size || tls.size;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    owned |= shared_tls.tls_mapping_size || shared_tls.dtv_mapping_size;
+#endif
+    return owned;
+  }
 };
 
 enum class ThreadPrepareError {

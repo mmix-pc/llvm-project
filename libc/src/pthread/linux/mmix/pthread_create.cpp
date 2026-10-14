@@ -50,9 +50,7 @@ LLVM_LIBC_FUNCTION(int, pthread_create,
   }
   ThreadAttributes *created = nullptr;
   auto result = mmix::create_thread(request, created);
-  if (result.preparation.retained.control.size ||
-      result.preparation.retained.stack.size ||
-      result.preparation.retained.tls.size)
+  if (result.preparation.retained.owns_mappings())
     __builtin_trap();
   if (result.error) {
     int error = int(-result.error);
