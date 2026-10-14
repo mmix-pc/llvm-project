@@ -5973,6 +5973,13 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName, llvm::Type *Ty,
   llvm::GlobalValue *Entry = GetGlobalValue(MangledName);
   unsigned TargetAS = getContext().getTargetAddressSpace(AddrSpace);
   if (Entry) {
+    // An alias can create its aliasee without a VarDecl, before TLS is known.
+    if (D && D->getTLSKind() && !Entry->isThreadLocal()) {
+      if (D->getTLSKind() == VarDecl::TLS_Dynamic)
+        CXXThreadLocals.push_back(D);
+      setTLSMode(Entry, *D);
+    }
+
     if (WeakRefReferences.erase(Entry)) {
       if (D && !D->hasAttr<WeakAttr>())
         Entry->setLinkage(llvm::Function::ExternalLinkage);
