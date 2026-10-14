@@ -269,6 +269,14 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   endif()
   if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION)
     add_object_library(
+      loader_cancellation
+      SRCS loader_cancellation.cpp
+      HDRS loader_cancellation.h
+      DEPENDS .cancellation libc.include.pthread libc.hdr.errno_macros
+        libc.src.__support.OSUtil.linux.loader_services
+      COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
+    )
+    add_object_library(
       cancellation
       SRCS cancellation.cpp
       HDRS cancellation.h

@@ -1,5 +1,4 @@
-//===-- Private loader/runtime TLS descriptors -------------------*- C++
-//-*-===//
+//===-- Private loader/runtime TLS descriptors -------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -15,6 +14,13 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
+
+// Post-adoption cancellation scope. A leave callback may deliver pending
+// asynchronous cancellation; the loader must release all locks first.
+struct LoaderCancellation {
+  long (*enter)(uint64_t *saved);
+  long (*leave)(uint64_t saved);
+};
 
 struct UnwindReadableRange {
   uint64_t address;

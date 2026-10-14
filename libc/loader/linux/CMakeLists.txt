@@ -1,6 +1,16 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  locks
+  SRCS locks.cpp
+  HDRS locks.h
+  DEPENDS .mmix.syscall libc.src.__support.CPP.atomic
+    libc.src.__support.OSUtil.linux.loader_services
+    libc.hdr.errno_macros libc.include.sys_syscall
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   image_registry
   SRCS image_registry.cpp
   HDRS image_registry.h
