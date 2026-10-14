@@ -2520,6 +2520,10 @@ class MMIXPICLiteral : MMIXAddressProducerPseudo<"pic-literal"> {
 }
 def PIC_LITERAL : MMIXPICLiteral;
 def GOT_LITERAL : MMIXPICLiteral;
+def TLS_IE_LITERAL : MMIXPICLiteral;
+def TLS_GD_LITERAL : MMIXPICLiteral;
+def TLS_LD_LITERAL : MMIXPICLiteral;
+def TLS_OFFSET_LITERAL : MMIXPICLiteral;
 // Keep the full TP-relative offset together until after register allocation.
 def LOAD_TLS_ADDR
     : MMIXPseudoInstruction<(outs GPR64CodeGen:$dst),

@@ -130,11 +130,12 @@ public:
   void applyFixup(const MCFragment &F, const MCFixup &Fixup,
                   const MCValue &Target, uint8_t *Data, uint64_t Value,
                   bool IsResolved) override {
-    if (MMIX::isPCRelLiteralFixup(Fixup.getKind())) {
+    if (MMIX::isPCRelLiteralFixup(Fixup.getKind()) ||
+        Fixup.getKind() == MMIX::fixup_mmix_dtpoff64) {
       if ((Asm->getFragmentOffset(F) + Fixup.getOffset()) % 8 != 0) {
-        StringRef Kind = MMIX::isDynamicTLSLiteralFixup(Fixup.getKind())
-                             ? "TLS"
-                             : "GOT";
+        StringRef Kind = Fixup.getKind() == MMIX::fixup_mmix_got_pc64
+                             ? "GOT"
+                             : "TLS";
         getContext().reportError(
             Fixup.getLoc(),
             Twine("MMIX ") + Kind + " literal must be eight-byte aligned");
@@ -156,7 +157,8 @@ public:
       return;
     }
     if (MMIX::isTPRELFixup(Fixup.getKind()) ||
-        MMIX::isDynamicTLSLiteralFixup(Fixup.getKind())) {
+        MMIX::isDynamicTLSLiteralFixup(Fixup.getKind()) ||
+        Fixup.getKind() == MMIX::fixup_mmix_dtpoff64) {
       const auto *Symbol = static_cast<const MCSymbolELF *>(Target.getAddSym());
       if (!Symbol || Target.getSubSym() || Symbol->isAbsolute() ||
           Symbol->isCommon() ||
@@ -416,6 +418,7 @@ public:
         {"fixup_mmix_tlsgd_pc64", 0, 64, 0},
         {"fixup_mmix_tlsld_pc64", 0, 64, 0},
         {"fixup_mmix_gottprel_pc64", 0, 64, 0},
+        {"fixup_mmix_dtpoff64", 0, 64, 0},
     };
 
     if (mc::isRelocRelocation(Kind))
@@ -430,7 +433,8 @@ public:
                                     uint64_t &Value) override {
     // TLS offsets and GOT entry addresses are assigned by the linker.
     if (MMIX::isTPRELFixup(Fixup.getKind()) ||
-        MMIX::isPCRelLiteralFixup(Fixup.getKind()))
+        MMIX::isPCRelLiteralFixup(Fixup.getKind()) ||
+        Fixup.getKind() == MMIX::fixup_mmix_dtpoff64)
       return false;
     const MCSymbol *Add = Target.getAddSym();
     const MCSymbol *Sub = Target.getSubSym();

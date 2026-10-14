@@ -953,6 +953,25 @@ static SDValue lowerMMIXPICAddress(SDValue Target, bool UseGOT, const SDLoc &DL,
   return Address;
 }
 
+static SDValue lowerMMIXTLSLiteral(SDValue Target, unsigned Opcode,
+                                  const SDLoc &DL, SelectionDAG &DAG) {
+  SDValue Base(DAG.getMachineNode(Opcode, DL, MVT::i64, Target), 0);
+  const auto Flags = MachineMemOperand::MOLoad | MachineMemOperand::MOInvariant |
+                     MachineMemOperand::MODereferenceable;
+  SDValue Value = DAG.getLoad(
+      MVT::i64, DL, DAG.getEntryNode(), Base,
+      MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), Align(8),
+      Flags);
+  if (Opcode == MMIX::TLS_OFFSET_LITERAL)
+    return Value;
+  SDValue Address = DAG.getNode(ISD::ADD, DL, MVT::i64, Base, Value);
+  if (Opcode == MMIX::TLS_IE_LITERAL)
+    return DAG.getLoad(MVT::i64, DL, DAG.getEntryNode(), Address,
+                       MachinePointerInfo::getGOT(DAG.getMachineFunction()),
+                       Align(8), Flags);
+  return Address;
+}
+
 SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
                                            SelectionDAG &DAG) const {
   const Function &F = DAG.getMachineFunction().getFunction();
@@ -1085,19 +1104,53 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
       reportFatalUsageError(
           Twine("MMIX does not support thread-local storage in function '") +
           F.getName() + "'");
-    if (TM.getRelocationModel() != Reloc::Static ||
-        F.getParent()->getPIELevel() != PIELevel::Default)
-      reportFatalUsageError("MMIX Linux TLS requires static non-PIE code");
     if (IsThreadPointer)
       return DAG.getCopyFromReg(DAG.getEntryNode(), DL, MMIX::R230, MVT::i64);
     auto *GA = cast<GlobalAddressSDNode>(Op);
-    if (TM.getTLSModel(GA->getGlobal()) != TLSModel::LocalExec)
-      reportFatalUsageError(
-          "MMIX Linux supports only the effective local-exec TLS model");
-    SDValue Target = DAG.getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64,
+    TLSModel::Model Model = TM.getTLSModel(GA->getGlobal());
+    if (Model == TLSModel::LocalExec) {
+      if (TM.getRelocationModel() != Reloc::Static ||
+          F.getParent()->getPIELevel() != PIELevel::Default)
+        reportFatalUsageError(
+            "MMIX Linux local-exec TLS requires static non-PIE code");
+      SDValue Target = DAG.getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64,
                                                 GA->getOffset());
-    return SDValue(DAG.getMachineNode(MMIX::LOAD_TLS_ADDR, DL, MVT::i64, Target),
-                   0);
+      return SDValue(DAG.getMachineNode(MMIX::LOAD_TLS_ADDR, DL, MVT::i64, Target),
+                     0);
+    }
+    // Literal addends address linker-owned slots, not the source TLS object.
+    SDValue Target = DAG.getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64);
+    SDValue Address;
+    if (Model == TLSModel::InitialExec) {
+      SDValue Offset = lowerMMIXTLSLiteral(Target, MMIX::TLS_IE_LITERAL, DL, DAG);
+      SDValue TP = DAG.getCopyFromReg(DAG.getEntryNode(), DL, MMIX::R230, MVT::i64);
+      Address = DAG.getNode(ISD::ADD, DL, MVT::i64, TP, Offset);
+    } else {
+      bool IsLD = Model == TLSModel::LocalDynamic;
+      if (IsLD && !TM.shouldAssumeDSOLocal(GA->getGlobal()))
+        reportFatalUsageError(
+            "MMIX local-dynamic TLS requires a nonpreemptible symbol");
+      SDValue Descriptor = lowerMMIXTLSLiteral(
+          Target, IsLD ? MMIX::TLS_LD_LITERAL : MMIX::TLS_GD_LITERAL, DL, DAG);
+      Type *CallTy = Type::getInt64Ty(*DAG.getContext());
+      ArgListTy Args;
+      Args.emplace_back(Descriptor, CallTy);
+      CallLoweringInfo CLI(DAG);
+      CLI.setDebugLoc(DL)
+          .setChain(DAG.getEntryNode())
+          .setLibCallee(CallingConv::C, CallTy,
+                        DAG.getExternalSymbol("__tls_get_addr", MVT::i64),
+                        std::move(Args));
+      Address = LowerCallTo(CLI).first;
+      if (IsLD)
+        Address = DAG.getNode(
+            ISD::ADD, DL, MVT::i64, Address,
+            lowerMMIXTLSLiteral(Target, MMIX::TLS_OFFSET_LITERAL, DL, DAG));
+    }
+    if (GA->getOffset())
+      Address = DAG.getNode(ISD::ADD, DL, MVT::i64, Address,
+                           DAG.getConstant(GA->getOffset(), DL, MVT::i64));
+    return Address;
   }
   if (Op.getOpcode() == ISD::INTRINSIC_WO_CHAIN)
     return SDValue();

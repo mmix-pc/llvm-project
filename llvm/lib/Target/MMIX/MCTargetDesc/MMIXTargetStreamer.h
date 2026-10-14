@@ -26,8 +26,8 @@ public:
   virtual void emitData24(uint8_t HighByte, const MCExpr *Value, bool IsPCRel,
                           SMLoc Loc) = 0;
   void emitGOTPC64(const MCExpr *Value, SMLoc Loc);
-  virtual void emitPCRelLiteral64(const MCExpr *Value, unsigned Specifier,
-                                SMLoc Loc) = 0;
+  virtual void emitSymbolLiteral64(const MCExpr *Value, unsigned Specifier,
+                                   SMLoc Loc) = 0;
 };
 
 MCTargetStreamer *createMMIXObjectTargetStreamer(MCStreamer &S,

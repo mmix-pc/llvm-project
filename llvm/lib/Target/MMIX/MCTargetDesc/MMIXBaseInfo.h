@@ -76,6 +76,7 @@ enum Specifier : uint16_t {
   S_TLSGD_PC64,
   S_TLSLD_PC64,
   S_GOTTPREL_PC64,
+  S_DTPOFF64,
 };
 
 inline bool isTPRELSpecifier(unsigned Specifier) {

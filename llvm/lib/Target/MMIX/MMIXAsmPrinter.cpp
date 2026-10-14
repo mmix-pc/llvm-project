@@ -309,8 +309,25 @@ public:
   }
 
   void emitInstruction(const MachineInstr *MI) override {
-    if (MI->getOpcode() == MMIX::PIC_LITERAL ||
-        MI->getOpcode() == MMIX::GOT_LITERAL) {
+    unsigned LiteralSpecifier = MMIXII::S_None;
+    switch (MI->getOpcode()) {
+    case MMIX::GOT_LITERAL:
+      LiteralSpecifier = MMIXII::S_GOT_PC64;
+      break;
+    case MMIX::TLS_IE_LITERAL:
+      LiteralSpecifier = MMIXII::S_GOTTPREL_PC64;
+      break;
+    case MMIX::TLS_GD_LITERAL:
+      LiteralSpecifier = MMIXII::S_TLSGD_PC64;
+      break;
+    case MMIX::TLS_LD_LITERAL:
+      LiteralSpecifier = MMIXII::S_TLSLD_PC64;
+      break;
+    case MMIX::TLS_OFFSET_LITERAL:
+      LiteralSpecifier = MMIXII::S_DTPOFF64;
+      break;
+    }
+    if (MI->getOpcode() == MMIX::PIC_LITERAL || LiteralSpecifier) {
       MMIXMCInstLower Lower(OutContext, *this, EmissionMode);
       const MCExpr *Address = Lower.lowerAddressOperand(MI->getOperand(1));
       MCSymbol *Literal = OutContext.createTempSymbol("pic_literal");
@@ -324,9 +341,9 @@ public:
               .addExpr(MCSymbolRefExpr::create(End, OutContext)));
       OutStreamer->emitValueToAlignment(Align(8));
       OutStreamer->emitLabel(Literal);
-      if (MI->getOpcode() == MMIX::GOT_LITERAL)
+      if (LiteralSpecifier)
         static_cast<MMIXTargetStreamer *>(OutStreamer->getTargetStreamer())
-            ->emitGOTPC64(Address, SMLoc());
+            ->emitSymbolLiteral64(Address, LiteralSpecifier, SMLoc());
       else
         OutStreamer->emitValue(
             MCBinaryExpr::createSub(Address, Base, OutContext), 8);

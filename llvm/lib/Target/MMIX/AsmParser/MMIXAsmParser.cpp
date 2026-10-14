@@ -270,6 +270,7 @@ ParseStatus MMIXAsmParser::parseDirective(AsmToken DirectiveID) {
           .Case(".mmix_tlsgd_pc64", MMIXII::S_TLSGD_PC64)
           .Case(".mmix_tlsld_pc64", MMIXII::S_TLSLD_PC64)
           .Case(".mmix_gottprel_pc64", MMIXII::S_GOTTPREL_PC64)
+          .Case(".mmix_dtpoff64", MMIXII::S_DTPOFF64)
           .Default(MMIXII::S_None);
   if (LiteralSpecifier != MMIXII::S_None) {
     StringRef Kind = LiteralSpecifier == MMIXII::S_GOT_PC64 ? "GOT" : "TLS";
@@ -288,7 +289,7 @@ ParseStatus MMIXAsmParser::parseDirective(AsmToken DirectiveID) {
       return Error(DirectiveID.getLoc(),
                    Twine("MMIX ") + Kind +
                        " literal is unavailable for this output");
-    static_cast<MMIXTargetStreamer *>(TS)->emitPCRelLiteral64(
+    static_cast<MMIXTargetStreamer *>(TS)->emitSymbolLiteral64(
         Value, LiteralSpecifier, Loc);
     return false;
   }

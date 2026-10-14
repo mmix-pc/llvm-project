@@ -50,6 +50,9 @@ void MMIXMCAsmInfo::printSpecifierExpr(raw_ostream &OS,
   case MMIXII::S_GOTTPREL_PC64:
     OS << "%gottprel_pc64(";
     break;
+  case MMIXII::S_DTPOFF64:
+    OS << "%dtpoff64(";
+    break;
   case MMIXII::S_GETA:
     OS << "%geta(";
     break;
@@ -76,7 +79,8 @@ bool MMIXMCAsmInfo::evaluateAsRelocatableImpl(const MCSpecifierExpr &Expr,
                                               MCValue &Value,
                                               const MCAssembler *Asm) const {
   if (MMIXII::isTPRELSpecifier(Expr.getSpecifier()) ||
-      MMIXII::isPCRelLiteralSpecifier(Expr.getSpecifier()))
+      MMIXII::isPCRelLiteralSpecifier(Expr.getSpecifier()) ||
+      Expr.getSpecifier() == MMIXII::S_DTPOFF64)
     return MMIX::getSymbolAddendValue(*Expr.getSubExpr(), Value);
   return MCAsmInfoELF::evaluateAsRelocatableImpl(Expr, Value, Asm);
 }

@@ -38,6 +38,7 @@ protected:
            Type == ELF::R_MMIX_TLSGD_PC64 ||
            Type == ELF::R_MMIX_TLSLD_PC64 ||
            Type == ELF::R_MMIX_GOTTPREL_PC64 ||
+           Type == ELF::R_MMIX_DTPOFF64 ||
            (Type >= ELF::R_MMIX_TPREL_LO16 && Type <= ELF::R_MMIX_TPREL_HI16);
   }
 
@@ -54,6 +55,8 @@ protected:
       return ELF::R_MMIX_TLSLD_PC64;
     case MMIX::fixup_mmix_gottprel_pc64:
       return ELF::R_MMIX_GOTTPREL_PC64;
+    case MMIX::fixup_mmix_dtpoff64:
+      return ELF::R_MMIX_DTPOFF64;
     case MMIX::fixup_mmix_tprel_lo:
       return ELF::R_MMIX_TPREL_LO16;
     case MMIX::fixup_mmix_tprel_ml:
