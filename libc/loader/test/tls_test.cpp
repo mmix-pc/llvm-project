@@ -112,6 +112,16 @@ static void fixtures() {
     check(DynamicInfo::open(image, info) != DynamicError::None);
     check(!info.requires_tls() && !info.symbol_count());
   }
+  // Link-time LE fragments and GOT/descriptor literals must never survive as
+  // runtime relocations. Unknown mechanisms are not successful no-ops either.
+  for (unsigned type : {37, 38, 39, 40, 43, 47, 48, 49, 50, 255}) {
+    TLSFixture bad;
+    bad.put(0xb20, 8, (Address(1) << 32) | type);
+    check(ElfImage::open_file(bad.view(), ImageRole::SharedObject, bias, page,
+                             image) == ElfError::None);
+    check(DynamicInfo::open(image, info) == DynamicError::Unsupported);
+    check(!info.requires_tls() && !info.symbol_count());
+  }
   for (unsigned type : {44, 45, 46}) {
     TLSFixture input;
     input.put(0xb20, 8, (Address(1) << 32) | type);

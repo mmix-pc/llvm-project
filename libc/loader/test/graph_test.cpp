@@ -400,6 +400,20 @@ static int startup_tests() {
   CHECK(!no_proc.reset() && !live() && !fd_live && !opens);
   trace_count = 0;
   files[0].path = "/proc/self/exe";
+  // Startup IE admission does not supply a runtime owner. Failure must leave
+  // TP unpublished, callbacks unexecuted and the transaction reclaimable.
+  executable.add(DT_FLAGS, DF_STATIC_TLS);
+  executable.finish();
+  start();
+  Startup missing_runtime(page);
+  CHECK(!missing_runtime.prepare(arguments, self).error);
+  CHECK(missing_runtime.prepare_runtime() == -ENOEXEC);
+  CHECK(!missing_runtime.thread_pointer() && !trace_count);
+  CHECK(missing_runtime.adopt_runtime() == -EINVAL);
+  CHECK(missing_runtime.prepare_runtime() == -EINVAL);
+  CHECK(missing_runtime.prepare(arguments, self).error == -EBUSY);
+  CHECK(!missing_runtime.reset() && !live() && !fd_live);
+  executable.set(DT_FLAGS, 0);
   start();
   arguments.values[unsigned(AuxField::Secure)] = 1;
   Startup secure(page);
