@@ -1135,9 +1135,9 @@ RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
     return R_NONE;
   }
   if (isTPRel(type)) {
-    if (!isLinux() || isDynamicOutput()) {
+    if (!isLinux() || ctx.arg.shared) {
       Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type << " against "
-               << &s << " requires MMIX Linux static output";
+               << &s << " requires MMIX Linux executable output";
       return R_NONE;
     }
     if (!s.isTls()) {
@@ -1147,7 +1147,8 @@ RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
     }
     if (!ctx.arg.relocatable) {
       const auto *d = dyn_cast<Defined>(&s);
-      if (!d || !d->section || d->section == &InputSection::discarded ||
+      if (!d || s.isPreemptible || !d->section ||
+          d->section == &InputSection::discarded ||
           !d->section->isLive() ||
           (d->section->flags & (SHF_ALLOC | SHF_TLS)) !=
               (SHF_ALLOC | SHF_TLS)) {

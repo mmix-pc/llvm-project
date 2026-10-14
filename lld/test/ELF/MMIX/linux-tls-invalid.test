@@ -3,8 +3,6 @@
 # RUN: yaml2obj %t/input.yaml -o %t/valid.o
 # RUN: not ld.lld -m elf64mmix %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PROFILE
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=SHARED
-# RUN: not ld.lld -m elf64mmix_linux -pie --dynamic-linker=/lib/ld-llvm-mmix.so.1 %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PIE
-# RUN: not ld.lld -m elf64mmix_linux --dynamic-linker=/lib/ld-llvm-mmix.so.1 %t/valid.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=PIE
 # RUN: yaml2obj %t/input.yaml -DOP=E4010000 -o %t/op.o
 # RUN: not ld.lld -m elf64mmix_linux %t/op.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=FIELD
 # RUN: yaml2obj %t/input.yaml -DOFFSET=1 -o %t/offset.o
@@ -34,9 +32,8 @@
 # RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/overflow.s -o %t/overflow.o
 # RUN: not ld.lld -m elf64mmix_linux %t/overflow.o -o %t/bad 2>&1 | FileCheck %s --check-prefix=RANGE
 
-# PROFILE: requires MMIX Linux static output
-# SHARED: requires MMIX Linux static output
-# PIE: requires MMIX Linux static output
+# PROFILE: requires MMIX Linux executable output
+# SHARED: requires MMIX Linux executable output
 # FIELD: requires a complete aligned matching instruction
 # TYPE: requires an STT_TLS symbol
 # PROVIDER: requires a defined symbol in the executable TLS image
