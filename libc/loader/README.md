@@ -324,7 +324,7 @@ Native syscall injection checks every transition and cleanup failures. Separate
 native subprocesses exercise real mprotect permissions with exact fault-address
 and access-error checks. These do not qualify MMIX Linux guest enforcement.
 
-## Startup Initialization
+## Startup Initialization And Finalization
 
 `StartupInitializers::prepare` requires a relocated, protected graph. It computes
 dependency-first strongly connected components without recursive C calls and
@@ -343,12 +343,20 @@ invoker instead; they do not execute MMIX callbacks.
 
 Repeated initialization cannot call callbacks twice, and recursive entry or
 graph reset during a callback is rejected. The plan retains completed objects
-in initialization order for later reverse finalization; it does not run FINI
-or export exit/dlopen services. Keep the graph and plan arena alive throughout
-their use, and release plan storage explicitly after use. Callbacks must return
-normally; shared-libc TLS adoption, recursive loading and escaping exceptions
-are outside this freestanding subset. Effects after the first callback cannot
-be rolled back.
+in initialization order. FINI and FINI_ARRAY addresses are also validated and
+snapshotted before the first initializer. `finalize` visits only completed
+objects in reverse order, runs each FINI_ARRAY backwards, then invokes FINI.
+Repeated or recursive finalization does not replay callbacks; initialization
+cannot resume after finalization. A constructor that terminates the process
+does not make its partially initialized object eligible for finalization.
+
+Shared startup registers the private finalizer with libc before preinit and
+constructors. Their exit registrations therefore run before the loader's
+finalizer through the existing process callback manager. `_Exit` bypasses both.
+Keep graph and plan storage alive for process lifetime. TLS/libc adoption must
+precede user callbacks; dynamic CRT must not repeat loader initialization.
+Recursive loading, escaping exceptions and late-object finalization are not
+admitted. Effects after the first callback cannot be rolled back.
 
 ## Bootstrap Support
 

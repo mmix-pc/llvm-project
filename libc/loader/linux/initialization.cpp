@@ -130,6 +130,13 @@ long StartupInitializers::prepare(StartupGraph &input, Arena &arena) {
     objects[j].count = number;
     if (__builtin_add_overflow(total, number, &total))
       return -EOVERFLOW;
+    number = metadata.lifecycle_array(DynamicTag::FiniArray).size() / 8;
+    if (metadata.value(DynamicTag::Fini))
+      ++number;
+    objects[j].fini_first = total;
+    objects[j].fini_count = number;
+    if (__builtin_add_overflow(total, number, &total))
+      return -EOVERFLOW;
   }
   if (total > __SIZE_MAX__ / sizeof(Address))
     return -EOVERFLOW;
@@ -166,6 +173,17 @@ long StartupInitializers::prepare(StartupGraph &input, Arena &arena) {
     }
     if (!copy_array(metadata.lifecycle_array(DynamicTag::InitArray)))
       return -ENOEXEC;
+    // Store FINI before FINI_ARRAY, so reversing the slice executes the array
+    // backwards and the legacy FINI hook last.
+    if (Address fini = metadata.value(DynamicTag::Fini)) {
+      Address address;
+      if (!object.image()->runtime_address(fini, 4, PF_R | PF_X, address) ||
+          !callable(input, address))
+        return -ENOEXEC;
+      calls[at++] = address;
+    }
+    if (!copy_array(metadata.lifecycle_array(DynamicTag::FiniArray)))
+      return -ENOEXEC;
   }
   graph = &input;
   order = objects;
@@ -184,6 +202,8 @@ long StartupInitializers::run(const InitialStack &stack, Invoker invoke) {
   if (!graph || !graph->protections_complete() || !stack.valid ||
       stack.argc > __INT_MAX__)
     return -EINVAL;
+  if (finalized)
+    return -ECANCELED;
   if (graph->initializing)
     return -EBUSY;
   if (graph->initialized)
@@ -193,17 +213,44 @@ long StartupInitializers::run(const InitialStack &stack, Invoker invoke) {
     invoke = invoke_callback;
   auto *argv = reinterpret_cast<char **>(stack.argv);
   auto *envp = reinterpret_cast<char **>(stack.envp);
-  for (size_t j = 0; j < preinit_count; ++j)
+  for (size_t j = 0; j < preinit_count; ++j) {
     invoke(callbacks[j], static_cast<int>(stack.argc), argv, envp);
+    if (finalized) {
+      graph->initializing = false;
+      return -ECANCELED;
+    }
+  }
   for (size_t j = 0; j < count; ++j) {
-    for (size_t k = 0; k < order[j].count; ++k)
+    for (size_t k = 0; k < order[j].count; ++k) {
       invoke(callbacks[order[j].first + k], static_cast<int>(stack.argc), argv,
              envp);
+      if (finalized) {
+        graph->initializing = false;
+        return -ECANCELED;
+      }
+    }
     ++completed;
   }
   graph->initialized = true;
   graph->initializing = false;
   return 0;
+}
+
+static void invoke_finalizer(Address address) {
+  reinterpret_cast<void (*)()>(address)();
+}
+
+void StartupInitializers::finalize(Finalizer invoke) {
+  if (!graph || finalized)
+    return;
+  finalized = true;
+  if (!invoke)
+    invoke = invoke_finalizer;
+  for (size_t i = completed; i != 0; --i) {
+    const Object &object = order[i - 1];
+    for (size_t j = object.fini_count; j != 0; --j)
+      invoke(callbacks[object.fini_first + j - 1]);
+  }
 }
 
 } // namespace loader

@@ -14,6 +14,7 @@
 #include "src/errno/program_invocation_name.h"
 #include "src/errno/program_invocation_short_name.h"
 #include "src/unistd/environ.h"
+#include "src/stdlib/atexit.h"
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
 #include "src/__support/threads/linux/mmix/cancellation_point.h"
 #endif
@@ -26,6 +27,10 @@ AppProperties app;
 namespace mmix {
 static loader::LoaderServices services;
 static bool attempted;
+
+static void finalize_shared_startup() {
+  services.finalize_startup(services.context);
+}
 
 long prepare_shared_thread_tls(void *state,
                                loader::ThreadTLSAllocation &allocation) {
@@ -69,7 +74,7 @@ long adopt_shared_main(const loader::StartupProcessView *process,
       input->size != sizeof(services) || !input->context || !input->tls_set ||
       !input->prepare_thread_tls || !input->release_thread_tls ||
       !input->resolve_startup_tls || !input->find_unwind_image ||
-      !input->release_unwind_image || !tls->tp ||
+      !input->release_unwind_image || !input->finalize_startup || !tls->tp ||
       reinterpret_cast<uintptr_t>(__builtin_thread_pointer()) != tls->tp ||
       reinterpret_cast<const uintptr_t *>(tls->tp)[1] !=
           reinterpret_cast<uintptr_t>(state))
@@ -109,6 +114,10 @@ long adopt_shared_main(const loader::StartupProcessView *process,
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   initialize_cancellation_process();
 #endif
+  // Register before preinit/constructors: their callbacks run first through
+  // the same process manager. _Exit bypasses this path entirely.
+  if (atexit(finalize_shared_startup))
+    return ENOMEM;
   return 0;
 }
 } // namespace mmix

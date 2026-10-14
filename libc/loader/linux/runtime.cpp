@@ -112,7 +112,8 @@ static long find_bootstrap(const StartupGraph &graph, LibcBootstrap &out) {
 
 long StartupRuntime::prepare(const StartupGraph &graph,
                              const InitialStack &stack,
-                             StartupUnwindImages &registry) {
+                             StartupUnwindImages &registry,
+                             StartupInitializers &lifecycle) {
   if (attempted || !graph.protections_complete())
     return -EINVAL;
   attempted = true;
@@ -137,6 +138,7 @@ long StartupRuntime::prepare(const StartupGraph &graph,
              stack.value(AuxField::Entry)};
   allocation_context = {&graph.relocated_tls(), process.page_size};
   images = &registry;
+  initializers = &lifecycle;
   LoaderServices prepared_services = {
       sizeof(services),
       this,
@@ -153,7 +155,9 @@ long StartupRuntime::prepare(const StartupGraph &graph,
         return resolve_startup_tls(
             &static_cast<StartupRuntime *>(p)->allocation_context, index);
       },
-      nullptr,
+      [](void *p) {
+        static_cast<StartupRuntime *>(p)->initializers->finalize();
+      },
       [](void *p, uintptr_t pc, UnwindImageView *out) {
         return find_unwind_image(static_cast<StartupRuntime *>(p)->images, pc,
                                  out);

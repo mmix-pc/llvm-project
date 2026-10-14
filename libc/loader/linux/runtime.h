@@ -10,6 +10,7 @@
 #define LLVM_LIBC_LOADER_LINUX_RUNTIME_H
 #include "loader/linux/entry.h"
 #include "loader/linux/graph.h"
+#include "loader/linux/initialization.h"
 #include "loader/linux/tls_resolver.h"
 #include "loader/linux/unwind_images.h"
 namespace LIBC_NAMESPACE_DECL {
@@ -17,6 +18,7 @@ namespace loader {
 class StartupRuntime {
   TLSAllocationContext allocation_context{};
   StartupUnwindImages *images = nullptr;
+  StartupInitializers *initializers = nullptr;
   StartupProcessView process{};
   LoaderServices services{};
   LibcBootstrap bootstrap{};
@@ -26,7 +28,7 @@ class StartupRuntime {
 
 public:
   long prepare(const StartupGraph &, const InitialStack &,
-               StartupUnwindImages &);
+               StartupUnwindImages &, StartupInitializers &);
   long adopt();
   long reset();
   Address tp() const { return allocation.tp; }

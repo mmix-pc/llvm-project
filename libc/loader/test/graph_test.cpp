@@ -74,6 +74,15 @@ struct Library : DynamicFixture {
       put(0xb08 + 24 * i, 8, 41);
       put(0xb10 + 24 * i, 8, 0x2004 + 4 * i);
     }
+    add(DT_FINI, 0x2018);
+    add(DT_FINI_ARRAY, 0x4940);
+    add(DT_FINI_ARRAYSZ, 16);
+    for (unsigned i = 0; i < 2; ++i) {
+      put(0xb00 + 24 * (count + i), 8, 0x4940 + 8 * i);
+      put(0xb08 + 24 * (count + i), 8, 41);
+      put(0xb10 + 24 * (count + i), 8, 0x2010 + 4 * i);
+    }
+    count += 2;
     add(DT_RELA, 0xb00);
     add(DT_RELASZ, count * 24);
     add(DT_RELAENT, 24);
@@ -267,6 +276,17 @@ static size_t trace_count;
 static StartupGraph *active_graph;
 static StartupInitializers *active_initializers;
 static InitialStack arguments{};
+static void record_fini(Address address) {
+  assert(trace_count < 32);
+  active_initializers->finalize(record_fini);
+  trace[trace_count++] = address;
+}
+static size_t stop_after;
+static void stop_initialization(Address address, int, char **, char **) {
+  trace[trace_count++] = address;
+  if (trace_count == stop_after)
+    active_initializers->finalize(record_fini);
+}
 static void record_init(Address address, int argc, char **argv, char **envp) {
   assert(trace_count < 32 && argc == 2 &&
          reinterpret_cast<Address>(argv) == arguments.argv &&
@@ -403,11 +423,17 @@ static int startup_tests() {
   executable.set(DT_INIT, borrowed_main + 0x2000);
   executable.set(DT_INIT_ARRAY, borrowed_main + 0x4900);
   executable.set(DT_PREINIT_ARRAY, borrowed_main + 0x4920);
+  executable.set(DT_FINI, borrowed_main + 0x2018);
+  executable.set(DT_FINI_ARRAY, borrowed_main + 0x4940);
   executable.put(0x820, 8, borrowed_main + 0x2000);
   for (unsigned i = 0; i < 3; ++i) {
     executable.put(0xb00 + 24 * i, 8,
                    borrowed_main + (i == 2 ? 0x4920 : 0x4900 + 8 * i));
     executable.put(0xb10 + 24 * i, 8, borrowed_main + 0x2004 + 4 * i);
+  }
+  for (unsigned i = 0; i < 2; ++i) {
+    executable.put(0xb00 + 24 * (3 + i), 8, borrowed_main + 0x4940 + 8 * i);
+    executable.put(0xb10 + 24 * (3 + i), 8, borrowed_main + 0x2010 + 4 * i);
   }
   start();
   Startup fixed(page);
@@ -656,23 +682,55 @@ extern "C" int main() {
   CHECK(initializers.run(arguments, record_init) == 0 && trace_count == 16);
   StartupInitializers duplicate;
   CHECK(duplicate.prepare(graph, init_storage) == -EBUSY);
+  initializers.finalize(record_fini);
+  CHECK(trace_count == 31);
+  for (unsigned i = 0; i < 5; ++i) {
+    Address base = initializers.completed_object(4 - i)->image()->load_bias();
+    CHECK(trace[16 + 3 * i] == base + 0x2014);
+    CHECK(trace[17 + 3 * i] == base + 0x2010);
+    CHECK(trace[18 + 3 * i] == base + 0x2018);
+  }
+  initializers.finalize(record_fini);
+  CHECK(trace_count == 31 && initializers.run(arguments, record_init) == -ECANCELED);
   CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
   trace_count = 0;
 
+  const size_t partial_stops[] = {1, 5};
+  for (size_t stop : partial_stops) {
+    start();
+    CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+    CHECK(graph.relocate().error == 0 && graph.finalize_protections().error == 0);
+    StartupInitializers partial;
+    active_initializers = &partial;
+    CHECK(partial.prepare(graph, init_storage) == 0);
+    stop_after = stop;
+    CHECK(partial.run(arguments, stop_initialization) == -ECANCELED);
+    CHECK(partial.completed_count() == (stop == 1 ? 0 : 1));
+    CHECK(trace_count == (stop == 1 ? 1 : 8));
+    partial.finalize(record_fini);
+    CHECK(trace_count == (stop == 1 ? 1 : 8));
+    CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
+    trace_count = 0;
+  }
+
   const Address invalid_callbacks[] = {0, ~Address(0), bias + 0x2001,
                                        bias + 0x4000, Address(1) << 43};
+  const Address callback_slots[] = {0x4900, 0x4940};
   for (Address address : invalid_callbacks) {
-    start();
-    CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
-          0);
-    CHECK(graph.relocate().error == 0);
-    // Model a bad relocated pointer in the last object's initializer array.
-    main_file.put(0x4900, 8, address);
-    CHECK(graph.finalize_protections().error == 0);
-    StartupInitializers bad;
-    CHECK(bad.prepare(graph, init_storage) == -ENOEXEC);
-    CHECK(bad.run(arguments, record_init) == -EINVAL && !trace_count);
-    CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
+    for (Address slot : callback_slots) {
+      start();
+      CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error == 0);
+      CHECK(graph.relocate().error == 0);
+      // Bad relocated init/fini pointers reject the whole callback plan.
+      main_file.put(slot, 8, address);
+      CHECK(graph.finalize_protections().error == 0);
+      StartupInitializers bad;
+      CHECK(bad.prepare(graph, init_storage) == -ENOEXEC);
+      CHECK(bad.run(arguments, record_init) == -EINVAL && !trace_count);
+      bad.finalize(record_fini);
+      CHECK(!trace_count);
+      CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
+    }
   }
   start();
   CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==

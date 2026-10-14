@@ -40,7 +40,9 @@ public:
   // address/layout validation, not fault recovery from arbitrary host pointers.
   MapResult prepare(const InitialStack &input, const ElfImage &self);
   long run(StartupInitializers::Invoker invoke = nullptr);
-  long prepare_runtime() { return runtime.prepare(graph, stack, unwind_images); }
+  long prepare_runtime() {
+    return runtime.prepare(graph, stack, unwind_images, initializers);
+  }
   Address thread_pointer() const { return runtime.tp(); }
   long adopt_runtime() { return runtime.adopt(); }
   Address entry() const { return prepared ? stack.value(AuxField::Entry) : 0; }

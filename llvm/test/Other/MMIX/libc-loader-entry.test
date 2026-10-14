@@ -5,22 +5,37 @@
 
 # Preserve the original software stack in the root window, pass SP and actual
 # entry PC in the ordinary argument bank, then return through bootstrap windows
-# before the no-new-window main transfer. No incoming rJ or TP is read/written.
+# before installing nonzero TP and entering a fresh post-TLS activation. No
+# incoming rJ is used; the final main transfer preserves the original SP.
 # ENTRY-LABEL: <_start>:
 # ENTRY-NEXT: {{.*}} OR r0, r254, 0x0
 # ENTRY-NEXT: {{.*}} OR r231, r254, 0x0
 # ENTRY-NEXT: {{.*}} GETAB r232, -0x2
 # ENTRY-NEXT: {{.*}} PUSHJ r31, 0x0
 # ENTRY-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE __llvm_libc_loader_bootstrap
+# ENTRY-NEXT: {{.*}} OR r1, r231, 0x0
+# ENTRY-NEXT: {{.*}} PUSHJ r31, 0x0
+# ENTRY-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE __llvm_libc_loader_main_tp
+# ENTRY-NEXT: {{.*}} BZ r231, 0x2
+# ENTRY-NEXT: {{.*}} OR r230, r231, 0x0
+# ENTRY-NEXT: {{.*}} PUSHJ r31, 0x0
+# ENTRY-NEXT: {{.*}} R_MMIX_PUSHJ_STUBBABLE __llvm_libc_loader_after_tls
+# ENTRY-NEXT: {{.*}} OR r231, r1, 0x0
 # ENTRY-NEXT: {{.*}} OR r254, r0, 0x0
 # ENTRY-NEXT: {{.*}} PUT rL, 0x0
 # ENTRY-NEXT: {{.*}} GO r255, r231, 0x0
 # ENTRY-NEXT: {{.*}} TRAP 0xff, 0x0, 0x0
 # ENTRY-NOT: {{[0-9a-f]+:}}
 # SYMBOL: Name: _start
-# SYMBOL: Size: 32
+# SYMBOL: Size: 56
 # SYMBOL: STV_HIDDEN
 # SYMBOL: Name: __llvm_libc_loader_bootstrap
+# SYMBOL: STV_HIDDEN
+# SYMBOL: Section: Undefined
+# SYMBOL: Name: __llvm_libc_loader_main_tp
+# SYMBOL: STV_HIDDEN
+# SYMBOL: Section: Undefined
+# SYMBOL: Name: __llvm_libc_loader_after_tls
 # SYMBOL: STV_HIDDEN
 # SYMBOL: Section: Undefined
 

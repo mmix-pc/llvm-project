@@ -19,11 +19,13 @@ class StartupInitializers {
   struct Object {
     const StartupGraph::Node *node;
     size_t first, count;
+    size_t fini_first = 0, fini_count = 0;
   };
   StartupGraph *graph = nullptr;
   Object *order = nullptr;
   Address *callbacks = nullptr;
   size_t count = 0, preinit_count = 0, completed = 0;
+  bool finalized = false;
 
 public:
   // Borrow graph and arena for the full initialization/finalization lifetime.
@@ -32,10 +34,14 @@ public:
   long prepare(StartupGraph &graph, Arena &arena);
   // The injectable invoker is an internal native-test boundary. Production
   // uses the ordinary MMIX function-pointer ABI with argc/argv/envp. Callbacks
-  // must return normally; EH, TLS/libc adoption and recursive loading are not
-  // admitted by this freestanding startup subset.
+  // must return normally. Shared libc/TLS adoption precedes run; escaping EH
+  // and recursive loading are not admitted by this startup subset.
   using Invoker = void (*)(Address, int, char **, char **);
   long run(const InitialStack &stack, Invoker invoke = nullptr);
+  using Finalizer = void (*)(Address);
+  // Process termination owns serialization. Only fully initialized objects
+  // participate; recursive/repeated calls cannot replay any callback.
+  void finalize(Finalizer invoke = nullptr);
   size_t completed_count() const { return completed; }
   const StartupGraph::Node *completed_object(size_t i) const {
     return i < completed ? order[i].node : nullptr;
