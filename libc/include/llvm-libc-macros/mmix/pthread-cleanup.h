@@ -30,14 +30,14 @@ struct __llvm_libc_mmix_cleanup_record {
 #ifdef __cplusplus
 extern "C" {
 #endif
-__attribute__((visibility("hidden"))) void
+__attribute__((visibility("default"))) void
 __llvm_libc_mmix_thread_cleanup_push(struct __llvm_libc_mmix_cleanup_record *,
                                      void (*)(void *), void *);
-__attribute__((visibility("hidden"))) void
+__attribute__((visibility("default"))) void
 __llvm_libc_mmix_thread_cleanup_pop(struct __llvm_libc_mmix_cleanup_record *,
                                     int);
 #ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
-__attribute__((visibility("hidden"))) void
+__attribute__((visibility("default"))) void
 __llvm_libc_mmix_thread_cleanup_push_cpp(struct __llvm_libc_mmix_cleanup_record *,
                                        void (*)(void *), void *);
 #endif

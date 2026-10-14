@@ -27,13 +27,26 @@ __llvm_libc_mmix_clone_thread:
   TRAP 1, 0, 0
   BNZ r231, .Lparent_return
   LDOU r231, r230, 8
+#if defined(__PIC__)
+  // The shared runtime can exceed PUSHJ reach; keep the target literal relative.
+  GETA r255, .Lthread_start_address
+  LDOU r0, r255, 0
+  ADDU r255, r255, r0
+  PUSHGO r31, r255, 0
+#else
   PUSHJ r31, __llvm_libc_mmix_thread_start
+#endif
 .Lchild_returned:
   TRAP 255, 0, 0
   JMPB .Lchild_returned
 .Lparent_return:
   POP 0, 0
 .size __llvm_libc_mmix_clone_thread, .-__llvm_libc_mmix_clone_thread
+#if defined(__PIC__)
+.p2align 3
+.Lthread_start_address:
+  .8byte __llvm_libc_mmix_thread_start - .Lthread_start_address
+#endif
 
 // The result is already published in the control record; kernel status is zero.
 // No ordinary call, POP, stack/TLS access or unmap is allowed beyond this

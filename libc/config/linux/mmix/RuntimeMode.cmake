@@ -1,4 +1,9 @@
 # Storage mode does not imply public thread creation or concurrent libc support.
+option(LIBC_MMIX_BUILD_SHARED_LIBC "Build the experimental Linux shared libc provider" OFF)
+set(mmix_runtime_tls_model local-exec)
+if(LIBC_MMIX_BUILD_SHARED_LIBC)
+  set(mmix_runtime_tls_model initial-exec)
+endif()
 option(LIBC_MMIX_ENABLE_STATIC_TLS "Build the main-thread static TLS profile" OFF)
 option(LIBC_MMIX_BUILD_THREAD_LIFECYCLE
   "Build the non-installed internal Linux thread lifecycle archive" OFF)
@@ -75,6 +80,12 @@ if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
   set(LIBC_MMIX_BUILD_C_RUNTIME ON)
 endif()
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_SHARED_LIBC AND
+     (NOT LIBC_MMIX_BUILD_EXTENDED_PTHREAD OR
+      NOT CMAKE_POSITION_INDEPENDENT_CODE OR
+      LIBC_MMIX_INSTALL_THREADED_RUNTIME OR LIBC_MMIX_INSTALL_RUNTIME))
+    message(FATAL_ERROR "MMIX shared libc requires the PIC extended pthread build without static installation")
+  endif()
   if(LIBC_MMIX_BUILD_EXTENDED_PTHREAD)
     foreach(component THREADED_LIBC MUTEX_TYPES TIMED_MUTEX PTHREAD_RWLOCK
                       PTHREAD_BARRIER PTHREAD_SPIN PROCESS_SHARED ROBUST_MUTEX
@@ -219,6 +230,9 @@ function(mmix_check_runtime_mode)
     # preparation archive. Full public libc/pthread composition is separate.
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
+      if(variable STREQUAL "LIBC_MMIX_BUILD_SHARED_LIBC")
+        continue()
+      endif()
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND
          NOT variable MATCHES "^LIBC_MMIX_BUILD_(EXTENDED_PTHREAD|THREADED_LIBC|UNWIND_DIAGNOSTICS|UNWIND_ROOTS|FORCED_EXIT|DEFERRED_CANCELLATION|CANCELLATION_WINDOWS|CANCELLATION_RUNTIME_LOCKS|ASYNC_CANCELLATION|PROCESS_SHARED|ROBUST_MUTEX|PI_MUTEX|PROTECT_MUTEX|PTHREAD_SCHEDULING|PTHREAD_CLOCKS|CONCURRENCY_HINTS|COORDINATED_FORK|TLS_DESTRUCTORS|CXX_RUNTIME_DEPENDENCIES|THREAD_LIFECYCLE|RUNTIME_STATE|PTHREAD_CREATION|PTHREAD_LIFECYCLE|PTHREAD_MUTEX|MUTEX_TYPES|TIMED_MUTEX|PTHREAD_RWLOCK|PTHREAD_BARRIER|PTHREAD_SPIN|PTHREAD_COND|PTHREAD_ONCE|PTHREAD_TSS|PTHREAD_SIGNALS|CONCURRENT_ALLOCATION|CONCURRENT_STDIO)$")
         message(FATAL_ERROR "MMIX internal lifecycle does not support ${variable}")
@@ -230,9 +244,9 @@ function(mmix_check_runtime_mode)
        NOT LIBC_CONF_ERRNO_MODE STREQUAL "LIBC_ERRNO_MODE_THREAD_LOCAL")
       message(FATAL_ERROR "MMIX static TLS requires PLATFORM storage and THREAD_LOCAL errno")
     endif()
-    if(NOT "-ftls-model=local-exec" IN_LIST LIBC_COMPILE_OPTIONS_DEFAULT OR
+    if(NOT "-ftls-model=${mmix_runtime_tls_model}" IN_LIST LIBC_COMPILE_OPTIONS_DEFAULT OR
        NOT "-fno-lto" IN_LIST LIBC_COMPILE_OPTIONS_DEFAULT)
-      message(FATAL_ERROR "MMIX static TLS requires native local-exec runtime providers")
+      message(FATAL_ERROR "MMIX startup TLS requires native ${mmix_runtime_tls_model} runtime providers")
     endif()
     foreach(component FORK VFORK SPAWN ACCOUNT_MANAGEMENT SIGNAL_RUNTIME
                       COMMAND_ENVIRONMENT_RUNTIME)

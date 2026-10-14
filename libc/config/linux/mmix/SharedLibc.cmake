@@ -1,0 +1,76 @@
+if(NOT LIBC_MMIX_BUILD_SHARED_LIBC)
+  return()
+endif()
+mmix_check_runtime_mode()
+# Public ABI aliases escape the hidden implementation namespace. Keep the
+# declarations consistent in definitions and referencing translation units.
+add_compile_definitions(
+  "LLVM_LIBC_FUNCTION_ATTR=__attribute__((visibility(\"default\")))"
+  "LLVM_LIBC_VARIABLE_ATTR=__attribute__((visibility(\"default\")))")
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-include>"
+  "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_LIST_DIR}/shared_exports.h>")
+set(LIBC_MMIX_SHARED_BUILTINS "" CACHE FILEPATH "Explicit PIC Linux compiler-rt archive")
+if(NOT IS_ABSOLUTE "${LIBC_MMIX_SHARED_BUILTINS}" OR
+   NOT EXISTS "${LIBC_MMIX_SHARED_BUILTINS}" OR
+   IS_DIRECTORY "${LIBC_MMIX_SHARED_BUILTINS}")
+  message(FATAL_ERROR "MMIX shared libc requires an explicit PIC builtins archive")
+endif()
+
+# Run after the normal threaded archive has acquired its support objects.
+function(mmix_configure_shared_libc)
+  set(exports __tls_get_addr __stack_chk_guard __stack_chk_fail
+    __cxa_atexit __cxa_finalize __cxa_thread_atexit_impl
+    __llvm_libc_mmix_thread_cleanup_push __llvm_libc_mmix_thread_cleanup_pop
+    __llvm_libc_mmix_thread_cleanup_push_cpp)
+  foreach(entry IN LISTS mmix_threaded_entrypoints)
+    get_target_property(name ${entry} ENTRYPOINT_NAME)
+    if(NOT name)
+      message(FATAL_ERROR "MMIX shared libc entry lacks its public name: ${entry}")
+    endif()
+    if(name STREQUAL "errno")
+      set(name __llvm_libc_errno)
+    endif()
+    list(APPEND exports ${name})
+  endforeach()
+  list(REMOVE_DUPLICATES exports)
+  list(SORT exports)
+  set(script "{ global:\n")
+  foreach(name IN LISTS exports)
+    string(APPEND script "  ${name};\n")
+  endforeach()
+  string(APPEND script "local: *; };\n")
+  set(directory "${CMAKE_BINARY_DIR}/mmix-shared-libc")
+  get_filename_component(tool_directory "${CMAKE_C_COMPILER}" DIRECTORY)
+  set(nm "${tool_directory}/llvm-nm")
+  if(NOT EXISTS "${nm}")
+    message(FATAL_ERROR "MMIX shared libc requires llvm-nm beside Clang")
+  endif()
+  file(GENERATE OUTPUT "${directory}/exports.map" CONTENT "${script}")
+  file(GENERATE OUTPUT "${directory}/exports.txt" CONTENT "$<JOIN:${exports},\n>\n")
+  set(extra_objects
+    libc.src.__support.OSUtil.linux.mmix.dynamic_tls
+    libc.startup.linux.mmix.stack_guard)
+  set(objects)
+  foreach(object IN LISTS extra_objects)
+    list(APPEND objects $<TARGET_OBJECTS:${object}>)
+  endforeach()
+  # No CRT entry, host library search, interpreter code or duplicate state
+  # archive. Internal aliases bind locally; only selected C entrypoints escape.
+  add_custom_command(OUTPUT "${directory}/libc.so.1"
+    COMMAND ${CMAKE_LINKER} -m elf64mmix_linux -shared -soname libc.so.1
+      -z now -z relro --hash-style=both --eh-frame-hdr
+      --version-script=${directory}/exports.map
+      --whole-archive $<TARGET_FILE:libc> --no-whole-archive
+      ${objects} ${LIBC_MMIX_SHARED_BUILTINS}
+      -o "${directory}/libc.so.1"
+    COMMAND ${CMAKE_COMMAND} -DNM=${nm} -DIMAGE=${directory}/libc.so.1
+      -DOUTPUT=${directory}
+      -P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CheckSharedLibc.cmake
+    DEPENDS libc ${extra_objects} "${directory}/exports.map"
+      "${LIBC_MMIX_SHARED_BUILTINS}"
+      "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CheckSharedLibc.cmake"
+      "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/shared-unwind-imports.txt"
+    COMMAND_EXPAND_LISTS VERBATIM)
+  add_custom_target(mmix_libc_shared DEPENDS "${directory}/libc.so.1")
+endfunction()
+cmake_language(DEFER CALL mmix_configure_shared_libc)

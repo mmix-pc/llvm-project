@@ -1,0 +1,56 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+include(${LIBC_SOURCE}/cmake/caches/mmix-linux-shared.cmake)
+project(SharedLibcConfig NONE)
+include(${LIBC_SOURCE}/config/linux/mmix/RuntimeMode.cmake)
+mmix_check_runtime_mode()
+if(NOT mmix_runtime_tls_model STREQUAL "initial-exec")
+  message(FATAL_ERROR "shared runtime must use startup IE TLS")
+endif()
+if(CHECK_BUILTINS)
+  include(${LIBC_SOURCE}/config/linux/mmix/SharedLibc.cmake)
+endif()
+
+#--- check.py
+from pathlib import Path
+import subprocess
+import sys
+
+source, root = (Path(arg).resolve() for arg in sys.argv[1:])
+sysroot = root / "sysroot"
+for header in ("asm/unistd.h", "asm/unistd_64.h", "linux/errno.h"):
+    path = sysroot / "usr/include" / header
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+base = ["cmake", "-S", str(root), "-DLIBC_SOURCE=" + str(source),
+        "-DCMAKE_SYSROOT=" + str(sysroot), "-DLIBC_KERNEL_HEADERS=/usr/include"]
+cases = [([], None)]
+for option in ("CMAKE_POSITION_INDEPENDENT_CODE=OFF",
+               "LIBC_MMIX_BUILD_EXTENDED_PTHREAD=OFF",
+               "LIBC_MMIX_INSTALL_RUNTIME=ON",
+               "LIBC_MMIX_INSTALL_THREADED_RUNTIME=ON"):
+    cases.append((["-D" + option], "requires the PIC extended pthread build"))
+cases += [
+    (["-DLIBC_COMPILE_OPTIONS_DEFAULT=-fPIC;-ftls-model=local-exec;-fno-lto"],
+     "requires native initial-exec runtime providers"),
+    (["-DLIBC_COMPILE_OPTIONS_DEFAULT=-fPIC;-ftls-model=initial-exec"],
+     "requires native initial-exec runtime providers"),
+    (["-DLIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED"],
+     "requires PLATFORM storage and THREAD_LOCAL errno"),
+]
+for path in ("", "relative.a", str(root / "missing.a"), str(sysroot)):
+    cases.append((["-DCHECK_BUILTINS=ON", "-DLIBC_MMIX_SHARED_BUILTINS=" + path],
+                  "requires an explicit PIC builtins archive"))
+for index, (options, error) in enumerate(cases):
+    result = subprocess.run(base + ["-B", str(root / str(index))] + options,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True)
+    if error:
+        assert result.returncode and error in " ".join(result.stdout.split()), result.stdout
+    else:
+        assert result.returncode == 0, result.stdout

@@ -93,4 +93,6 @@ merge_relocatable_object(
 )
 
 add_custom_target(libc-startup)
-add_dependencies(libc-startup libc.startup.linux.mmix.crt1)
+if(NOT LIBC_MMIX_BUILD_SHARED_LIBC)
+  add_dependencies(libc-startup libc.startup.linux.mmix.crt1)
+endif()

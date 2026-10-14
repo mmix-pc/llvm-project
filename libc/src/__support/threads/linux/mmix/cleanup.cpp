@@ -165,7 +165,8 @@ __llvm_libc_mmix_thread_cleanup_push(MmixCleanupRecord *record,
 }
 
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
-extern "C" [[gnu::noinline, clang::disable_tail_calls]] void
+extern "C" [[gnu::visibility("default"), gnu::noinline,
+             clang::disable_tail_calls]] void
 __llvm_libc_mmix_thread_cleanup_push_cpp(MmixCleanupRecord *record,
                                         void (*callback)(void *), void *argument) {
   RegistrationMask mask;

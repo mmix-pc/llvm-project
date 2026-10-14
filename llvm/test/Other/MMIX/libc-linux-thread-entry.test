@@ -72,6 +72,14 @@ sections = output("llvm-readobj", "--sections", entry)
 assert ".note.GNU-stack" in sections and "SHF_TLS" not in sections
 assert ".init_array" not in sections
 
+# PIC uses a full-width relative literal, independent of shared runtime size.
+pic = root / "entry-pic.o"
+run(*common, "-fPIC", "-c", source, "-o", pic)
+pic_text = output("llvm-objdump", "-dr", pic)
+assert "PUSHGO r31, r255, 0x0" in pic_text, pic_text
+assert "R_MMIX_PC_64" in pic_text and "R_MMIX_PUSHJ_STUBBABLE" not in pic_text
+assert undefined(pic) == {"__llvm_libc_mmix_thread_start"}
+
 # Prove syscall values come from the selected UAPI, not private literals.
 alternate = root / "alternate.o"
 run(*common, "-D__NR_clone=321", "-D__NR_exit=322", "-c", source, "-o", alternate)

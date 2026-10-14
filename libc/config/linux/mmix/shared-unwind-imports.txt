@@ -1,0 +1,14 @@
+_Unwind_ForcedUnwind
+_Unwind_GetCFA
+_Unwind_GetGR
+_Unwind_GetRegionStart
+_Unwind_Resume
+_ZSt9terminatev
+__cxa_begin_catch
+__gxx_personality_v0
+unw_get_proc_info
+unw_get_reg
+unw_getcontext
+unw_init_local
+unw_is_signal_frame
+unw_step

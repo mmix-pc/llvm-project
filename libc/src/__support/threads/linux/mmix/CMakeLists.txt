@@ -60,7 +60,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       HDRS priority_protection_state.h
       DEPENDS .lifecycle .robust_mutex libc.src.__support.OSUtil.osutil
         libc.include.sys_syscall
-      COMPILE_OPTIONS -fno-lto -ftls-model=local-exec ${mmix_scheduling_options}
+      COMPILE_OPTIONS -fno-lto -ftls-model=${mmix_runtime_tls_model} ${mmix_scheduling_options}
     )
   endif()
   if(LIBC_MMIX_BUILD_PROTECT_MUTEX)
@@ -70,7 +70,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       HDRS protect_mutex.h priority_protection_state.h mutex_flags.h
       DEPENDS .priority_protection .lifecycle .robust_mutex libc.src.__support.OSUtil.osutil
         libc.include.sys_syscall
-      COMPILE_OPTIONS -fno-lto -ftls-model=local-exec
+      COMPILE_OPTIONS -fno-lto -ftls-model=${mmix_runtime_tls_model}
     )
   endif()
   if(LIBC_MMIX_BUILD_ROBUST_MUTEX)
@@ -84,7 +84,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       HDRS robust_mutex.h
       DEPENDS libc.src.__support.threads.raw_mutex
         libc.src.__support.OSUtil.osutil libc.include.sys_syscall
-      COMPILE_OPTIONS -fno-lto -ftls-model=local-exec ${mmix_pi_options}
+      COMPILE_OPTIONS -fno-lto -ftls-model=${mmix_runtime_tls_model} ${mmix_pi_options}
     )
     set(mmix_robust_dependency .robust_mutex)
     set(mmix_robust_options -DLIBC_MMIX_ROBUST_MUTEX)
