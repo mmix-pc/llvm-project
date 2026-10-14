@@ -1,4 +1,11 @@
 add_object_library(
+  tls_pointer
+  SRCS tls_pointer.cpp
+  DEPENDS libc.loader.linux.tls_allocation
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   continuation
   SRCS continuation.cpp
   DEPENDS libc.loader.linux.startup libc.loader.linux.io

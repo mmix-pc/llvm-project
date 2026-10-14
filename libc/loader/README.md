@@ -93,8 +93,8 @@ local template. TLS runtime records require aligned writable storage, matching
 symbol types and valid current-module forms. The interpreter remains no-TLS.
 `DynamicInfo::requires_tls()` includes PT_TLS, TLS symbols/records and
 DF_STATIC_TLS. Default startup symbol-scope admission still rejects these
-images. Explicit TLS relocation admits them for component validation; resolver
-and TP adoption are not yet wired into startup, so this does not enable TLS
+images. Explicit TLS relocation admits them for component validation; the
+resolver and TP adoption are not yet wired into startup, so this does not enable TLS
 execution.
 
 `dynamic_test.cpp` exercises sectionless synthetic inputs and malformed
@@ -140,6 +140,22 @@ Release is valid only before publication or after all users have drained.
 failures, cleanup retries and independent thread blocks on the host.
 `loader-tls-linked-test` checks relocation bytes in actual MMIX ELF inputs;
 neither test executes target programs or qualifies installed TLS support.
+
+`linux/tls_resolver.h` resolves a startup descriptor using the calling thread's
+TP and a relocated immutable registry. It validates module identity, offset,
+DTV capacity/generation and borrowed entry ownership, with no allocation.
+Malformed state takes the raw fatal path; trusted runtime pointers must remain
+readable. One-past address formation does not authorize a dereference.
+
+The separate libc `OSUtil/linux/mmix/dynamic_tls` object owns the public
+`__tls_get_addr` symbol and hidden `__llvm_libc_tls_get_addr` alias. Its service
+is adopted once before thread publication; no concurrent replacement is
+supported. The interpreter does not export this application symbol. The object
+is not yet selected into a shared libc or activated by production startup.
+The native resolver test substitutes TP and syscall/fatal adapters,
+renaming the public symbol to avoid interposing the host loader. The target
+harness uses real MMIX TP reads and two manually switched TLS contexts in
+TLS-free code; it is not a shared-runtime or SMP integration test.
 
 ## Dependency Mappings
 

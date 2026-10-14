@@ -1,4 +1,18 @@
 add_object_library(
+  dynamic_tls
+  SRCS dynamic_tls.cpp dynamic_tls_fatal.cpp
+  HDRS dynamic_tls.h
+  DEPENDS .syscall libc.src.__support.OSUtil.linux.loader_services
+    libc.include.sys_syscall
+  COMPILE_OPTIONS -ffreestanding -fno-builtin -fPIC -fvisibility=hidden
+    -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-stack-protector
+    -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-lto
+    -fno-sanitize=all -fno-profile-instr-generate -fno-profile-generate
+    -fno-profile-arcs -fno-test-coverage -fno-coverage-mapping
+    -Werror=global-constructors -Werror=exit-time-destructors
+)
+
+add_object_library(
   syscall_asm
   SRCS
     syscall.S

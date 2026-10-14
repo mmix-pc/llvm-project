@@ -16,6 +16,16 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
+struct TLSIndex {
+  uint64_t module_id;
+  uint64_t offset;
+};
+
+struct StartupTLSResolver {
+  void *context;
+  void *(*resolve)(void *, const TLSIndex *);
+};
+
 struct StartupTLSModule {
   uint64_t module_id;
   uint64_t generation;

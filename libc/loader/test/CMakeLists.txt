@@ -7,7 +7,23 @@ if(CMAKE_CROSSCOMPILING OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
   message(FATAL_ERROR "Loader host tests require a native Linux Clang compiler")
 endif()
 enable_testing()
+find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
+add_executable(loader-tls-resolver-test tls_resolver_test.cpp
+  ../linux/tls_resolver.cpp ../linux/tls_allocation.cpp ../linux/tls_layout.cpp
+  ../linux/relocation.cpp ../linux/symbols.cpp ../linux/dynamic.cpp
+  ../linux/elf.cpp ../linux/mmix/target.cpp ../linux/io.cpp
+  ../../src/__support/OSUtil/linux/mmix/dynamic_tls.cpp)
+target_include_directories(loader-tls-resolver-test PRIVATE ../..)
+# Do not interpose the host dynamic linker's TLS entry point.
+target_compile_definitions(loader-tls-resolver-test PRIVATE
+  LIBC_NAMESPACE=__llvm_libc __tls_get_addr=mmix_test_tls_get_addr)
+target_compile_options(loader-tls-resolver-test PRIVATE -fno-pie)
+target_link_options(loader-tls-resolver-test PRIVATE -no-pie)
+target_link_libraries(loader-tls-resolver-test PRIVATE Threads::Threads)
+target_compile_features(loader-tls-resolver-test PRIVATE cxx_std_17)
+add_test(NAME loader-tls-resolver COMMAND loader-tls-resolver-test)
+set_tests_properties(loader-tls-resolver PROPERTIES TIMEOUT 30)
 add_executable(loader-target-test target_test.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-target-test PRIVATE ../..)
 target_compile_definitions(loader-target-test PRIVATE LIBC_NAMESPACE=__llvm_libc)

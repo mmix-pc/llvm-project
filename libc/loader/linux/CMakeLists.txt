@@ -1,6 +1,14 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  tls_resolver
+  SRCS tls_resolver.cpp
+  HDRS tls_resolver.h
+  DEPENDS .tls_allocation .io .mmix.tls_pointer
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   tls_allocation
   SRCS tls_allocation.cpp
   HDRS tls_allocation.h
