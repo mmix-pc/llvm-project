@@ -1,0 +1,94 @@
+//===-- Post-TP shared libc adoption --------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#include "hdr/errno_macros.h"
+#include "libunwind/src/mmix/StartupImages.h"
+#include "shared_startup.h"
+#include "src/__support/OSUtil/linux/auxv.h"
+#include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
+#include "src/errno/program_invocation_name.h"
+#include "src/errno/program_invocation_short_name.h"
+#include "src/unistd/environ.h"
+
+extern "C" __attribute__((visibility("hidden"))) void
+__llvm_libc_mmix_linux_init_guard(const unsigned char *);
+
+namespace LIBC_NAMESPACE_DECL {
+AppProperties app;
+namespace mmix {
+static loader::LoaderServices services;
+static bool attempted;
+
+static long find_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
+  if (!out)
+    return EINVAL;
+  loader::UnwindImageView view{};
+  long error = services.find_unwind_image(services.context, pc, &view);
+  if (!error)
+    *out = {view.load_bias,
+            view.phdr_address,
+            view.phdr_count,
+            view.eh_frame_header,
+            view.eh_frame_header_size,
+            view.readable_ranges,
+            view.range_count,
+            view.token};
+  return error;
+}
+static void release_image(void *, uintptr_t token) {
+  services.release_unwind_image(services.context, token);
+}
+
+long adopt_shared_main(const loader::StartupProcessView *process,
+                       const loader::LoaderServices *input, void *state,
+                       const loader::ThreadTLSAllocation *tls) {
+  if (attempted || !process || !input || state != &shared_main || !tls ||
+      input->size != sizeof(services) || !input->context || !input->tls_set ||
+      !input->prepare_thread_tls || !input->release_thread_tls ||
+      !input->resolve_startup_tls || !input->find_unwind_image ||
+      !input->release_unwind_image || !tls->tp ||
+      reinterpret_cast<uintptr_t>(__builtin_thread_pointer()) != tls->tp ||
+      reinterpret_cast<const uintptr_t *>(tls->tp)[1] !=
+          reinterpret_cast<uintptr_t>(state))
+    return EINVAL;
+  attempted = true;
+  __builtin_memcpy_inline(&services, input, sizeof(services));
+  if (!adopt_startup_tls_resolver(
+          {services.context, services.resolve_startup_tls}))
+    return EINVAL;
+  __llvm_libc_mmix_linux_init_guard(
+      reinterpret_cast<const unsigned char *>(process->random));
+  app.args = reinterpret_cast<Args *>(process->original_sp);
+  app.env_ptr = reinterpret_cast<uintptr_t *>(process->envp);
+  app.page_size = process->page_size;
+  // A dynamic module set is not a static executable TLS template.
+  app.tls = {};
+  auxv::Vector::initialize_unsafe(
+      reinterpret_cast<const auxv::Entry *>(process->auxv));
+  environ = reinterpret_cast<char **>(process->envp);
+  if (process->argc) {
+    program_invocation_name = reinterpret_cast<char **>(process->argv)[0];
+    program_invocation_short_name = program_invocation_name;
+    for (char *p = program_invocation_name; *p; ++p)
+      if (*p == '/')
+        program_invocation_short_name = p + 1;
+  }
+  shared_main.tls = {tls->tls_mapping_size, tls->tls_mapping_base, tls->tp};
+  shared_main.attributes.tls = tls->tls_mapping_base;
+  shared_main.attributes.tls_size = tls->tls_mapping_size;
+  shared_main.attributes.platform_data = &shared_main.clear_tid.value.val;
+  if (!internal::activate_main_thread(shared_main))
+    return EINVAL;
+  MMIXStartupUnwindService unwind{sizeof(unwind), 1, &services, find_image,
+                                  release_image};
+  if (!__libunwind_mmix_adopt_startup_images(&unwind))
+    return EINVAL;
+  return 0;
+}
+} // namespace mmix
+} // namespace LIBC_NAMESPACE_DECL

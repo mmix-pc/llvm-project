@@ -1,4 +1,22 @@
 # Bootstrap providers remain native and unprotected; runtime code is protected.
+if(LIBC_MMIX_BUILD_SHARED_LIBC)
+  foreach(phase prepare adopt)
+    add_startup_object(
+      shared_${phase}
+      SRC shared_${phase}.cpp
+      DEPENDS libc.src.__support.threads.linux.mmix.main_thread
+        libc.src.__support.OSUtil.linux.mmix.dynamic_tls
+        libc.src.__support.OSUtil.linux.auxv
+        libc.include.sys_syscall
+      COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector -fno-lto
+        -fno-exceptions -fno-sanitize=all -ftrivial-auto-var-init=uninitialized
+        -fno-profile-instr-generate -fno-profile-generate -fno-profile-arcs
+        -fno-test-coverage -fno-coverage-mapping
+    )
+    target_include_directories(libc.startup.linux.mmix.shared_${phase}
+      PRIVATE ${LIBC_SOURCE_DIR}/..)
+  endforeach()
+endif()
 if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()

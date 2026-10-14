@@ -46,6 +46,9 @@ cases += [
 for path in ("", "relative.a", str(root / "missing.a"), str(sysroot)):
     cases.append((["-DCHECK_BUILTINS=ON", "-DLIBC_MMIX_SHARED_BUILTINS=" + path],
                   "requires an explicit PIC builtins archive"))
+for flag in ("-pg", "-finstrument-functions", "-finstrument-functions-after-inlining"):
+    cases.append((["-DCHECK_BUILTINS=ON", "-DCMAKE_CXX_FLAGS=" + flag],
+                  "shared startup does not support function instrumentation"))
 for index, (options, error) in enumerate(cases):
     result = subprocess.run(base + ["-B", str(root / str(index))] + options,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

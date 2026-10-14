@@ -16,6 +16,7 @@ using namespace LIBC_NAMESPACE::loader;
 // Keep main metadata, graph and initializer completion state alive at handoff.
 alignas(Startup) static unsigned char state[sizeof(Startup)];
 static bool entered;
+static Startup *startup;
 
 extern "C" __attribute__((visibility("hidden"))) Address
 __llvm_libc_loader_after_relocation(const InitialStack *stack,
@@ -23,16 +24,26 @@ __llvm_libc_loader_after_relocation(const InitialStack *stack,
   if (entered || !stack || !self || !bootstrap)
     fatal_startup();
   entered = true;
-  auto *startup = new (state) Startup(stack->value(AuxField::Pagesz));
+  startup = new (state) Startup(stack->value(AuxField::Pagesz));
   // The self view is no longer needed after preparation. Finish all fallible
   // temporary releases before invoking any newly loaded code.
   if (startup->prepare(*stack, *self).error || bootstrap->reset() ||
-      startup->run()) {
+      startup->prepare_runtime()) {
     startup->reset();
     bootstrap->reset();
     fatal_startup();
   }
-  // FIXME: Adopt this private state through libc services when shared libc/TLS
-  // is supported. The freestanding entry currently receives no service ABI.
   return startup->entry();
+}
+
+extern "C" __attribute__((visibility("hidden"))) Address
+__llvm_libc_loader_main_tp() {
+  return startup->thread_pointer();
+}
+
+// Called in a new activation after the assembly root has installed TP.
+extern "C" __attribute__((visibility("hidden"))) void
+__llvm_libc_loader_after_tls() {
+  if ((startup->thread_pointer() && startup->adopt_runtime()) || startup->run())
+    fatal_startup();
 }

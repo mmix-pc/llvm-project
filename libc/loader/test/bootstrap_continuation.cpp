@@ -11,6 +11,12 @@
 
 using namespace LIBC_NAMESPACE::loader;
 
+// Test-only no-TLS transition. Production adoption is validated separately.
+extern "C" __attribute__((visibility("hidden"))) Address
+__llvm_libc_loader_main_tp() { return 0; }
+extern "C" __attribute__((visibility("hidden"))) void
+__llvm_libc_loader_after_tls() {}
+
 // The fixture needs an actual dynamic relocation, read only after bootstrap.
 // It is not a replacement for dependency loading or process startup.
 extern "C" {

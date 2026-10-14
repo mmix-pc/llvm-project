@@ -2,9 +2,17 @@ if(NOT LIBC_MMIX_BUILD_SHARED_LIBC)
   return()
 endif()
 mmix_check_runtime_mode()
+foreach(flags CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+    CMAKE_CXX_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_MINSIZEREL
+    LIBC_COMPILE_OPTIONS_DEFAULT)
+  if("${${flags}}" MATCHES "(^|[ ;])(-pg|-finstrument-functions[^ ;]*)([ ;]|$)")
+    message(FATAL_ERROR "MMIX shared startup does not support function instrumentation")
+  endif()
+endforeach()
 # Public ABI aliases escape the hidden implementation namespace. Keep the
 # declarations consistent in definitions and referencing translation units.
 add_compile_definitions(
+  LIBC_MMIX_SHARED_STARTUP
   "LLVM_LIBC_FUNCTION_ATTR=__attribute__((visibility(\"default\")))"
   "LLVM_LIBC_VARIABLE_ATTR=__attribute__((visibility(\"default\")))")
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-include>"
@@ -18,7 +26,7 @@ endif()
 
 # Run after the normal threaded archive has acquired its support objects.
 function(mmix_configure_shared_libc)
-  set(exports __tls_get_addr __stack_chk_guard __stack_chk_fail
+  set(exports __llvm_libc_loader_bootstrap __tls_get_addr __stack_chk_guard __stack_chk_fail
     __cxa_atexit __cxa_finalize __cxa_thread_atexit_impl
     __llvm_libc_mmix_thread_cleanup_push __llvm_libc_mmix_thread_cleanup_pop
     __llvm_libc_mmix_thread_cleanup_push_cpp)
@@ -49,6 +57,8 @@ function(mmix_configure_shared_libc)
   file(GENERATE OUTPUT "${directory}/exports.txt" CONTENT "$<JOIN:${exports},\n>\n")
   set(extra_objects
     libc.src.__support.OSUtil.linux.mmix.dynamic_tls
+    libc.startup.linux.mmix.shared_prepare
+    libc.startup.linux.mmix.shared_adopt
     libc.startup.linux.mmix.stack_guard)
   set(objects)
   foreach(object IN LISTS extra_objects)
@@ -70,7 +80,7 @@ function(mmix_configure_shared_libc)
     COMMAND ${CMAKE_COMMAND} -DNM=${nm} -DIMAGE=${directory}/libc.so.1
       -DOUTPUT=${directory}
       -P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CheckSharedLibc.cmake
-    DEPENDS libc ${extra_objects} "${directory}/exports.map"
+    DEPENDS libc ${extra_objects} ${objects} "${directory}/exports.map"
       "${LIBC_MMIX_SHARED_BUILTINS}"
       "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CheckSharedLibc.cmake"
       "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/shared-unwind-imports.txt"

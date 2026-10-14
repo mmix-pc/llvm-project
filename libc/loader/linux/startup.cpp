@@ -211,7 +211,7 @@ MapResult Startup::prepare(const InitialStack &input, const ElfImage &self) {
 }
 
 long Startup::run(StartupInitializers::Invoker invoke) {
-  if (!prepared || running)
+  if (!prepared || running || (runtime.tp() && !runtime.is_active()))
     return -EINVAL;
   running = true;
   callbacks_started = true;
@@ -224,7 +224,10 @@ long Startup::reset() {
   if (running || unwind_images.is_published())
     return -EBUSY;
   prepared = false;
-  long error = graph.reset();
+  long error = runtime.reset();
+  if (error)
+    return error;
+  error = graph.reset();
   return error ? error : arena.reset();
 }
 

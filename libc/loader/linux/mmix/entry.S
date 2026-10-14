@@ -12,6 +12,8 @@
   .hidden _start
   .type _start,@function
   .hidden __llvm_libc_loader_bootstrap
+  .hidden __llvm_libc_loader_main_tp
+  .hidden __llvm_libc_loader_after_tls
 _start:
 .Lentry:
   // r0 survives the bootstrap call in the root register window. Never return
@@ -20,9 +22,15 @@ _start:
   OR r231,r254,0
   GETAB r232,.Lentry
   PUSHJ r31,__llvm_libc_loader_bootstrap
-  // Bootstrap returns the validated main entry after all of its windows have
-  // unwound. The freestanding profile leaves TP and rG unchanged; it does not
-  // install TLS or claim shared-libc adoption.
+  OR r1,r231,0
+  PUSHJ r31,__llvm_libc_loader_main_tp
+  // All pre-TP compiled activations have returned. Preserve the no-TLS path
+  // and enter libc/constructors only through a fresh post-TP activation.
+  BZ r231,.Lno_tls
+  OR r230,r231,0
+.Lno_tls:
+  PUSHJ r31,__llvm_libc_loader_after_tls
+  OR r231,r1,0
   OR r254,r0,0
   PUT rL,0
   GO r255,r231,0

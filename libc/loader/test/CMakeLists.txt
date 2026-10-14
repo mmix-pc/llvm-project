@@ -163,6 +163,7 @@ set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
 
 add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
   ../linux/tls_layout.cpp
+  ../linux/runtime.cpp ../linux/tls_allocation.cpp ../linux/tls_resolver.cpp
   ../linux/startup.cpp ../linux/entry.cpp ../linux/unwind_images.cpp
   ../linux/initialization.cpp ../linux/relocation.cpp ../linux/protection.cpp ../linux/symbols.cpp ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
   ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)

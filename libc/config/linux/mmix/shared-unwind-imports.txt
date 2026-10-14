@@ -6,6 +6,7 @@ _Unwind_Resume
 _ZSt9terminatev
 __cxa_begin_catch
 __gxx_personality_v0
+__libunwind_mmix_adopt_startup_images
 unw_get_proc_info
 unw_get_reg
 unw_getcontext

@@ -11,6 +11,7 @@
 
 #include "loader/linux/initialization.h"
 #include "loader/linux/unwind_images.h"
+#include "loader/linux/runtime.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
@@ -24,6 +25,7 @@ class Startup {
   StartupGraph graph;
   StartupInitializers initializers;
   StartupUnwindImages unwind_images;
+  StartupRuntime runtime;
   InitialStack stack;
   long cleanup_error = 0;
   bool started = false, prepared = false, running = false;
@@ -38,6 +40,9 @@ public:
   // address/layout validation, not fault recovery from arbitrary host pointers.
   MapResult prepare(const InitialStack &input, const ElfImage &self);
   long run(StartupInitializers::Invoker invoke = nullptr);
+  long prepare_runtime() { return runtime.prepare(graph, stack, unwind_images); }
+  Address thread_pointer() const { return runtime.tp(); }
+  long adopt_runtime() { return runtime.adopt(); }
   Address entry() const { return prepared ? stack.value(AuxField::Entry) : 0; }
   StartupUnwindImages *unwind_registry() {
     if (!prepared)

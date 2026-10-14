@@ -85,6 +85,34 @@ struct StartupDTVEntry {
   uint64_t allocation_extent;
 };
 
+struct StartupProcessView {
+  uint64_t original_sp, argc, argv, envp, auxv, page_size, random, entry;
+};
+
+struct LoaderServices {
+  uint64_t size;
+  void *context;
+  const StartupTLSSet *tls_set;
+  long (*prepare_thread_tls)(void *, void *, ThreadTLSAllocation *);
+  long (*release_thread_tls)(void *, ThreadTLSAllocation *);
+  void *(*resolve_startup_tls)(void *, const TLSIndex *);
+  // Null until startup finalization is integrated; never a successful no-op.
+  void (*finalize_startup)(void *);
+  long (*find_unwind_image)(void *, uintptr_t, UnwindImageView *);
+  void (*release_unwind_image)(void *, uintptr_t);
+};
+
+struct LibcBootstrap {
+  uint64_t size;
+  long (*prepare_main)(const StartupProcessView *, void **);
+  long (*adopt_main)(const StartupProcessView *, const LoaderServices *, void *,
+                     const ThreadTLSAllocation *);
+  void (*abandon_main)(void *);
+};
+static_assert(sizeof(StartupProcessView) == 64);
+static_assert(sizeof(LoaderServices) == 72);
+static_assert(sizeof(LibcBootstrap) == 32);
+
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL
 #endif

@@ -11,6 +11,7 @@
 #define LLVM_LIBC_LOADER_LINUX_GRAPH_H
 
 #include "loader/linux/search.h"
+#include "loader/linux/relocation.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
@@ -58,6 +59,8 @@ private:
   bool storage_owned = false, ready = false, relocated = false,
        protected_images = false, initializing = false, initialized = false;
   size_t count = 0;
+  StartupTLSSet tls_set{};
+  RelocatedTLS tls_ready;
   Node *make_node(long &error);
   long set_path(Node &node, Bytes path);
   static SearchObject search_object(const Node &node);
@@ -89,6 +92,7 @@ public:
   // storage alive for retry; all node/edge views are invalid after reset.
   long reset();
   MapResult relocate();
+  const RelocatedTLS &relocated_tls() const { return tls_ready; }
   // Requires successful relocate(). Failure invalidates the graph and
   // resets owned DSOs, never the borrowed main; cleanup errors remain visible.
   MapResult finalize_protections();

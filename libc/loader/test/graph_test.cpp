@@ -129,6 +129,7 @@ static Allocation *owner(Address address, Address size) {
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
+Address current_thread_pointer() { return 0; }
 long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
   ++calls;
   if (number == SYS_close) {
@@ -372,6 +373,9 @@ static int startup_tests() {
   files[0].path = "/unavailable/proc/self/exe";
   Startup no_proc(page);
   CHECK(!no_proc.prepare(arguments, self).error);
+  CHECK(!no_proc.prepare_runtime() && !no_proc.thread_pointer());
+  CHECK(no_proc.prepare_runtime() == -EINVAL);
+  CHECK(no_proc.adopt_runtime() == -EINVAL);
   CHECK(!no_proc.run(record_startup) && trace_count == 4);
   CHECK(!no_proc.reset() && !live() && !fd_live && !opens);
   trace_count = 0;

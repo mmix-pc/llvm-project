@@ -91,6 +91,11 @@ static long await_startup(ThreadControl &control) {
 static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
                                                ThreadAttributes *&output,
                                                bool helper) {
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  // FIXME: Adopt loader-owned worker TLS/DTV lifetime before allowing clone.
+  // The static executable template cannot describe a shared module set.
+  return {-ENOTSUP};
+#endif
   ThreadPreparation input = request;
   uint64_t blocked = UINT64_MAX, saved_mask = 0;
   long ret = syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,

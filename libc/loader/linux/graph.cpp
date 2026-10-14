@@ -247,6 +247,7 @@ MapResult StartupGraph::relocate() {
     return {0, 0};
   void *storage;
   if (count > __SIZE_MAX__ / sizeof(SymbolObject) ||
+      count > __SIZE_MAX__ / sizeof(StartupTLSModule) ||
       count > __SIZE_MAX__ / sizeof(cpp::span<const WritableRegion>))
     return {-EOVERFLOW, reset()};
   long error = arena.allocate(count * sizeof(SymbolObject),
@@ -285,7 +286,23 @@ MapResult StartupGraph::relocate() {
     }
     new (writes + index) cpp::span<const WritableRegion>(regions, used);
   }
-  if (relocate_startup({objects, count}, {writes, count}).error !=
+  error = arena.allocate(count * sizeof(const ElfImage *),
+                         alignof(const ElfImage *), storage);
+  if (error)
+    return {error, reset()};
+  auto **images = static_cast<const ElfImage **>(storage);
+  for (size_t i = 0; i < count; ++i)
+    images[i] = objects[i].image;
+  error = arena.allocate(count * sizeof(StartupTLSModule),
+                         alignof(StartupTLSModule), storage);
+  if (error)
+    return {error, reset()};
+  if (plan_startup_tls({images, count},
+                       {static_cast<StartupTLSModule *>(storage), count},
+                       tls_set) != TLSLayoutError::None)
+    return {-ENOEXEC, reset()};
+  if (relocate_startup_tls({objects, count}, {writes, count}, tls_set,
+                           tls_ready).error !=
       StartupRelocationError::None)
     return {-ENOEXEC, reset()};
   relocated = true;
@@ -319,6 +336,8 @@ long StartupGraph::reset() {
   if (initializing)
     return -EBUSY;
   initialized = relocated = false;
+  tls_ready = {};
+  tls_set = {};
   protected_images = false;
   ready = false;
   long error = 0;
