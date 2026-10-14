@@ -1,0 +1,31 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, work = map(pathlib.Path, sys.argv[1:])
+for level in ("O0", "O2"):
+    obj = work / (level + ".o")
+    subprocess.run(["clang", "--no-default-config", "--target=mmix-unknown-linux",
+        "-" + level, "-ffreestanding", "-fno-builtin", "-fno-stack-protector",
+        "-fPIC", "-funwind-tables", "-c",
+        str(libc / "startup/linux/mmix/dynamic_start.cpp"), "-o", str(obj)], check=True)
+    def output(*args):
+        return subprocess.check_output([*args, str(obj)], text=True)
+    undefined = set(output("llvm-nm", "--undefined-only", "--format=just-symbols").split())
+    assert undefined == {"main", "__llvm_libc_mmix_dynamic_start"}, undefined
+    defined = set(output("llvm-nm", "--defined-only", "--format=just-symbols").split())
+    assert defined == {"_start", "__llvm_libc_mmix_dynamic_entry"}, defined
+    disassembly = output("llvm-objdump", "-d", "--no-print-imm-hex")
+    assert "OR r231, r254, 0" in disassembly, disassembly
+    assert "TRAP 255, 0, 0" in disassembly, disassembly
+    # Startup must neither replace TP nor embed static constructor/TLS state.
+    assert "r230" not in disassembly, disassembly
+    sections = output("llvm-readobj", "--sections")
+    assert ".eh_frame" in sections, sections
+    for name in (".init_array", ".fini_array", ".preinit_array", ".tdata", ".tbss"):
+        assert name not in sections, sections

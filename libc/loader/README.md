@@ -419,6 +419,18 @@ Supplied stack and mapped spans must already be readable. These helpers do not
 probe arbitrary addresses or recover from a corrupt kernel pointer. Their host
 tests and entry-object inspection do not qualify kernel entry or main transfer.
 
+## MMIX Dynamic C Entry
+
+MMIX shared-libc builds provide a separate PIC `Scrt1.o` through the
+`mmix_dynamic_crt` target. Both dynamic ET_EXEC and PIE can select this object
+explicitly. It enters from the restored initial SP without changing TP, then
+calls the protected libc-owned `__llvm_libc_mmix_dynamic_start` bridge with
+the executable's `main`. The bridge checks adopted main-thread state,
+establishes its unwind root, and routes return from `main` through `exit`.
+Neither CRT nor bridge repeats loader initialization or fini registration.
+The static `crt1.o` and its initialization path are unchanged. This explicit
+object is not automatically selected or installed with the interpreter.
+
 ## Resident Unwind Images
 
 `linux/unwind_images.h` prepares an immutable main-first registry after

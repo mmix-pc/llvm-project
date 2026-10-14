@@ -1,5 +1,28 @@
 # Bootstrap providers remain native and unprotected; runtime code is protected.
 if(LIBC_MMIX_BUILD_SHARED_LIBC)
+  add_startup_object(
+    dynamic_start
+    SRC dynamic_start.cpp
+    COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector -fno-lto
+      -fPIC -funwind-tables
+  )
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/Scrt1.o
+    COMMAND ${CMAKE_COMMAND} -E copy
+      $<TARGET_OBJECTS:libc.startup.linux.mmix.dynamic_start>
+      ${CMAKE_CURRENT_BINARY_DIR}/Scrt1.o
+    DEPENDS libc.startup.linux.mmix.dynamic_start
+      $<TARGET_OBJECTS:libc.startup.linux.mmix.dynamic_start>
+    COMMAND_EXPAND_LISTS VERBATIM)
+  add_custom_target(mmix_dynamic_crt
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Scrt1.o)
+  add_startup_object(
+    shared_run
+    SRC shared_run.cpp
+    DEPENDS libc.config.app_h
+      libc.src.__support.threads.linux.mmix.main_thread
+      libc.src.stdlib.exit
+    COMPILE_OPTIONS -ffreestanding -fno-builtin -funwind-tables
+  )
   foreach(phase prepare adopt)
     add_startup_object(
       shared_${phase}
@@ -114,4 +137,6 @@ merge_relocatable_object(
 add_custom_target(libc-startup)
 if(NOT LIBC_MMIX_BUILD_SHARED_LIBC)
   add_dependencies(libc-startup libc.startup.linux.mmix.crt1)
+else()
+  add_dependencies(libc-startup mmix_dynamic_crt)
 endif()

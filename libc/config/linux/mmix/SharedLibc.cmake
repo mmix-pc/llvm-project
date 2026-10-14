@@ -26,7 +26,8 @@ endif()
 
 # Run after the normal threaded archive has acquired its support objects.
 function(mmix_configure_shared_libc)
-  set(exports __llvm_libc_loader_bootstrap __tls_get_addr __stack_chk_guard __stack_chk_fail
+  set(exports __llvm_libc_loader_bootstrap __llvm_libc_mmix_dynamic_start
+    __tls_get_addr __stack_chk_guard __stack_chk_fail
     __cxa_atexit __cxa_finalize __cxa_thread_atexit_impl
     __llvm_libc_mmix_thread_cleanup_push __llvm_libc_mmix_thread_cleanup_pop
     __llvm_libc_mmix_thread_cleanup_push_cpp)
@@ -59,6 +60,7 @@ function(mmix_configure_shared_libc)
     libc.src.__support.OSUtil.linux.mmix.dynamic_tls
     libc.startup.linux.mmix.shared_prepare
     libc.startup.linux.mmix.shared_adopt
+    libc.startup.linux.mmix.shared_run
     libc.startup.linux.mmix.stack_guard)
   set(objects)
   foreach(object IN LISTS extra_objects)
