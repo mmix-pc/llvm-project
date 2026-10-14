@@ -104,6 +104,22 @@ and relocation tables; its optional `shared` argument selects the DSO fixture.
 arguments select real linked TLS DSOs for sectionless parsing and malformed
 PT_TLS checks on the host.
 
+## Startup TLS Layout
+
+`linux/tls_layout.h` plans an immutable main-first startup scope into
+caller-owned `StartupTLSModule` storage. Main always receives ID 1, even without
+TLS; subsequent IDs follow the deduplicated dependency discovery order.
+Alignment residues determine minimal TP-relative offsets, with checked extent
+and alignment-slack arithmetic. Empty images retain IDs without authorizing
+access to an object. The whole scope is checked before descriptor writes.
+The private shared declarations live in
+`src/__support/OSUtil/linux/loader_services.h`.
+
+Planning neither allocates nor publishes TLS. A planned template address names
+runtime image storage; it cannot be copied until relocations finish. Actual
+thread mappings, DTV creation, TP adoption and late-loading policy are separate.
+`loader-tls-layout-test` checks geometry, scope errors and failure atomicity.
+
 ## Dependency Mappings
 
 `linux/mapping.h` owns one DSO transaction for an exact pathname. It stages the

@@ -58,6 +58,9 @@ bool is_tls_module_relocation(Elf64_Xword info) {
   return static_cast<Elf64_Word>(info) == 44;
 }
 
+Elf64_Xword startup_tls_header_size() { return 16; }
+Elf64_Xword startup_tls_min_alignment() { return 8; }
+
 bool runtime_relocation_value(Elf64_Xword info, Elf64_Addr base,
                               Elf64_Xword addend, Elf64_Addr &out) {
   if (!is_supported_dynamic_relocation(info) || is_tls_relocation(info))

@@ -87,6 +87,15 @@ target_compile_features(loader-tls-test PRIVATE cxx_std_17)
 add_test(NAME loader-tls COMMAND loader-tls-test)
 set_tests_properties(loader-tls PROPERTIES TIMEOUT 30)
 
+add_executable(loader-tls-layout-test tls_layout_test.cpp ../linux/tls_layout.cpp
+  ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-tls-layout-test PRIVATE ../..)
+target_compile_definitions(loader-tls-layout-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-tls-layout-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-tls-layout-test PRIVATE cxx_std_17)
+add_test(NAME loader-tls-layout COMMAND loader-tls-layout-test)
+set_tests_properties(loader-tls-layout PROPERTIES TIMEOUT 30)
+
 add_executable(loader-mapping-test mapping_test.cpp ../linux/mapping.cpp
   ../linux/io.cpp ../linux/arena.cpp ../linux/dynamic.cpp ../linux/elf.cpp
   ../linux/mmix/target.cpp)

@@ -10,6 +10,12 @@ endif()
 add_subdirectory(syscall_wrappers)
 add_subdirectory(stat)
 
+add_header_library(
+  loader_services
+  HDRS loader_services.h
+  DEPENDS libc.hdr.stdint_proxy libc.src.__support.macros.config
+)
+
 add_object_library(
   linux_util
   SRCS

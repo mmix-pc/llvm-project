@@ -1,6 +1,14 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  tls_layout
+  SRCS tls_layout.cpp
+  HDRS tls_layout.h
+  DEPENDS .elf .mmix.target libc.src.__support.OSUtil.linux.loader_services
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   startup
   SRCS startup.cpp
   HDRS startup.h
