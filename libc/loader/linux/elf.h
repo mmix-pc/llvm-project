@@ -34,6 +34,7 @@ enum class ElfError {
   Stack,
   Relro,
   Entry,
+  TLS,
 };
 
 // Regions are sorted, disjoint, readable storage owned by the caller. ELF
@@ -58,6 +59,8 @@ class ElfImage {
   Address bias = 0;
   bool mapped = false;
   bool admitted = false;
+  bool tls_present = false;
+  Elf64_Phdr tls;
   ImageRole image_role = ImageRole::SharedObject;
 
   Bytes mapped_bytes(Address address, Address size) const;
@@ -84,6 +87,9 @@ public:
     bias = other.bias;
     mapped = other.mapped;
     admitted = other.admitted;
+    tls_present = other.tls_present;
+    if (tls_present)
+      __builtin_memcpy_inline(&tls, &other.tls, sizeof(tls));
     image_role = other.image_role;
     return *this;
   }
@@ -110,6 +116,9 @@ public:
     return copy.validate(image_role, page_size);
   }
   ImageRole role() const { return image_role; }
+  const Elf64_Phdr *tls_header() const {
+    return admitted && tls_present ? &tls : nullptr;
+  }
   Address load_bias() const { return bias; }
   Address header_address() const { return header_vaddr; }
   Address table_address() const { return table_vaddr; }

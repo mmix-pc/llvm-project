@@ -121,8 +121,7 @@ extern "C" int main() {
   }
   SelfFixture tls;
   tls.put(ph(4), 4, PT_TLS);
-  CHECK(tls.open() == ElfError::None);
-  CHECK(tls.relocate() == RelocationError::Unsupported);
+  CHECK(tls.open() == ElfError::TLS);
   SelfFixture dependency;
   dependency.dynamic(3, DT_NEEDED, 0);
   CHECK(dependency.open() == ElfError::Dynamic);

@@ -334,7 +334,7 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
     if (!image.program_header(i, p))
       return DynamicError::Image;
     if (p.p_type == PT_TLS)
-      return DynamicError::Unsupported;
+      tls_required = true;
     if (p.p_type == PT_DYNAMIC) {
       dynamic = image.file_backed_bytes(p.p_vaddr, p.p_filesz);
       dynamic_address = p.p_vaddr;
@@ -376,7 +376,8 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
     return (seen & (Address(1) << slot(t))) != 0;
   };
   auto val = [this](DynamicTag t) { return values[slot(t)]; };
-  if ((val(DynamicTag::Flags) & ~Address(DF_BIND_NOW)) ||
+  tls_required |= (val(DynamicTag::Flags) & DF_STATIC_TLS) != 0;
+  if ((val(DynamicTag::Flags) & ~Address(DF_BIND_NOW | DF_STATIC_TLS)) ||
       (val(DynamicTag::Flags1) &
        ~Address(DF_1_NOW | DF_1_PIE | DF_1_NODELETE)) ||
       ((val(DynamicTag::Flags1) & DF_1_PIE) &&
@@ -413,8 +414,9 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
     if (!read_symbol(i, s) || !read_string(s.st_name, name))
       return DynamicError::Symbol;
     unsigned bind = s.st_info >> 4, type = s.st_info & 15;
-    if (bind > STB_WEAK || type > STT_FILE ||
-        (type >= STT_SECTION && bind != STB_LOCAL) ||
+    tls_required |= type == STT_TLS;
+    if (bind > STB_WEAK || type > STT_TLS || type == STT_COMMON ||
+        (type >= STT_SECTION && type != STT_TLS && bind != STB_LOCAL) ||
         s.st_other > STV_PROTECTED ||
         (s.st_shndx >= SHN_LORESERVE && s.st_shndx != SHN_ABS))
       return DynamicError::Unsupported;
@@ -424,6 +426,11 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
         return DynamicError::Symbol;
     } else if (s.st_shndx == SHN_UNDEF) {
       if (bind == STB_LOCAL || s.st_value)
+        return DynamicError::Symbol;
+    } else if (type == STT_TLS) {
+      const auto *tls = image.tls_header();
+      if (!tls || s.st_shndx == SHN_ABS || s.st_value > tls->p_memsz ||
+          s.st_size > tls->p_memsz - s.st_value)
         return DynamicError::Symbol;
     } else if (s.st_shndx != SHN_ABS) {
       Address ignored;
@@ -445,6 +452,8 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
         return DynamicError::Symbol;
     }
   }
+  if (tls_required && image.role() == ImageRole::Interpreter)
+    return DynamicError::Unsupported;
   bool any_rela = has(DynamicTag::Rela) || has(DynamicTag::Relasz) ||
                   has(DynamicTag::Relaent);
   if (any_rela) {
@@ -469,6 +478,22 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
         (i < val(DynamicTag::Relacount) && !is_relative_relocation(r.info)) ||
         !image.runtime_address(r.offset, 8, PF_R | PF_W, ignored))
       return DynamicError::Relocation;
+    bool tls_relocation = is_tls_relocation(r.info);
+    tls_required |= tls_relocation;
+    Elf64_Sym symbol;
+    (void)read_symbol(r.info >> 32, symbol);
+    if ((r.info >> 32) &&
+        (((symbol.st_info & 15) == STT_TLS) != tls_relocation))
+      return DynamicError::Relocation;
+    if (tls_relocation) {
+      if (r.offset % 8 || image.role() == ImageRole::Interpreter ||
+          (!(r.info >> 32) && !image.tls_header()) ||
+          (is_tls_module_relocation(r.info) && r.addend))
+        return DynamicError::Relocation;
+      const auto *tls = image.tls_header();
+      if (tls && overlaps(r.offset, tls->p_vaddr, tls->p_filesz))
+        return DynamicError::Relocation;
+    }
     if (overlaps(r.offset, image.header_address(), 64) ||
         overlaps(r.offset, image.table_address(),
                  Address(header->e_phnum) * 56) ||

@@ -263,6 +263,7 @@ ElfError ElfImage::open_mapped(cpp::span<const MappedRegion> mappings,
 }
 
 ElfError ElfImage::validate(ImageRole role, Address page_size) {
+  tls_present = false;
   if (!is_supported_target(ehdr) || !is_supported_page_size(page_size))
     return ElfError::Target;
   if (ehdr.e_type != (role == ImageRole::MainExecutable ? ET_EXEC : ET_DYN) ||
@@ -304,6 +305,26 @@ ElfError ElfImage::validate(ImageRole role, Address page_size) {
         previous_end = rounded_end;
         ++loads;
       }
+    } else if (p.p_type == PT_TLS) {
+      Address file_end, memory_end, runtime;
+      Address alignment = p.p_align ? p.p_align : 1;
+      if (tls_present || role == ImageRole::Interpreter ||
+          !(p.p_flags & PF_R) || (p.p_flags & ~(PF_R | PF_W)) ||
+          p.p_filesz > p.p_memsz || (alignment & (alignment - 1)) ||
+          alignment > (Address(-1) >> 1) ||
+          ((p.p_offset ^ p.p_vaddr) & (alignment - 1)) ||
+          !add(p.p_offset, p.p_filesz, file_end) ||
+          (!mapped && file_end > file.size()) ||
+          !add(p.p_vaddr, p.p_memsz, memory_end) ||
+          !add(bias, p.p_vaddr, runtime) ||
+          !is_user_range(runtime, p.p_memsz) ||
+          (p.p_filesz &&
+           (!coverage(p.p_vaddr, p.p_filesz, PF_R, true, p.p_offset, true) ||
+            (mapped && mapped_bytes(p.p_vaddr, p.p_filesz).size() !=
+                           p.p_filesz))))
+        return ElfError::TLS;
+      tls_present = true;
+      __builtin_memcpy_inline(&tls, &p, sizeof(p));
     } else if (p.p_type == PT_GNU_STACK) {
       if (++stacks != 1 || p.p_flags != (PF_R | PF_W))
         return ElfError::Stack;

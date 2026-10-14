@@ -23,6 +23,8 @@ bool is_user_range(Elf64_Addr address, Elf64_Xword size);
 bool is_aligned_entry(Elf64_Addr address);
 const char *interpreter_path();
 bool is_relative_relocation(Elf64_Xword info);
+bool is_tls_relocation(Elf64_Xword info);
+bool is_tls_module_relocation(Elf64_Xword info);
 bool is_supported_dynamic_relocation(Elf64_Xword info);
 bool runtime_relocation_value(Elf64_Xword info, Elf64_Addr base,
                               Elf64_Xword addend, Elf64_Addr &out);

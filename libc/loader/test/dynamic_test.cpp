@@ -214,7 +214,8 @@ extern "C" int main() {
   tls.put(ph(4), 4, PT_TLS);
   CHECK(ElfImage::open_file(tls.view(), ImageRole::SharedObject, bias, page,
                             image) == ElfError::None);
-  CHECK(DynamicInfo::open(image, info) == DynamicError::Unsupported);
+  CHECK(DynamicInfo::open(image, info) == DynamicError::None);
+  CHECK(info.requires_tls());
   DynamicFixture unterminated;
   unterminated.put(unterminated.at(DT_NULL), 8, DT_NEEDED);
   CHECK(ElfImage::open_file(unterminated.view(), ImageRole::SharedObject, bias,

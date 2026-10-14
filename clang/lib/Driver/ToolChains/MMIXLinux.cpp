@@ -259,7 +259,6 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
   RequireProvider(options::OPT_rtlib_EQ, "compiler-rt", true);
   RequireProvider(options::OPT_stdlib_EQ, "libc++", true);
   RequireProvider(options::OPT_fuse_ld_EQ, "lld");
-  RequireProvider(options::OPT_ftlsmodel_EQ, "local-exec");
   if (Args.hasFlag(options::OPT_femulated_tls, options::OPT_fno_emulated_tls,
                    false))
     Reject(Args.getLastArg(options::OPT_femulated_tls));
@@ -360,7 +359,8 @@ MMIXLinuxToolChain::GetUnwindLibType(const ArgList &Args) const {
 void MMIXLinuxToolChain::addClangTargetOptions(
     const ArgList &Args, ArgStringList &CC1Args, BoundArch,
     Action::OffloadKind) const {
-  if (!Args.hasArg(options::OPT_ftlsmodel_EQ))
+  if (!Args.hasArg(options::OPT_ftlsmodel_EQ) &&
+      std::get<0>(tools::ParsePICArgs(*this, Args)) == llvm::Reloc::Static)
     CC1Args.push_back("-ftls-model=local-exec");
   if (ThreadedCXX) {
     // C callbacks may be traversed by forced C++ cleanup, including under LTO.

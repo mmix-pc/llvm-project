@@ -1109,10 +1109,7 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
     auto *GA = cast<GlobalAddressSDNode>(Op);
     TLSModel::Model Model = TM.getTLSModel(GA->getGlobal());
     if (Model == TLSModel::LocalExec) {
-      if (TM.getRelocationModel() != Reloc::Static ||
-          F.getParent()->getPIELevel() != PIELevel::Default)
-        reportFatalUsageError(
-            "MMIX Linux local-exec TLS requires static non-PIE code");
+      // The linker verifies main-image ownership, including for PIC/PIE input.
       SDValue Target = DAG.getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64,
                                                 GA->getOffset());
       return SDValue(DAG.getMachineNode(MMIX::LOAD_TLS_ADDR, DL, MVT::i64, Target),

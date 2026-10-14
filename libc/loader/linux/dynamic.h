@@ -67,6 +67,7 @@ class DynamicInfo {
   Address seen = 0, needed_size = 0;
   Bytes dynamic, strings, symbols, relas, sysv, gnu, arrays[3];
   bool big = true, valid = false;
+  bool tls_required = false;
 
   void clear();
   DynamicError parse(const ElfImage &image);
@@ -84,6 +85,7 @@ public:
   bool has(DynamicTag tag) const {
     return valid && (seen & (Address(1) << static_cast<unsigned>(tag)));
   }
+  bool requires_tls() const { return valid && tls_required; }
   Address value(DynamicTag tag) const {
     return has(tag) ? values[static_cast<unsigned>(tag)] : 0;
   }

@@ -856,22 +856,8 @@ void MMIXTargetCodeGenInfo::setTargetAttributes(const Decl *D,
                                                  Message);
       CGM.getDiags().Report(VD->getLocation(), ID);
     };
-    // The driver supplies these defaults; direct cc1 callers must select them.
-    // Checking the module default also covers compiler-generated TLS guards.
-    if (Opts.getDefaultTLSModel() != CodeGenOptions::LocalExecTLSModel)
-      Diagnose("MMIX Linux supports only the local-exec TLS model");
     if (Opts.EmulatedTLS)
       Diagnose("MMIX Linux does not support emulated TLS");
-    if (Opts.RelocationModel != llvm::Reloc::Static ||
-        CGM.getLangOpts().PICLevel || CGM.getLangOpts().PIE)
-      Diagnose("MMIX Linux requires static non-PIE code");
-    if (const auto *Attr = VD->getAttr<TLSModelAttr>();
-        Attr && Attr->getModel() != "local-exec") {
-      unsigned ID = CGM.getDiags().getCustomDiagID(
-          DiagnosticsEngine::Error,
-          "MMIX Linux supports only the local-exec TLS model");
-      CGM.getDiags().Report(Attr->getLocation(), ID);
-    }
   }
 }
 

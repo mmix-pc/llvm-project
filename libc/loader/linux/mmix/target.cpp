@@ -42,12 +42,25 @@ bool is_supported_dynamic_relocation(Elf64_Xword info) {
     return true;
   // R_MMIX_64 and R_MMIX_GLOB_DAT require an ordinary dynamic symbol.
   Elf64_Word type = static_cast<Elf64_Word>(info);
+  if (type == 44 || type == 46) // DTPMOD64/TPOFF64 may name the current module.
+    return true;
+  if (type == 45) // DTPOFF64 requires an actual TLS symbol.
+    return (info >> 32) != 0;
   return (info >> 32) != 0 && (type == 5 || type == 42);
+}
+
+bool is_tls_relocation(Elf64_Xword info) {
+  Elf64_Word type = static_cast<Elf64_Word>(info);
+  return type >= 44 && type <= 46;
+}
+
+bool is_tls_module_relocation(Elf64_Xword info) {
+  return static_cast<Elf64_Word>(info) == 44;
 }
 
 bool runtime_relocation_value(Elf64_Xword info, Elf64_Addr base,
                               Elf64_Xword addend, Elf64_Addr &out) {
-  if (!is_supported_dynamic_relocation(info))
+  if (!is_supported_dynamic_relocation(info) || is_tls_relocation(info))
     return false;
   if (addend >> 63) {
     Elf64_Xword magnitude = ~addend + 1;

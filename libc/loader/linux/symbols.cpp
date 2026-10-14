@@ -19,7 +19,8 @@ SymbolError StartupSymbols::open(cpp::span<const SymbolObject> views,
     return SymbolError::Scope;
   for (const auto &view : views)
     if (!view.image || !view.image->header() || !view.metadata ||
-        !view.metadata->symbol_count())
+        !view.metadata->symbol_count() || view.metadata->requires_tls())
+      // FIXME: Enable TLS scopes only with layout, relocation and TP adoption.
       return SymbolError::Scope;
   out.objects = views;
   return SymbolError::None;

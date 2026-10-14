@@ -83,13 +83,26 @@ file-backed storage. Hash checks cover indexes, termination/cycles, bucket and
 name agreement, GNU bloom bits, reachable definitions and agreement when both
 formats are present. Contiguous readable loads can cover a table, while holes,
 BSS and bytes beyond a supplied mapped region cannot extend it. The parser
-rejects deferred TLS, version, IFUNC, GNU_UNIQUE, PLT and unknown semantics.
+rejects TLSDESC, version, IFUNC, GNU_UNIQUE, PLT and unknown semantics.
 It does not resolve symbols across images or call lifecycle functions.
+
+Main/DSO TLS admission preserves one checked PT_TLS header, including empty
+templates, alignment residue and file/memory extents. Defined TLS symbols are
+module-relative offsets bounded by that image; imported TLS symbols need no
+local template. TLS runtime records require aligned writable storage, matching
+symbol types and valid current-module forms. The interpreter remains no-TLS.
+`DynamicInfo::requires_tls()` includes PT_TLS, TLS symbols/records and
+DF_STATIC_TLS. Startup symbol-scope admission still rejects these images until
+layout, relocation and TP adoption are implemented; metadata admission does
+not enable TLS execution.
 
 `dynamic_test.cpp` exercises sectionless synthetic inputs and malformed
 metadata. `loader-linked-image-test` also parses actual linked fixtures with
 section metadata removed and rejects mutations of their hash, string, symbol
 and relocation tables; its optional `shared` argument selects the DSO fixture.
+`loader-tls-test` covers TLS metadata and activation rejection. Optional file
+arguments select real linked TLS DSOs for sectionless parsing and malformed
+PT_TLS checks on the host.
 
 ## Dependency Mappings
 

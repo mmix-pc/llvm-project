@@ -79,6 +79,14 @@ target_compile_features(loader-dynamic-test PRIVATE cxx_std_17)
 add_test(NAME loader-dynamic COMMAND loader-dynamic-test)
 set_tests_properties(loader-dynamic PROPERTIES TIMEOUT 30)
 
+add_executable(loader-tls-test tls_test.cpp ../linux/dynamic.cpp
+  ../linux/symbols.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-tls-test PRIVATE ../..)
+target_compile_definitions(loader-tls-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_features(loader-tls-test PRIVATE cxx_std_17)
+add_test(NAME loader-tls COMMAND loader-tls-test)
+set_tests_properties(loader-tls PROPERTIES TIMEOUT 30)
+
 add_executable(loader-mapping-test mapping_test.cpp ../linux/mapping.cpp
   ../linux/io.cpp ../linux/arena.cpp ../linux/dynamic.cpp ../linux/elf.cpp
   ../linux/mmix/target.cpp)
