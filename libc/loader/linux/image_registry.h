@@ -10,6 +10,7 @@
 #define LLVM_LIBC_LOADER_LINUX_IMAGE_REGISTRY_H
 
 #include "loader/linux/arena.h"
+#include "loader/linux/io.h"
 #include "loader/linux/tls_layout.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -32,6 +33,20 @@ public:
     ElfImage elf;
     StartupTLSModule tls;
     bool startup;
+    bool discovered = false, identity_known = false;
+    FileIdentity identity{};
+    Bytes path{};
+    const Image *parent = nullptr;
+    cpp::span<const Image *const> dependencies{};
+  };
+  // Indices refer to the complete candidate snapshot (old images first).
+  // Parent is the first-discovery ancestor, never a dependency back-edge.
+  struct Discovery {
+    bool identity_known = false;
+    FileIdentity identity{};
+    Bytes path{};
+    size_t parent = ~size_t(0);
+    cpp::span<const size_t> dependencies{};
   };
   struct Snapshot {
     uint64_t generation;
@@ -86,7 +101,10 @@ public:
   // The first batch is main-first startup order. Later batches contain new
   // shared images only; file-identity deduplication belongs to graph discovery.
   // Startup uses the existing layout planner; late records have no TP offset.
-  long prepare(Transaction &, cpp::span<const ElfImage *const> images);
+  // Optional discovery metadata is deep-copied, including cyclic dependency
+  // edges. Runtime graph discovery requires it for every resident image.
+  long prepare(Transaction &, cpp::span<const ElfImage *const> images,
+               cpp::span<const Discovery> discovery = {});
   long publish(Transaction &);
   const Snapshot *snapshot() const { return current; }
   // FIXME: Published descriptors and snapshots remain process-resident until

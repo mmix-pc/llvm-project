@@ -77,6 +77,33 @@ extern "C" int main() {
   Input main(ImageRole::MainPIE), initial, late, other, last;
   const ElfImage *startup[] = {&main.image, &initial.image};
   const ElfImage *batch[] = {&late.image};
+  {
+    ImageRegistry metadata(host_page);
+    ImageRegistry::Transaction transaction(host_page);
+    unsigned char path[] = {'/', 'a'};
+    size_t edges[1024] = {};
+    ImageRegistry::Discovery discovery[] = {
+        {true, {1, 1, 0}, {path, sizeof(path)}, ~size_t(0), edges},
+        {true, {2, 1, 0}, {}, 0, {}}};
+    unsigned before = mappings;
+    check(!metadata.prepare(transaction, startup, discovery));
+    unsigned required = mappings - before;
+    check(required > 1);
+    path[1] = 'b';
+    edges[0] = 1;
+    const auto *view = transaction.view();
+    check(view->images[0]->path[1] == 'a');
+    check(view->images[0]->dependencies[0] == view->images[0]);
+    check(view->images[1]->parent == view->images[0]);
+    check(!transaction.abort());
+    for (unsigned fail = 0; fail < required; ++fail) {
+      maps_before_failure = fail;
+      check(metadata.prepare(transaction, startup, discovery) == -ENOMEM);
+      check(!transaction.view() && !metadata.snapshot());
+      maps_before_failure = -1;
+      check(!transaction.abort() && mappings == unmappings);
+    }
+  }
   ImageRegistry registry(host_page);
   ImageRegistry::Transaction first(host_page);
   check(!registry.snapshot() && !first.view());

@@ -1,6 +1,15 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_graph
+  SRCS runtime_graph.cpp
+  HDRS runtime_graph.h
+  DEPENDS .image_registry .search .mapping .arena .mmix.syscall .mmix.target
+    libc.hdr.errno_macros libc.include.sys_syscall libc.src.__support.CPP.new
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   locks
   SRCS locks.cpp
   HDRS locks.h
@@ -14,7 +23,7 @@ add_object_library(
   image_registry
   SRCS image_registry.cpp
   HDRS image_registry.h
-  DEPENDS .arena .tls_layout libc.hdr.errno_macros
+  DEPENDS .arena .io .tls_layout libc.hdr.errno_macros
     libc.hdr.func.free libc.src.__support.common
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )

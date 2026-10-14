@@ -8,6 +8,7 @@
 
 #include "dynamic_fixture.h"
 #include "loader/linux/graph.h"
+#include "loader/linux/runtime_graph.h"
 #include "loader/linux/initialization.h"
 #include "loader/linux/startup.h"
 #include "loader/linux/symbols.h"
@@ -460,7 +461,237 @@ static int startup_tests() {
   return 0;
 }
 
+static int runtime_tests() {
+  start();
+  Library main_file(ImageRole::MainPIE), old, leaf, b, c, d, alternative;
+  old.need("gone.so");
+  old.add(DT_RUNPATH, 21);
+  old.finish();
+  leaf.need("old.so");
+  b.need("oldalias.so");
+  b.need("C.so");
+  b.need("D.so");
+  b.need("Calias.so");
+  c.need("B.so");
+  Library *initial[] = {&main_file, &old, &leaf};
+  MappedRegion regions[3][3];
+  ElfImage images[3];
+  const ElfImage *views[3];
+  for (unsigned i = 0; i < 3; ++i) {
+    for (unsigned j = 0; j < 3; ++j)
+      regions[i][j] = {j * page, Bytes(initial[i]->bytes + j * page, page)};
+    CHECK(ElfImage::open_mapped(
+              regions[i], 0, 64,
+              i ? ImageRole::SharedObject : ImageRole::MainPIE,
+              bias + i * 0x10000, page, images[i]) == ElfError::None);
+    views[i] = &images[i];
+  }
+  size_t main_edges[] = {1}, old_edges[] = {2}, leaf_edges[] = {1};
+  ImageRegistry::Discovery origins[] = {
+      {true, {1, 1, 0}, text("/origin/main"), ~size_t(0), main_edges},
+      {true, {2, 1, 0}, text("/origin/old.so"), 0, old_edges},
+      {true, {3, 1, 0}, text("/origin/gone.so"), 1, leaf_edges}};
+  ImageRegistry registry(page);
+  ImageRegistry::Transaction transaction(page);
+  CHECK(!registry.prepare(transaction, views, origins));
+  CHECK(transaction.mark_relocated() && transaction.mark_tls_ready() &&
+        transaction.mark_protected() && !registry.publish(transaction));
+  const auto *snapshot = registry.snapshot();
+  CHECK(snapshot->images[1]->dependencies[0] == snapshot->images[2]);
+  CHECK(snapshot->images[2]->dependencies[0] == snapshot->images[1]);
+  CHECK(snapshot->images[1]->parent == snapshot->images[0]);
+  CHECK(snapshot->images[0]->path.data() != origins[0].path.data());
+  const unsigned resident_live = live(),
+                 resident_allocations = allocations_count;
+  const size_t resident_used = used;
+  auto rewind = [&]() {
+    assert(live() == resident_live && !fd_live);
+    used = resident_used;
+    allocations_count = resident_allocations;
+    calls = fail_at = closes = opens = mapped_files = 0;
+    fail_unmaps = false;
+  };
+  files[0] = {"/origin/B.so", &b, {4, 1, 0}};
+  files[1] = {"/origin/oldalias.so", &old, {2, 1, 0}};
+  files[2] = {"/origin/C.so", &c, {5, 1, 0}};
+  files[3] = {"/origin/Calias.so", &c, {5, 1, 0}};
+  files[4] = {"/origin/D.so", &d, {5, 2, 0}};
+  files[5] = {"/env/B.so", &alternative, {6, 1, 0}};
+  file_count = 6;
+  SearchEnvironment environment;
+  Bytes env[] = {text("LD_LIBRARY_PATH=/env")};
+  CHECK(!environment.parse(false, env, text("/origin")));
+  RuntimeGraph graph(page);
+  rewind();
+  ImageRegistry::Image foreign = *snapshot->images[0];
+  CHECK(graph.build(*snapshot, foreign, text("B.so"), environment).error ==
+        -EINVAL);
+  CHECK(!calls && live() == resident_live);
+  CHECK(!graph.build(*snapshot, *snapshot->images[0], text("B.so"), environment)
+             .error);
+  const unsigned baseline = calls;
+  CHECK(graph.size() == 5 && graph.new_images() == 3 && mapped_files == 3);
+  const RuntimeGraph::Node *nodes[5];
+  unsigned index = 0;
+  for (auto *node = graph.scope(); node; node = node->next()) {
+    CHECK(index < 5);
+    nodes[index++] = node;
+  }
+  CHECK(index == 5 && nodes[1]->existing() == snapshot->images[1] &&
+        nodes[4]->existing() == snapshot->images[2]);
+  CHECK(nodes[0]->dependencies()->target == nodes[1]);
+  CHECK(nodes[0]->dependencies()->next->target == nodes[2]);
+  CHECK(nodes[0]->dependencies()->next->next->target == nodes[3]);
+  CHECK(nodes[0]->dependencies()->next->next->next->target == nodes[2]);
+  CHECK(nodes[2]->dependencies()->target == nodes[0]);
+  CHECK(nodes[1]->dependencies()->target == nodes[4]);
+  CHECK(nodes[4]->dependencies()->target == nodes[1]);
+  CHECK(registry.snapshot() == snapshot && snapshot->images.size() == 3);
+  CHECK(!graph.reset() && live() == resident_live && opens == closes);
+
+  // Reopen by file identity preserves old edges even when their files vanished.
+  rewind();
+  CHECK(!graph
+             .build(*snapshot, *snapshot->images[0], text("oldalias.so"),
+                    environment, true)
+             .error);
+  CHECK(graph.size() == 2 && !graph.new_images() && !mapped_files &&
+        opens == 1);
+  CHECK(!graph.reset() && opens == closes && live() == resident_live);
+  rewind();
+  CHECK(graph
+            .build(*snapshot, *snapshot->images[0], text("B.so"), environment,
+                   true)
+            .error == -ENOENT);
+  CHECK(!mapped_files && opens == 1 && opens == closes &&
+        live() == resident_live);
+
+  // A caller's RUNPATH is below LD_LIBRARY_PATH; main's RPATH was above it.
+  rewind();
+  CHECK(!graph.build(*snapshot, *snapshot->images[1], text("B.so"), environment)
+             .error);
+  CHECK(graph.size() == 1 && graph.scope()->identity() == files[5].identity);
+  CHECK(!graph.reset() && live() == resident_live);
+
+  // A new root with no useful RPATH inherits the published caller's ancestry.
+  rewind();
+  files[0].path = "/other/B.so";
+  files[6] = {"/origin/B.so", &b, {4, 1, 0}};
+  file_count = 7;
+  b.set(DT_RPATH, 0);
+  CHECK(!graph
+             .build(*snapshot, *snapshot->images[0], text("/other/B.so"),
+                    environment)
+             .error);
+  CHECK(graph.size() == 5 && graph.new_images() == 3);
+  CHECK(!graph.reset() && live() == resident_live);
+  b.set(DT_RPATH, 21);
+  files[0].path = "/origin/B.so";
+  file_count = 6;
+
+  // Every syscall acquisition/release failure leaves the existing registry
+  // unchanged. The mock consumes close even on error and rejects double close.
+  for (unsigned fail = 1; fail <= baseline; ++fail) {
+    rewind();
+    fail_at = fail;
+    auto result =
+        graph.build(*snapshot, *snapshot->images[0], text("B.so"), environment);
+    CHECK((result.error || result.cleanup_error) && !graph.scope());
+    CHECK(registry.snapshot() == snapshot && snapshot->images.size() == 3);
+    CHECK(!graph.reset() && live() == resident_live && !fd_live &&
+          opens == closes);
+    CHECK(main_file.bytes[0] == 0x7f && old.bytes[0] == 0x7f);
+  }
+  rewind();
+  files[2].path = "/missing/C.so";
+  auto missing =
+      graph.build(*snapshot, *snapshot->images[0], text("B.so"), environment);
+  CHECK(missing.error == -ENOENT && !missing.cleanup_error &&
+        live() == resident_live);
+  CHECK(opens == closes && !graph.scope());
+  files[2].path = "/origin/C.so";
+
+  rewind();
+  fail_at = 8;
+  fail_unmaps = true;
+  auto failed =
+      graph.build(*snapshot, *snapshot->images[0], text("B.so"), environment);
+  CHECK(failed.error && failed.cleanup_error && live() > resident_live);
+  CHECK(!graph.scope() && graph.reset() == -EIO);
+  CHECK(graph.build(*snapshot, *snapshot->images[0], text("B.so"), environment)
+            .error == -EBUSY);
+  fail_unmaps = false;
+  CHECK(!graph.reset() && live() == resident_live && opens == closes);
+
+  // An unknown caller ORIGIN never falls back to cwd. Discovery metadata is
+  // copied into the registry transaction, including its dependency arrays.
+  rewind();
+  ImageRegistry anonymous(page);
+  ImageRegistry::Transaction anon_tx(page);
+  const ElfImage *anon_images[] = {&images[0]};
+  ImageRegistry::Discovery unknown[] = {{}};
+  CHECK(!anonymous.prepare(anon_tx, anon_images, unknown));
+  unsigned before = opens;
+  CHECK(graph
+            .build(*anon_tx.view(), *anon_tx.view()->images[0],
+                   text("$ORIGIN/B.so"), environment)
+            .error == -ENOENT);
+  CHECK(opens == before && !graph.scope());
+  CHECK(!anon_tx.abort() && live() == resident_live);
+
+  // Bad parent/edge indices and duplicate identities fail before publication.
+  rewind();
+  origins[0].parent = 0;
+  CHECK(anonymous.prepare(anon_tx, views, origins) == -EINVAL);
+  origins[0].parent = ~size_t(0);
+  main_edges[0] = 3;
+  CHECK(anonymous.prepare(anon_tx, views, origins) == -EINVAL);
+  main_edges[0] = 1;
+  origins[1].identity = origins[0].identity;
+  CHECK(anonymous.prepare(anon_tx, views, origins) == -EEXIST);
+  origins[1].identity = {2, 1, 0};
+  CHECK(live() == resident_live);
+
+  rewind();
+  CHECK(!graph.retain());
+  CHECK(!graph.build(*snapshot, *snapshot->images[0], text("B.so"), environment)
+             .error);
+  auto *root = graph.scope();
+  auto *new_c = root->next()->next();
+  auto *new_d = new_c->next();
+  const ElfImage *late[] = {root->image(), new_c->image(), new_d->image()};
+  size_t b_edges[] = {1, 4, 5, 4}, c_edges[] = {3};
+  ImageRegistry::Discovery late_info[] = {
+      {true, root->identity(), root->path(), 0, b_edges},
+      {true, new_c->identity(), new_c->path(), 3, c_edges},
+      {true, new_d->identity(), new_d->path(), 3, {}}};
+  ImageRegistry::Transaction late_tx(page);
+  CHECK(!registry.prepare(late_tx, late, late_info));
+  CHECK(late_tx.mark_relocated() && late_tx.mark_tls_ready() &&
+        late_tx.mark_protected() && !registry.publish(late_tx));
+  CHECK(graph.retain() && !graph.retain() && graph.reset() == -EBUSY);
+  CHECK(snapshot->images.size() == 3 &&
+        registry.snapshot()->images.size() == 6);
+  RuntimeGraph reopen(page);
+  unsigned old_maps = mapped_files;
+  CHECK(!reopen
+             .build(*registry.snapshot(), *snapshot->images[0], text("B.so"),
+                    environment, true)
+             .error);
+  CHECK(reopen.size() == 5 && !reopen.new_images() && mapped_files == old_maps);
+  CHECK(reopen.scope()->existing() == registry.snapshot()->images[3]);
+  CHECK(!reopen.reset() && opens == closes);
+  // This child exits with intentionally resident registry and graph mappings.
+  return 0;
+}
+
 extern "C" int main() {
+  pid_t child = fork();
+  CHECK(child >= 0);
+  if (!child)
+    _exit(runtime_tests());
+  int status;
+  CHECK(waitpid(child, &status, 0) == child && status == 0);
   CHECK(startup_tests() == 0);
   {
     // Unknown main identity cannot collide with a real all-zero file identity.

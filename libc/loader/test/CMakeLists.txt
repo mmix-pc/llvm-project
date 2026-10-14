@@ -179,6 +179,7 @@ add_test(NAME loader-search COMMAND loader-search-test)
 set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
 
 add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
+  ../linux/runtime_graph.cpp ../linux/image_registry.cpp
   ../linux/tls_layout.cpp
   ../linux/runtime.cpp ../linux/tls_allocation.cpp ../linux/tls_resolver.cpp
   ../linux/startup.cpp ../linux/entry.cpp ../linux/unwind_images.cpp

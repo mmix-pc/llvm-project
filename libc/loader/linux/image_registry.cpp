@@ -76,11 +76,14 @@ long ImageRegistry::Transaction::abort() {
 }
 
 long ImageRegistry::prepare(Transaction &transaction,
-                            cpp::span<const ElfImage *const> images) {
+                            cpp::span<const ElfImage *const> images,
+                            cpp::span<const Discovery> discovery) {
   using State = Transaction::State;
   if (transaction.state != State::Empty)
     return -EBUSY;
   if (images.empty())
+    return -EINVAL;
+  if (!discovery.empty() && discovery.size() != images.size())
     return -EINVAL;
   const size_t old_count = current ? current->images.size() : 0;
   const size_t max = ~size_t(0);
@@ -105,6 +108,28 @@ long ImageRegistry::prepare(Transaction &transaction,
       for (const Image *old : current->images)
         if (same_image(old->elf, *image))
           return -EEXIST;
+    if (!discovery.empty()) {
+      const auto &info = discovery[i];
+      if ((!info.path.empty() && info.path[0] != '/') ||
+          (info.parent != ~size_t(0) && info.parent >= old_count + i))
+        return -EINVAL;
+      for (auto c : info.path)
+        if (!c)
+          return -EINVAL;
+      for (size_t dependency : info.dependencies)
+        if (dependency >= old_count + images.size())
+          return -EINVAL;
+      if (info.identity_known) {
+        for (size_t j = 0; j < i; ++j)
+          if (discovery[j].identity_known &&
+              discovery[j].identity == info.identity)
+            return -EEXIST;
+        if (current)
+          for (const Image *old : current->images)
+            if (old->identity_known && old->identity == info.identity)
+              return -EEXIST;
+      }
+    }
   }
 
   // Failed preparation remains explicitly abortable, including failed unmaps.
@@ -165,6 +190,36 @@ long ImageRegistry::prepare(Transaction &transaction,
   }
   transaction.candidate =
       new (storage) Snapshot{generation, {entries, old_count + images.size()}};
+  for (size_t i = 0; i < discovery.size(); ++i) {
+    auto &record = records[i];
+    const auto &info = discovery[i];
+    record.identity_known = info.identity_known;
+    record.identity = info.identity;
+    record.parent = info.parent == ~size_t(0) ? nullptr : entries[info.parent];
+    if (!info.path.empty()) {
+      error = transaction.arena.allocate(info.path.size(), 1, storage);
+      if (error)
+        return error;
+      auto *path = static_cast<unsigned char *>(storage);
+      for (size_t j = 0; j < info.path.size(); ++j)
+        path[j] = info.path[j];
+      record.path = {path, info.path.size()};
+    }
+    if (!info.dependencies.empty()) {
+      if (info.dependencies.size() > max / sizeof(Image *))
+        return -EOVERFLOW;
+      error =
+          transaction.arena.allocate(info.dependencies.size() * sizeof(Image *),
+                                     alignof(Image *), storage);
+      if (error)
+        return error;
+      auto **edges = static_cast<const Image **>(storage);
+      for (size_t j = 0; j < info.dependencies.size(); ++j)
+        new (edges + j) const Image *(entries[info.dependencies[j]]);
+      record.dependencies = {edges, info.dependencies.size()};
+    }
+    record.discovered = true;
+  }
   transaction.state = State::Prepared;
   return 0;
 }
