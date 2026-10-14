@@ -28,7 +28,7 @@
 // MACRO-LARGE: #define __PIC__ 2
 // MACRO-PIE-SMALL: #define __PIE__ 1
 // MACRO-PIE-LARGE: #define __PIE__ 2
-// RUNTIME: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
+// RUNTIME: error: the clang compiler does not support 'implicit system resources without --sysroot for MMIX Linux'
 
 extern long value;
 long *address(void) { return &value; }

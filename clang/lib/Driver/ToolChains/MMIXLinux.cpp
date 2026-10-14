@@ -31,6 +31,18 @@ MMIXLinuxToolChain::GetExceptionModel(const ArgList &) const {
 }
 
 namespace {
+bool requestsDynamicLink(const ArgList &Args) {
+  if (Args.hasArg(options::OPT_shared) ||
+      Args.hasFlag(options::OPT_pie, options::OPT_no_pie, false))
+    return true;
+  for (const Arg *A :
+       Args.filtered(options::OPT_Wl_COMMA, options::OPT_Xlinker))
+    for (StringRef V : A->getValues())
+      if (V == "-Bdynamic")
+        return true;
+  return false;
+}
+
 bool diagnoseMissing(const ToolChain &TC, StringRef Path, bool Directory) {
   auto Status = TC.getVFS().status(Path);
   if (Status && (Directory ? Status->isDirectory() : Status->isRegularFile()))
@@ -68,8 +80,8 @@ public:
       D.Diag(diag::err_drv_clang_unsupported) << Mode;
     };
     // The C-only package must not select single-thread C++ or unwind archives.
-    if (Args.hasArg(options::OPT_pthread) &&
-        !TC.hasThreadedCXXProfile() &&
+    if (Args.hasArg(options::OPT_pthread) && !TC.hasThreadedCXXProfile() &&
+        !TC.hasSharedCProfile() &&
         (TC.ShouldLinkCXXStdlib(Args) ||
          TC.GetUnwindLibType(Args) != ToolChain::UNW_None)) {
       Reject("C++ or unwind runtime linking with MMIX Linux pthread");
@@ -134,15 +146,22 @@ public:
     }
 
     const bool StartFiles =
-        !Relocatable &&
+        !Relocatable && !Shared &&
         !Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles);
     const bool DefaultLibs =
         !Relocatable &&
         !Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs);
     if (Dynamic && (DefaultLibs || StartFiles)) {
-      Reject("MMIX Linux dynamic CRT and runtime providers are not yet available; "
-             "use -nostdlib with explicit inputs");
-      return;
+      const Arg *Unwind = Args.getLastArg(options::OPT_unwindlib_EQ);
+      if (D.CCCIsCXX() || TC.ShouldLinkCXXStdlib(Args) ||
+          (Unwind && StringRef(Unwind->getValue()) == "libunwind")) {
+        Reject("MMIX Linux shared C++ or application unwind runtime selection");
+        return;
+      }
+      if (!TC.validateSharedCProfile())
+        return;
+      if (!Shared)
+        TC.getSysrootFile("ld-llvm-mmix.so.1", "lib");
     }
     ArgStringList CmdArgs{"-m", "elf64mmix_linux"};
     if (Relocatable)
@@ -179,9 +198,11 @@ public:
                               options::OPT_u_Group, options::OPT_e});
     TC.AddFilePathLibArgs(Args, CmdArgs);
     if (StartFiles) {
-      CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("crt1.o")));
-      CmdArgs.push_back(
-          TC.getCompilerRTArgString(Args, "crtbegin", ToolChain::FT_Object));
+      CmdArgs.push_back(Args.MakeArgString(
+          TC.getSysrootFile(Dynamic ? "Scrt1.o" : "crt1.o")));
+      if (!Dynamic)
+        CmdArgs.push_back(
+            TC.getCompilerRTArgString(Args, "crtbegin", ToolChain::FT_Object));
     }
     tools::addLinkerCompressDebugSectionsOption(TC, Args, CmdArgs);
     if (LTOMode == LTOK_Full || HasIRInput)
@@ -194,7 +215,15 @@ public:
     tools::AddLinkerInputs(TC, Inputs, Args, CmdArgs, JA);
     if (DefaultLibs) {
       CmdArgs.push_back("--start-group");
-      if (TC.ShouldLinkCXXStdlib(Args)) {
+      if (Dynamic) {
+        // These companions implement libc's forced exit, not a public shared
+        // C++ runtime. Never mix static state owners into this composition.
+        if (!Args.hasArg(options::OPT_nolibc))
+          for (StringRef Name : {"libc.so", "libunwind.so.1", "libc++abi.so.1"})
+            CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile(Name)));
+        CmdArgs.push_back("--no-allow-shlib-undefined");
+        CmdArgs.push_back("--exclude-libs=libclang_rt.builtins.a");
+      } else if (TC.ShouldLinkCXXStdlib(Args)) {
         TC.AddCXXStdlibLibArgs(Args, CmdArgs);
         CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("libm.a")));
       } else if (TC.hasThreadedCXXProfile()) {
@@ -202,14 +231,14 @@ public:
         // when the application itself contains only C code.
         CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("libc++abi.a")));
       }
-      if (TC.GetUnwindLibType(Args) == ToolChain::UNW_CompilerRT)
+      if (!Dynamic && TC.GetUnwindLibType(Args) == ToolChain::UNW_CompilerRT)
         CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("libunwind.a")));
-      if (!Args.hasArg(options::OPT_nolibc))
+      if (!Dynamic && !Args.hasArg(options::OPT_nolibc))
         CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("libc.a")));
       CmdArgs.push_back(TC.getCompilerRTArgString(Args, "builtins"));
       CmdArgs.push_back("--end-group");
     }
-    if (StartFiles)
+    if (StartFiles && !Dynamic)
       CmdArgs.push_back(
           TC.getCompilerRTArgString(Args, "crtend", ToolChain::FT_Object));
     Args.addAllArgs(CmdArgs, {options::OPT_T_Group});
@@ -279,26 +308,35 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
       Reject(A);
       return;
     }
+    const bool Dynamic = requestsDynamicLink(Args);
     SmallString<128> Profile(D.SysRoot);
-    llvm::sys::path::append(Profile, "usr", "lib", "mmix-libc-profile");
-    if (diagnoseMissing(*this, Profile, /*Directory=*/false))
-      return;
-    auto Contents = getVFS().getBufferForFile(Profile);
-    StringRef Kind = Contents ? (*Contents)->getBuffer().trim() : StringRef();
-    ThreadedCXX = Kind == "mmix-linux-static-pthread-cxx-v1";
-    if (!ThreadedCXX && Kind != "mmix-linux-static-pthread-c-v1") {
-      D.Diag(diag::err_drv_clang_unsupported)
-          << "unrecognized MMIX Linux pthread libc profile";
-      return;
+    if (Dynamic) {
+      if (!validateSharedCProfile())
+        return;
+      SharedC = true;
+    } else {
+      llvm::sys::path::append(Profile, "usr", "lib", "mmix-libc-profile");
+      if (diagnoseMissing(*this, Profile, /*Directory=*/false))
+        return;
+      auto Contents = getVFS().getBufferForFile(Profile);
+      StringRef Kind = Contents ? (*Contents)->getBuffer().trim() : StringRef();
+      ThreadedCXX = Kind == "mmix-linux-static-pthread-cxx-v1";
+      if (!ThreadedCXX && Kind != "mmix-linux-static-pthread-c-v1") {
+        D.Diag(diag::err_drv_clang_unsupported)
+            << "unrecognized MMIX Linux pthread libc profile";
+        return;
+      }
     }
     // A profile marker identifies the package, not arbitrary -L/-B inputs.
-    // Require its own headers and startup/library files even for compile-only
-    // jobs so a partial or single-thread sysroot cannot be selected silently.
+    // Validate headers for both modes. Keep the static package prerequisite;
+    // dynamic link inputs are checked below according to suppression options.
     SmallString<128> Header(D.SysRoot);
     llvm::sys::path::append(Header, "usr", "include", "pthread.h");
     diagnoseMissing(*this, Header, /*Directory=*/false);
-    getSysrootFile("crt1.o");
-    getSysrootFile("libc.a");
+    if (!SharedC) {
+      getSysrootFile("crt1.o");
+      getSysrootFile("libc.a");
+    }
     if (ThreadedCXX) {
       // The marker attests a coherently packaged runtime, not archive contents.
       // Require the whole composition even for C and compile-only consumers.
@@ -311,11 +349,12 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
       getCompilerRT(Args, "builtins");
       getCompilerRT(Args, "crtbegin", FT_Object);
       getCompilerRT(Args, "crtend", FT_Object);
-
-      for (auto Pair : {std::pair{options::OPT_fexceptions,
-                                 options::OPT_fno_exceptions},
-                        std::pair{options::OPT_funwind_tables,
-                                 options::OPT_fno_unwind_tables}})
+    }
+    if (ThreadedCXX || SharedC) {
+      for (auto Pair :
+           {std::pair{options::OPT_fexceptions, options::OPT_fno_exceptions},
+            std::pair{options::OPT_funwind_tables,
+                      options::OPT_fno_unwind_tables}})
         if (!Args.hasFlag(Pair.first, Pair.second, true))
           Reject(Args.getLastArg(Pair.second));
       if (const Arg *A = Args.getLastArg(
@@ -362,7 +401,7 @@ void MMIXLinuxToolChain::addClangTargetOptions(
   if (!Args.hasArg(options::OPT_ftlsmodel_EQ) &&
       std::get<0>(tools::ParsePICArgs(*this, Args)) == llvm::Reloc::Static)
     CC1Args.push_back("-ftls-model=local-exec");
-  if (ThreadedCXX) {
+  if (ThreadedCXX || SharedC) {
     // C callbacks may be traversed by forced C++ cleanup, including under LTO.
     // Unwind tables alone do not prevent inferred nounwind from deleting it.
     CC1Args.push_back("-fexceptions");
@@ -370,14 +409,32 @@ void MMIXLinuxToolChain::addClangTargetOptions(
   }
 }
 
-std::string MMIXLinuxToolChain::getSysrootFile(StringRef Name) const {
+bool MMIXLinuxToolChain::validateSharedCProfile() const {
+  std::string Path = getSysrootFile("mmix-shared-libc-profile");
+  if (Path.empty())
+    return false;
+  auto Contents = getVFS().getBufferForFile(Path);
+  if (!Contents) {
+    getDriver().Diag(diag::err_drv_no_such_file) << Path;
+    return false;
+  }
+  if ((*Contents)->getBuffer().trim() != "mmix-linux-shared-pthread-c") {
+    getDriver().Diag(diag::err_drv_clang_unsupported)
+        << "unrecognized MMIX Linux shared C libc profile";
+    return false;
+  }
+  return true;
+}
+
+std::string MMIXLinuxToolChain::getSysrootFile(StringRef Name,
+                                               StringRef Directory) const {
   if (getDriver().SysRoot.empty()) {
     getDriver().Diag(diag::err_drv_clang_unsupported)
         << "implicit system resources without --sysroot for MMIX Linux";
     return {};
   }
   SmallString<128> Path(getDriver().SysRoot);
-  llvm::sys::path::append(Path, "usr", "lib", Name);
+  llvm::sys::path::append(Path, Directory, Name);
   diagnoseMissing(*this, Path, /*Directory=*/false);
   return std::string(Path);
 }

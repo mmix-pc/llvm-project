@@ -39,7 +39,7 @@
 // LINK-SAME: "{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtend.o"
 // MODE: error: unsupported option
 // TLS: "-ftls-model=global-dynamic"
-// DYNAMIC: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
+// DYNAMIC: error: no such file or directory: '{{.*}}/root/usr/lib/mmix-shared-libc-profile'
 // UNWIND: error: the clang compiler does not support 'C++ or unwind runtime linking with MMIX Linux pthread'
 // PROFILE: error: no such file or directory: '{{.*}}/absent/usr/lib/mmix-libc-profile'
 // HEADER: error: no such file or directory: '{{.*}}/root/usr/include/pthread.h'

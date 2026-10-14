@@ -74,7 +74,7 @@
 // IR-NOT: nounwind
 // REJECT: error: unsupported option
 // TLS: "-ftls-model=initial-exec"
-// DYNAMIC: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
+// DYNAMIC: error: no such file or directory: '{{.*}}/root/usr/lib/mmix-shared-libc-profile'
 // MISSING: error: no such file or directory:
 // STALE: error: the clang compiler does not support 'C++ or unwind runtime linking with MMIX Linux pthread'
 // WRONG: error: the clang compiler does not support 'unrecognized MMIX Linux pthread libc profile'

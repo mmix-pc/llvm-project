@@ -15,9 +15,12 @@ namespace clang::driver::toolchains {
 
 class LLVM_LIBRARY_VISIBILITY MMIXLinuxToolChain final : public ToolChain {
   bool ThreadedCXX = false;
+  bool SharedC = false;
 
 public:
   bool hasThreadedCXXProfile() const { return ThreadedCXX; }
+  bool hasSharedCProfile() const { return SharedC; }
+  bool validateSharedCProfile() const;
   MMIXLinuxToolChain(const Driver &D, const llvm::Triple &Triple,
                      const llvm::opt::ArgList &Args);
 
@@ -45,7 +48,8 @@ public:
     return CST_Libcxx;
   }
   UnwindLibType GetUnwindLibType(const llvm::opt::ArgList &Args) const override;
-  std::string getSysrootFile(StringRef Name) const;
+  std::string getSysrootFile(StringRef Name,
+                             StringRef Directory = "usr/lib") const;
   void addClangTargetOptions(const llvm::opt::ArgList &Args,
                             llvm::opt::ArgStringList &CC1Args, BoundArch BA,
                             Action::OffloadKind DeviceOffloadKind) const override;

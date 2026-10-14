@@ -49,7 +49,7 @@
 // STATIC: "-m" "elf64mmix_linux" "-static" "--no-dynamic-linker"
 // CONFLICT: error: unsupported option 'conflicting MMIX Linux link modes'
 // FORWARD: error: unsupported option
-// PROVIDER: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
+// PROVIDER: error: the clang compiler does not support 'implicit system resources without --sysroot for MMIX Linux'
 // ENTRY: MMIX Linux requires a defined entry symbol or address
 // UNDEFINED: undefined symbol: external
 // GENERIC: error: the clang compiler does not support 'shared linking for MMIX'

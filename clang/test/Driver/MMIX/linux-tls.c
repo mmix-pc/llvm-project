@@ -28,7 +28,7 @@
 // LD: "-ftls-model=local-dynamic"
 // EMULATED: error: unsupported option '-femulated-tls'
 // PIC: @value = external thread_local global i64
-// SHARED: error: the clang compiler does not support 'MMIX Linux dynamic CRT and runtime providers
+// SHARED: error: the clang compiler does not support 'implicit system resources without --sysroot for MMIX Linux'
 // THREAD: error: unsupported option '-pthread'
 // IR: @value = external thread_local(localexec) global i64
 // OBJ: R_MMIX_TPREL_LO16 value
