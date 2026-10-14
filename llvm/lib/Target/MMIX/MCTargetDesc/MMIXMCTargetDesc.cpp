@@ -38,7 +38,9 @@ public:
   MMIXMCObjectFileInfo(MCContext &Ctx, bool PIC, bool Large) {
     initMCObjectFileInfo(Ctx, PIC, Large);
     // Static MMIX code addresses need the full unsigned address space.
-    FDECFIEncoding = dwarf::DW_EH_PE_absptr;
+    FDECFIEncoding = PIC && Ctx.getTargetTriple().isOSLinux()
+                        ? dwarf::DW_EH_PE_pcrel | dwarf::DW_EH_PE_sdata8
+                        : dwarf::DW_EH_PE_absptr;
   }
 };
 } // namespace
