@@ -264,21 +264,32 @@ bool MMIXAsmParser::parseDirectiveData24(SMLoc DirectiveLoc, bool IsPCRel) {
 }
 
 ParseStatus MMIXAsmParser::parseDirective(AsmToken DirectiveID) {
-  if (DirectiveID.getString() == ".mmix_got_pc64") {
+  unsigned LiteralSpecifier =
+      StringSwitch<unsigned>(DirectiveID.getString())
+          .Case(".mmix_got_pc64", MMIXII::S_GOT_PC64)
+          .Case(".mmix_tlsgd_pc64", MMIXII::S_TLSGD_PC64)
+          .Case(".mmix_tlsld_pc64", MMIXII::S_TLSLD_PC64)
+          .Case(".mmix_gottprel_pc64", MMIXII::S_GOTTPREL_PC64)
+          .Default(MMIXII::S_None);
+  if (LiteralSpecifier != MMIXII::S_None) {
+    StringRef Kind = LiteralSpecifier == MMIXII::S_GOT_PC64 ? "GOT" : "TLS";
     if (!getSTI().getTargetTriple().isOSLinux() ||
         getContext().getAsmInfo().getOutputAssemblerDialect() !=
             MMIXII::CanonicalAsmVariant)
       return Error(DirectiveID.getLoc(),
-                   "MMIX GOT literals require Linux canonical assembly");
+                   Twine("MMIX ") + Kind +
+                       " literals require Linux canonical assembly");
     const SMLoc Loc = Parser.getTok().getLoc();
     const MCExpr *Value;
-    if (parseSymbolAddend(Value, "GOT") || Parser.parseEOL())
+    if (parseSymbolAddend(Value, Kind) || Parser.parseEOL())
       return true;
     auto *TS = Parser.getStreamer().getTargetStreamer();
     if (!TS)
       return Error(DirectiveID.getLoc(),
-                   "MMIX GOT literal is unavailable for this output");
-    static_cast<MMIXTargetStreamer *>(TS)->emitGOTPC64(Value, Loc);
+                   Twine("MMIX ") + Kind +
+                       " literal is unavailable for this output");
+    static_cast<MMIXTargetStreamer *>(TS)->emitPCRelLiteral64(
+        Value, LiteralSpecifier, Loc);
     return false;
   }
   if (DirectiveID.getString() == ".mmix_24")

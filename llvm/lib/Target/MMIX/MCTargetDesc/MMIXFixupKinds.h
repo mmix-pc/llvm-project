@@ -30,12 +30,23 @@ enum FixupKind {
   fixup_mmix_tprel_mh,
   fixup_mmix_tprel_hi,
   fixup_mmix_got_pc64,
+  fixup_mmix_tlsgd_pc64,
+  fixup_mmix_tlsld_pc64,
+  fixup_mmix_gottprel_pc64,
   LastTargetFixupKind,
   NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
 };
 
 inline bool isTPRELFixup(MCFixupKind Kind) {
   return Kind >= fixup_mmix_tprel_lo && Kind <= fixup_mmix_tprel_hi;
+}
+
+inline bool isDynamicTLSLiteralFixup(MCFixupKind Kind) {
+  return Kind >= fixup_mmix_tlsgd_pc64 && Kind <= fixup_mmix_gottprel_pc64;
+}
+
+inline bool isPCRelLiteralFixup(MCFixupKind Kind) {
+  return Kind == fixup_mmix_got_pc64 || isDynamicTLSLiteralFixup(Kind);
 }
 } // namespace MMIX
 } // namespace llvm

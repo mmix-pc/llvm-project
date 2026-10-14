@@ -21,22 +21,42 @@
 
 using namespace llvm;
 
+void MMIXTargetStreamer::emitGOTPC64(const MCExpr *Value, SMLoc Loc) {
+  emitPCRelLiteral64(Value, MMIXII::S_GOT_PC64, Loc);
+}
+
 namespace {
+
+MCFixupKind getPCRelLiteralFixup(unsigned Specifier) {
+  switch (Specifier) {
+  case MMIXII::S_GOT_PC64:
+    return MMIX::fixup_mmix_got_pc64;
+  case MMIXII::S_TLSGD_PC64:
+    return MMIX::fixup_mmix_tlsgd_pc64;
+  case MMIXII::S_TLSLD_PC64:
+    return MMIX::fixup_mmix_tlsld_pc64;
+  case MMIXII::S_GOTTPREL_PC64:
+    return MMIX::fixup_mmix_gottprel_pc64;
+  default:
+    llvm_unreachable("not a MMIX PC-relative literal specifier");
+  }
+}
 
 class MMIXTargetObjectStreamer final : public MMIXTargetStreamer {
 public:
   explicit MMIXTargetObjectStreamer(MCStreamer &S) : MMIXTargetStreamer(S) {}
 
-  void emitGOTPC64(const MCExpr *Value, SMLoc Loc) override {
+  void emitPCRelLiteral64(const MCExpr *Value, unsigned Specifier,
+                        SMLoc Loc) override {
     auto &S = static_cast<MCObjectStreamer &>(Streamer);
     S.visitUsedExpr(*Value);
     S.getCurrentSectionOnly()->ensureMinAlignment(Align(8));
     S.ensureHeadroom(8);
     // Preserve symbol identity even for a definition in this section: the
-    // linker allocates the GOT entry, not the assembler.
-    Value = MCSpecifierExpr::create(Value, MMIXII::S_GOT_PC64, S.getContext(), Loc);
+    // linker allocates the GOT entry or TLS descriptor, not the assembler.
+    Value = MCSpecifierExpr::create(Value, Specifier, S.getContext(), Loc);
     S.getCurrentFragment()->addFixup(MCFixup::create(
-        S.getCurFragSize(), Value, MMIX::fixup_mmix_got_pc64, true));
+        S.getCurFragSize(), Value, getPCRelLiteralFixup(Specifier), true));
     S.appendContents(std::array<char, 8>{});
   }
 
@@ -61,8 +81,24 @@ public:
   MMIXTargetAsmStreamer(MCStreamer &S, formatted_raw_ostream &OS)
       : MMIXTargetStreamer(S), OS(OS) {}
 
-  void emitGOTPC64(const MCExpr *Value, SMLoc) override {
-    OS << "\t.mmix_got_pc64\t";
+  void emitPCRelLiteral64(const MCExpr *Value, unsigned Specifier,
+                        SMLoc) override {
+    switch (Specifier) {
+    case MMIXII::S_GOT_PC64:
+      OS << "\t.mmix_got_pc64\t";
+      break;
+    case MMIXII::S_TLSGD_PC64:
+      OS << "\t.mmix_tlsgd_pc64\t";
+      break;
+    case MMIXII::S_TLSLD_PC64:
+      OS << "\t.mmix_tlsld_pc64\t";
+      break;
+    case MMIXII::S_GOTTPREL_PC64:
+      OS << "\t.mmix_gottprel_pc64\t";
+      break;
+    default:
+      llvm_unreachable("not a MMIX PC-relative literal specifier");
+    }
     Streamer.getContext().getAsmInfo().printExpr(OS, *Value);
     OS << '\n';
   }
@@ -80,7 +116,7 @@ class MMIXTargetNullStreamer final : public MMIXTargetStreamer {
 public:
   explicit MMIXTargetNullStreamer(MCStreamer &S) : MMIXTargetStreamer(S) {}
 
-  void emitGOTPC64(const MCExpr *, SMLoc) override {}
+  void emitPCRelLiteral64(const MCExpr *, unsigned, SMLoc) override {}
 
   void emitData24(uint8_t, const MCExpr *, bool, SMLoc) override {}
 };

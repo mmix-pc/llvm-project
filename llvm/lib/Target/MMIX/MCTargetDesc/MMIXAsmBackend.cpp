@@ -130,12 +130,18 @@ public:
   void applyFixup(const MCFragment &F, const MCFixup &Fixup,
                   const MCValue &Target, uint8_t *Data, uint64_t Value,
                   bool IsResolved) override {
-    if (Fixup.getKind() == MMIX::fixup_mmix_got_pc64) {
+    if (MMIX::isPCRelLiteralFixup(Fixup.getKind())) {
       if ((Asm->getFragmentOffset(F) + Fixup.getOffset()) % 8 != 0) {
-        getContext().reportError(Fixup.getLoc(),
-                                 "MMIX GOT literal must be eight-byte aligned");
+        StringRef Kind = MMIX::isDynamicTLSLiteralFixup(Fixup.getKind())
+                             ? "TLS"
+                             : "GOT";
+        getContext().reportError(
+            Fixup.getLoc(),
+            Twine("MMIX ") + Kind + " literal must be eight-byte aligned");
         return;
       }
+    }
+    if (Fixup.getKind() == MMIX::fixup_mmix_got_pc64) {
       const auto *Symbol = static_cast<const MCSymbolELF *>(Target.getAddSym());
       if (!Symbol || Target.getSubSym() || Symbol->isAbsolute() ||
           Symbol->getType() == ELF::STT_TLS ||
@@ -149,7 +155,8 @@ public:
       addRelocation(F, Fixup, Target, 0);
       return;
     }
-    if (MMIX::isTPRELFixup(Fixup.getKind())) {
+    if (MMIX::isTPRELFixup(Fixup.getKind()) ||
+        MMIX::isDynamicTLSLiteralFixup(Fixup.getKind())) {
       const auto *Symbol = static_cast<const MCSymbolELF *>(Target.getAddSym());
       if (!Symbol || Target.getSubSym() || Symbol->isAbsolute() ||
           Symbol->isCommon() ||
@@ -406,6 +413,9 @@ public:
         {"fixup_mmix_tprel_mh", 16, 16, 0},
         {"fixup_mmix_tprel_hi", 16, 16, 0},
         {"fixup_mmix_got_pc64", 0, 64, 0},
+        {"fixup_mmix_tlsgd_pc64", 0, 64, 0},
+        {"fixup_mmix_tlsld_pc64", 0, 64, 0},
+        {"fixup_mmix_gottprel_pc64", 0, 64, 0},
     };
 
     if (mc::isRelocRelocation(Kind))
@@ -420,7 +430,7 @@ public:
                                     uint64_t &Value) override {
     // TLS offsets and GOT entry addresses are assigned by the linker.
     if (MMIX::isTPRELFixup(Fixup.getKind()) ||
-        Fixup.getKind() == MMIX::fixup_mmix_got_pc64)
+        MMIX::isPCRelLiteralFixup(Fixup.getKind()))
       return false;
     const MCSymbol *Add = Target.getAddSym();
     const MCSymbol *Sub = Target.getSubSym();

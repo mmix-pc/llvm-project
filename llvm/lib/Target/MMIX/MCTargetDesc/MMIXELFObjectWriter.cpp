@@ -35,6 +35,9 @@ public:
 protected:
   bool needsRelocateWithSymbol(const MCValue &, unsigned Type) const override {
     return Type == ELF::R_MMIX_GOT_PC64 ||
+           Type == ELF::R_MMIX_TLSGD_PC64 ||
+           Type == ELF::R_MMIX_TLSLD_PC64 ||
+           Type == ELF::R_MMIX_GOTTPREL_PC64 ||
            (Type >= ELF::R_MMIX_TPREL_LO16 && Type <= ELF::R_MMIX_TPREL_HI16);
   }
 
@@ -45,6 +48,12 @@ protected:
     switch (Fixup.getKind()) {
     case MMIX::fixup_mmix_got_pc64:
       return ELF::R_MMIX_GOT_PC64;
+    case MMIX::fixup_mmix_tlsgd_pc64:
+      return ELF::R_MMIX_TLSGD_PC64;
+    case MMIX::fixup_mmix_tlsld_pc64:
+      return ELF::R_MMIX_TLSLD_PC64;
+    case MMIX::fixup_mmix_gottprel_pc64:
+      return ELF::R_MMIX_GOTTPREL_PC64;
     case MMIX::fixup_mmix_tprel_lo:
       return ELF::R_MMIX_TPREL_LO16;
     case MMIX::fixup_mmix_tprel_ml:

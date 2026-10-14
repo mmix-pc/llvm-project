@@ -73,10 +73,17 @@ enum Specifier : uint16_t {
   S_TPREL_MH,
   S_TPREL_HI,
   S_GOT_PC64,
+  S_TLSGD_PC64,
+  S_TLSLD_PC64,
+  S_GOTTPREL_PC64,
 };
 
 inline bool isTPRELSpecifier(unsigned Specifier) {
   return Specifier >= S_TPREL_LO && Specifier <= S_TPREL_HI;
+}
+
+inline bool isPCRelLiteralSpecifier(unsigned Specifier) {
+  return Specifier >= S_GOT_PC64 && Specifier <= S_GOTTPREL_PC64;
 }
 
 // MC relaxation appends this operand and emits the corresponding SWYM slots.
