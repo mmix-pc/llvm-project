@@ -1,6 +1,15 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  tls_allocation
+  SRCS tls_allocation.cpp
+  HDRS tls_allocation.h
+  DEPENDS .relocation .mmix.syscall .mmix.target libc.hdr.errno_macros
+    libc.hdr.sys_mman_macros libc.include.sys_syscall
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   tls_layout
   SRCS tls_layout.cpp
   HDRS tls_layout.h
@@ -40,7 +49,7 @@ add_object_library(
   relocation
   SRCS relocation.cpp
   HDRS relocation.h
-  DEPENDS .symbols .dynamic .elf .self_relocation .mmix.target
+  DEPENDS .symbols .dynamic .elf .self_relocation .mmix.target .tls_layout
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 

@@ -13,14 +13,15 @@ namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
 SymbolError StartupSymbols::open(cpp::span<const SymbolObject> views,
-                                 StartupSymbols &out) {
+                                 StartupSymbols &out, bool allow_tls) {
   out.objects = {};
   if (views.empty())
     return SymbolError::Scope;
   for (const auto &view : views)
     if (!view.image || !view.image->header() || !view.metadata ||
-        !view.metadata->symbol_count() || view.metadata->requires_tls())
-      // FIXME: Enable TLS scopes only with layout, relocation and TP adoption.
+        !view.metadata->symbol_count() ||
+        (!allow_tls && view.metadata->requires_tls()))
+      // Ordinary startup must retain this gate until TP adoption is wired in.
       return SymbolError::Scope;
   out.objects = views;
   return SymbolError::None;
@@ -33,6 +34,10 @@ SymbolError StartupSymbols::definition(size_t object, Address index,
       symbol.st_shndx == SHN_UNDEF)
     return SymbolError::Index;
   Address address = symbol.st_value;
+  if ((symbol.st_info & 15) == STT_TLS) {
+    out = {address, object, index, false, true};
+    return SymbolError::None;
+  }
   if (symbol.st_shndx != SHN_ABS) {
     bool function = (symbol.st_info & 15) == STT_FUNC;
     Address size = symbol.st_size ? symbol.st_size : function ? 1 : 0;
@@ -75,8 +80,11 @@ SymbolError StartupSymbols::resolve(size_t requester, Address index,
   if (symbol.st_shndx != SHN_UNDEF && internal)
     return definition(requester, index, out);
   SymbolError error = internal ? SymbolError::Undefined : lookup(name, out);
+  if (error == SymbolError::None &&
+      out.tls != ((symbol.st_info & 15) == STT_TLS))
+    return SymbolError::Type;
   if (error == SymbolError::Undefined && binding == STB_WEAK &&
-      symbol.st_shndx == SHN_UNDEF) {
+      symbol.st_shndx == SHN_UNDEF && (symbol.st_info & 15) != STT_TLS) {
     out = {0, requester, index, true};
     return SymbolError::None;
   }

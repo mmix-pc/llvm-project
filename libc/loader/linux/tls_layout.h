@@ -18,6 +18,11 @@ namespace loader {
 
 enum class TLSLayoutError { None, Scope, Storage, Overflow };
 
+// Internal incremental primitive shared by planning and relocation preflight.
+// The image is admitted and immutable; ID/generation are assigned separately.
+bool place_tls_module(const ElfImage &image, Address &cursor,
+                      StartupTLSModule &module);
+
 // Input is the immutable, deduplicated main-first BFS startup scope.
 // Descriptors borrow runtime template addresses; file views may be used for
 // planning tests, never as proof that those addresses can be read in the

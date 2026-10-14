@@ -37,6 +37,28 @@ struct StartupTLSSet {
   uint64_t tls_extent;
 };
 
+struct ThreadTLSAllocation {
+  uint64_t tp;
+  uint64_t tls_mapping_base;
+  uint64_t tls_mapping_size;
+  uint64_t dtv_mapping_base;
+  uint64_t dtv_mapping_size;
+  uint64_t registry_cookie;
+};
+
+struct StartupDTV {
+  uint64_t capacity;
+  uint64_t generation;
+  uint64_t entries;
+};
+
+struct StartupDTVEntry {
+  uint64_t generation;
+  uint64_t image_base;
+  uint64_t allocation_owner;
+  uint64_t allocation_extent;
+};
+
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL
 #endif

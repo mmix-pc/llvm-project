@@ -11,6 +11,7 @@
 
 #include "loader/linux/self_relocation.h"
 #include "loader/linux/symbols.h"
+#include "loader/linux/tls_layout.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
@@ -27,6 +28,25 @@ struct StartupRelocationResult {
   StartupRelocationError error;
   size_t object;
   Address relocation;
+};
+
+class RelocatedTLS;
+StartupRelocationResult
+relocate_startup_tls(cpp::span<const SymbolObject> objects,
+                     cpp::span<const cpp::span<const WritableRegion>> writable,
+                     const StartupTLSSet &layout, RelocatedTLS &out);
+
+// Borrows immutable descriptors and mapped images. Only complete whole-scope
+// relocation grants template-copy readiness; no startup/TP publication occurs.
+class RelocatedTLS {
+  const StartupTLSSet *ready = nullptr;
+  friend StartupRelocationResult relocate_startup_tls(
+      cpp::span<const SymbolObject>,
+      cpp::span<const cpp::span<const WritableRegion>>, const StartupTLSSet &,
+      RelocatedTLS &);
+
+public:
+  const StartupTLSSet *modules() const { return ready; }
 };
 
 // Borrow a completed main-first scope and matching writable mapped views.

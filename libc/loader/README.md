@@ -92,9 +92,10 @@ module-relative offsets bounded by that image; imported TLS symbols need no
 local template. TLS runtime records require aligned writable storage, matching
 symbol types and valid current-module forms. The interpreter remains no-TLS.
 `DynamicInfo::requires_tls()` includes PT_TLS, TLS symbols/records and
-DF_STATIC_TLS. Startup symbol-scope admission still rejects these images until
-layout, relocation and TP adoption are implemented; metadata admission does
-not enable TLS execution.
+DF_STATIC_TLS. Default startup symbol-scope admission still rejects these
+images. Explicit TLS relocation admits them for component validation; resolver
+and TP adoption are not yet wired into startup, so this does not enable TLS
+execution.
 
 `dynamic_test.cpp` exercises sectionless synthetic inputs and malformed
 metadata. `loader-linked-image-test` also parses actual linked fixtures with
@@ -119,6 +120,26 @@ Planning neither allocates nor publishes TLS. A planned template address names
 runtime image storage; it cannot be copied until relocations finish. Actual
 thread mappings, DTV creation, TP adoption and late-loading policy are separate.
 `loader-tls-layout-test` checks geometry, scope errors and failure atomicity.
+
+`relocate_startup_tls` validates the supplied layout against the mapped scope,
+then preflights ordinary and TLS relocations before any write. TLS values are
+module IDs, module-relative offsets or TP-relative offsets, never ordinary
+image addresses. Main-first binding and protected definitions apply; unresolved
+TLS references, including weak ones, fail. A `RelocatedTLS` token authorizes
+template copying only after the complete relocation pass succeeds.
+
+`linux/tls_allocation.h` uses that token to prepare independent thread-owned
+TLS and DTV mappings through raw syscalls. It copies relocated template bytes,
+zeros TLS BSS and records borrowed startup-module entries in the DTV. Mapping
+owners are distinct from aligned TP and module pointers. Failed cleanup retains
+owners for retry; neither preparation nor release changes the current TP.
+The token, immutable layout and template mappings must outlive preparation.
+Release is valid only before publication or after all users have drained.
+
+`loader-tls-runtime-test` covers binding, arithmetic, preflight, allocation
+failures, cleanup retries and independent thread blocks on the host.
+`loader-tls-linked-test` checks relocation bytes in actual MMIX ELF inputs;
+neither test executes target programs or qualifies installed TLS support.
 
 ## Dependency Mappings
 

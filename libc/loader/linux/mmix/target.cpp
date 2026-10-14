@@ -61,6 +61,38 @@ bool is_tls_module_relocation(Elf64_Xword info) {
 Elf64_Xword startup_tls_header_size() { return 16; }
 Elf64_Xword startup_tls_min_alignment() { return 8; }
 
+bool tls_relocation_value(Elf64_Xword info, Elf64_Xword module_id,
+                          Elf64_Xword tp_offset, Elf64_Xword memory_size,
+                          Elf64_Xword symbol_offset, Elf64_Xword addend,
+                          Elf64_Xword &out) {
+  if (!module_id || !is_tls_relocation(info))
+    return false;
+  if (is_tls_module_relocation(info)) {
+    out = module_id;
+    return !addend;
+  }
+  Elf64_Xword offset;
+  if (addend >> 63) {
+    Elf64_Xword magnitude = ~addend + 1;
+    if (symbol_offset < magnitude)
+      return false;
+    offset = symbol_offset - magnitude;
+  } else {
+    if (addend > ~Elf64_Xword(0) - symbol_offset)
+      return false;
+    offset = symbol_offset + addend;
+  }
+  if (offset > memory_size)
+    return false;
+  if (static_cast<Elf64_Word>(info) == 46) {
+    if (tp_offset > ~Elf64_Xword(0) - offset)
+      return false;
+    offset += tp_offset;
+  }
+  out = offset;
+  return true;
+}
+
 bool runtime_relocation_value(Elf64_Xword info, Elf64_Addr base,
                               Elf64_Xword addend, Elf64_Addr &out) {
   if (!is_supported_dynamic_relocation(info) || is_tls_relocation(info))

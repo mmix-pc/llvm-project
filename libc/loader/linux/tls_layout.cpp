@@ -12,8 +12,8 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
-static bool place(const ElfImage &image, Address &cursor,
-                  StartupTLSModule &module) {
+bool place_tls_module(const ElfImage &image, Address &cursor,
+                      StartupTLSModule &module) {
   module.template_address = module.file_size = module.memory_size = 0;
   module.alignment = 1;
   module.residue = 0;
@@ -59,7 +59,7 @@ TLSLayoutError plan_startup_tls(cpp::span<const ElfImage *const> images,
       if (images[j] == image)
         return TLSLayoutError::Scope;
     StartupTLSModule module;
-    if (!place(*image, cursor, module))
+    if (!place_tls_module(*image, cursor, module))
       return TLSLayoutError::Overflow;
     if (module.alignment > alignment)
       alignment = module.alignment;
@@ -71,7 +71,7 @@ TLSLayoutError plan_startup_tls(cpp::span<const ElfImage *const> images,
   cursor = startup_tls_header_size();
   for (size_t i = 0; i < images.size(); ++i) {
     StartupTLSModule &module = storage[i];
-    (void)place(*images[i], cursor, module);
+    (void)place_tls_module(*images[i], cursor, module);
     module.module_id = i + 1;
     module.generation = 1;
   }

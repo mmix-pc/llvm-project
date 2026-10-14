@@ -22,12 +22,14 @@ struct SymbolObject {
   const ElfImage *image;
   const DynamicInfo *metadata;
 };
-enum class SymbolError { None, Scope, Index, Undefined, Address };
+enum class SymbolError { None, Scope, Index, Undefined, Address, Type };
 struct SymbolValue {
+  // Ordinary address, or module-relative offset when tls is true.
   Address address = 0;
   size_t object = 0;
   Address symbol = 0;
   bool weak_zero = false;
+  bool tls = false;
 };
 struct SymbolFailure {
   size_t object = 0;
@@ -45,7 +47,7 @@ public:
   // Explicit views also permit file-based producer validation without mapping
   // target virtual addresses into the native test process.
   static SymbolError open(cpp::span<const SymbolObject> objects,
-                          StartupSymbols &out);
+                          StartupSymbols &out, bool allow_tls = false);
   static long open(const StartupGraph &graph, Arena &arena,
                    StartupSymbols &out);
   SymbolError lookup(Bytes name, SymbolValue &out) const;

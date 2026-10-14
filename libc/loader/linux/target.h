@@ -27,6 +27,10 @@ bool is_tls_relocation(Elf64_Xword info);
 bool is_tls_module_relocation(Elf64_Xword info);
 Elf64_Xword startup_tls_header_size();
 Elf64_Xword startup_tls_min_alignment();
+bool tls_relocation_value(Elf64_Xword info, Elf64_Xword module_id,
+                          Elf64_Xword tp_offset, Elf64_Xword memory_size,
+                          Elf64_Xword symbol_offset, Elf64_Xword addend,
+                          Elf64_Xword &out);
 bool is_supported_dynamic_relocation(Elf64_Xword info);
 bool runtime_relocation_value(Elf64_Xword info, Elf64_Addr base,
                               Elf64_Xword addend, Elf64_Addr &out);

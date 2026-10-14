@@ -34,11 +34,32 @@ static unsigned char *destination(const ElfImage &image,
 
 static StartupRelocationError value(const SymbolObject &object,
                                     const StartupSymbols &symbols, size_t index,
-                                    const DynamicRelocation &r, Address &out) {
+                                    const DynamicRelocation &r, Address &out,
+                                    const StartupTLSSet *tls) {
+  if (is_tls_relocation(r.info)) {
+    if (!tls)
+      return StartupRelocationError::Value;
+    size_t provider = index;
+    Address offset = 0;
+    if (r.info >> 32) {
+      SymbolValue symbol;
+      if (symbols.resolve(index, r.info >> 32, symbol) != SymbolError::None ||
+          !symbol.tls || symbol.weak_zero)
+        return StartupRelocationError::Symbol;
+      provider = symbol.object;
+      offset = symbol.address;
+    }
+    const auto &module = tls->modules[provider];
+    return tls_relocation_value(r.info, module.module_id, module.tp_offset,
+                                module.memory_size, offset, r.addend, out)
+               ? StartupRelocationError::None
+               : StartupRelocationError::Value;
+  }
   Address base = object.image->load_bias();
   if (!is_relative_relocation(r.info)) {
     SymbolValue symbol;
-    if (symbols.resolve(index, r.info >> 32, symbol) != SymbolError::None)
+    if (symbols.resolve(index, r.info >> 32, symbol) != SymbolError::None ||
+        symbol.tls)
       return StartupRelocationError::Symbol;
     base = symbol.address;
   }
@@ -47,12 +68,14 @@ static StartupRelocationError value(const SymbolObject &object,
              : StartupRelocationError::Value;
 }
 
-StartupRelocationResult
-relocate_startup(cpp::span<const SymbolObject> objects,
-                 cpp::span<const cpp::span<const WritableRegion>> writable) {
+static StartupRelocationResult
+relocate(cpp::span<const SymbolObject> objects,
+         cpp::span<const cpp::span<const WritableRegion>> writable,
+         const StartupTLSSet *tls) {
   StartupSymbols symbols;
   if (objects.size() != writable.size() ||
-      StartupSymbols::open(objects, symbols) != SymbolError::None)
+      StartupSymbols::open(objects, symbols, tls != nullptr) !=
+          SymbolError::None)
     return {StartupRelocationError::Image, 0, 0};
   for (size_t i = 0; i < objects.size(); ++i) {
     const auto &object = objects[i];
@@ -71,7 +94,7 @@ relocate_startup(cpp::span<const SymbolObject> objects,
         return {StartupRelocationError::Metadata, i, j};
       if (!destination(*object.image, writable[i], r.offset))
         return {StartupRelocationError::Destination, i, j};
-      auto error = value(object, symbols, i, r, resolved);
+      auto error = value(object, symbols, i, r, resolved, tls);
       if (error != StartupRelocationError::None)
         return {error, i, j};
     }
@@ -87,7 +110,7 @@ relocate_startup(cpp::span<const SymbolObject> objects,
         if (is_relative_relocation(r.info) != (phase == 0))
           continue;
         Address resolved;
-        (void)value(object, symbols, i, r, resolved);
+        (void)value(object, symbols, i, r, resolved, tls);
         unsigned char *p = destination(*object.image, writable[i], r.offset);
         for (unsigned k = 0; k < 8; ++k) {
           p[7 - k] = static_cast<unsigned char>(resolved);
@@ -97,6 +120,56 @@ relocate_startup(cpp::span<const SymbolObject> objects,
     }
   }
   return {StartupRelocationError::None, 0, 0};
+}
+
+StartupRelocationResult
+relocate_startup(cpp::span<const SymbolObject> objects,
+                 cpp::span<const cpp::span<const WritableRegion>> writable) {
+  return relocate(objects, writable, nullptr);
+}
+
+StartupRelocationResult
+relocate_startup_tls(cpp::span<const SymbolObject> objects,
+                     cpp::span<const cpp::span<const WritableRegion>> writable,
+                     const StartupTLSSet &layout, RelocatedTLS &out) {
+  out.ready = nullptr;
+  if (objects.empty() || layout.generation != 1 || !layout.modules ||
+      layout.module_count != objects.size())
+    return {StartupRelocationError::Image, 0, 0};
+  Address cursor = startup_tls_header_size();
+  Address alignment = startup_tls_min_alignment();
+  for (size_t i = 0; i < objects.size(); ++i) {
+    const auto *image = objects[i].image;
+    if (!image || !image->is_mapped() ||
+        (i == 0 ? image->role() != ImageRole::MainPIE &&
+                      image->role() != ImageRole::MainExecutable
+                : image->role() != ImageRole::SharedObject))
+      return {StartupRelocationError::Image, i, 0};
+    for (size_t j = 0; j < i; ++j)
+      if (objects[j].image == image)
+        return {StartupRelocationError::Image, i, 0};
+    StartupTLSModule expected;
+    if (!place_tls_module(*image, cursor, expected))
+      return {StartupRelocationError::Value, i, 0};
+    const auto &module = layout.modules[i];
+    if (module.module_id != i + 1 || module.generation != 1 ||
+        module.template_address != expected.template_address ||
+        module.file_size != expected.file_size ||
+        module.memory_size != expected.memory_size ||
+        module.alignment != expected.alignment ||
+        module.residue != expected.residue ||
+        module.tp_offset != expected.tp_offset)
+      return {StartupRelocationError::Image, i, 0};
+    if (module.alignment > alignment)
+      alignment = module.alignment;
+  }
+  if (layout.tp_alignment != alignment || layout.tls_extent != cursor ||
+      alignment - 1 > ~Address(0) - cursor)
+    return {StartupRelocationError::Value, 0, 0};
+  auto result = relocate(objects, writable, &layout);
+  if (result.error == StartupRelocationError::None)
+    out.ready = &layout;
+  return result;
 }
 
 } // namespace loader

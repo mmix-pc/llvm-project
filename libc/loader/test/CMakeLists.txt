@@ -56,10 +56,10 @@ set_tests_properties(loader-self-relocation PROPERTIES TIMEOUT 30)
 # Supplied a real cross-linked fixture by the artifact validation runner.
 # This validates mapped bytes on the host; it never executes target code.
 add_executable(loader-linked-image-test linked_image_test.cpp
-  ../linux/dynamic.cpp ../linux/symbols.cpp ../linux/relocation.cpp ../linux/self_relocation.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+  ../linux/dynamic.cpp ../linux/symbols.cpp ../linux/relocation.cpp ../linux/tls_layout.cpp ../linux/self_relocation.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
 
 add_executable(loader-relocation-test relocation_test.cpp ../linux/relocation.cpp
-  ../linux/symbols.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+  ../linux/tls_layout.cpp ../linux/symbols.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-relocation-test PRIVATE ../..)
 target_compile_definitions(loader-relocation-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
 target_compile_options(loader-relocation-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
@@ -96,6 +96,25 @@ target_compile_features(loader-tls-layout-test PRIVATE cxx_std_17)
 add_test(NAME loader-tls-layout COMMAND loader-tls-layout-test)
 set_tests_properties(loader-tls-layout PROPERTIES TIMEOUT 30)
 
+add_executable(loader-tls-runtime-test tls_runtime_test.cpp
+  ../linux/tls_allocation.cpp ../linux/tls_layout.cpp ../linux/relocation.cpp
+  ../linux/symbols.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-tls-runtime-test PRIVATE ../..)
+target_compile_definitions(loader-tls-runtime-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-tls-runtime-test PRIVATE -fno-pie)
+target_link_options(loader-tls-runtime-test PRIVATE -no-pie)
+target_compile_features(loader-tls-runtime-test PRIVATE cxx_std_17)
+add_test(NAME loader-tls-runtime COMMAND loader-tls-runtime-test)
+set_tests_properties(loader-tls-runtime PROPERTIES TIMEOUT 30)
+
+# Supplied real main/DSO pairs by the focused TLS artifact runner.
+add_executable(loader-tls-linked-test tls_linked_test.cpp
+  ../linux/tls_layout.cpp ../linux/relocation.cpp ../linux/symbols.cpp
+  ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-tls-linked-test PRIVATE ../..)
+target_compile_definitions(loader-tls-linked-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_features(loader-tls-linked-test PRIVATE cxx_std_17)
+
 add_executable(loader-mapping-test mapping_test.cpp ../linux/mapping.cpp
   ../linux/io.cpp ../linux/arena.cpp ../linux/dynamic.cpp ../linux/elf.cpp
   ../linux/mmix/target.cpp)
@@ -119,6 +138,7 @@ add_test(NAME loader-search COMMAND loader-search-test)
 set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
 
 add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
+  ../linux/tls_layout.cpp
   ../linux/startup.cpp ../linux/entry.cpp
   ../linux/initialization.cpp ../linux/relocation.cpp ../linux/protection.cpp ../linux/symbols.cpp ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
   ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
