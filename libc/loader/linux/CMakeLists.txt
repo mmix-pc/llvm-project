@@ -1,6 +1,15 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_scopes
+  SRCS runtime_scopes.cpp
+  HDRS runtime_scopes.h
+  DEPENDS .image_registry .symbols .arena libc.src.__support.CPP.atomic
+    libc.src.__support.CPP.new libc.hdr.errno_macros
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   runtime_graph
   SRCS runtime_graph.cpp
   HDRS runtime_graph.h
