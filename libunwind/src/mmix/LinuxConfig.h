@@ -25,10 +25,10 @@
 #endif
 #endif
 #if defined(_LIBUNWIND_IS_BAREMETAL) || defined(_LIBUNWIND_SUPPORT_FRAME_APIS)
-#error "MMIX Linux libunwind requires static Linux frame discovery"
+#error "MMIX Linux libunwind requires Linux image-based frame discovery"
 #endif
 
-// FIXME: Add loader-aware frame discovery and symbol lookup with shared loading.
+// Resident startup discovery is opt-in; public symbol lookup remains separate.
 #define _LIBUNWIND_MMIX_LINUX 1
 #define _LIBUNWIND_SUPPORT_DWARF_UNWIND 1
 #define _LIBUNWIND_SUPPORT_DWARF_INDEX 1

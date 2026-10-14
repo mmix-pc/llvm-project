@@ -54,6 +54,10 @@ function(mmix_configure_shared_libc)
   foreach(object IN LISTS extra_objects)
     list(APPEND objects $<TARGET_OBJECTS:${object}>)
   endforeach()
+  # Explicit-input preparation can relink against real resident providers
+  # without copying this archive or replacing it with an installed profile.
+  file(GENERATE OUTPUT "${directory}/link-inputs.cmake" CONTENT
+    "set(MMIX_SHARED_LIBC_ARCHIVE \"$<TARGET_FILE:libc>\")\nset(MMIX_SHARED_LIBC_OBJECTS \"$<JOIN:${objects},;>\")\nset(MMIX_SHARED_LIBC_BUILTINS \"${LIBC_MMIX_SHARED_BUILTINS}\")\nset(MMIX_SHARED_LIBC_EXPORTS \"${directory}/exports.map\")\n")
   # No CRT entry, host library search, interpreter code or duplicate state
   # archive. Internal aliases bind locally; only selected C entrypoints escape.
   add_custom_command(OUTPUT "${directory}/libc.so.1"

@@ -1,4 +1,8 @@
 # Installation is opt-in and requires the complete Linux composition checks.
+if(MMIX_LINUX_RESIDENT_RUNTIME_VALIDATED)
+  # The resident cleanup producer uses these headers, not an installed libc++.
+  return()
+endif()
 if(LIBCXX_MMIX_LINUX_THREADED_PREPARATION)
   if(NOT MMIX_LINUX_THREADED_RUNTIME_VALIDATED)
     message(FATAL_ERROR "MMIX pthread C++ requires validated preparation inputs")

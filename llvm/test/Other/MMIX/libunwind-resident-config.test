@@ -1,0 +1,45 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libcxx %t
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/cmake/caches/MMIXLinuxResident.cmake)
+project(ResidentConfig NONE)
+# Configuration-only rejection tests; no fake provider is accepted as a runtime.
+set(CMAKE_CROSSCOMPILING TRUE)
+include(${SOURCE}/cmake/Modules/MMIX/ResidentRuntime.cmake)
+
+#--- check.py
+from pathlib import Path
+import subprocess
+import sys
+
+source, root = (Path(arg).resolve() for arg in sys.argv[1:])
+base = ["cmake", "-S", str(root), "-DSOURCE=" + str(source)]
+cases = [([], "requires explicit provider builds")]
+for option in ("CMAKE_POSITION_INDEPENDENT_CODE=OFF", "CMAKE_BUILD_TYPE=Debug",
+               "LIBCXX_MMIX_LINUX_INSTALL_RUNTIME=ON"):
+    cases.append((["-D" + option], "requires a non-installed PIC Linux Release build"))
+for option in ("LIBUNWIND_ENABLE_THREADS", "LIBUNWIND_IS_NATIVE_ONLY",
+               "LIBUNWIND_REMEMBER_HEAP_ALLOC", "LIBCXXABI_ENABLE_EXCEPTIONS"):
+    cases.append((["-D" + option + "=OFF"], "requires " + option + "=ON"))
+for option in ("LIBUNWIND_HIDE_SYMBOLS", "LIBUNWIND_USE_FRAME_HEADER_CACHE",
+               "LIBCXXABI_HERMETIC_STATIC_LIBRARY"):
+    cases.append((["-D" + option + "=ON"], "rejects " + option))
+cases.extend([
+    (["-DLIBUNWIND_ENABLE_SHARED=ON"], "composes PIC archives explicitly"),
+    (["-DLIBUNWIND_INSTALL_LIBRARY=ON"], "does not install runtimes"),
+    (["-DCMAKE_C_COMPILER_TARGET=mmix-unknown-unknown"], "requires Linux compiler targets"),
+    (["-DLIBUNWIND_ADDITIONAL_COMPILE_FLAGS="], "requires -D_LIBUNWIND_MMIX_LINUX_THREADS"),
+    (["-DCMAKE_C_FLAGS=-fPIC -ftls-model=local-exec -fno-lto"],
+     "requires -ftls-model=initial-exec"),
+    (["-DCMAKE_C_FLAGS=-fPIC -ftls-model=initial-exec -fno-lto -flto"],
+     "rejects conflicting C flags"),
+])
+for index, (options, error) in enumerate(cases):
+    result = subprocess.run(base + ["-B", str(root / str(index))] + options,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True)
+    assert result.returncode and error in " ".join(result.stdout.split()), result.stdout

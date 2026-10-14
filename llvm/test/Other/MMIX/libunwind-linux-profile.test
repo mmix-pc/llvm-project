@@ -16,7 +16,7 @@
 # THREAD: MMIX Linux threaded libunwind requires the explicit Release profile
 # NATIVE: MMIX Linux libunwind requires native configuration
 # CACHE: MMIX Linux threaded libunwind requires strong mutexes and no frame header cache
-# FRAME: MMIX Linux libunwind requires static Linux frame discovery
+# FRAME: MMIX Linux libunwind requires Linux image-based frame discovery
 
 # Stub C declarations isolate platform selection; real archive builds use libc.
 #--- assert.h

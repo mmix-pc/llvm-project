@@ -1,0 +1,117 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# Native semantic model, not MMIX execution or cross-image forced unwind.
+# RUN: clang --target=x86_64-unknown-linux-gnu -std=c++17 -O1 -fno-exceptions -fno-rtti -D__mmix__ -DEM_MMIX=80 -D_LIBUNWIND_IS_NATIVE_ONLY -D_LIBUNWIND_HAS_NO_THREADS -D_LIBUNWIND_MMIX_STARTUP_IMAGES -DNDEBUG -I %S/../../../../libunwind/include -I %S/../../../../libunwind/src -emit-llvm -c %t/check.cpp -o %t/check.bc
+# RUN: lli -force-interpreter=true %t/check.bc
+
+#--- check.cpp
+#include "AddressSpace.hpp"
+#include "mmix/StartupImages.cpp"
+
+#define CHECK(C) do { if (!(C)) return __LINE__; } while (false)
+
+struct Image {
+  Elf64_Ehdr elf;
+  Elf64_Phdr phdr[2];
+  unsigned char index[20];
+  uint32_t frames[4];
+  char text[8];
+  MMIXUnwindReadableRange range;
+  MMIXUnwindImage view;
+};
+static Image images[2];
+static unsigned releases;
+static long find(void *, uintptr_t pc, MMIXUnwindImage *out) {
+  for (auto &image : images)
+    if (pc == reinterpret_cast<uintptr_t>(image.text)) {
+      *out = image.view;
+      return 0;
+    }
+  return 2;
+}
+static void release(void *, uintptr_t token) {
+  if (token == 1 || token == 2)
+    ++releases;
+}
+int main() {
+  for (unsigned i = 0; i < 2; ++i) {
+    auto &image = images[i];
+    uintptr_t base = reinterpret_cast<uintptr_t>(&image);
+    uintptr_t index = reinterpret_cast<uintptr_t>(image.index);
+    uintptr_t frame = reinterpret_cast<uintptr_t>(image.frames);
+    auto &load = image.phdr[0];
+    load.p_type = PT_LOAD;
+    load.p_flags = PF_R;
+    load.p_filesz = load.p_memsz = sizeof(image);
+    auto &text = image.phdr[1];
+    text.p_type = PT_LOAD;
+    text.p_flags = PF_R | PF_X;
+    text.p_vaddr = reinterpret_cast<uintptr_t>(image.text) - base;
+    text.p_filesz = text.p_memsz = sizeof(image.text);
+    image.index[0] = 1;
+    image.index[1] = 0x1b;
+    image.index[2] = 3;
+    image.index[3] = 0x3b;
+    int32_t delta = frame - (index + 4);
+    uint32_t count = 1;
+    memcpy(image.index + 4, &delta, 4);
+    memcpy(image.index + 8, &count, 4);
+    image.range = {base, sizeof(image)};
+    image.view = {base, reinterpret_cast<uintptr_t>(image.phdr), 2, index, 20,
+                  reinterpret_cast<uintptr_t>(&image.range), 1, i + 1};
+  }
+  libunwind::LocalAddressSpace as;
+  libunwind::UnwindInfoSections info;
+  auto lookup = [&](Image &image) {
+    return libunwind::findMMIXLinuxUnwindSections(
+        as, image.elf, reinterpret_cast<uintptr_t>(image.text), info);
+  };
+  CHECK(!lookup(images[0])); // Never fall back to the main ELF without adoption.
+  MMIXStartupUnwindService input{sizeof(input), 1, images, find, release};
+  CHECK(!__libunwind_mmix_adopt_startup_images(nullptr));
+  input.process_resident = 0;
+  CHECK(!__libunwind_mmix_adopt_startup_images(&input));
+  input.process_resident = 1;
+  input.size -= 8;
+  CHECK(!__libunwind_mmix_adopt_startup_images(&input));
+  input.size += 8;
+  auto savedFind = input.find;
+  input.find = nullptr;
+  CHECK(!__libunwind_mmix_adopt_startup_images(&input));
+  input.find = savedFind;
+  CHECK(__libunwind_mmix_adopt_startup_images(&input));
+  CHECK(!__libunwind_mmix_adopt_startup_images(&input));
+  input = {}; // Adoption owns a copy; caller storage is not retained.
+  for (auto &image : images) {
+    CHECK(lookup(image));
+    CHECK(info.dso_base == reinterpret_cast<uintptr_t>(&image));
+    CHECK(info.dwarf_section == reinterpret_cast<uintptr_t>(image.frames));
+    auto copy = info;
+    CHECK(lookup(images[0]));
+    CHECK(copy.dwarf_index_section == reinterpret_cast<uintptr_t>(image.index));
+  }
+  CHECK(releases == 4);
+  MMIXUnwindImage missing{};
+  CHECK(!__libunwind_mmix_find_startup_image(1, &missing));
+  CHECK(!missing.token);
+  auto good = images[0].view;
+  for (unsigned mode = 0; mode < 7; ++mode) {
+    images[0].view = good;
+    switch (mode) {
+    case 0: images[0].view.eh_frame_header_size = 3; break;
+    case 1: images[0].view.eh_frame_header = 1; break;
+    case 2: images[0].view.phdr_count = UINT64_MAX; break;
+    case 3: images[0].view.range_count = 0; break;
+    case 4: images[0].view.load_bias = UINT64_MAX; break;
+    case 5: images[0].index[3] = 0xff; break;
+    case 6: images[0].phdr[1].p_flags = PF_R; break;
+    }
+    CHECK(!lookup(images[0]));
+    images[0].index[3] = 0x3b;
+    images[0].phdr[1].p_flags = PF_R | PF_X;
+  }
+  CHECK(releases == 11);
+  images[0].view = good;
+  CHECK(lookup(images[0]));
+  return 0;
+}

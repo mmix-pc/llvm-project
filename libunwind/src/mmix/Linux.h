@@ -22,13 +22,23 @@ inline bool mmixLinuxContains(uintptr_t start, uintptr_t size, uintptr_t addr,
   return size <= UINTPTR_MAX - start && addr >= start && length <= size &&
          addr - start <= size - length;
 }
+} // namespace libunwind
 
-// The main static ET_EXEC image is mapped by the kernel. Section headers need
-// not be mapped (or even retained), so use only its program headers.
-// FIXME: Add loader-owned image enumeration when shared objects are supported.
+#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES)
+#include "StartupSections.h"
+#endif
+
+namespace libunwind {
+
+// Resident builds require the adopted startup service. Static builds inspect
+// the kernel-mapped ET_EXEC directly; neither path needs section headers.
 template <typename A, typename S>
 bool findMMIXLinuxUnwindSections(A &addressSpace, const Elf64_Ehdr &elf,
                                 uintptr_t targetAddr, S &info) {
+#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES)
+  (void)elf;
+  return findMMIXStartupUnwindSections(addressSpace, targetAddr, info);
+#else
   if (elf.e_ident[EI_MAG0] != ELFMAG0 || elf.e_ident[EI_MAG1] != ELFMAG1 ||
       elf.e_ident[EI_MAG2] != ELFMAG2 || elf.e_ident[EI_MAG3] != ELFMAG3 ||
       elf.e_ident[EI_CLASS] != ELFCLASS64 ||
@@ -114,6 +124,7 @@ bool findMMIXLinuxUnwindSections(A &addressSpace, const Elf64_Ehdr &elf,
     return true;
   }
   return false;
+#endif
 }
 } // namespace libunwind
 
