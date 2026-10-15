@@ -230,7 +230,10 @@ function(mmix_check_runtime_mode)
     # preparation archive. Full public libc/pthread composition is separate.
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
-      if(variable STREQUAL "LIBC_MMIX_BUILD_SHARED_LIBC")
+      # Nonlocal transfers use per-call storage and the calling thread's kernel
+      # register-stack service; they do not introduce shared libc state.
+      if(variable STREQUAL "LIBC_MMIX_BUILD_SHARED_LIBC" OR
+         variable STREQUAL "LIBC_MMIX_BUILD_JUMP_SAVE")
         continue()
       endif()
       if(variable MATCHES "^LIBC_MMIX_BUILD_" AND ${variable} AND

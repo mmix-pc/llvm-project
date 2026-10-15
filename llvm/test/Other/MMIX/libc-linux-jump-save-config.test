@@ -1,0 +1,31 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../../libc -DEXPECT_ENABLED=ON -P %t/check.cmake
+# RUN: cmake -DSOURCE=%S/../../../../libc -DEXPECT_ENABLED=OFF -DLIBC_MMIX_BUILD_JUMP_SAVE=OFF -P %t/check.cmake
+# RUN: cmake -DSOURCE=%S/../../../../libc -DEXPECT_ENABLED=ON -DCHECK_LIFECYCLE=ON -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(TARGET_LIBC_ENTRYPOINTS existing_entry)
+include(${SOURCE}/config/linux/mmix/JumpSave.cmake)
+set(expected existing_entry)
+if(EXPECT_ENABLED)
+  list(APPEND expected
+    libc.src.setjmp.setjmp
+    libc.src.setjmp.sigsetjmp
+    libc.src.setjmp.longjmp
+    libc.src.setjmp.siglongjmp)
+endif()
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "${expected}")
+  message(FATAL_ERROR "Unexpected nonlocal-transfer entrypoints: ${TARGET_LIBC_ENTRYPOINTS}")
+endif()
+if(CHECK_LIFECYCLE)
+  set(LIBC_MMIX_BUILD_THREAD_LIFECYCLE ON)
+  set(LIBC_MMIX_BUILD_RUNTIME_STATE ON)
+  set(LIBC_MMIX_ENABLE_STATIC_TLS ON)
+  set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_PLATFORM)
+  set(LIBC_CONF_ERRNO_MODE LIBC_ERRNO_MODE_THREAD_LOCAL)
+  set(LIBC_COMPILE_OPTIONS_DEFAULT -ftls-model=local-exec -fno-lto)
+  include(${SOURCE}/config/linux/mmix/RuntimeMode.cmake)
+  mmix_check_runtime_mode()
+endif()

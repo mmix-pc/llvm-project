@@ -1,4 +1,4 @@
-option(LIBC_MMIX_BUILD_JUMP_SAVE "Build Linux nonlocal-transfer preparation" OFF)
+option(LIBC_MMIX_BUILD_JUMP_SAVE "Build Linux nonlocal-transfer preparation" ON)
 if(NOT LIBC_MMIX_BUILD_JUMP_SAVE)
   return()
 endif()

@@ -7,10 +7,35 @@
 cmake_minimum_required(VERSION 3.20)
 include(${LIBC_SOURCE}/cmake/caches/mmix-linux-shared.cmake)
 project(SharedLibcConfig NONE)
+include(${LIBC_SOURCE}/config/linux/mmix/JumpSave.cmake)
 include(${LIBC_SOURCE}/config/linux/mmix/RuntimeMode.cmake)
 mmix_check_runtime_mode()
 if(NOT mmix_runtime_tls_model STREQUAL "initial-exec")
   message(FATAL_ERROR "shared runtime must use startup IE TLS")
+endif()
+# Inspect actual object declarations without compiling the runtime. Public and
+# private cancellation builds must each have exactly one save producer.
+function(add_header_library)
+endfunction()
+function(add_object_library name)
+  if(name STREQUAL "cancellation_point")
+    cmake_parse_arguments(OBJECT "" "" "SRCS;HDRS;DEPENDS;COMPILE_OPTIONS" ${ARGN})
+    set(private_save "${LIBC_SOURCE}/src/setjmp/mmix/linux/setjmp.cpp")
+    if(LIBC_MMIX_BUILD_JUMP_SAVE)
+      if(private_save IN_LIST OBJECT_SRCS)
+        message(FATAL_ERROR "public setjmp has a duplicate cancellation producer")
+      endif()
+    elseif(NOT private_save IN_LIST OBJECT_SRCS)
+      message(FATAL_ERROR "cancellation lost its private setjmp producer")
+    endif()
+    set_property(GLOBAL PROPERTY checked_save_owner TRUE)
+  endif()
+endfunction()
+set(LIBC_SOURCE_DIR ${LIBC_SOURCE})
+include(${LIBC_SOURCE}/src/__support/threads/linux/mmix/CMakeLists.txt)
+get_property(checked GLOBAL PROPERTY checked_save_owner)
+if(NOT checked)
+  message(FATAL_ERROR "cancellation save producer was not checked")
 endif()
 if(CHECK_BUILTINS)
   include(${LIBC_SOURCE}/config/linux/mmix/SharedLibc.cmake)
@@ -29,7 +54,9 @@ for header in ("asm/unistd.h", "asm/unistd_64.h", "linux/errno.h"):
     path.touch()
 base = ["cmake", "-S", str(root), "-DLIBC_SOURCE=" + str(source),
         "-DCMAKE_SYSROOT=" + str(sysroot), "-DLIBC_KERNEL_HEADERS=/usr/include"]
-cases = [([], None)]
+cases = [([], None), (["-DLIBC_MMIX_BUILD_JUMP_SAVE=OFF"], None),
+         (["-DLIBC_MMIX_BUILD_UNREVIEWED=ON"],
+          "does not support LIBC_MMIX_BUILD_UNREVIEWED")]
 for option in ("CMAKE_POSITION_INDEPENDENT_CODE=OFF",
                "LIBC_MMIX_BUILD_EXTENDED_PTHREAD=OFF",
                "LIBC_MMIX_INSTALL_RUNTIME=ON",

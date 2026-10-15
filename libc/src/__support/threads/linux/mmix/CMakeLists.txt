@@ -217,11 +217,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     endif()
     set(mmix_window_dependency)
     if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+      set(mmix_private_save_source)
+      if(NOT LIBC_MMIX_BUILD_THREADED_LIBC OR NOT LIBC_MMIX_BUILD_JUMP_SAVE)
+        # Internal archives and public profiles without setjmp still need the
+        # hidden save entry. Otherwise the selected public object owns it.
+        set(mmix_private_save_source
+          ${LIBC_SOURCE_DIR}/src/setjmp/mmix/linux/setjmp.cpp)
+      endif()
       add_object_library(
         cancellation_point
-        # Reuse the private save producer without exporting a public setjmp API.
         SRCS cancellation_point.cpp cancellation_leaf.S
-          ${LIBC_SOURCE_DIR}/src/setjmp/mmix/linux/setjmp.cpp
+          ${mmix_private_save_source}
         HDRS cancellation_point.h
         DEPENDS .lifecycle libc.hdr.errno_macros libc.hdr.signal_macros
           libc.src.errno.errno libc.hdr.types.jmp_buf
