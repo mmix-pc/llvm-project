@@ -52,13 +52,13 @@ foreach(project LIBCXX LIBCXXABI LIBUNWIND)
   endif()
 endforeach()
 
-# Keep the complete upstream source set; replace only the registration bridge.
+# Keep the upstream source set and target-owned registration/callback bridges.
 set(LIBCXXABI_SOURCES cxa_exception.cpp cxa_guard.cpp private_typeinfo.cpp
   cxa_exception_storage.cpp cxa_default_handlers.cpp cxa_thread_atexit.cpp)
 include(${SOURCE}/libcxxabi/src/mmix/Sources.cmake)
 foreach(source cxa_exception.cpp cxa_guard.cpp private_typeinfo.cpp
                cxa_exception_storage.cpp cxa_default_handlers.cpp
-               mmix/cxa_thread_atexit.cpp)
+               mmix/cxa_thread_atexit.cpp mmix/loader_callbacks.cpp)
   if(NOT source IN_LIST LIBCXXABI_SOURCES)
     message(FATAL_ERROR "Missing ABI component: ${source}")
   endif()

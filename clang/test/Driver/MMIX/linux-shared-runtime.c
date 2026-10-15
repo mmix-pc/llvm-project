@@ -54,8 +54,8 @@ for mode in (["-pie"], ["-no-pie", "-Wl,-Bdynamic"]):
     check([*mode, "-nodefaultlibs"], [crt], [*shared, "builtins"])
     check([*mode, "-nolibc"], [crt, "builtins"], shared)
     check([*mode, "-flto=full", "-O2"], ["-plugin-opt=O2", "-mllvm", "-relocation-model=pic"])
-    check([*mode, "--driver-mode=g++"], ["shared C++"], error=True)
-    check([*mode, "--unwindlib=libunwind"], ["application unwind"], error=True)
+    check([*mode, "--driver-mode=g++"], ["mmix-shared-cxx-profile"], error=True)
+    check([*mode, "--unwindlib=libunwind"], ["mmix-shared-cxx-profile"], error=True)
 check(["-shared"], [*shared, '"-shared"', '"--no-dynamic-linker"'], [crt, "crtbegin", "crtend"])
 check(["-shared", "-nodefaultlibs"], no=[crt, *shared, "builtins"])
 for args in ([], ["-static"], ["-no-pie"], ["-pie", "-no-pie"], ["-pthread", "-static"]):

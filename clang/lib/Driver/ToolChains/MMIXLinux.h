@@ -21,6 +21,7 @@ public:
   bool hasThreadedCXXProfile() const { return ThreadedCXX; }
   bool hasSharedCProfile() const { return SharedC; }
   bool validateSharedCProfile() const;
+  bool validateSharedCXXProfile() const;
   MMIXLinuxToolChain(const Driver &D, const llvm::Triple &Triple,
                      const llvm::opt::ArgList &Args);
 

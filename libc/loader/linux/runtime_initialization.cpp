@@ -191,7 +191,8 @@ long RuntimeInitializers::run(Batch &batch, LoaderLocks::Session &session,
     }
   }
   if (!invoke)
-    invoke = invoke_initializer;
+    invoke = session.initializer_barrier() ? session.initializer_barrier()
+                                           : invoke_initializer;
   if (batch.startup && !batch.preinitialized) {
     batch.preinitialized = true;
     for (size_t j = 0; j < batch.plan.preinit_count && !stopping; ++j) {
@@ -235,7 +236,8 @@ long RuntimeInitializers::finalize(LoaderLocks::Session &session,
     return 0;
   stopping = true;
   if (!invoke)
-    invoke = invoke_finalizer;
+    invoke = session.finalizer_barrier() ? session.finalizer_barrier()
+                                        : invoke_finalizer;
   while (completed) {
     auto *record = completed;
     completed = record->previous_completion;

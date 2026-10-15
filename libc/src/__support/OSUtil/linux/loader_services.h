@@ -22,6 +22,10 @@ struct LoaderCancellation {
   long (*leave)(uint64_t saved);
   void (*begin_callback)() = nullptr;
   void (*end_callback)() = nullptr;
+  // Optional runtime-owned exception barriers; the interpreter itself has no
+  // C++ exception runtime dependency. Rebuild both protocol owners together.
+  void (*invoke_initializer)(uintptr_t, int, char **, char **) = nullptr;
+  void (*invoke_finalizer)(uintptr_t) = nullptr;
 };
 
 struct UnwindReadableRange {

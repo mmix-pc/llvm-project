@@ -783,14 +783,19 @@ if(TARGET libc.src.__support.threads.mutex)
   )
 endif()
 
+set(atexit_source atexit.cpp)
+set(atexit_deps .exit_handler)
+if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  include(linux/mmix/AtExit.cmake)
+endif()
 add_entrypoint_object(
   atexit
   SRCS
-    atexit.cpp
+    ${atexit_source}
   HDRS
     atexit.h
   DEPENDS
-    .exit_handler
+    ${atexit_deps}
 )
 
 add_entrypoint_object(

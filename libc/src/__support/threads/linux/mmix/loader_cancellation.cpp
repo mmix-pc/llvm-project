@@ -16,6 +16,11 @@
 #include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
+// The C-only companion does not provide these barriers. Full shared libc++abi
+// provides them before any constructors run; never add a bootstrap dependency.
+extern "C" [[gnu::weak]] void
+__cxa_mmix_invoke_initializer(uintptr_t, int, char **, char **);
+extern "C" [[gnu::weak]] void __cxa_mmix_invoke_finalizer(uintptr_t);
 namespace mmix {
 namespace {
 class Mask {
@@ -79,7 +84,8 @@ void end_callback() {
 }
 } // namespace
 loader::LoaderCancellation loader_cancellation_hooks() {
-  return {enter, leave, begin_callback, end_callback};
+  return {enter, leave, begin_callback, end_callback,
+          __cxa_mmix_invoke_initializer, __cxa_mmix_invoke_finalizer};
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

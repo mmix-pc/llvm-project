@@ -151,12 +151,17 @@ public:
     const bool DefaultLibs =
         !Relocatable &&
         !Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs);
+    const bool CXX = D.CCCIsCXX() || TC.ShouldLinkCXXStdlib(Args);
+    const bool DynamicCXXCRT =
+        Dynamic && CXX && !Relocatable &&
+        !Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles);
     if (Dynamic && (DefaultLibs || StartFiles)) {
       const Arg *Unwind = Args.getLastArg(options::OPT_unwindlib_EQ);
-      if (D.CCCIsCXX() || TC.ShouldLinkCXXStdlib(Args) ||
-          (Unwind && StringRef(Unwind->getValue()) == "libunwind")) {
-        Reject("MMIX Linux shared C++ or application unwind runtime selection");
-        return;
+      if (DefaultLibs &&
+          (TC.ShouldLinkCXXStdlib(Args) ||
+           (Unwind && StringRef(Unwind->getValue()) == "libunwind"))) {
+        if (!TC.validateSharedCXXProfile())
+          return;
       }
       if (!TC.validateSharedCProfile())
         return;
@@ -204,6 +209,9 @@ public:
         CmdArgs.push_back(
             TC.getCompilerRTArgString(Args, "crtbegin", ToolChain::FT_Object));
     }
+    if (DynamicCXXCRT)
+      CmdArgs.push_back(
+          TC.getCompilerRTArgString(Args, "crtbegin", ToolChain::FT_Object));
     tools::addLinkerCompressDebugSectionsOption(TC, Args, CmdArgs);
     if (LTOMode == LTOK_Full || HasIRInput)
       tools::addLTOOptions(TC, Args, CmdArgs, Output, Inputs,
@@ -216,11 +224,18 @@ public:
     if (DefaultLibs) {
       CmdArgs.push_back("--start-group");
       if (Dynamic) {
-        // These companions implement libc's forced exit, not a public shared
-        // C++ runtime. Never mix static state owners into this composition.
-        if (!Args.hasArg(options::OPT_nolibc))
-          for (StringRef Name : {"libc.so", "libunwind.so.1", "libc++abi.so.1"})
+        if (TC.ShouldLinkCXXStdlib(Args))
+          for (StringRef Name : {"libc++.so", "libc++abi.so", "libunwind.so"})
             CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile(Name)));
+        // C-only profiles still need the forced-exit companions. A qualified
+        // C++ profile supplies the full providers with the same SONAMEs.
+        // Never mix static state owners into this composition.
+        if (!Args.hasArg(options::OPT_nolibc)) {
+          CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile("libc.so")));
+          if (!TC.ShouldLinkCXXStdlib(Args))
+            for (StringRef Name : {"libunwind.so.1", "libc++abi.so.1"})
+              CmdArgs.push_back(Args.MakeArgString(TC.getSysrootFile(Name)));
+        }
         CmdArgs.push_back("--no-allow-shlib-undefined");
         CmdArgs.push_back("--exclude-libs=libclang_rt.builtins.a");
       } else if (TC.ShouldLinkCXXStdlib(Args)) {
@@ -238,7 +253,7 @@ public:
       CmdArgs.push_back(TC.getCompilerRTArgString(Args, "builtins"));
       CmdArgs.push_back("--end-group");
     }
-    if (StartFiles && !Dynamic)
+    if ((StartFiles && !Dynamic) || DynamicCXXCRT)
       CmdArgs.push_back(
           TC.getCompilerRTArgString(Args, "crtend", ToolChain::FT_Object));
     Args.addAllArgs(CmdArgs, {options::OPT_T_Group});
@@ -424,6 +439,22 @@ bool MMIXLinuxToolChain::validateSharedCProfile() const {
     return false;
   }
   return true;
+}
+
+bool MMIXLinuxToolChain::validateSharedCXXProfile() const {
+  std::string Path = getSysrootFile("mmix-shared-cxx-profile");
+  if (Path.empty())
+    return false;
+  auto Contents = getVFS().getBufferForFile(Path);
+  if (!Contents || (*Contents)->getBuffer().trim() !=
+                       "mmix-linux-shared-pthread-cxx") {
+    getDriver().Diag(diag::err_drv_clang_unsupported)
+        << "missing or incompatible MMIX Linux shared C++ profile";
+    return false;
+  }
+  for (StringRef Name : {"libc++.so", "libc++abi.so", "libunwind.so"})
+    getSysrootFile(Name);
+  return !getDriver().getDiags().hasErrorOccurred();
 }
 
 std::string MMIXLinuxToolChain::getSysrootFile(StringRef Name,

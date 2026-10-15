@@ -53,6 +53,8 @@ public:
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
     long error() const { return failure; }
+    auto initializer_barrier() const { return cancellation.invoke_initializer; }
+    auto finalizer_barrier() const { return cancellation.invoke_finalizer; }
     // A callback boundary must retain mutation serialization and cancellation
     // suppression, but never a short registry/arena guard.
     long callback_owner() const {

@@ -182,17 +182,22 @@ extern "C" int main() {
   {
     RuntimeInitializers fresh;
     RuntimeInitializers::Batch first(page);
-    LoaderLocks::Session session(locks, hooks);
+    auto barriers = hooks;
+    barriers.invoke_initializer = [](Address pc, int, char **, char **) {
+      record(pc);
+    };
+    barriers.invoke_finalizer = record;
+    LoaderLocks::Session session(locks, barriers);
     LoaderLocks::Guard guard(session, Kind::Mutation);
     check(!guard.error() && !fresh.prepare(startup, first, true));
     check(!fresh.attach(first, startup));
     auto call = [](Address pc, int, char **, char **) { record(pc); };
-    check(!fresh.run(first, session, stack, call));
+    check(!fresh.run(first, session, stack));
     check(!fresh.run(first, session, stack, call));
     const Address init[] = {0x102014, 0x102000, 0x102008, 0x10200c};
     expect(init, 4);
     trace_count = 0;
-    check(!fresh.finalize(session, record));
+    check(!fresh.finalize(session));
     check(!fresh.finalize(session, record));
     const Address fini[] = {0x102010, 0x102004};
     expect(fini, 2);
