@@ -16,7 +16,9 @@ class ForkOperation {
   uint64_t saved_mask = 0;
   bool serial = false, masked = false, suppressed = false;
   bool priority = false, streams = false, allocator = false, registry = false;
+#ifdef LIBC_MMIX_SHARED_STARTUP
   bool loader_locked = false;
+#endif
   int error_code = 0;
   File *standard[3]{};
   bool standard_locked[3]{};
