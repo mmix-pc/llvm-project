@@ -1,3 +1,19 @@
+# Shared and static pthread providers use the same noncanceling guard waits
+# and fail-closed TLS registration. Image lifetime belongs to the libc bridge.
+if(MMIX_LINUX_SHARED_RUNTIME_VALIDATED)
+  if(NOT LIBCXXABI_ENABLE_SHARED OR LIBCXXABI_ENABLE_STATIC OR
+     NOT LIBCXXABI_ENABLE_THREADS OR NOT LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL)
+    message(FATAL_ERROR "MMIX shared ABI requires native pthread and libc TLS registration")
+  endif()
+  list(REMOVE_ITEM LIBCXXABI_SOURCES cxa_thread_atexit.cpp)
+  list(APPEND LIBCXXABI_SOURCES mmix/cxa_thread_atexit.cpp)
+  set_source_files_properties(mmix/cxa_thread_atexit.cpp PROPERTIES
+    COMPILE_OPTIONS -fno-exceptions)
+  set_property(SOURCE cxa_guard.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS _LIBCXXABI_USE_FUTEX)
+  return()
+endif()
+
 # Keep the retained SINGLE and Generic profiles on their existing source lists.
 option(LIBCXXABI_MMIX_LINUX_CANCELLATION_SAFE_GUARDS
   "Use noncanceling futex waits for MMIX Linux C++ initialization guards" OFF)
