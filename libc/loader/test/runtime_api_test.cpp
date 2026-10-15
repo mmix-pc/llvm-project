@@ -9,6 +9,8 @@
 
 #include "dynamic_fixture.h"
 #include "loader/linux/runtime_api.h"
+#include "loader/linux/runtime_unwind.h"
+#include "src/dlfcn/dlclose.h"
 #include "src/dlfcn/dlerror.h"
 #include "src/dlfcn/dlopen.h"
 #include "src/dlfcn/dlsym.h"
@@ -152,9 +154,11 @@ int main(int argc, char **argv) {
                      {&registry, resolve});
   production = service.services();
   check(
-      !client::adopt_loading_services({production.context, nullptr, nullptr}));
+      !client::adopt_loading_services({production.context, nullptr, nullptr, nullptr}));
+  check(!client::adopt_loading_services(
+      {production.context, record_open, record_lookup, nullptr}));
   check(client::adopt_loading_services(
-      {production.context, record_open, record_lookup}));
+      {production.context, record_open, record_lookup, production.close}));
   check(!client::adopt_loading_services(production));
 
   const int invalid_flags[] = {0, RTLD_NOW | RTLD_LAZY,
@@ -226,6 +230,48 @@ int main(int argc, char **argv) {
   check(results[0].tls != results[1].tls &&
         results[0].message != results[1].message);
   check(!client::loader_error() && !tls_calls && !disabled);
+  const auto *retained = scopes.snapshot();
+  const auto *retained_images = registry.snapshot();
+  UnwindImageView unwind{};
+  check(!find_runtime_unwind_image(&scopes,
+          reinterpret_cast<uintptr_t>(function), &unwind));
+  void *tls_address = client::loader_lookup(local, "tls_zero", caller_pc);
+  check(tls_address == &tls_storage);
+  tls_storage = 73;
+  void *invalid_handles[] = {RTLD_DEFAULT, RTLD_NEXT, reinterpret_cast<void *>(999)};
+  for (void *bad : invalid_handles) {
+    check(LIBC_NAMESPACE::dlclose(bad) == -1);
+    check(LIBC_NAMESPACE::dlerror() && scopes.snapshot() == retained);
+  }
+  check(!LIBC_NAMESPACE::dlclose(local) && !LIBC_NAMESPACE::dlerror());
+  check(LIBC_NAMESPACE::dlclose(local) == -1 && LIBC_NAMESPACE::dlerror());
+  check(!client::loader_lookup(local, "access_tls", caller_pc));
+  check(client::loader_error());
+  check(client::loader_lookup(promoted, "access_tls", caller_pc) == function);
+  check(!LIBC_NAMESPACE::dlclose(promoted));
+  check(!LIBC_NAMESPACE::dlclose(global));
+  check(scopes.snapshot()->handles.empty());
+  check(registry.snapshot() == retained_images &&
+        scopes.snapshot()->unwind == retained->unwind);
+  RuntimeScopes::Value value;
+  check(RuntimeScopes::lookup(*retained, reinterpret_cast<uintptr_t>(local),
+                              text("access_tls"), value) == SymbolError::None);
+  check(client::loader_lookup(RTLD_DEFAULT, "access_tls", caller_pc) == function);
+  for (unsigned i = 0; i < 3; ++i) {
+    void *reopened = client::loader_open(argv[1], RTLD_NOW | RTLD_NOLOAD, caller_pc);
+    check(reopened && reopened != local && reopened != promoted);
+    check(client::loader_lookup(reopened, "tls_zero", caller_pc) == tls_address);
+    check(tls_storage == 73 && registry.snapshot()->images[1] == image);
+    check(!LIBC_NAMESPACE::dlclose(reopened) && !LIBC_NAMESPACE::dlerror());
+  }
+  UnwindImageView after{};
+  check(!find_runtime_unwind_image(&scopes,
+          reinterpret_cast<uintptr_t>(function), &after));
+  check(after.token == unwind.token && after.eh_frame_header == unwind.eh_frame_header);
+  release_runtime_unwind_image(&scopes, unwind.token);
+  release_runtime_unwind_image(&scopes, after.token);
+  check(scopes.snapshot()->handles.empty() && !disabled);
+  std::puts("logical close, stale handles, balanced reopen and resident TLS/unwind checks passed");
   std::puts("runtime API linked opens, flags, caller scopes, zero symbols, "
             "TLS bridge and per-thread error checks passed");
 }

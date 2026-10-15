@@ -106,6 +106,7 @@ struct LoaderAPI {
                uint64_t *);
   long (*lookup)(void *, uint64_t, const char *, uintptr_t, LoaderCancellation,
                  uintptr_t *);
+  long (*close)(void *, uint64_t, LoaderCancellation);
 };
 
 enum LoaderOpenFlag : unsigned {
@@ -146,7 +147,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 96);
+static_assert(sizeof(LoaderServices) == 104);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

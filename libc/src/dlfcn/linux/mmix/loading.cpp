@@ -22,7 +22,7 @@ static thread_local
     __attribute__((tls_model("initial-exec"))) ErrorState error_state{};
 
 bool adopt_loading_services(const loader::LoaderAPI &input) {
-  if (api.context || !input.context || !input.open || !input.lookup)
+  if (api.context || !input.context || !input.open || !input.lookup || !input.close)
     return false;
   api = input;
   return true;
@@ -122,6 +122,22 @@ void *loader_lookup(void *handle, const char *name, uintptr_t caller) {
   }
   error_state.pending = false;
   return reinterpret_cast<void *>(result);
+}
+
+int loader_close(void *handle) {
+  CancellationScope guard;
+  long error = guard.error();
+  if (!error) {
+    error_state.pending = false;
+    error = api.close ? api.close(api.context, reinterpret_cast<uintptr_t>(handle),
+                                  guard.callbacks())
+                      : ENOSYS;
+  }
+  if (error) {
+    set_error(error);
+    return -1;
+  }
+  return 0;
 }
 
 char *loader_error() {

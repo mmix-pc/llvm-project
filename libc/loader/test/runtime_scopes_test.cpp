@@ -207,6 +207,7 @@ extern "C" int main() {
   check(Scopes::lookup_default(*local, &main.record, text("bar"), value) ==
         SymbolError::Undefined);
   open(registries[2], &a.record, true, promoted);
+  const uint64_t global_a = promoted;
   check(scopes.snapshot()->global.images.size() == 5);
   check(Scopes::lookup_next(*scopes.snapshot(), &global.record, text("foo"),
                             value) == SymbolError::None &&
@@ -292,6 +293,24 @@ extern "C" int main() {
   check(scopes.prepare_open(registries[0], nullptr, false, invalid, promoted) ==
         -EINVAL);
   check(!invalid.abort());
+
+  // Closing all explicit references to a dependency cycle neither collects
+  // its images nor revokes retained binding scopes or global promotion.
+  const auto *cycle_snapshot = scopes.snapshot();
+  const uint64_t cycle_tokens[] = {ta, global_a};
+  for (uint64_t token : cycle_tokens) {
+    Scopes::Transaction cycle_close(4096);
+    check(!scopes.prepare_close(token, cycle_close) &&
+          !scopes.publish(cycle_close));
+  }
+  check(scopes.snapshot()->registry == cycle_snapshot->registry);
+  check(Scopes::lookup_next(*scopes.snapshot(), &a.record, text("foo"), value) ==
+            SymbolError::None && value.image == &dependency.record);
+  uint64_t reopened_cycle;
+  open(registries[5], &a.record, false, reopened_cycle);
+  check(reopened_cycle != ta && reopened_cycle != global_a);
+  check(Scopes::lookup(*scopes.snapshot(), reopened_cycle, text("foo"), value) ==
+            SymbolError::None && value.image == &a.record);
 
   Scopes::Transaction stale(4096);
   uint64_t stale_token;

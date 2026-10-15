@@ -18,6 +18,7 @@ bool adopt_loading_services(const loader::LoaderAPI &);
 void *loader_open(const char *, int, uintptr_t caller);
 void *loader_lookup(void *, const char *, uintptr_t caller);
 char *loader_error();
+int loader_close(void *);
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif

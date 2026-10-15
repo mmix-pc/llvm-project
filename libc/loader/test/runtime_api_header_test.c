@@ -14,6 +14,7 @@
 void *(*open_pointer)(const char *, int) = dlopen;
 void *(*lookup_pointer)(void *, const char *) = dlsym;
 char *(*error_pointer)(void) = dlerror;
+int (*close_pointer)(void *) = dlclose;
 #ifdef __cplusplus
 #define CHECK static_assert
 #else

@@ -7,7 +7,7 @@ add_object_library(
     libc.hdr.errno_macros
   COMPILE_OPTIONS -fno-lto -ftls-model=initial-exec
 )
-foreach(name dlopen dlsym dlerror)
+foreach(name dlopen dlsym dlerror dlclose)
   add_entrypoint_object(
     ${name}
     SRCS ${name}.cpp

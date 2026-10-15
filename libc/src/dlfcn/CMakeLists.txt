@@ -1,20 +1,17 @@
-add_entrypoint_object(
-  dlclose
-  SRCS
-    dlclose.cpp
-  HDRS
-    dlclose.h
-)
-
 if(LIBC_TARGET_OS STREQUAL "linux" AND
    LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_MMIX_BUILD_SHARED_LIBC)
   # Build the shared-profile entry objects without selecting an installed API.
-  list(APPEND TARGET_ENTRYPOINT_NAME_LIST dlopen dlsym dlerror)
+  list(APPEND TARGET_ENTRYPOINT_NAME_LIST dlopen dlsym dlerror dlclose)
   add_subdirectory(linux/mmix)
-  foreach(name dlopen dlsym dlerror)
+  foreach(name dlopen dlsym dlerror dlclose)
     add_entrypoint_object(${name} ALIAS DEPENDS .linux.mmix.${name})
   endforeach()
 else()
+  add_entrypoint_object(
+    dlclose
+    SRCS dlclose.cpp
+    HDRS dlclose.h
+  )
   add_entrypoint_object(
     dlerror
     SRCS

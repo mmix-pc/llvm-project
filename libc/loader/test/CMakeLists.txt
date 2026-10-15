@@ -76,7 +76,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp ../linux/arena.cpp
     ../linux/tls_layout.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp
     ../../src/dlfcn/linux/mmix/loading.cpp ../../src/dlfcn/linux/mmix/dlopen.cpp
-    ../../src/dlfcn/linux/mmix/dlsym.cpp ../../src/dlfcn/linux/mmix/dlerror.cpp)
+    ../../src/dlfcn/linux/mmix/dlsym.cpp ../../src/dlfcn/linux/mmix/dlerror.cpp
+    ../../src/dlfcn/linux/mmix/dlclose.cpp)
   target_include_directories(loader-runtime-api-test PRIVATE ../..)
   target_compile_definitions(loader-runtime-api-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
   target_compile_features(loader-runtime-api-test PRIVATE cxx_std_17)

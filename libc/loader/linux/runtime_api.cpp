@@ -153,6 +153,30 @@ long RuntimeAPI::lookup(uint64_t handle, const char *name, uintptr_t pc,
   return 0;
 }
 
+long RuntimeAPI::close(uint64_t handle, LoaderCancellation cancellation) {
+  LoaderLocks::Session session(locks, cancellation);
+  LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
+  if (mutation.error())
+    return -mutation.error();
+  // Keep failed private cleanup owned by this service until it can be retried.
+  long error = closing.abort();
+  if (error)
+    return -error;
+  error = scopes.prepare_close(handle, closing);
+  if (!error)
+    error = scopes.publish(closing);
+  if (error) {
+    long cleanup = closing.abort();
+    return cleanup ? -cleanup : -error;
+  }
+  // FIXME: Residency, including dependency cycles, TLS and unwind records,
+  // is unconditional until coordinated unloading exists. Do not finalize here.
+  // Publication transferred the arena; only the empty transaction is replaced.
+  closing.~Transaction();
+  new (&closing) RuntimeScopes::Transaction(page);
+  return 0;
+}
+
 LoaderAPI RuntimeAPI::services() {
   return {this,
           [](void *context, const char *name, int flags, uintptr_t pc,
@@ -164,6 +188,9 @@ LoaderAPI RuntimeAPI::services() {
              LoaderCancellation cancellation, uintptr_t *out) {
             return static_cast<RuntimeAPI *>(context)->lookup(
                 handle, name, pc, cancellation, out);
+          },
+          [](void *context, uint64_t handle, LoaderCancellation cancellation) {
+            return static_cast<RuntimeAPI *>(context)->close(handle, cancellation);
           }};
 }
 

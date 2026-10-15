@@ -38,10 +38,12 @@ class RuntimeAPI {
   const SearchEnvironment &environment;
   StartupTLSResolver tls;
   Request *pending = nullptr;
+  RuntimeScopes::Transaction closing;
   RuntimeInitializers::Invoker invoke;
   long open(const char *, int, uintptr_t, LoaderCancellation, uint64_t *);
   long lookup(uint64_t, const char *, uintptr_t, LoaderCancellation,
               uintptr_t *);
+  long close(uint64_t, LoaderCancellation);
 
 public:
   RuntimeAPI(Address page, ImageRegistry &images, RuntimeScopes &scopes,
@@ -50,7 +52,7 @@ public:
              RuntimeInitializers::Invoker invoke = nullptr)
       : page(page), resident(page), images(images), scopes(scopes),
         initializers(initializers), stack(stack), environment(environment),
-        tls(tls), invoke(invoke) {}
+        tls(tls), closing(page), invoke(invoke) {}
   LoaderAPI services();
 };
 
