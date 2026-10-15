@@ -1,4 +1,8 @@
 # Installation is opt-in and requires the complete Linux composition checks.
+if(MMIX_LINUX_SHARED_RUNTIME_VALIDATED)
+  include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/Modules/MMIX/SharedConfig.cmake")
+  return()
+endif()
 if(MMIX_LINUX_RESIDENT_RUNTIME_VALIDATED)
   # The resident cleanup producer uses these headers, not an installed libc++.
   return()

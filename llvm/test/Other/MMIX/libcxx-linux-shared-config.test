@@ -1,0 +1,127 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../.. %t
+
+# Synthetic ELF/header inputs test configuration, not runtime completeness.
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libcxx/cmake/caches/MMIXLinuxShared.cmake)
+project(SharedAdmission NONE)
+set(CMAKE_CROSSCOMPILING TRUE)
+foreach(lang C CXX ASM)
+  set(CMAKE_${lang}_COMPILER "${TOOLS}/clang")
+endforeach()
+set(CMAKE_SYSROOT "${INPUT}/sysroot")
+set(LIBCXX_MMIX_LINUX_BUILTINS "${INPUT}/builtins.a")
+if(OPTION)
+  set(${OPTION} "${VALUE}")
+endif()
+include(${SOURCE}/libcxx/cmake/Modules/MMIX/SharedRuntime.cmake)
+set(LIBCXX_SOURCES sentinel)
+include(${SOURCE}/libcxx/src/support/mmix/Linux.cmake)
+get_target_property(libraries runtimes-libc-shared INTERFACE_LINK_LIBRARIES)
+get_target_property(static_libraries runtimes-libc-static INTERFACE_LINK_LIBRARIES)
+if(NOT libraries STREQUAL "${INPUT}/sysroot/usr/lib/libc.so.1;${INPUT}/builtins.a" OR
+   static_libraries OR NOT LIBCXX_SOURCES STREQUAL "sentinel" OR
+   TARGET cxx_mmix_thread_api OR TARGET cxx_mmix_sync)
+  message(FATAL_ERROR "Wrong shared provider or external adapter selection")
+endif()
+foreach(project LIBCXX LIBCXXABI LIBUNWIND)
+  if(NOT ${project}_BUILTINS_LIBRARY STREQUAL "${INPUT}/builtins.a")
+    message(FATAL_ERROR "Wrong builtins provider")
+  endif()
+endforeach()
+
+#--- shared.yaml
+--- !ELF
+FileHeader:
+  Class: ELFCLASS64
+  Data: ELFDATA2MSB
+  Type: ET_DYN
+  Machine: EM_MMIX
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+source, root = (Path(p).resolve() for p in sys.argv[1:])
+tools = Path(shutil.which("clang")).parent
+inputs = root / "inputs"
+lib = inputs / "sysroot/usr/lib"
+headers = inputs / "sysroot/usr/include"
+lib.mkdir(parents=True)
+(headers / "asm").mkdir(parents=True)
+profile = lib / "mmix-shared-libc-profile"
+profile.write_text("mmix-linux-shared-pthread-c\n")
+for header in ("errno.h", "pthread.h", "asm/unistd.h"):
+    (headers / header).write_text("#define __LLVM_LIBC__ 1\n")
+image = lib / "libc.so.1"
+subprocess.run([str(tools / "yaml2obj"), str(root / "shared.yaml"), "-o", str(image)], check=True)
+obj = inputs / "object.o"
+subprocess.run([str(tools / "llvm-mc"), "-triple=mmix", "-filetype=obj", "-o", str(obj)],
+               input="SWYM 0,0,0\n", text=True, check=True)
+archive = inputs / "builtins.a"
+subprocess.run([str(tools / "llvm-ar"), "rcs", str(archive), str(obj)], check=True)
+counter = 0
+
+def configure(error=None, option=None, value=None):
+    global counter
+    counter += 1
+    args = ["cmake", "-S", str(root), "-B", str(root / str(counter)),
+            "-DSOURCE=" + str(source), "-DTOOLS=" + str(tools), "-DINPUT=" + str(inputs)]
+    if option:
+        args += ["-DOPTION=" + option, "-DVALUE=" + value]
+    result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    text = " ".join(result.stdout.split())
+    if error:
+        assert result.returncode and error in text, text
+    else:
+        assert result.returncode == 0, text
+
+configure()
+for option in ("LIBCXX_HAS_EXTERNAL_THREAD_API", "LIBCXXABI_HAS_EXTERNAL_THREAD_API",
+               "LIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY",
+               "LIBCXXABI_STATICALLY_LINK_UNWINDER_IN_SHARED_LIBRARY",
+               "LIBUNWIND_USE_FRAME_HEADER_CACHE", "LIBUNWIND_HIDE_SYMBOLS",
+               "LIBCXX_HAS_C_LIB", "LIBCXXABI_HAS_GCC_S_LIB",
+               "LIBUNWIND_HAS_PTHREAD_LIB", "LIBCXX_MMIX_LINUX_INSTALL_RUNTIME",
+               "LIBCXX_INSTALL_LIBRARY", "LIBCXXABI_INSTALL_HEADERS",
+               "LIBCXXABI_MMIX_LINUX_TLS_DESTRUCTORS"):
+    configure("rejects " + option, option, "ON")
+for option in ("CMAKE_POSITION_INDEPENDENT_CODE", "CMAKE_SKIP_RPATH", "LIBCXX_ENABLE_THREADS",
+               "LIBCXXABI_ENABLE_EXCEPTIONS", "LIBCXXABI_ENABLE_RTTI",
+               "LIBUNWIND_IS_NATIVE_ONLY", "LIBUNWIND_REMEMBER_HEAP_ALLOC"):
+    configure("requires " + option + "=ON", option, "OFF")
+configure("requires shared-only runtime targets", "LIBCXX_ENABLE_STATIC", "ON")
+configure("requires shared-only runtime targets", "LIBUNWIND_ENABLE_SHARED", "OFF")
+configure("requires all three C++ runtimes", "LLVM_ENABLE_RUNTIMES", "libcxx")
+configure("requires matching Linux compiler targets", "CMAKE_C_COMPILER_TARGET", "mmix-unknown-unknown")
+configure("requires sysroot-only LIBRARY searches", "CMAKE_FIND_ROOT_PATH_MODE_LIBRARY", "BOTH")
+configure("requires -ftls-model=initial-exec", "CMAKE_C_FLAGS", "-fPIC -fno-lto")
+configure("rejects conflicting CXX FLAGS_RELEASE", "CMAKE_CXX_FLAGS_RELEASE", "-O2 -ftls-model=local-exec")
+configure("requires explicit link providers", "CMAKE_SHARED_LINKER_FLAGS", "")
+configure("requires an existing absolute input", "LIBCXX_MMIX_LINUX_BUILTINS", str(inputs / "missing.a"))
+configure("conflicts with the MMIX compiler C provider", "RUNTIMES_USE_LIBC", "newlib")
+profile.write_text("mmix-linux-static-pthread-cxx-v1\n")
+configure("requires shared pthread LLVM libc")
+profile.write_text("mmix-linux-shared-pthread-c\n")
+original = image.read_bytes()
+shutil.copyfile(obj, image)
+configure("requires an ELF shared libc")
+image.write_bytes(original)
+saved = archive.read_bytes()
+archive.write_text("not an archive\n")
+configure("Cannot inspect MMIX shared C++ input")
+archive.write_bytes(saved)
+image.rename(inputs / "outside.so")
+image.symlink_to(inputs / "outside.so")
+configure("input escapes the sysroot")
+image.unlink()
+(inputs / "outside.so").rename(image)
+(headers / "errno.h").write_text("#define __NEWLIB__ 1\n")
+configure("requires LLVM libc")
+(headers / "errno.h").write_text("#define __LLVM_LIBC__ 1\n")
+configure()
