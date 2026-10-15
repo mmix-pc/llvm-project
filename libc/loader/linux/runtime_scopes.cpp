@@ -154,6 +154,7 @@ long RuntimeScopes::Transaction::abort() {
     owner = nullptr;
     base = nullptr;
     active = false;
+    unwind_required = false;
   }
   return error;
 }
@@ -236,6 +237,7 @@ long RuntimeScopes::prepare_open(const ImageRegistry::Snapshot &registry,
     error = closure(transaction.arena, registry, *root, *local);
   else
     *local = old->global;
+  next->unwind = old->unwind;
   if (!error)
     error = combine(transaction.arena, old->global, *local, *binding);
   if (error)
@@ -308,7 +310,10 @@ long RuntimeScopes::prepare_close(uint64_t token, Transaction &transaction) {
 bool RuntimeScopes::can_publish(const Transaction &transaction) const {
   return transaction.owner == this && transaction.candidate &&
          !transaction.published && transaction.base == snapshot() &&
-         resident.can_adopt(transaction.arena);
+         resident.can_adopt(transaction.arena) &&
+         (!transaction.unwind_required || transaction.candidate->unwind) &&
+         (!transaction.candidate->unwind ||
+          transaction.candidate->unwind->registry == transaction.candidate->registry);
 }
 
 long RuntimeScopes::publish(Transaction &transaction) {
@@ -317,6 +322,10 @@ long RuntimeScopes::publish(Transaction &transaction) {
     return -EINVAL;
   if (transaction.base != snapshot())
     return -EAGAIN;
+  if ((transaction.unwind_required && !transaction.candidate->unwind) ||
+      (transaction.candidate->unwind &&
+       transaction.candidate->unwind->registry != transaction.candidate->registry))
+    return -EINVAL;
   if (!resident.adopt(transaction.arena))
     return -EINVAL;
   current.store(transaction.candidate, cpp::MemoryOrder::RELEASE);

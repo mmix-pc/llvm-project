@@ -9,6 +9,7 @@
 
 #include "dynamic_fixture.h"
 #include "loader/linux/runtime_load.h"
+#include "loader/linux/runtime_unwind.h"
 #include "loader/linux/syscall.h"
 #include "loader/linux/target.h"
 #include <cerrno>
@@ -71,6 +72,7 @@ int main(int argc, char **argv) {
   RuntimeScopes scopes(page);
   RuntimeScopes::Transaction startup_scopes(page);
   check(!scopes.prepare_startup(*registry.snapshot(), startup_scopes));
+  check(!scopes.prepare_unwind(startup_scopes));
   check(!scopes.publish(startup_scopes));
   const auto *old = scopes.snapshot();
   const auto *caller = old->registry->images[0];
@@ -146,6 +148,23 @@ int main(int argc, char **argv) {
   uint64_t token;
   check(!load.commit(token) && token);
   check(scopes.snapshot()->registry == registry.snapshot());
+  check(scopes.snapshot()->unwind &&
+        scopes.snapshot()->unwind->registry == registry.snapshot());
+  Address unwind_token = 0;
+  for (unsigned i = 0; i < image->elf.header()->e_phnum; ++i) {
+    Elf64_Phdr p;
+    check(image->elf.program_header(i, p));
+    if (p.p_type != PT_GNU_EH_FRAME)
+      continue;
+    Address index;
+    Elf64_Sym symbol;
+    check(info.find_definition(text("access_tls"), index) && info.symbol(index, symbol));
+    UnwindImageView view;
+    check(!find_runtime_unwind_image(&scopes, image->elf.load_bias() + symbol.st_value, &view));
+    check(view.eh_frame_header == image->elf.load_bias() + p.p_vaddr &&
+          view.eh_frame_header_size == p.p_filesz && view.token);
+    unwind_token = view.token;
+  }
   RuntimeLoad reopen(page);
   check(!reopen
              .prepare(registry, scopes, *caller, text(argv[1]), environment,
@@ -154,6 +173,10 @@ int main(int argc, char **argv) {
   check(!reopen.commit(token));
   check(registry.snapshot()->images[1] == image &&
         old->registry->images.size() == 1);
+  if (unwind_token) {
+    release_runtime_unwind_image(&scopes, unwind_token);
+    std::puts("linked late EH frame discovery and retained witness passed");
+  }
   std::puts("linked late GD relocation, immutable template, IE/undefined "
             "rejection, RELRO and reopen passed");
 }

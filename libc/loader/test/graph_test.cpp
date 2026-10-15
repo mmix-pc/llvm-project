@@ -828,6 +828,8 @@ static int runtime_load_tests() {
   unsigned prior_calls = calls;
   CHECK(!load.commit(token) && token && calls == prior_calls);
   CHECK(scopes.snapshot()->registry == registry.snapshot());
+  CHECK(scopes.snapshot()->unwind &&
+        scopes.snapshot()->unwind->registry == registry.snapshot());
   CHECK(registry.snapshot()->images.size() == 3 && before->registry->images.size() == 1);
   CHECK(load.abort() == -EBUSY);
   RuntimeLoad reopen(page);

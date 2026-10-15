@@ -1,6 +1,15 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_unwind
+  SRCS runtime_unwind.cpp
+  HDRS runtime_unwind.h
+  DEPENDS .runtime_scopes .unwind_images .arena .io
+    libc.hdr.errno_macros libc.src.__support.CPP.new
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   thread_tls
   SRCS thread_tls.cpp
   HDRS thread_tls.h
@@ -34,7 +43,7 @@ add_object_library(
   runtime_load
   SRCS runtime_load.cpp
   HDRS runtime_load.h
-  DEPENDS .runtime_graph .runtime_scopes .relocation .protection .mmix.target
+  DEPENDS .runtime_graph .runtime_scopes .runtime_unwind .relocation .protection .mmix.target
     libc.hdr.errno_macros libc.src.__support.CPP.new
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
@@ -43,7 +52,7 @@ add_object_library(
   runtime_scopes
   SRCS runtime_scopes.cpp
   HDRS runtime_scopes.h
-  DEPENDS .image_registry .symbols .arena libc.src.__support.CPP.atomic
+  DEPENDS .image_registry .symbols .arena .unwind_images libc.src.__support.CPP.atomic
     libc.src.__support.CPP.new libc.hdr.errno_macros
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )

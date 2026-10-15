@@ -12,6 +12,7 @@
 
 #include "loader/linux/image_registry.h"
 #include "loader/linux/symbols.h"
+#include "loader/linux/unwind_images.h"
 #include "src/__support/CPP/atomic.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -40,11 +41,17 @@ public:
     const Image *image;
     const Scope *local, *binding;
   };
+  struct UnwindState {
+    const ImageRegistry::Snapshot *registry;
+    StartupUnwindImages images;
+    const UnwindState *previous;
+  };
   struct Snapshot {
     const ImageRegistry::Snapshot *registry;
     Scope global;
     cpp::span<const Handle> handles;
     cpp::span<const Context> contexts;
+    const UnwindState *unwind = nullptr;
     const Context *context(const Image *) const;
   };
   class Transaction {
@@ -54,6 +61,7 @@ public:
     const Snapshot *base = nullptr;
     Snapshot *candidate = nullptr;
     bool active = false, published = false;
+    bool unwind_required = false;
 
   public:
     explicit Transaction(size_t page) : arena(page) {}
@@ -84,6 +92,9 @@ public:
   long prepare_open(const ImageRegistry::Snapshot &, const Image *root,
                     bool global, Transaction &, uint64_t &token);
   long prepare_close(uint64_t token, Transaction &);
+  // After relocation/protection, before publication or any user callback.
+  // Implemented by runtime_unwind; failed preparation stays private to the tx.
+  long prepare_unwind(Transaction &);
   // The coordinator must finish relocation/TLS/protection before publication.
   // This publishes scopes only, not registry records or constructor completion.
   long publish(Transaction &);

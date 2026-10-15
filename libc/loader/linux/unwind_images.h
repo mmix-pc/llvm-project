@@ -27,7 +27,8 @@ public:
   StartupUnwindImages &operator=(const StartupUnwindImages &) = delete;
   // Positive errno. Caller serializes preparation and owns unpublished arena
   // rollback. Images, metadata and arena must be immutable and process-resident
-  // after publication. No late load/unload or reference-counted leases.
+  // after publication. This is one immutable set; runtime publication builds
+  // a replacement set. No unload or reference-counted leases are provided.
   long prepare(cpp::span<const ElfImage *const> images, Arena &arena);
   bool publish();
   bool is_published() const { return published; }

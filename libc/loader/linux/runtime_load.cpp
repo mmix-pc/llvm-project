@@ -161,7 +161,7 @@ long RuntimeLoad::prepare_records(const ImageRegistry::Image &caller,
   error = namespace_owner->prepare_open(*candidate, candidate->images[root],
                                         global, scopes, handle);
   if (error || !count)
-    return error;
+    return error ? error : namespace_owner->prepare_unwind(scopes);
   BindingContext binding{*scopes.view(), old_count};
   if (relocate_objects({objects, count}, {writes, count}, resolve, &binding)
           .error != StartupRelocationError::None)
@@ -173,7 +173,8 @@ long RuntimeLoad::prepare_records(const ImageRegistry::Image &caller,
   error = finalize_image_protections({views, count}, page_size);
   if (error)
     return error;
-  return images.mark_protected() ? 0 : -EINVAL;
+  return images.mark_protected() ? namespace_owner->prepare_unwind(scopes)
+                                : -EINVAL;
 }
 
 MapResult RuntimeLoad::prepare(ImageRegistry &owner, RuntimeScopes &namespace_,
@@ -214,7 +215,7 @@ long RuntimeLoad::commit(uint64_t &token) {
     return -EINVAL;
   // All failure predicates were checked under the writer serializer. Neither
   // publication allocates or invokes callbacks. Only the final release-store
-  // exposes the new registry, TLS identities and lookup scopes to readers.
+  // exposes the new registry, TLS identities, unwind set and lookup scopes.
   if (added)
     (void)registry->publish(images);
   (void)namespace_owner->publish(scopes);

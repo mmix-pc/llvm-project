@@ -10,6 +10,18 @@ enable_testing()
 find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
 
+add_executable(loader-runtime-unwind-test runtime_unwind_test.cpp
+  ../linux/runtime_unwind.cpp ../linux/runtime_scopes.cpp ../linux/unwind_images.cpp
+  ../linux/image_registry.cpp ../linux/tls_layout.cpp ../linux/symbols.cpp
+  ../linux/arena.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-runtime-unwind-test PRIVATE ../..)
+target_compile_definitions(loader-runtime-unwind-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-runtime-unwind-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-runtime-unwind-test PRIVATE cxx_std_17)
+target_link_libraries(loader-runtime-unwind-test PRIVATE Threads::Threads)
+add_test(NAME loader-runtime-unwind COMMAND loader-runtime-unwind-test)
+set_tests_properties(loader-runtime-unwind PROPERTIES TIMEOUT 30)
+
 add_executable(loader-thread-tls-test thread_tls_test.cpp
   ../linux/thread_tls.cpp ../linux/runtime_tls.cpp ../linux/dtv.cpp
   ../linux/tls_allocation.cpp ../linux/tls_layout.cpp ../linux/runtime_scopes.cpp
@@ -47,6 +59,7 @@ set_tests_properties(loader-dtv PROPERTIES TIMEOUT 30)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   # Takes real cross-linked MMIX DSOs; never executes their code on the host.
   add_executable(loader-runtime-load-linked-test runtime_load_linked_test.cpp
+    ../linux/runtime_unwind.cpp ../linux/unwind_images.cpp
     ../linux/runtime_load.cpp ../linux/runtime_graph.cpp ../linux/runtime_scopes.cpp
     ../linux/image_registry.cpp ../linux/relocation.cpp ../linux/protection.cpp
     ../linux/symbols.cpp ../linux/search.cpp ../linux/mapping.cpp ../linux/io.cpp
@@ -238,6 +251,7 @@ set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
 
 add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
   ../linux/runtime_load.cpp ../linux/runtime_scopes.cpp
+  ../linux/runtime_unwind.cpp
   ../linux/runtime_graph.cpp ../linux/image_registry.cpp
   ../linux/tls_layout.cpp
   ../linux/runtime.cpp ../linux/tls_allocation.cpp ../linux/tls_resolver.cpp

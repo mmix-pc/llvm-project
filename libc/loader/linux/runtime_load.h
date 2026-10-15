@@ -18,7 +18,8 @@ namespace loader {
 // One explicit transaction, held under mutation serialization and cancellation
 // suppression through prepare/commit/abort. No constructors or application code
 // run here. Readers acquire only RuntimeScopes::snapshot(), which includes the
-// corresponding image/TLS registry; ImageRegistry access remains writer-only.
+// corresponding image/TLS registry and unwind set; ImageRegistry access remains
+// writer-only.
 class RuntimeLoad {
   Address page_size;
   RuntimeGraph graph;
