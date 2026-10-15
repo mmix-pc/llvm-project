@@ -10,6 +10,15 @@ enable_testing()
 find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
 
+add_executable(loader-dtv-test dtv_test.cpp ../linux/dtv.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-dtv-test PRIVATE ../..)
+target_compile_definitions(loader-dtv-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-dtv-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-dtv-test PRIVATE cxx_std_17)
+target_link_libraries(loader-dtv-test PRIVATE Threads::Threads)
+add_test(NAME loader-dtv COMMAND loader-dtv-test)
+set_tests_properties(loader-dtv PROPERTIES TIMEOUT 30)
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   # Takes real cross-linked MMIX DSOs; never executes their code on the host.
   add_executable(loader-runtime-load-linked-test runtime_load_linked_test.cpp

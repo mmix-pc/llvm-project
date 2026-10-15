@@ -1,6 +1,16 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  dtv
+  SRCS dtv.cpp
+  HDRS dtv.h
+  DEPENDS .image_registry .io .mmix.syscall .mmix.target .mmix.tls_pointer
+    libc.hdr.errno_macros libc.hdr.signal_macros libc.hdr.sys_mman_macros
+    libc.include.sys_syscall
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   runtime_load
   SRCS runtime_load.cpp
   HDRS runtime_load.h
