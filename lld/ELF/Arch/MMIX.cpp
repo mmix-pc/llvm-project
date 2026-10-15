@@ -72,6 +72,14 @@ std::optional<MMIXRelaxationSequence> getRelaxationSequence(RelType type) {
 
 bool isStubbableCall(RelType type) { return type == R_MMIX_PUSHJ_STUBBABLE; }
 
+bool isDwarfPC64Field(const InputSectionBase &sec, RelType type) {
+  // DWARF encodings are byte streams, not literals read by an octa load.
+  // Partial links retain .eh_frame as a regular input section as well.
+  return type == R_MMIX_PC_64 && !(sec.flags & SHF_EXECINSTR) &&
+         (sec.name == ".eh_frame" || sec.name == ".gcc_except_table" ||
+          sec.name.starts_with(".gcc_except_table."));
+}
+
 bool isTPRel(RelType type) {
   return type == R_MMIX_TPREL_LO16 || type == R_MMIX_TPREL_ML16 ||
          type == R_MMIX_TPREL_MH16 || type == R_MMIX_TPREL_HI16;
@@ -612,7 +620,8 @@ void MMIX::validateInputRelocations(InputSectionBase &sec) const {
       uint64_t offset = rela.r_offset;
       if (!(sec.flags & SHF_ALLOC) || sec.type == SHT_NOBITS ||
           offset > contents.size() || contents.size() - offset < 8 ||
-          (offset & 7) || sec.addralign < 8)
+          (!isDwarfPC64Field(sec, type) &&
+           ((offset & 7) || sec.addralign < 8)))
         Err(ctx) << &sec << ": relocation " << type << " at offset " << offset
                  << " requires a complete aligned 8-byte literal in an "
                     "allocated file-backed section";
@@ -1590,7 +1599,7 @@ void MMIX::relocateAlloc(InputSection &sec, uint8_t *buf) const {
         Err(ctx) << getErrorLoc(ctx, sec.content().data() + rel.offset)
                  << "relocation " << rel.type
                  << " out of signed 64-bit range";
-      if (sec.getVA(rel.offset) & 7)
+      if (!isDwarfPC64Field(sec, rel.type) && (sec.getVA(rel.offset) & 7))
         Err(ctx) << getErrorLoc(ctx, sec.content().data() + rel.offset)
                  << "relocation " << rel.type
                  << " literal address is not 8-byte aligned";

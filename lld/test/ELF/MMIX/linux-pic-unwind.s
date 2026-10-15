@@ -5,6 +5,10 @@
 # RUN: llvm-readobj --relocations --program-headers %t/frame.so | FileCheck %s
 # RUN: llvm-dwarfdump --eh-frame %t/frame.so | FileCheck %s --check-prefix=CFI
 # RUN: %python %t/check.py %t/frame.so
+# RUN: ld.lld -m elf64mmix_linux -r %t/frame.o -o %t/partial.o
+# RUN: ld.lld -m elf64mmix_linux -shared --eh-frame-hdr %t/partial.o -o %t/partial.so
+# RUN: llvm-dwarfdump --eh-frame %t/partial.so | FileCheck %s --check-prefix=CFI
+# RUN: %python %t/check.py %t/partial.so
 # RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/frame.s -o %t/absolute.o
 # RUN: not ld.lld -m elf64mmix_linux -shared --eh-frame-hdr %t/absolute.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=BAD
 # CHECK: PT_GNU_EH_FRAME
