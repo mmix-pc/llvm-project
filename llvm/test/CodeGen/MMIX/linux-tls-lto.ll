@@ -3,17 +3,24 @@
 ; RUN: llvm-as %t/initialexec.ll -o %t/initialexec.bc
 ; RUN: llvm-as %t/localdynamic.ll -o %t/localdynamic.bc
 ; RUN: llvm-as %t/refined.ll -o %t/refined.bc
-; RUN: not llvm-lto2 run -relocation-model=static %t/external.bc -o %t/out -O0 -r=%t/external.bc,address,plx -r=%t/external.bc,x, 2>&1 | FileCheck %s --check-prefix=MODEL
-; RUN: not llvm-lto2 run -relocation-model=static %t/external.bc -o %t/out -O2 -r=%t/external.bc,address,plx -r=%t/external.bc,x, 2>&1 | FileCheck %s --check-prefix=MODEL
-; RUN: not llvm-lto2 run -relocation-model=static %t/initialexec.bc -o %t/out -O2 -r=%t/initialexec.bc,address,plx -r=%t/initialexec.bc,x, 2>&1 | FileCheck %s --check-prefix=MODEL
-; RUN: not llvm-lto2 run -relocation-model=static %t/localdynamic.bc -o %t/out -O2 -r=%t/localdynamic.bc,address,plx -r=%t/localdynamic.bc,x, 2>&1 | FileCheck %s --check-prefix=MODEL
+; RUN: llvm-lto2 run -relocation-model=static %t/external.bc -o %t/external-O0 -O0 -r=%t/external.bc,address,plx -r=%t/external.bc,x,
+; RUN: llvm-objdump -dr %t/external-O0.0 | FileCheck %s --check-prefix=IE --implicit-check-not=__tls_get_addr --implicit-check-not=__emutls
+; RUN: llvm-lto2 run -relocation-model=static %t/external.bc -o %t/external-O2 -O2 -r=%t/external.bc,address,plx -r=%t/external.bc,x,
+; RUN: llvm-objdump -dr %t/external-O2.0 | FileCheck %s --check-prefix=IE --implicit-check-not=__tls_get_addr --implicit-check-not=__emutls
+; RUN: llvm-lto2 run -relocation-model=static %t/initialexec.bc -o %t/initialexec -O2 -r=%t/initialexec.bc,address,plx -r=%t/initialexec.bc,x,
+; RUN: llvm-objdump -dr %t/initialexec.0 | FileCheck %s --check-prefix=IE --implicit-check-not=__tls_get_addr --implicit-check-not=__emutls
+; RUN: llvm-lto2 run -relocation-model=static %t/localdynamic.bc -o %t/localdynamic -O2 -r=%t/localdynamic.bc,address,plx -r=%t/localdynamic.bc,x,
+; RUN: llvm-objdump -dr %t/localdynamic.0 | FileCheck %s --check-prefix=IE --implicit-check-not=__tls_get_addr --implicit-check-not=__emutls
 ; RUN: llvm-lto2 run -relocation-model=static %t/refined.bc -o %t/refined -O2 -r=%t/refined.bc,address,plx -r=%t/refined.bc,x,plx
 ; RUN: llvm-objdump -dr %t/refined.0 | FileCheck %s --check-prefix=REFINED --implicit-check-not=__tls_get_addr --implicit-check-not=__emutls
 
 ; Keep the unresolved declarations non-DSO-local in the LTO resolution. A
-; static executable link can refine resolved definitions to local-exec; that
-; must not erase the backend's diagnostic for a remaining initial-exec model.
-; MODEL: MMIX Linux supports only the effective local-exec TLS model
+; static relocation model refines these declarations to initial-exec, while
+; resolved executable definitions can use local-exec without a GOT slot.
+; IE-LABEL: <address>:
+; IE: R_MMIX_GOTTPREL_PC64 x
+; IE: r230
+; IE: ADDU r231,
 ; REFINED-LABEL: <address>:
 ; REFINED: R_MMIX_TPREL_LO16 x
 ; REFINED: R_MMIX_TPREL_ML16 x
