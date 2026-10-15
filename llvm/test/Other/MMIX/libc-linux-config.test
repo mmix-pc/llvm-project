@@ -69,6 +69,9 @@ set(expected libc.src.errno.errno libc.src.string.memcpy libc.src.string.memmove
     libc.src.stdlib.malloc libc.src.stdlib.free
     libc.src.stdlib.calloc libc.src.stdlib.realloc
     libc.src.stdlib.aligned_alloc libc.src.stdlib.posix_memalign)
+set(foundation_expected ${expected})
+list(APPEND expected libc.src.setjmp.setjmp libc.src.setjmp.sigsetjmp
+                     libc.src.setjmp.longjmp libc.src.setjmp.siglongjmp)
 if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL expected OR
    NOT TARGET_LLVMLIBC_ENTRYPOINTS STREQUAL expected)
   message(FATAL_ERROR "incorrect initial Linux entrypoints")
@@ -82,6 +85,13 @@ foreach(header libc.include.features libc.include.limits libc.include.stdint
     message(FATAL_ERROR "missing foundation header ${header}")
   endif()
 endforeach()
+# Disabling nonlocal transfers must retain the foundation archive unchanged.
+set(LIBC_MMIX_BUILD_JUMP_SAVE OFF)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL foundation_expected OR
+   NOT TARGET_LLVMLIBC_ENTRYPOINTS STREQUAL foundation_expected)
+  message(FATAL_ERROR "incorrect Linux entrypoints without nonlocal transfers")
+endif()
 set(LIBC_MMIX_BUILD_CORE ON)
 include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
 if(NOT "libc.include.math" IN_LIST TARGET_PUBLIC_HEADERS)
