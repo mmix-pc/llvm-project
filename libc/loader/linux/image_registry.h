@@ -106,6 +106,7 @@ public:
   long prepare(Transaction &, cpp::span<const ElfImage *const> images,
                cpp::span<const Discovery> discovery = {});
   long publish(Transaction &);
+  bool can_publish(const Transaction &) const;
   const Snapshot *snapshot() const { return current; }
   // FIXME: Published descriptors and snapshots remain process-resident until
   // module reclamation supplies reader leases and coordinated finalization.

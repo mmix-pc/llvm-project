@@ -87,6 +87,7 @@ public:
   // The coordinator must finish relocation/TLS/protection before publication.
   // This publishes scopes only, not registry records or constructor completion.
   long publish(Transaction &);
+  bool can_publish(const Transaction &) const;
   const Snapshot *snapshot() const {
     return current.load(cpp::MemoryOrder::ACQUIRE);
   }

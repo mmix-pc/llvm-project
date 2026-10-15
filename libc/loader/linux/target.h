@@ -25,6 +25,7 @@ const char *interpreter_path();
 bool is_relative_relocation(Elf64_Xword info);
 bool is_tls_relocation(Elf64_Xword info);
 bool is_tls_module_relocation(Elf64_Xword info);
+bool is_late_tls_relocation(Elf64_Xword info);
 Elf64_Xword startup_tls_header_size();
 Elf64_Xword startup_tls_min_alignment();
 bool tls_relocation_value(Elf64_Xword info, Elf64_Xword module_id,

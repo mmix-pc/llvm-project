@@ -35,6 +35,9 @@ public:
   // Transfer allocations without invalidating views. Both arenas must use the
   // same page size; the source is empty on success. No allocation or syscall.
   bool adopt(Arena &source);
+  bool can_adopt(const Arena &source) const {
+    return &source != this && page_size == source.page_size;
+  }
   // Explicit release: report errors and retain failed mappings for retry.
   // All allocations are invalid after reset, even if some unmaps fail.
   long reset();

@@ -68,18 +68,15 @@ static StartupRelocationError value(const SymbolObject &object,
              : StartupRelocationError::Value;
 }
 
-static StartupRelocationResult
-relocate(cpp::span<const SymbolObject> objects,
-         cpp::span<const cpp::span<const WritableRegion>> writable,
-         const StartupTLSSet *tls) {
-  StartupSymbols symbols;
-  if (objects.size() != writable.size() ||
-      StartupSymbols::open(objects, symbols, tls != nullptr) !=
-          SymbolError::None)
+StartupRelocationResult
+relocate_objects(cpp::span<const SymbolObject> objects,
+                 cpp::span<const cpp::span<const WritableRegion>> writable,
+                 RelocationValue resolve, void *context) {
+  if (objects.size() != writable.size() || !resolve)
     return {StartupRelocationError::Image, 0, 0};
   for (size_t i = 0; i < objects.size(); ++i) {
     const auto &object = objects[i];
-    if (!object.image->is_mapped() ||
+    if (!object.image || !object.metadata || !object.image->is_mapped() ||
         object.image->role() == ImageRole::Interpreter)
       return {StartupRelocationError::Image, i, 0};
     // Revalidate before writing, including RELACOUNT, symbol indexes,
@@ -94,7 +91,7 @@ relocate(cpp::span<const SymbolObject> objects,
         return {StartupRelocationError::Metadata, i, j};
       if (!destination(*object.image, writable[i], r.offset))
         return {StartupRelocationError::Destination, i, j};
-      auto error = value(object, symbols, i, r, resolved, tls);
+      auto error = resolve(context, i, r, resolved);
       if (error != StartupRelocationError::None)
         return {error, i, j};
     }
@@ -110,7 +107,7 @@ relocate(cpp::span<const SymbolObject> objects,
         if (is_relative_relocation(r.info) != (phase == 0))
           continue;
         Address resolved;
-        (void)value(object, symbols, i, r, resolved, tls);
+        (void)resolve(context, i, r, resolved);
         unsigned char *p = destination(*object.image, writable[i], r.offset);
         for (unsigned k = 0; k < 8; ++k) {
           p[7 - k] = static_cast<unsigned char>(resolved);
@@ -120,6 +117,28 @@ relocate(cpp::span<const SymbolObject> objects,
     }
   }
   return {StartupRelocationError::None, 0, 0};
+}
+
+static StartupRelocationResult
+relocate(cpp::span<const SymbolObject> objects,
+         cpp::span<const cpp::span<const WritableRegion>> writable,
+         const StartupTLSSet *tls) {
+  StartupSymbols symbols;
+  if (StartupSymbols::open(objects, symbols, tls != nullptr) !=
+      SymbolError::None)
+    return {StartupRelocationError::Image, 0, 0};
+  struct Context {
+    cpp::span<const SymbolObject> objects;
+    const StartupSymbols &symbols;
+    const StartupTLSSet *tls;
+  } context{objects, symbols, tls};
+  return relocate_objects(
+      objects, writable,
+      [](void *opaque, size_t i, const DynamicRelocation &r, Address &out) {
+        auto &c = *static_cast<Context *>(opaque);
+        return value(c.objects[i], c.symbols, i, r, out, c.tls);
+      },
+      &context);
 }
 
 StartupRelocationResult

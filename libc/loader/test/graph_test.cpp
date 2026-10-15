@@ -9,6 +9,7 @@
 #include "dynamic_fixture.h"
 #include "loader/linux/graph.h"
 #include "loader/linux/runtime_graph.h"
+#include "loader/linux/runtime_load.h"
 #include "loader/linux/initialization.h"
 #include "loader/linux/startup.h"
 #include "loader/linux/symbols.h"
@@ -685,7 +686,169 @@ static int runtime_tests() {
   return 0;
 }
 
+static int runtime_load_tests() {
+  start();
+  Library main_file(ImageRole::MainPIE), a, b;
+  a.need("B.so");
+  b.need("A.so");
+  a.initializers();
+  b.initializers();
+  // A real relocated pointer in the retained TLS template.
+  a.segment(4, PT_TLS, PF_R, 0x4900, 0x4900, 8, 16, 32);
+  MappedRegion regions[] = {{0, Bytes(main_file.bytes, page)},
+                           {page, Bytes(main_file.bytes + page, page)},
+                           {2 * page, Bytes(main_file.bytes + 2 * page, page)}};
+  ElfImage image;
+  CHECK(ElfImage::open_mapped(regions, 0, 64, ImageRole::MainPIE, bias, page,
+                            image) == ElfError::None);
+  const ElfImage *views[] = {&image};
+  ImageRegistry::Discovery discovery[] = {
+      {true, {1, 1, 0}, text("/lib/main"), ~size_t(0), {}}};
+  ImageRegistry registry(page);
+  ImageRegistry::Transaction startup(page);
+  RuntimeScopes scopes(page);
+  RuntimeScopes::Transaction initial_scopes(page);
+  CHECK(!registry.prepare(startup, views, discovery));
+  CHECK(startup.mark_relocated() && startup.mark_tls_ready() &&
+        startup.mark_protected() && !registry.publish(startup));
+  CHECK(!scopes.prepare_startup(*registry.snapshot(), initial_scopes));
+  CHECK(!scopes.publish(initial_scopes));
+  const auto *before = scopes.snapshot();
+  const auto *caller = before->registry->images[0];
+  const unsigned resident_live = live(), resident_allocations = allocations_count;
+  const size_t resident_used = used;
+  auto rewind = [&]() {
+    assert(live() == resident_live && !fd_live);
+    used = resident_used;
+    allocations_count = resident_allocations;
+    calls = fail_at = closes = opens = mapped_files = 0;
+    fail_unmaps = false;
+  };
+  files[0] = {"/lib/A.so", &a, {2, 1, 0}};
+  files[1] = {"/lib/B.so", &b, {3, 1, 0}};
+  file_count = 2;
+  SearchEnvironment environment;
+  CHECK(!environment.parse(false, {}, text("/lib")));
+  RuntimeLoad load(page);
+  auto prepare = [&]() {
+    return load.prepare(registry, scopes, *caller, text("A.so"), environment,
+                        false);
+  };
+  rewind();
+  CHECK(!prepare().error && load.view());
+  const unsigned baseline = calls;
+  CHECK(scopes.snapshot() == before && registry.snapshot() == before->registry);
+  const auto *candidate = load.view()->registry;
+  CHECK(candidate->images.size() == 3);
+  const auto &tls = candidate->images[1]->tls;
+  CHECK(tls.module_id > 1 && tls.generation > 1 && !tls.tp_offset &&
+        tls.file_size == 8 && tls.memory_size == 16);
+  Address pointer = 0;
+  for (unsigned i = 0; i < 8; ++i)
+    pointer = (pointer << 8) |
+              reinterpret_cast<const unsigned char *>(tls.template_address)[i];
+  CHECK(pointer == candidate->images[1]->elf.load_bias() + 0x2004);
+  CHECK(!load.abort() && live() == resident_live);
+  for (unsigned fail = 1; fail <= baseline; ++fail) {
+    rewind();
+    fail_at = fail;
+    auto result = prepare();
+    CHECK(result.error || result.cleanup_error);
+    CHECK(!load.view() && scopes.snapshot() == before &&
+          registry.snapshot() == before->registry);
+    CHECK(!load.abort() && live() == resident_live && opens == closes);
+  }
+  // A TPOFF relocation is forbidden even without the STATIC_TLS marker.
+  rewind();
+  a.put(0xb08, 8, 46);
+  a.set(DT_RELACOUNT, 0);
+  CHECK(prepare().error == -ENOEXEC && !load.view());
+  CHECK(live() == resident_live && scopes.snapshot() == before);
+  a.put(0xb08, 8, 41);
+  a.set(DT_RELACOUNT, 4);
+  // A GD module relocation cannot carry an addend. This is structurally
+  // admitted metadata but fails the relocation value preflight.
+  rewind();
+  a.put(0xb08, 8, 44);
+  a.set(DT_RELACOUNT, 0);
+  CHECK(prepare().error == -ENOEXEC && live() == resident_live);
+  a.put(0xb08, 8, 41);
+  a.set(DT_RELACOUNT, 4);
+  rewind();
+  a.add(DT_FLAGS, DF_STATIC_TLS);
+  a.finish();
+  CHECK(prepare().error == -ENOEXEC && live() == resident_live);
+  a.set(DT_FLAGS, 0);
+  // Malformed TLS layout and unsupported relocation records never publish.
+  rewind();
+  a.put(ph(4, 40), 8, 4);
+  CHECK(prepare().error == -ENOEXEC && live() == resident_live);
+  a.put(ph(4, 40), 8, 16);
+  rewind();
+  a.put(0xb08, 8, 999);
+  CHECK(prepare().error == -ENOEXEC && live() == resident_live);
+  a.put(0xb08, 8, 41);
+  rewind();
+  a.put(ph(2, 4), 4, PF_R | PF_W | PF_X);
+  CHECK(prepare().error == -ENOEXEC && live() == resident_live);
+  a.put(ph(2, 4), 4, PF_R | PF_X);
+  // Undefined strong foo cannot bind to hidden definitions in other images.
+  rewind();
+  a.put(0xb08, 8, (Address(1) << 32) | 42);
+  a.set(DT_RELACOUNT, 0);
+  a.put(0x81e, 2, SHN_UNDEF);
+  a.put(0x820, 8, 0);
+  main_file.bytes[0x81d] = b.bytes[0x81d] = STV_HIDDEN;
+  CHECK(prepare().error == -ENOEXEC && live() == resident_live);
+  main_file.bytes[0x81d] = b.bytes[0x81d] = 0;
+  a.put(0x81e, 2, 1);
+  a.put(0x820, 8, 0x2000);
+  a.put(0xb08, 8, 41);
+  a.set(DT_RELACOUNT, 4);
+  // Cleanup failure stays owned and prevents transaction reuse.
+  rewind();
+  CHECK(!prepare().error);
+  fail_unmaps = true;
+  CHECK(load.abort() == -EIO && !load.view());
+  CHECK(prepare().error == -EBUSY);
+  fail_unmaps = false;
+  CHECK(!load.abort() && live() == resident_live);
+  // A separately committed scope update makes this prepared load stale.
+  rewind();
+  CHECK(!prepare().error);
+  RuntimeScopes::Transaction other(page);
+  uint64_t token;
+  CHECK(!scopes.prepare_open(*before->registry, nullptr, false, other, token));
+  CHECK(!scopes.publish(other));
+  CHECK(load.commit(token) == -EAGAIN && !token);
+  CHECK(!load.abort() && registry.snapshot() == before->registry);
+  // The old registry is still valid; the final release-store publishes all
+  // late records and fully relocated templates together, without syscalls.
+  CHECK(!prepare().error);
+  unsigned prior_calls = calls;
+  CHECK(!load.commit(token) && token && calls == prior_calls);
+  CHECK(scopes.snapshot()->registry == registry.snapshot());
+  CHECK(registry.snapshot()->images.size() == 3 && before->registry->images.size() == 1);
+  CHECK(load.abort() == -EBUSY);
+  RuntimeLoad reopen(page);
+  const auto *published = registry.snapshot();
+  const Address template_address = published->images[1]->tls.template_address;
+  unsigned maps = mapped_files;
+  CHECK(!reopen.prepare(registry, scopes, *caller, text("A.so"), environment,
+                        true, true).error);
+  CHECK(!reopen.commit(token) && registry.snapshot() == published &&
+        mapped_files == maps && published->images[1]->tls.template_address == template_address);
+  printf("late transaction: %u syscall failure positions, TLS and metadata rejection, rollback and coherent commit passed\n", baseline);
+  return 0;
+}
+
 extern "C" int main() {
+  pid_t load_child = fork();
+  CHECK(load_child >= 0);
+  if (!load_child)
+    _exit(runtime_load_tests());
+  int load_status;
+  CHECK(waitpid(load_child, &load_status, 0) == load_child && load_status == 0);
   pid_t child = fork();
   CHECK(child >= 0);
   if (!child)

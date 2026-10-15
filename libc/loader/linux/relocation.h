@@ -30,6 +30,16 @@ struct StartupRelocationResult {
   Address relocation;
 };
 
+using RelocationValue = StartupRelocationError (*)(void *, size_t,
+                                                   const DynamicRelocation &,
+                                                   Address &);
+// Reuse whole-batch preflight and RELATIVE-first writes with a caller-owned
+// binding policy. The callback must be deterministic and allocation-free.
+StartupRelocationResult
+relocate_objects(cpp::span<const SymbolObject> objects,
+                 cpp::span<const cpp::span<const WritableRegion>> writable,
+                 RelocationValue resolve, void *context);
+
 class RelocatedTLS;
 StartupRelocationResult
 relocate_startup_tls(cpp::span<const SymbolObject> objects,

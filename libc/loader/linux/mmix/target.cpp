@@ -58,6 +58,12 @@ bool is_tls_module_relocation(Elf64_Xword info) {
   return static_cast<Elf64_Word>(info) == 44;
 }
 
+bool is_late_tls_relocation(Elf64_Xword info) {
+  // Late modules cannot acquire TP-relative storage in existing threads.
+  Elf64_Word type = static_cast<Elf64_Word>(info);
+  return type == 44 || type == 45; // DTPMOD64 and DTPOFF64, never TPOFF64.
+}
+
 Elf64_Xword startup_tls_header_size() { return 16; }
 Elf64_Xword startup_tls_min_alignment() { return 8; }
 

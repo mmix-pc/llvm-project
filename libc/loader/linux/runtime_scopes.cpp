@@ -305,6 +305,12 @@ long RuntimeScopes::prepare_close(uint64_t token, Transaction &transaction) {
   return 0;
 }
 
+bool RuntimeScopes::can_publish(const Transaction &transaction) const {
+  return transaction.owner == this && transaction.candidate &&
+         !transaction.published && transaction.base == snapshot() &&
+         resident.can_adopt(transaction.arena);
+}
+
 long RuntimeScopes::publish(Transaction &transaction) {
   if (transaction.owner != this || !transaction.candidate ||
       transaction.published)

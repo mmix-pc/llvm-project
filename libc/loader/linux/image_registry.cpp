@@ -224,6 +224,12 @@ long ImageRegistry::prepare(Transaction &transaction,
   return 0;
 }
 
+bool ImageRegistry::can_publish(const Transaction &transaction) const {
+  return transaction.owner == this &&
+         transaction.state == Transaction::State::Protected &&
+         transaction.base == current && resident.can_adopt(transaction.arena);
+}
+
 long ImageRegistry::publish(Transaction &transaction) {
   if (transaction.owner != this ||
       transaction.state != Transaction::State::Protected)

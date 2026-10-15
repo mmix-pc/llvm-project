@@ -55,7 +55,7 @@ long Arena::allocate(size_t size, size_t alignment, void *&out) {
 }
 
 bool Arena::adopt(Arena &source) {
-  if (&source == this || source.page_size != page_size)
+  if (!can_adopt(source))
     return false;
   if (source.chunks) {
     Chunk *tail = source.chunks;

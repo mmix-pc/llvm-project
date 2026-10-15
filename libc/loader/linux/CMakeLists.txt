@@ -1,6 +1,15 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_load
+  SRCS runtime_load.cpp
+  HDRS runtime_load.h
+  DEPENDS .runtime_graph .runtime_scopes .relocation .protection .mmix.target
+    libc.hdr.errno_macros libc.src.__support.CPP.new
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   runtime_scopes
   SRCS runtime_scopes.cpp
   HDRS runtime_scopes.h
