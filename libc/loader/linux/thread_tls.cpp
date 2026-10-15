@@ -1,0 +1,149 @@
+//===-- Runtime thread TLS lifecycle --------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#include "loader/linux/thread_tls.h"
+#include "hdr/errno_macros.h"
+#include "hdr/sys_mman_macros.h"
+#include "loader/linux/runtime_tls.h"
+#include "loader/linux/syscall.h"
+#include "loader/linux/target.h"
+#include "loader/linux/tls_resolver.h"
+#include "src/__support/CPP/new.h"
+#include <sys/syscall.h>
+
+namespace LIBC_NAMESPACE_DECL {
+namespace loader {
+namespace {
+struct State {
+  ThreadTLSAllocation allocation{};
+  DTVRefresh refresh;
+  const ThreadTLSContext *context;
+  Address extent;
+  bool retiring = false;
+  bool prepared = false;
+  State(const ThreadTLSContext *context, Address extent)
+      : context(context), extent(extent) {}
+};
+
+bool empty(const ThreadTLSAllocation &a) {
+  return !a.tp && !a.tls_mapping_base && !a.tls_mapping_size &&
+         !a.dtv_mapping_base && !a.dtv_mapping_size && !a.registry_cookie &&
+         !a.runtime_owner;
+}
+
+const ImageRegistry::Snapshot *snapshot(const ThreadTLSContext &ctx) {
+  const auto *scope = ctx.scopes ? ctx.scopes->snapshot() : nullptr;
+  return scope ? scope->registry : nullptr;
+}
+
+void copy_owner(ThreadTLSAllocation &out, State &state) {
+  out = state.allocation;
+  out.runtime_owner = reinterpret_cast<Address>(&state);
+}
+} // namespace
+
+long release_runtime_thread_tls(void *context, ThreadTLSAllocation *out) {
+  if (!context || !out)
+    return EINVAL;
+  if (!out->runtime_owner)
+    return empty(*out) ? 0 : EINVAL;
+  auto &state = *reinterpret_cast<State *>(out->runtime_owner);
+  auto &a = state.allocation;
+  if (state.context != context)
+    return EINVAL;
+  if (a.tp && a.tp == current_thread_pointer())
+    return EBUSY;
+  state.retiring = true;
+  // Retirement never needs the obsolete owner pointer to a pthread control.
+  // Keep the stable state and table until every independent mapping is gone.
+  long error = state.refresh.retire();
+  if (state.prepared && a.dtv_mapping_size) {
+    auto &dtv = *reinterpret_cast<StartupDTV *>(a.dtv_mapping_base);
+    auto *entries = reinterpret_cast<StartupDTVEntry *>(dtv.entries);
+    for (Address i = 0; i < dtv.capacity; ++i) {
+      auto &entry = entries[i];
+      if (!entry.allocation_extent)
+        continue; // Startup entries borrow the common block.
+      long result = raw_syscall(SYS_munmap, entry.allocation_owner,
+                                entry.allocation_extent);
+      if (result) {
+        if (!error)
+          error = result < 0 ? -result : EIO;
+      } else {
+        entry = {};
+      }
+    }
+  }
+  if (!error)
+    error = release_thread_tls(nullptr, &a);
+  copy_owner(*out, state);
+  out->tp = out->registry_cookie = 0;
+  if (error)
+    return error;
+  Address extent = state.extent;
+  long result = raw_syscall(SYS_munmap, out->runtime_owner, extent);
+  if (result)
+    return result < 0 ? -result : EIO;
+  *out = {};
+  return 0;
+}
+
+long prepare_runtime_thread_tls(void *context, void *thread,
+                                ThreadTLSAllocation *out) {
+  if (!context || !out)
+    return EINVAL;
+  if (!empty(*out))
+    return EBUSY;
+  auto &ctx = *static_cast<ThreadTLSContext *>(context);
+  Address page = ctx.startup.page_size;
+  if (!is_supported_page_size(page) || sizeof(State) > page)
+    return EINVAL;
+  // Acquire before any pthread insertion. A later publication is observed by
+  // the worker's first resolver call; no writer/registry lock spans cloning.
+  const auto *view = snapshot(ctx);
+  if (!view)
+    return EINVAL;
+  long mapped = raw_syscall(SYS_mmap, 0, page, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (mapped < 0)
+    return -mapped;
+  auto &state = *new (reinterpret_cast<void *>(mapped)) State(&ctx, page);
+  long error = prepare_thread_tls(&ctx.startup, thread, &state.allocation);
+  if (!error) {
+    state.prepared = true;
+    auto *dtv =
+        reinterpret_cast<StartupDTV *>(state.allocation.dtv_mapping_base);
+    dtv->runtime_owner = mapped;
+    error = state.refresh.prepare(*view, state.allocation, page);
+  }
+  copy_owner(*out, state);
+  if (error)
+    (void)release_runtime_thread_tls(context, out);
+  return error;
+}
+
+void *resolve_runtime_thread_tls(void *context, const TLSIndex *index) {
+  Address tp = current_thread_pointer();
+  if (!context || !tp)
+    return resolve_runtime_tls(nullptr, index); // Contracted fatal diagnostic.
+  Address pointer =
+      __atomic_load_n(reinterpret_cast<Address *>(tp), __ATOMIC_ACQUIRE);
+  const auto *dtv = reinterpret_cast<const StartupDTV *>(pointer);
+  if (!dtv || !dtv->runtime_owner)
+    return resolve_runtime_tls(nullptr, index);
+  auto &state = *reinterpret_cast<State *>(dtv->runtime_owner);
+  auto &ctx = *static_cast<ThreadTLSContext *>(context);
+  if (state.context != &ctx || state.retiring || state.allocation.tp != tp)
+    return resolve_runtime_tls(nullptr, index);
+  RuntimeTLSContext lookup{snapshot(ctx), &state.allocation, &state.refresh,
+                           ctx.startup.page_size};
+  return resolve_runtime_tls(&lookup, index);
+}
+
+} // namespace loader
+} // namespace LIBC_NAMESPACE_DECL

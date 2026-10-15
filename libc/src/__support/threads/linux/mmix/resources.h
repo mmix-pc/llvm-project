@@ -43,7 +43,8 @@ struct ThreadResources {
   bool owns_mappings() const {
     bool owned = control.size || stack.size || tls.size;
 #ifdef LIBC_MMIX_SHARED_STARTUP
-    owned |= shared_tls.tls_mapping_size || shared_tls.dtv_mapping_size;
+    owned |= shared_tls.tls_mapping_size || shared_tls.dtv_mapping_size ||
+             shared_tls.runtime_owner;
 #endif
     return owned;
   }

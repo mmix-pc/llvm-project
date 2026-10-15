@@ -76,12 +76,15 @@ struct ThreadTLSAllocation {
   uint64_t dtv_mapping_base;
   uint64_t dtv_mapping_size;
   uint64_t registry_cookie;
+  // Loader-owned stable state survives copies into the terminal reclaimer.
+  uint64_t runtime_owner = 0;
 };
 
 struct StartupDTV {
   uint64_t capacity;
   uint64_t generation;
   uint64_t entries;
+  uint64_t runtime_owner = 0;
 };
 
 struct StartupDTVEntry {

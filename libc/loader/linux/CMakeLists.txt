@@ -1,6 +1,16 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  thread_tls
+  SRCS thread_tls.cpp
+  HDRS thread_tls.h
+  DEPENDS .runtime_tls .runtime_scopes .tls_allocation .mmix.tls_pointer
+    .mmix.syscall .mmix.target libc.src.__support.CPP.new
+    libc.hdr.errno_macros libc.hdr.sys_mman_macros libc.include.sys_syscall
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   runtime_tls
   SRCS runtime_tls.cpp
   HDRS runtime_tls.h

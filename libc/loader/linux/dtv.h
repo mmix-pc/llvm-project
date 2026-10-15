@@ -20,6 +20,8 @@ namespace loader {
 class DTVRefresh {
   Address retired_base = 0, retired_size = 0;
   const ThreadTLSAllocation *owner = nullptr;
+  long update(const ImageRegistry::Snapshot &, ThreadTLSAllocation &,
+              Address page_size, bool unpublished);
 
 public:
   DTVRefresh() = default;
@@ -30,6 +32,11 @@ public:
   // Failed signal-mask restoration is fatal, never an ordinary return.
   long refresh(const ImageRegistry::Snapshot &, ThreadTLSAllocation &,
                Address page_size);
+  // Exclusive creator ownership, before clone/publication; never a live peer.
+  long prepare(const ImageRegistry::Snapshot &, ThreadTLSAllocation &,
+               Address page_size);
+  // Exclusive rollback/reclaimer ownership after terminal reference drain.
+  long retire();
   bool cleanup_pending() const { return retired_size != 0; }
 };
 

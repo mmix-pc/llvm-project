@@ -49,9 +49,10 @@ static void check(bool ok, int line) {
 #define CHECK(x) check(bool(x), __LINE__)
 static unsigned char backing[2][98304];
 static uintptr_t bases[2];
-static bool live[2], tls_live, dtv_live;
+static bool live[2], tls_live, dtv_live, runtime_live;
 static unsigned maps, releases, prepares, release_mask;
-static bool fail_prepare, retain_failed_tls;
+static bool fail_prepare;
+static unsigned retain_failed_tls;
 static void *prepared_state;
 extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long,
                                         long, long, long, long) {
@@ -78,15 +79,16 @@ long prepare_shared_thread_tls(void *state, loader::ThreadTLSAllocation &a) {
   CHECK(!a.tp && !a.tls_mapping_size && !a.dtv_mapping_size);
   prepared_state = state;
   if (fail_prepare) {
-    if (retain_failed_tls) { a.tls_mapping_base = 0x10000; a.tls_mapping_size = 8192; tls_live = true; }
+    if (retain_failed_tls == 1) { a.tls_mapping_base = 0x10000; a.tls_mapping_size = 8192; tls_live = true; }
+    if (retain_failed_tls == 2) { a.runtime_owner = 0x30000; runtime_live = true; }
     return 12;
   }
-  tls_live = dtv_live = true;
-  a = {0x10040, 0x10000, 8192, 0x20000, 8192, 123};
+  tls_live = dtv_live = runtime_live = true;
+  a = {0x10040, 0x10000, 8192, 0x20000, 8192, 123, 0x30000};
   return 0;
 }
 long release_shared_thread_tls(loader::ThreadTLSAllocation &a) {
-  if (!a.tls_mapping_size && !a.dtv_mapping_size) return 0;
+  if (!a.tls_mapping_size && !a.dtv_mapping_size && !a.runtime_owner) return 0;
   ++releases;
   a.tp = a.registry_cookie = 0;
   long error = 0;
@@ -100,19 +102,24 @@ long release_shared_thread_tls(loader::ThreadTLSAllocation &a) {
     if (release_mask & 4) error = 5;
     else { tls_live = false; a.tls_mapping_base = a.tls_mapping_size = 0; }
   }
+  if (a.runtime_owner) {
+    CHECK(runtime_live);
+    if (release_mask & 16) error = 5;
+    else { runtime_live = false; a.runtime_owner = 0; }
+  }
   return error;
 }
 }
 static void *run(void *p) { return p; }
 static void reset() {
-  CHECK(!live[0] && !live[1] && !tls_live && !dtv_live);
+  CHECK(!live[0] && !live[1] && !tls_live && !dtv_live && !runtime_live);
   maps = releases = prepares = release_mask = 0;
   fail_prepare = retain_failed_tls = false;
   for (unsigned i = 0; i < 2; ++i)
     bases[i] = (uintptr_t(backing[i]) + 8191) & ~uintptr_t(8191);
 }
 extern "C" int main() {
-  for (unsigned mask = 0; mask < 16; ++mask) {
+  for (unsigned mask = 0; mask < 32; ++mask) {
     reset();
     ThreadPreparation req;
     req.runner.posix_runner = run;
@@ -129,20 +136,22 @@ extern "C" int main() {
     CHECK(!owner.tls.size && !owner.tls.tp);
     CHECK(bool(owner.shared_tls.tls_mapping_size) == bool(mask & 4));
     CHECK(bool(owner.shared_tls.dtv_mapping_size) == bool(mask & 8));
+    CHECK(bool(owner.shared_tls.runtime_owner) == bool(mask & 16));
     CHECK(owner.owns_mappings() == bool(mask));
     CHECK(live[0] == bool(mask & 1) && live[1] == bool(mask & 2));
     release_mask = 0;
     CHECK(!release_thread_resources(owner));
     CHECK(!release_thread_resources(owner));
   }
-  for (unsigned retained = 0; retained != 2; ++retained) {
+  for (unsigned retained = 0; retained != 3; ++retained) {
     reset(); fail_prepare = true; retain_failed_tls = retained;
     ThreadPreparation req; req.runner.posix_runner = run;
     ThreadControl *c = nullptr;
     auto failed = prepare_thread(req, c);
     CHECK(failed.error == ThreadPrepareError::TLSFailed && failed.syscall_error == 12);
     CHECK(!c && !releases && !live[0] && !live[1]);
-    CHECK(bool(failed.retained.shared_tls.tls_mapping_size) == retained);
+    CHECK(bool(failed.retained.shared_tls.tls_mapping_size) == (retained == 1));
+    CHECK(bool(failed.retained.shared_tls.runtime_owner) == (retained == 2));
     CHECK(failed.retained.owns_mappings() == bool(retained));
     CHECK(!release_thread_resources(failed.retained));
   }

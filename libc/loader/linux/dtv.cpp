@@ -92,8 +92,30 @@ static long validate(const ImageRegistry::Snapshot &snapshot,
 
 long DTVRefresh::refresh(const ImageRegistry::Snapshot &snapshot,
                          ThreadTLSAllocation &allocation, Address page) {
+  return update(snapshot, allocation, page, false);
+}
+
+long DTVRefresh::prepare(const ImageRegistry::Snapshot &snapshot,
+                        ThreadTLSAllocation &allocation, Address page) {
+  return update(snapshot, allocation, page, true);
+}
+
+long DTVRefresh::retire() {
+  if (!retired_size)
+    return 0;
+  long result = raw_syscall(SYS_munmap, retired_base, retired_size);
+  if (result)
+    return result < 0 ? -result : EIO;
+  retired_base = retired_size = 0;
+  owner = nullptr;
+  return 0;
+}
+
+long DTVRefresh::update(const ImageRegistry::Snapshot &snapshot,
+                       ThreadTLSAllocation &allocation, Address page,
+                       bool unpublished) {
   if (!is_supported_page_size(page) || !allocation.tp ||
-      allocation.tp != current_thread_pointer() ||
+      (!unpublished && allocation.tp != current_thread_pointer()) ||
       allocation.tp % alignof(Address) ||
       !contains(allocation.tls_mapping_base, allocation.tls_mapping_size,
                 allocation.tp, startup_tls_header_size()) ||
@@ -158,6 +180,7 @@ long DTVRefresh::refresh(const ImageRegistry::Snapshot &snapshot,
   next->capacity = capacity;
   next->generation = snapshot.generation;
   next->entries = reinterpret_cast<Address>(entries);
+  next->runtime_owner = old->runtime_owner;
   const auto *source = reinterpret_cast<const StartupDTVEntry *>(old->entries);
   for (Address i = 0; i < old->capacity; ++i) {
     entries[i].generation = source[i].generation;

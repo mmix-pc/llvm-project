@@ -26,6 +26,8 @@ static bool round_mapping(Address bytes, Address page, Address &out) {
 long release_thread_tls(void *, ThreadTLSAllocation *allocation) {
   if (!allocation)
     return EINVAL;
+  if (allocation->runtime_owner)
+    return EINVAL; // Runtime ownership must be drained by its lifecycle service.
   // Invalidate access even when a failed unmap retains ownership for retry.
   allocation->tp = allocation->registry_cookie = 0;
   long error = 0;
@@ -53,6 +55,8 @@ long prepare_thread_tls(void *context, void *thread_state,
   if (allocation->tp || allocation->tls_mapping_base ||
       allocation->tls_mapping_size || allocation->dtv_mapping_base ||
       allocation->dtv_mapping_size || allocation->registry_cookie)
+    return EBUSY;
+  if (allocation->runtime_owner)
     return EBUSY;
   const auto &ctx = *static_cast<const TLSAllocationContext *>(context);
   const auto *set = ctx.relocated ? ctx.relocated->modules() : nullptr;
@@ -106,6 +110,7 @@ long prepare_thread_tls(void *context, void *thread_state,
   dtv->capacity = set->module_count + 1;
   dtv->generation = set->generation;
   dtv->entries = reinterpret_cast<uint64_t>(entries);
+  dtv->runtime_owner = 0;
   for (Address i = 0; i <= set->module_count; ++i) {
     entries[i].generation = entries[i].image_base = 0;
     entries[i].allocation_owner = entries[i].allocation_extent = 0;

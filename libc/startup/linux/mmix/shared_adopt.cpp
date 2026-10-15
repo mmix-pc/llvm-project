@@ -40,7 +40,8 @@ long prepare_shared_thread_tls(void *state,
 }
 
 long release_shared_thread_tls(loader::ThreadTLSAllocation &allocation) {
-  if (!allocation.tls_mapping_size && !allocation.dtv_mapping_size)
+  if (!allocation.tls_mapping_size && !allocation.dtv_mapping_size &&
+      !allocation.runtime_owner)
     return 0;
   if (!services.release_thread_tls)
     return EINVAL;

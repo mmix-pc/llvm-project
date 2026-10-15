@@ -117,8 +117,8 @@ struct Scope {
 };
 
 static void allocations(Scope &scope) {
-  static_assert(sizeof(ThreadTLSAllocation) == 48);
-  static_assert(sizeof(StartupDTV) == 24);
+  static_assert(sizeof(ThreadTLSAllocation) == 56);
+  static_assert(sizeof(StartupDTV) == 32);
   static_assert(sizeof(StartupDTVEntry) == 32);
   TLSAllocationContext context{&scope.ready, page};
   ThreadTLSAllocation a{}, b{};

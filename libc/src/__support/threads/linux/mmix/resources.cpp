@@ -161,7 +161,8 @@ ThreadPreparationResult prepare_thread(const ThreadPreparation &request,
     // mappings here, preserving its failed releases without an immediate retry.
     auto result = rollback(ThreadPrepareError::TLSFailed, tls_error, resources);
     result.retained.shared_tls = allocation;
-    if (allocation.tls_mapping_size || allocation.dtv_mapping_size)
+    if (allocation.tls_mapping_size || allocation.dtv_mapping_size ||
+        allocation.runtime_owner)
       result.rollback_error = tls_error;
     return result;
   }
