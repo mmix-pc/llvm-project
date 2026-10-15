@@ -215,7 +215,8 @@ long RuntimeScopes::prepare_open(const ImageRegistry::Snapshot &registry,
     if (!found)
       return -EINVAL;
   }
-  if (!tokens.can_reserve(1))
+  // Zero and the all-ones RTLD_NEXT selector are not ordinary handle tokens.
+  if (!tokens.can_reserve(2))
     return -EOVERFLOW;
   long error = begin(transaction);
   if (error)

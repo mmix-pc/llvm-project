@@ -98,6 +98,30 @@ struct StartupProcessView {
   uint64_t original_sp, argc, argv, envp, auxv, page_size, random, entry;
 };
 
+// C-shaped, same-source runtime API. Status is a positive errno, independently
+// of the result address (a successful symbol may have address zero).
+struct LoaderAPI {
+  void *context;
+  long (*open)(void *, const char *, int, uintptr_t, LoaderCancellation,
+               uint64_t *);
+  long (*lookup)(void *, uint64_t, const char *, uintptr_t, LoaderCancellation,
+                 uintptr_t *);
+};
+
+enum LoaderOpenFlag : unsigned {
+  OpenLazy = 1,
+  OpenNow = 2,
+  OpenNoLoad = 4,
+  OpenGlobal = 0x100,
+  OpenNoDelete = 0x1000,
+};
+constexpr uint64_t LookupDefault = 0, LookupNext = ~uint64_t(0);
+inline bool valid_open_flags(unsigned flags) {
+  unsigned binding = flags & (OpenLazy | OpenNow);
+  return (binding == OpenLazy || binding == OpenNow) &&
+         !(flags & ~(OpenLazy | OpenNow | OpenNoLoad | OpenGlobal | OpenNoDelete));
+}
+
 struct LoaderServices {
   uint64_t size;
   void *context;
@@ -109,6 +133,9 @@ struct LoaderServices {
   void (*finalize_startup)(void *);
   long (*find_unwind_image)(void *, uintptr_t, UnwindImageView *);
   void (*release_unwind_image)(void *, uintptr_t);
+  // Empty in the startup-only profile. Adopt once before application threads;
+  // never turn incomplete callback pairs into apparent runtime support.
+  LoaderAPI api{};
 };
 
 struct LibcBootstrap {
@@ -119,7 +146,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 72);
+static_assert(sizeof(LoaderServices) == 96);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

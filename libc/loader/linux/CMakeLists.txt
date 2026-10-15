@@ -1,6 +1,14 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_api
+  SRCS runtime_api.cpp
+  HDRS runtime_api.h
+  DEPENDS .runtime_load .runtime_initialization .locks .io
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   runtime_initialization
   SRCS runtime_initialization.cpp
   HDRS runtime_initialization.h

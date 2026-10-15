@@ -25,7 +25,7 @@ __llvm_libc_mmix_linux_init_guard(const unsigned char *);
 namespace LIBC_NAMESPACE_DECL {
 AppProperties app;
 namespace mmix {
-static loader::LoaderServices services;
+static loader::LoaderServices services{};
 static bool attempted;
 
 static void finalize_shared_startup() {
