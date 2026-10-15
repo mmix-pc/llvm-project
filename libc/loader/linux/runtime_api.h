@@ -12,6 +12,7 @@
 
 #include "loader/linux/runtime_initialization.h"
 #include "loader/linux/runtime_load.h"
+#include "loader/linux/runtime_queries.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
@@ -39,21 +40,31 @@ class RuntimeAPI {
   StartupTLSResolver tls;
   Request *pending = nullptr;
   RuntimeScopes::Transaction closing;
+  RuntimeQueries queries;
+  RuntimeQueries::PeekTLS peek_tls = nullptr;
   RuntimeInitializers::Invoker invoke;
   long open(const char *, int, uintptr_t, LoaderCancellation, uint64_t *);
   long lookup(uint64_t, const char *, uintptr_t, LoaderCancellation,
               uintptr_t *);
   long close(uint64_t, LoaderCancellation);
+  long address(uintptr_t, void *, LoaderCancellation);
+  long info(uint64_t, int, void *, LoaderCancellation);
+  long iterate(int (*)(void *, void *), void *, LoaderCancellation, int *);
+  long refresh_queries();
 
 public:
   RuntimeAPI(Address page, ImageRegistry &images, RuntimeScopes &scopes,
              RuntimeInitializers &initializers, const InitialStack &stack,
              const SearchEnvironment &environment, StartupTLSResolver tls,
-             RuntimeInitializers::Invoker invoke = nullptr)
+             RuntimeInitializers::Invoker invoke = nullptr,
+             RuntimeQueries::PeekTLS peek_tls = nullptr)
       : page(page), resident(page), images(images), scopes(scopes),
         initializers(initializers), stack(stack), environment(environment),
-        tls(tls), closing(page), invoke(invoke) {}
+        tls(tls), closing(page), queries(page), peek_tls(peek_tls),
+        invoke(invoke) {}
   LoaderAPI services();
+  LoaderQueryAPI query_services();
+  RuntimeQueries &query_metadata() { return queries; }
 };
 
 } // namespace loader

@@ -139,10 +139,17 @@ extern "C" int main() {
   // Publication between preparation and first worker execution. Both the old
   // and new worker must see the new module without moving startup storage.
   f.publish();
+  tp = old.tp;
+  const Address old_dtv = *reinterpret_cast<Address *>(tp);
+  check(!peek_runtime_thread_tls(&f.context, &f.records[1].tls));
+  check(*reinterpret_cast<Address *>(tp) == old_dtv);
+  check(peek_runtime_thread_tls(&f.context, &f.records[0].tls) == startup);
+  tp = 0;
   check(!prepare_runtime_thread_tls(&f.context, &f, &newly));
   check(reinterpret_cast<StartupDTV *>(newly.dtv_mapping_base)->generation ==
         2);
   auto *a = f.lookup(old, 3);
+  check(peek_runtime_thread_tls(&f.context, &f.records[1].tls) == a);
   *a = 42;
   auto *b = f.lookup(newly, 3);
   check(a != b && !*b);

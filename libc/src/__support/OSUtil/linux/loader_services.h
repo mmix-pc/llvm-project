@@ -109,6 +109,17 @@ struct LoaderAPI {
   long (*close)(void *, uint64_t, LoaderCancellation);
 };
 
+// Opaque output records use the public Dl_info, link_map and dl_phdr_info ABI.
+// The iteration status and the application callback result are independent.
+struct LoaderQueryAPI {
+  void *context;
+  long (*address)(void *, uintptr_t, void *, LoaderCancellation);
+  long (*info)(void *, uint64_t, int, void *, LoaderCancellation);
+  long (*iterate)(void *, int (*)(void *, void *), void *, LoaderCancellation,
+                  int *);
+};
+enum LoaderInfoRequest { InfoLinkMap = 2, InfoTLSModid = 9, InfoTLSData = 10 };
+
 enum LoaderOpenFlag : unsigned {
   OpenLazy = 1,
   OpenNow = 2,
@@ -137,6 +148,7 @@ struct LoaderServices {
   // Empty in the startup-only profile. Adopt once before application threads;
   // never turn incomplete callback pairs into apparent runtime support.
   LoaderAPI api{};
+  LoaderQueryAPI queries{};
 };
 
 struct LibcBootstrap {
@@ -147,7 +159,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 104);
+static_assert(sizeof(LoaderServices) == 136);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

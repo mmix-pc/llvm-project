@@ -234,6 +234,13 @@ extern "C" int main() {
   CHECK(ElfImage::open_file(main.view(), ImageRole::MainPIE, bias, page,
                             image) == ElfError::None);
   CHECK(DynamicInfo::open(image, info) == DynamicError::Unsupported);
+  // A mapped main can be reparsed after the loader fills DT_DEBUG. The value
+  // is metadata only, never a pointer the parser follows.
+  MappedRegion main_region{0, main.view()};
+  CHECK(ElfImage::open_mapped({&main_region, 1}, 0, 64, ImageRole::MainPIE,
+                              bias, page, image) == ElfError::None);
+  CHECK(DynamicInfo::open(image, info) == DynamicError::None);
+  CHECK(info.value(DynamicTag::Debug) == 1);
   ElfImage absent;
   CHECK(DynamicInfo::open(absent, info) == DynamicError::Image);
   return 0;

@@ -69,7 +69,7 @@ set_tests_properties(loader-dtv PROPERTIES TIMEOUT 30)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   add_executable(loader-runtime-api-test runtime_api_test.cpp
-    ../linux/runtime_api.cpp ../linux/runtime_initialization.cpp ../linux/locks.cpp
+    ../linux/runtime_api.cpp ../linux/runtime_queries.cpp ../linux/runtime_initialization.cpp ../linux/locks.cpp
     ../linux/runtime_load.cpp ../linux/runtime_unwind.cpp ../linux/unwind_images.cpp
     ../linux/runtime_graph.cpp ../linux/runtime_scopes.cpp ../linux/image_registry.cpp
     ../linux/relocation.cpp ../linux/protection.cpp ../linux/symbols.cpp
@@ -77,7 +77,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     ../linux/tls_layout.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp
     ../../src/dlfcn/linux/mmix/loading.cpp ../../src/dlfcn/linux/mmix/dlopen.cpp
     ../../src/dlfcn/linux/mmix/dlsym.cpp ../../src/dlfcn/linux/mmix/dlerror.cpp
-    ../../src/dlfcn/linux/mmix/dlclose.cpp)
+    ../../src/dlfcn/linux/mmix/dlclose.cpp ../../src/dlfcn/linux/mmix/dladdr.cpp
+    ../../src/dlfcn/linux/mmix/dlinfo.cpp ../../src/dlfcn/linux/mmix/dl_iterate_phdr.cpp)
   target_include_directories(loader-runtime-api-test PRIVATE ../..)
   target_compile_definitions(loader-runtime-api-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
   target_compile_features(loader-runtime-api-test PRIVATE cxx_std_17)

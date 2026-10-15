@@ -4,7 +4,18 @@ add_object_library(
   runtime_api
   SRCS runtime_api.cpp
   HDRS runtime_api.h
-  DEPENDS .runtime_load .runtime_initialization .locks .io
+  DEPENDS .runtime_load .runtime_initialization .runtime_queries .locks .io
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
+  runtime_queries
+  SRCS runtime_queries.cpp
+  HDRS runtime_queries.h
+  DEPENDS .runtime_scopes .dynamic .arena .io
+    libc.hdr.types.dl_info libc.hdr.types.struct_link_map
+    libc.hdr.types.struct_r_debug libc.hdr.types.struct_dl_phdr_info
+    libc.src.__support.CPP.new libc.hdr.errno_macros
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 

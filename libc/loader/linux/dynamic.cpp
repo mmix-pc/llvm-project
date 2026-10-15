@@ -364,7 +364,9 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
     values[slot(field)] = value;
     if (field == DynamicTag::Debug) {
       Address ignored;
-      if (!main || value ||
+      // A resident main may already contain the loader's debugger record.
+      // Never dereference that value; file inputs must still supply zero.
+      if (!main || (value && !image.is_mapped()) ||
           !image.runtime_address(dynamic_address + i + 8, 8, PF_R | PF_W,
                                  ignored))
         return DynamicError::Unsupported;

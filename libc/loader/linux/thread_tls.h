@@ -34,6 +34,8 @@ long release_runtime_thread_tls(void *, ThreadTLSAllocation *);
 // The current DTV identifies stable loader state, not a copied pthread
 // descriptor.
 void *resolve_runtime_thread_tls(void *, const TLSIndex *);
+// Current-thread inspection only: never grows the DTV or instantiates a module.
+void *peek_runtime_thread_tls(void *, const StartupTLSModule *);
 
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

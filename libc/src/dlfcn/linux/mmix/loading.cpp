@@ -13,6 +13,7 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 static loader::LoaderAPI api{};
+static loader::LoaderQueryAPI queries{};
 struct ErrorState {
   char text[96];
   bool pending;
@@ -59,6 +60,14 @@ static void set_error(long error) {
   } while (message[i++] && i < sizeof(error_state.text) - 1);
   error_state.text[sizeof(error_state.text) - 1] = 0;
   error_state.pending = true;
+}
+
+bool adopt_query_services(const loader::LoaderQueryAPI &input) {
+  if (queries.context || !input.context || !input.address || !input.info ||
+      !input.iterate)
+    return false;
+  queries = input;
+  return true;
 }
 
 class CancellationScope {
@@ -138,6 +147,55 @@ int loader_close(void *handle) {
     return -1;
   }
   return 0;
+}
+
+int loader_address(const void *address, void *out) {
+  CancellationScope guard;
+  long error = guard.error();
+  if (!error)
+    error = queries.address
+                ? queries.address(queries.context,
+                                  reinterpret_cast<uintptr_t>(address), out,
+                                  guard.callbacks())
+                : ENOSYS;
+  if (error) {
+    set_error(error);
+    return 0;
+  }
+  error_state.pending = false;
+  return 1;
+}
+
+int loader_info(void *handle, int request, void *out) {
+  CancellationScope guard;
+  long error = guard.error();
+  if (!error)
+    error = queries.info ? queries.info(queries.context,
+                                        reinterpret_cast<uintptr_t>(handle),
+                                        request, out, guard.callbacks())
+                         : ENOSYS;
+  if (error) {
+    set_error(error);
+    return -1;
+  }
+  error_state.pending = false;
+  return 0;
+}
+
+int loader_iterate(int (*callback)(void *, void *), void *argument) {
+  CancellationScope guard;
+  long error = guard.error();
+  int result = 0;
+  if (!error)
+    error = queries.iterate
+                ? queries.iterate(queries.context, callback, argument,
+                                  guard.callbacks(), &result)
+                : ENOSYS;
+  if (error) {
+    set_error(error);
+    return -1;
+  }
+  return result;
 }
 
 char *loader_error() {

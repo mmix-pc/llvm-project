@@ -15,6 +15,10 @@ namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 // Adopt before application callbacks/workers, never replace a live service.
 bool adopt_loading_services(const loader::LoaderAPI &);
+bool adopt_query_services(const loader::LoaderQueryAPI &);
+int loader_address(const void *, void *);
+int loader_info(void *, int, void *);
+int loader_iterate(int (*)(void *, void *), void *);
 void *loader_open(const char *, int, uintptr_t caller);
 void *loader_lookup(void *, const char *, uintptr_t caller);
 char *loader_error();

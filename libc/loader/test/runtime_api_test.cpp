@@ -10,11 +10,14 @@
 #include "dynamic_fixture.h"
 #include "loader/linux/runtime_api.h"
 #include "loader/linux/runtime_unwind.h"
+#include "src/dlfcn/dladdr.h"
 #include "src/dlfcn/dlclose.h"
 #include "src/dlfcn/dlerror.h"
+#include "src/dlfcn/dlinfo.h"
 #include "src/dlfcn/dlopen.h"
 #include "src/dlfcn/dlsym.h"
 #include "src/dlfcn/linux/mmix/loading.h"
+#include "src/link/dl_iterate_phdr.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -32,6 +35,7 @@ static thread_local unsigned tls_calls;
 static thread_local long tls_storage;
 static LoaderAPI production;
 static bool inject_nested_error;
+static bool fail_query_allocation;
 static uintptr_t caller_pc = bias + 0x2000, observed_pc;
 static void check(bool value, int line = __builtin_LINE()) {
   if (!value) {
@@ -41,6 +45,10 @@ static void check(bool value, int line = __builtin_LINE()) {
 }
 namespace LIBC_NAMESPACE::loader {
 long raw_syscall(long n, long a, long b, long c, long d, long e, long f) {
+  if (n == SYS_mmap && fail_query_allocation) {
+    fail_query_allocation = false;
+    return -ENOMEM;
+  }
   if (n == SYS_mmap && !(d & MAP_FIXED))
     d |= MAP_32BIT;
   long result = ::syscall(n, a, b, c, d, e, f);
@@ -72,6 +80,41 @@ static void *resolve(void *, const TLSIndex *index) {
   ++tls_calls;
   return &tls_storage; // Index bridge only; actual TLS resolver has its own
                        // test.
+}
+static void *peek(void *, const StartupTLSModule *module) {
+  check(disabled && module->module_id == tls_module);
+  return tls_calls ? &tls_storage : nullptr;
+}
+struct Enumeration {
+  unsigned count = 0;
+  const char *path;
+  void *handle;
+  bool reopen = false;
+};
+static int enumerate(dl_phdr_info *info, size_t size, void *opaque) {
+  auto &state = *static_cast<Enumeration *>(opaque);
+  check(size == sizeof(*info) && info->dlpi_phnum && info->dlpi_phdr);
+  check(info->dlpi_adds == 2 && info->dlpi_subs == 0);
+  ++state.count;
+  // Reentry must not deadlock and must not change the enumerated image set.
+  link_map *map = nullptr;
+  check(!LIBC_NAMESPACE::dlinfo(state.handle, RTLD_DI_LINKMAP, &map) && map);
+  if (state.reopen) {
+    pthread_t writer;
+    check(!pthread_create(
+        &writer, nullptr,
+        [](void *p) -> void * {
+          auto &state = *static_cast<Enumeration *>(p);
+          void *handle = client::loader_open(state.path, RTLD_NOW | RTLD_NOLOAD,
+                                             caller_pc);
+          check(handle && !LIBC_NAMESPACE::dlclose(handle));
+          return nullptr;
+        },
+        &state));
+    check(!pthread_join(
+        writer, nullptr)); // Would deadlock if callback held the loader lock.
+  }
+  return 0;
 }
 static long record_open(void *p, const char *name, int flags, uintptr_t pc,
                         LoaderCancellation hooks, uint64_t *out) {
@@ -118,6 +161,8 @@ int main(int argc, char **argv) {
   check(!client::loader_error());
 
   DynamicFixture main_file(ImageRole::MainPIE);
+  main_file.put(main_file.at(DT_CHECKSUM), 8, DT_DEBUG);
+  main_file.set(DT_DEBUG, 0);
   main_file.put(0x4900, 8, bias + 0x2008);
   main_file.put(0x4908, 8, bias + 0x200c);
   main_file.put(0x4910, 8, bias + 0x2010);
@@ -151,7 +196,22 @@ int main(int argc, char **argv) {
   SearchEnvironment environment;
   check(!environment.parse(false, {}, {}));
   RuntimeAPI service(page, registry, scopes, initializers, stack, environment,
-                     {&registry, resolve});
+                     {&registry, resolve}, nullptr, peek);
+  check(!service.query_metadata().bind_debug(main, 0x123000));
+  RuntimeQueries failing_queries(page);
+  fail_query_allocation = true;
+  check(failing_queries.prepare(*registry.snapshot()) == -ENOMEM);
+  check(!failing_queries.snapshot() && !failing_queries.debug_record()->r_map);
+  check(!failing_queries.abort());
+  check(!failing_queries.prepare(*registry.snapshot()));
+  failing_queries.publish();
+  check(failing_queries.snapshot()->records.size() == 1);
+  DynamicInfo main_dynamic;
+  check(DynamicInfo::open(main, main_dynamic) == DynamicError::None);
+  check(main_dynamic.value(DynamicTag::Debug) ==
+        reinterpret_cast<Address>(service.query_metadata().debug_record()));
+  check(client::adopt_query_services(service.query_services()));
+  check(!client::adopt_query_services(service.query_services()));
   production = service.services();
   check(
       !client::adopt_loading_services({production.context, nullptr, nullptr, nullptr}));
@@ -196,8 +256,19 @@ int main(int argc, char **argv) {
     check(!client::loader_open(argv[i], RTLD_NOW, caller_pc));
     check(client::loader_error() && scopes.snapshot() == before);
   }
-  void *local =
-      client::loader_open(argv[1], RTLD_LAZY | RTLD_NODELETE, caller_pc);
+  Enumeration first{0, argv[1], nullptr, false};
+  check(!LIBC_NAMESPACE::dl_iterate_phdr(
+      [](dl_phdr_info *info, size_t, void *p) {
+        auto &state = *static_cast<Enumeration *>(p);
+        check(info->dlpi_adds == 1 && !state.count++);
+        state.handle = client::loader_open(
+            state.path, RTLD_LAZY | RTLD_NODELETE, caller_pc);
+        return 0;
+      },
+      &first));
+  void *local = first.handle;
+  check(first.count ==
+        1); // The newly published image is not in this enumeration.
   check(local && !client::loader_error());
   void *function = client::loader_lookup(local, "access_tls", caller_pc);
   check(function && !client::loader_error());
@@ -212,6 +283,49 @@ int main(int argc, char **argv) {
         dynamic.symbol(index, symbol));
   tls_module = image->tls.module_id;
   tls_offset = symbol.st_value;
+  static_assert(RTLD_DI_LINKMAP == InfoLinkMap &&
+                RTLD_DI_TLS_MODID == InfoTLSModid &&
+                RTLD_DI_TLS_DATA == InfoTLSData);
+  Dl_info address_info{};
+  check(LIBC_NAMESPACE::dladdr(function, &address_info) == 1);
+  check(!std::strcmp(address_info.dli_sname, "access_tls") &&
+        address_info.dli_saddr == function && address_info.dli_fname[0]);
+  check(LIBC_NAMESPACE::dladdr(reinterpret_cast<const char *>(function) + 1,
+                               &address_info) == 1 &&
+        address_info.dli_saddr == function);
+  check(LIBC_NAMESPACE::dladdr(reinterpret_cast<void *>(bias + 0x4000),
+                               &address_info) == 1 &&
+        address_info.dli_fbase == reinterpret_cast<void *>(bias));
+  check(!LIBC_NAMESPACE::dladdr(reinterpret_cast<void *>(1), &address_info));
+  check(LIBC_NAMESPACE::dlerror());
+  link_map *map = nullptr;
+  size_t module = 0;
+  void *unused_tls = reinterpret_cast<void *>(1);
+  check(!LIBC_NAMESPACE::dlinfo(local, RTLD_DI_LINKMAP, &map) && map->l_prev &&
+        map->l_ld);
+  check(!LIBC_NAMESPACE::dlinfo(local, RTLD_DI_TLS_MODID, &module) &&
+        module == tls_module);
+  check(!LIBC_NAMESPACE::dlinfo(local, RTLD_DI_TLS_DATA, &unused_tls) &&
+        !unused_tls && !tls_calls);
+  check(LIBC_NAMESPACE::dlinfo(local, 12345, &module) == -1 &&
+        LIBC_NAMESPACE::dlerror());
+  check(LIBC_NAMESPACE::dlinfo(RTLD_DEFAULT, RTLD_DI_LINKMAP, &map) == -1 &&
+        LIBC_NAMESPACE::dlerror());
+  Enumeration enumeration{0, argv[1], local, true};
+  check(!LIBC_NAMESPACE::dl_iterate_phdr(enumerate, &enumeration) &&
+        enumeration.count == 2);
+  unsigned stops = 0;
+  check(LIBC_NAMESPACE::dl_iterate_phdr(
+            [](dl_phdr_info *, size_t, void *p) {
+              ++*static_cast<unsigned *>(p);
+              return 27;
+            },
+            &stops) == 27 &&
+        stops == 1);
+  auto *debug = service.query_metadata().debug_record();
+  check(debug->r_version == 1 && debug->r_state == 0 && debug->r_brk &&
+        debug->r_ldbase == 0x123000);
+  check(debug->r_map && debug->r_map->l_next && !debug->r_map->l_next->l_next);
   void *promoted = client::loader_open(
       argv[1], RTLD_NOW | RTLD_NOLOAD | RTLD_GLOBAL, caller_pc);
   check(promoted && promoted != local && !client::loader_error());
@@ -237,6 +351,8 @@ int main(int argc, char **argv) {
           reinterpret_cast<uintptr_t>(function), &unwind));
   void *tls_address = client::loader_lookup(local, "tls_zero", caller_pc);
   check(tls_address == &tls_storage);
+  check(!LIBC_NAMESPACE::dlinfo(local, RTLD_DI_TLS_DATA, &unused_tls) &&
+        unused_tls == tls_address);
   tls_storage = 73;
   void *invalid_handles[] = {RTLD_DEFAULT, RTLD_NEXT, reinterpret_cast<void *>(999)};
   for (void *bad : invalid_handles) {
@@ -247,6 +363,8 @@ int main(int argc, char **argv) {
   check(LIBC_NAMESPACE::dlclose(local) == -1 && LIBC_NAMESPACE::dlerror());
   check(!client::loader_lookup(local, "access_tls", caller_pc));
   check(client::loader_error());
+  check(LIBC_NAMESPACE::dlinfo(local, RTLD_DI_LINKMAP, &map) == -1 &&
+        LIBC_NAMESPACE::dlerror());
   check(client::loader_lookup(promoted, "access_tls", caller_pc) == function);
   check(!LIBC_NAMESPACE::dlclose(promoted));
   check(!LIBC_NAMESPACE::dlclose(global));
@@ -271,6 +389,9 @@ int main(int argc, char **argv) {
   release_runtime_unwind_image(&scopes, unwind.token);
   release_runtime_unwind_image(&scopes, after.token);
   check(scopes.snapshot()->handles.empty() && !disabled);
+  check(debug->r_map->l_next && debug->r_state == 0);
+  std::puts("image query, reentrant enumeration, nonallocating TLS and "
+            "debugger record checks passed");
   std::puts("logical close, stale handles, balanced reopen and resident TLS/unwind checks passed");
   std::puts("runtime API linked opens, flags, caller scopes, zero symbols, "
             "TLS bridge and per-thread error checks passed");

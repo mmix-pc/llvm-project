@@ -127,6 +127,26 @@ long prepare_runtime_thread_tls(void *context, void *thread,
   return error;
 }
 
+void *peek_runtime_thread_tls(void *context, const StartupTLSModule *module) {
+  Address tp = current_thread_pointer();
+  if (!context || !module || !module->module_id || !tp)
+    return nullptr;
+  Address pointer =
+      __atomic_load_n(reinterpret_cast<Address *>(tp), __ATOMIC_ACQUIRE);
+  const auto *dtv = reinterpret_cast<const StartupDTV *>(pointer);
+  if (!dtv || !dtv->runtime_owner || module->module_id >= dtv->capacity)
+    return nullptr;
+  const auto &state = *reinterpret_cast<const State *>(dtv->runtime_owner);
+  if (state.context != context || state.retiring || state.allocation.tp != tp)
+    return nullptr;
+  const auto &entry = reinterpret_cast<const StartupDTVEntry *>(
+      dtv->entries)[module->module_id];
+  if (__atomic_load_n(&entry.generation, __ATOMIC_ACQUIRE) !=
+      module->generation)
+    return nullptr;
+  return reinterpret_cast<void *>(entry.image_base);
+}
+
 void *resolve_runtime_thread_tls(void *context, const TLSIndex *index) {
   Address tp = current_thread_pointer();
   if (!context || !tp)

@@ -56,6 +56,8 @@ long RuntimeAPI::open(const char *name, int flags, uintptr_t pc,
   if (!snapshot || snapshot->registry != images.snapshot() ||
       RuntimeScopes::caller(*snapshot, pc, caller) != SymbolError::None)
     return EINVAL;
+  if (long error = refresh_queries())
+    return error;
   if (pending) {
     long error = pending->reset();
     if (error)
@@ -86,15 +88,19 @@ long RuntimeAPI::open(const char *name, int flags, uintptr_t pc,
       error = initializers.prepare(*request->load.view()->registry,
                                    request->initialization);
     if (!error)
+      error = queries.prepare(*request->load.view()->registry);
+    if (!error)
       error = request->load.commit(token);
     if (!error &&
         initializers.attach(request->initialization, *images.snapshot()))
       fatal_startup(); // No fallible work or callback may split commit/attach.
   }
   if (error) {
+    long query_cleanup = queries.abort();
     long cleanup = request->reset();
-    return cleanup ? -cleanup : -error;
+    return cleanup ? -cleanup : query_cleanup ? -query_cleanup : -error;
   }
+  queries.publish();
   // Published request storage remains resident. Release the working slot
   // before callbacks so a nested open owns an independent transaction.
   pending = nullptr;
@@ -191,6 +197,111 @@ LoaderAPI RuntimeAPI::services() {
           },
           [](void *context, uint64_t handle, LoaderCancellation cancellation) {
             return static_cast<RuntimeAPI *>(context)->close(handle, cancellation);
+          }};
+}
+
+long RuntimeAPI::refresh_queries() {
+  const auto *view = scopes.snapshot();
+  if (!view)
+    return EINVAL;
+  long error = queries.prepare(*view->registry);
+  if (error)
+    return -error;
+  queries.publish();
+  return 0;
+}
+
+long RuntimeAPI::address(uintptr_t addr, void *out, LoaderCancellation hooks) {
+  if (!out)
+    return EINVAL;
+  LoaderLocks::Session session(locks, hooks);
+  LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
+  if (mutation.error())
+    return -mutation.error();
+  if (long error = refresh_queries())
+    return error;
+  return RuntimeQueries::address(*queries.snapshot(), addr,
+                                 *static_cast<Dl_info *>(out));
+}
+
+long RuntimeAPI::info(uint64_t token, int request, void *out,
+                      LoaderCancellation hooks) {
+  if (!out)
+    return EINVAL;
+  LoaderLocks::Session session(locks, hooks);
+  LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
+  if (mutation.error())
+    return -mutation.error();
+  const auto *view = scopes.snapshot();
+  const ImageRegistry::Image *image = nullptr;
+  if (view)
+    for (const auto &handle : view->handles)
+      if (handle.token == token) {
+        image = handle.global_namespace ? view->registry->images[0]
+                                        : handle.local->images[0];
+        break;
+      }
+  if (!image || (request != InfoLinkMap && request != InfoTLSModid &&
+                 request != InfoTLSData))
+    return EINVAL;
+  if (long error = refresh_queries())
+    return error;
+  const auto *record = RuntimeQueries::record(*queries.snapshot(), image);
+  if (!record)
+    return EINVAL;
+  if (request == InfoLinkMap)
+    *static_cast<link_map **>(out) = const_cast<link_map *>(&record->map);
+  else if (request == InfoTLSModid)
+    *static_cast<size_t *>(out) =
+        image->elf.tls_header() ? image->tls.module_id : 0;
+  else {
+    if (image->elf.tls_header() && !peek_tls)
+      return ENOSYS;
+    *static_cast<void **>(out) =
+        image->elf.tls_header() ? peek_tls(tls.context, &image->tls) : nullptr;
+  }
+  return 0;
+}
+
+long RuntimeAPI::iterate(int (*callback)(void *, void *), void *argument,
+                         LoaderCancellation hooks, int *result) {
+  if (!callback || !result)
+    return EINVAL;
+  *result = 0;
+  const RuntimeQueries::Snapshot *view;
+  {
+    LoaderLocks::Session session(locks, hooks);
+    LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
+    if (mutation.error())
+      return -mutation.error();
+    if (long error = refresh_queries())
+      return error;
+    view = queries.snapshot();
+  }
+  // Residency pins the immutable list. No loader lock spans application code.
+  for (const auto &record : view->records) {
+    dl_phdr_info info;
+    if (long error = RuntimeQueries::phdr_info(*view, record, tls.context,
+                                               peek_tls, info))
+      return error;
+    *result = callback(&info, argument);
+    if (*result)
+      break;
+  }
+  return 0;
+}
+
+LoaderQueryAPI RuntimeAPI::query_services() {
+  return {this,
+          [](void *p, uintptr_t a, void *out, LoaderCancellation c) {
+            return static_cast<RuntimeAPI *>(p)->address(a, out, c);
+          },
+          [](void *p, uint64_t h, int r, void *out, LoaderCancellation c) {
+            return static_cast<RuntimeAPI *>(p)->info(h, r, out, c);
+          },
+          [](void *p, int (*f)(void *, void *), void *a, LoaderCancellation c,
+             int *out) {
+            return static_cast<RuntimeAPI *>(p)->iterate(f, a, c, out);
           }};
 }
 
