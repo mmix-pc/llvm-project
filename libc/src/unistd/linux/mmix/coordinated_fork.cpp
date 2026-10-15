@@ -23,9 +23,10 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
   }
   // Freeze callback registration only after internal locks have been prepared.
   size_t count = mmix::prepare_fork_callbacks();
-  operation.prepare_runtime();
+  int error = operation.prepare_runtime();
   mmix::lock_fork_callbacks();
-  int error = operation.freeze_registry();
+  if (!error)
+    error = operation.freeze_registry();
   long result =
       error ? -error : syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
   operation.restore_runtime(result == 0);

@@ -5,7 +5,7 @@ add_object_library(
   SRCS runtime_api.cpp
   HDRS runtime_api.h
   DEPENDS .runtime_load .runtime_initialization .runtime_queries .locks .io
-  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS} -funwind-tables
 )
 
 add_object_library(
@@ -107,7 +107,7 @@ add_object_library(
   DEPENDS .mmix.syscall libc.src.__support.CPP.atomic
     libc.src.__support.OSUtil.linux.loader_services
     libc.hdr.errno_macros libc.include.sys_syscall
-  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS} -funwind-tables
 )
 
 add_object_library(

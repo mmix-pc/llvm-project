@@ -14,6 +14,26 @@ namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 static loader::LoaderAPI api{};
 static loader::LoaderQueryAPI queries{};
+static loader::LoaderProcessAPI process{};
+
+bool adopt_loader_process_services(const loader::LoaderProcessAPI &input) {
+  if (process.context || !input.context || !input.prepare_fork ||
+      !input.finish_fork)
+    return false;
+  process = input;
+  return true;
+}
+
+int prepare_loader_fork() {
+  // Before adoption the startup-only profile has no mutable late-load state.
+  return process.prepare_fork
+             ? static_cast<int>(process.prepare_fork(process.context))
+             : 0;
+}
+void finish_loader_fork(bool child) {
+  if (process.finish_fork)
+    process.finish_fork(process.context, child);
+}
 struct ErrorState {
   char text[96];
   bool pending;
@@ -78,7 +98,7 @@ class CancellationScope {
 public:
   CancellationScope()
       : status(hooks.enter && hooks.leave ? hooks.enter(&saved) : -EINVAL) {}
-  ~CancellationScope() {
+  ~CancellationScope() noexcept(false) {
     // Runtime locks are already gone and diagnostics copied into this thread.
     if (!status && hooks.leave(saved))
       __builtin_trap();

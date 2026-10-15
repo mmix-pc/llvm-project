@@ -195,11 +195,13 @@ long RuntimeInitializers::run(Batch &batch, LoaderLocks::Session &session,
     auto *record = object.node->record;
     if (record->state != Record::Initializing || record->batch != &batch)
       continue;
-    for (size_t j = 0; j < object.count && !stopping; ++j)
+    for (size_t j = 0; j < object.count && !stopping; ++j) {
+      LoaderLocks::Session::Callback callback(session);
       invoke(batch.plan.callbacks[object.first + j],
              static_cast<int>(stack.argc),
              reinterpret_cast<char **>(stack.argv),
              reinterpret_cast<char **>(stack.envp));
+    }
     if (!stopping) {
       record->state = Record::Complete;
       record->previous_completion = completed;
@@ -227,8 +229,10 @@ long RuntimeInitializers::finalize(LoaderLocks::Session &session,
     auto *record = completed;
     completed = record->previous_completion;
     record->state = Record::Finalized;
-    for (size_t j = record->fini_count; j != 0; --j)
+    for (size_t j = record->fini_count; j != 0; --j) {
+      LoaderLocks::Session::Callback callback(session);
       invoke(record->fini[j - 1]);
+    }
   }
   return 0;
 }

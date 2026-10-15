@@ -12,9 +12,11 @@
 #include <errno.h>
 #include <linux/futex.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 using namespace LIBC_NAMESPACE::loader;
@@ -23,6 +25,8 @@ static thread_local unsigned disabled;
 static thread_local long wait_error, enter_error;
 static thread_local bool pending;
 static Atomic<unsigned> deliveries{0}, waits{0};
+static thread_local unsigned callbacks;
+static volatile sig_atomic_t signal_seen;
 static void check(bool value, int line = __builtin_LINE()) {
   if (!value) {
     fprintf(stderr, "loader lock check at %d\n", line);
@@ -45,7 +49,15 @@ static long leave(uint64_t saved) {
   }
   return 0;
 }
-static LoaderCancellation hooks{enter, leave};
+static void begin_callback() {
+  check(disabled);
+  ++callbacks;
+}
+static void end_callback() {
+  check(disabled && callbacks);
+  --callbacks;
+}
+static LoaderCancellation hooks{enter, leave, begin_callback, end_callback};
 namespace LIBC_NAMESPACE::loader {
 long raw_syscall(long n, long a, long b, long c, long d, long e, long f) {
   check(disabled != 0);
@@ -96,6 +108,13 @@ static void *failed_wait(void *) {
   check(disabled == 0);
   return nullptr;
 }
+static void *interrupted_wait(void *) {
+  wait_error = -EINTR;
+  LoaderLocks::Session scope(locks, hooks);
+  LoaderLocks::Guard mutation(scope, Kind::Mutation);
+  check(!mutation.error());
+  return nullptr;
+}
 extern "C" int main() {
   {
     LoaderLocks::Session invalid(locks, {});
@@ -112,6 +131,12 @@ extern "C" int main() {
     LoaderLocks::Session scope(locks, hooks);
     LoaderLocks::Guard mutation(scope, Kind::Mutation);
     check(!mutation.error());
+    check(locks.prepare_fork() == -EDEADLK);
+    {
+      LoaderLocks::Session::Callback callback(scope);
+      check(callbacks == 1);
+    }
+    check(!callbacks);
     {
       // Reentrant callbacks can start another API session outside short locks.
       LoaderLocks::Session nested(locks, hooks);
@@ -132,6 +157,43 @@ extern "C" int main() {
     check(!pthread_join(thread, nullptr));
   }
   check(deliveries.load() == 1 && disabled == 0 && waits.load() > 0);
+  pthread_t interrupted;
+  unsigned before_wait = waits.load();
+  {
+    LoaderLocks::Session scope(locks, hooks);
+    LoaderLocks::Guard mutation(scope, Kind::Mutation);
+    check(!pthread_create(&interrupted, nullptr, interrupted_wait, nullptr));
+    while (waits.load() == before_wait)
+      sched_yield();
+  }
+  check(!pthread_join(interrupted, nullptr));
+  struct sigaction action{};
+  action.sa_handler = [](int) { signal_seen = 1; };
+  sigemptyset(&action.sa_mask);
+  check(!sigaction(SIGUSR1, &action, nullptr));
+  uint64_t saved;
+  check(!enter(&saved) && !locks.prepare_fork());
+  check(!raise(SIGUSR1) && signal_seen);
+  pid_t child = fork();
+  check(child >= 0);
+  if (!child) {
+    locks.finish_fork(true);
+    {
+      LoaderLocks::Session scope(locks, hooks);
+      LoaderLocks::Guard guard(scope, Kind::Mutation);
+      check(!guard.error());
+    }
+    check(!leave(saved));
+    _exit(0);
+  }
+  locks.finish_fork(false);
+  check(!leave(saved));
+  int status;
+  check(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+        !WEXITSTATUS(status));
+  check(!enter(&saved) && !locks.prepare_fork());
+  locks.finish_fork(false); // Parent failure path has the same release.
+  check(!leave(saved));
   Arena storage(4096);
   pthread_t threads[4];
   for (auto &thread : threads)

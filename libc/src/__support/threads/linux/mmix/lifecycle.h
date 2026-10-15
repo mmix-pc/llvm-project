@@ -68,6 +68,7 @@ struct ThreadControl {
   TLSDescriptor tls{};
 #ifdef LIBC_MMIX_SHARED_STARTUP
   loader::ThreadTLSAllocation shared_tls{};
+  cpp::Atomic<uint64_t> loader_scopes{0}, loader_callbacks{0};
 #endif
   UnwindRoot unwind_root{};
   PriorityProtectionState priority_protection;

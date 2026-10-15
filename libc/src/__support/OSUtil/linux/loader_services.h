@@ -20,6 +20,8 @@ namespace loader {
 struct LoaderCancellation {
   long (*enter)(uint64_t *saved);
   long (*leave)(uint64_t saved);
+  void (*begin_callback)() = nullptr;
+  void (*end_callback)() = nullptr;
 };
 
 struct UnwindReadableRange {
@@ -120,6 +122,12 @@ struct LoaderQueryAPI {
 };
 enum LoaderInfoRequest { InfoLinkMap = 2, InfoTLSModid = 9, InfoTLSData = 10 };
 
+struct LoaderProcessAPI {
+  void *context;
+  long (*prepare_fork)(void *);
+  void (*finish_fork)(void *, bool child);
+};
+
 enum LoaderOpenFlag : unsigned {
   OpenLazy = 1,
   OpenNow = 2,
@@ -149,6 +157,7 @@ struct LoaderServices {
   // never turn incomplete callback pairs into apparent runtime support.
   LoaderAPI api{};
   LoaderQueryAPI queries{};
+  LoaderProcessAPI process{};
 };
 
 struct LibcBootstrap {
@@ -159,7 +168,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 136);
+static_assert(sizeof(LoaderServices) == 160);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

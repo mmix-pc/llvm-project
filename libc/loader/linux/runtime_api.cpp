@@ -291,6 +291,16 @@ long RuntimeAPI::iterate(int (*callback)(void *, void *), void *argument,
   return 0;
 }
 
+LoaderProcessAPI RuntimeAPI::process_services() {
+  return {this,
+          [](void *p) {
+            return -static_cast<RuntimeAPI *>(p)->locks.prepare_fork();
+          },
+          [](void *p, bool child) {
+            static_cast<RuntimeAPI *>(p)->locks.finish_fork(child);
+          }};
+}
+
 LoaderQueryAPI RuntimeAPI::query_services() {
   return {this,
           [](void *p, uintptr_t a, void *out, LoaderCancellation c) {

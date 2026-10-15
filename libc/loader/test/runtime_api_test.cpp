@@ -36,6 +36,8 @@ static thread_local long tls_storage;
 static LoaderAPI production;
 static bool inject_nested_error;
 static bool fail_query_allocation;
+static bool deliver_pending;
+struct PendingCancellation {};
 static uintptr_t caller_pc = bias + 0x2000, observed_pc;
 static void check(bool value, int line = __builtin_LINE()) {
   if (!value) {
@@ -62,6 +64,10 @@ static long enter(uint64_t *saved) {
 static long leave(uint64_t saved) {
   check(disabled == saved + 1);
   disabled = static_cast<unsigned>(saved);
+  if (!saved && deliver_pending) {
+    deliver_pending = false;
+    throw PendingCancellation{};
+  }
   return 0;
 }
 namespace LIBC_NAMESPACE::mmix {
@@ -212,6 +218,14 @@ int main(int argc, char **argv) {
         reinterpret_cast<Address>(service.query_metadata().debug_record()));
   check(client::adopt_query_services(service.query_services()));
   check(!client::adopt_query_services(service.query_services()));
+  check(!client::adopt_loader_process_services({}));
+  check(client::adopt_loader_process_services(service.process_services()));
+  check(!client::adopt_loader_process_services(service.process_services()));
+  uint64_t saved_state;
+  check(!enter(&saved_state));
+  check(!client::prepare_loader_fork());
+  client::finish_loader_fork(false);
+  check(!leave(saved_state));
   production = service.services();
   check(
       !client::adopt_loading_services({production.context, nullptr, nullptr, nullptr}));
@@ -220,6 +234,20 @@ int main(int argc, char **argv) {
   check(client::adopt_loading_services(
       {production.context, record_open, record_lookup, production.close}));
   check(!client::adopt_loading_services(production));
+
+  // Restoration can unwind only after the service has released its locks.
+  deliver_pending = true;
+  bool delivered = false;
+  try {
+    client::loader_lookup(RTLD_DEFAULT, "absent", caller_pc);
+  } catch (const PendingCancellation &) {
+    delivered = true;
+  }
+  check(delivered && !disabled && !deliver_pending);
+  check(!enter(&saved_state));
+  check(!client::prepare_loader_fork());
+  client::finish_loader_fork(false);
+  check(!leave(saved_state));
 
   const int invalid_flags[] = {0, RTLD_NOW | RTLD_LAZY,
                                RTLD_NOW | RTLD_DEEPBIND, RTLD_NOW | 0x8000, -1};

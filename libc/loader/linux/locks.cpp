@@ -54,7 +54,39 @@ LoaderLocks::Session::Session(LoaderLocks &owner, LoaderCancellation hooks)
     failure = tid < 0 ? tid : -EINVAL;
 }
 
-LoaderLocks::Session::~Session() {
+long LoaderLocks::prepare_fork() {
+  long tid = raw_syscall(SYS_gettid);
+  if (tid <= 0)
+    return tid < 0 ? tid : -EINVAL;
+  // A constructor cannot fork a half-completed same-owner transaction.
+  if (mutation_owner.load(cpp::MemoryOrder::ACQUIRE) == tid)
+    return -EDEADLK;
+  if (long error = mutation.lock())
+    return error;
+  mutation_depth = 1;
+  mutation_owner.store(tid, cpp::MemoryOrder::RELEASE);
+  return 0;
+}
+
+void LoaderLocks::finish_fork(bool child) {
+  if (!mutation_owner.load(cpp::MemoryOrder::RELAXED) || mutation_depth != 1)
+    __builtin_trap();
+  if (!child &&
+      mutation_owner.load(cpp::MemoryOrder::RELAXED) != raw_syscall(SYS_gettid))
+    __builtin_trap();
+  mutation_depth = 0;
+  mutation_owner.store(0, cpp::MemoryOrder::RELEASE);
+  if (child) {
+    // The copied wait queues name vanished threads. Do not wake/unlock them.
+    arena.reset_after_fork();
+    registry.reset_after_fork();
+    mutation.reset_after_fork();
+  } else {
+    mutation.unlock();
+  }
+}
+
+LoaderLocks::Session::~Session() noexcept(false) {
   if (top)
     __builtin_trap();
   if (suppressed && cancellation.leave(saved))

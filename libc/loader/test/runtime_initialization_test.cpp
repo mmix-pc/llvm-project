@@ -21,6 +21,7 @@ using namespace loader_test;
 using LIBC_NAMESPACE::cpp::Atomic;
 using Kind = LoaderLocks::Kind;
 static thread_local unsigned disabled;
+static thread_local unsigned callbacks;
 static Atomic<unsigned> waits{0};
 static bool fail_mapping;
 static void check(bool value, int line = __builtin_LINE()) {
@@ -50,13 +51,21 @@ static long leave(uint64_t saved) {
   disabled = static_cast<unsigned>(saved);
   return 0;
 }
-static LoaderCancellation hooks{enter, leave};
+static void begin_callback() {
+  check(disabled);
+  ++callbacks;
+}
+static void end_callback() {
+  check(disabled && callbacks);
+  --callbacks;
+}
+static LoaderCancellation hooks{enter, leave, begin_callback, end_callback};
 static LoaderLocks locks;
 static InitialStack *initial_stack;
 static Address trace[64];
 static unsigned trace_count;
 static void record(Address pc) {
-  check(disabled && trace_count < 64);
+  check(disabled && callbacks && trace_count < 64);
   trace[trace_count++] = pc;
 }
 

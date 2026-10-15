@@ -64,6 +64,7 @@ public:
         invoke(invoke) {}
   LoaderAPI services();
   LoaderQueryAPI query_services();
+  LoaderProcessAPI process_services();
   RuntimeQueries &query_metadata() { return queries; }
 };
 

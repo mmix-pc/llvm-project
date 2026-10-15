@@ -16,6 +16,9 @@
 #include "src/__support/threads/fork_callbacks.h"
 #include "src/__support/threads/identifier.h"
 #include "src/__support/threads/linux/mmix/process_operation.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "src/dlfcn/linux/mmix/loading.h"
+#endif
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
 #include "src/__support/threads/linux/mmix/main_thread.h"
 #endif
@@ -51,6 +54,15 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
   }
 
   pid_t parent_tid = attributes->tid;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (int error = mmix::prepare_loader_fork()) {
+    if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
+      internal::exit(127);
+    invoke_parent_callbacks(callback_count);
+    libc_errno = error;
+    return -1;
+  }
+#endif
   attributes->tid = 0;
   // Linux copies both stacks and resumes after TRAP with r231=0 in the child.
   // The syscall leaf can POP normally; no foreign new-stack clone recipe is
@@ -70,6 +82,9 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
   }
 
   // Publish valid identity before handlers or callbacks can observe the child.
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  mmix::finish_loader_fork(result == 0);
+#endif
   // A created child must never be disguised as a failed fork in the parent.
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
     internal::exit(127);

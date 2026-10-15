@@ -18,6 +18,10 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
   if(LIBC_MMIX_BUILD_COORDINATED_FORK)
+    set(mmix_loader_fork_dependency)
+    if(LIBC_MMIX_BUILD_SHARED_LIBC)
+      set(mmix_loader_fork_dependency libc.src.dlfcn.linux.mmix.loading)
+    endif()
     add_object_library(
       fork_runtime
       SRCS fork_runtime.cpp atfork_callbacks.cpp
@@ -26,7 +30,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
         libc.src.__support.File.file libc.src.stdlib.environ_internal
         libc.src.stdlib.linux.mmix.allocator libc.src.__support.OSUtil.osutil
         libc.src.stdio.stdin libc.src.stdio.stdout libc.src.stdio.stderr
-        libc.src.__support.CPP.new libc.include.sys_syscall
+        libc.src.__support.CPP.new libc.include.sys_syscall ${mmix_loader_fork_dependency}
       COMPILE_OPTIONS -fno-lto
     )
   endif()
@@ -272,8 +276,10 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       loader_cancellation
       SRCS loader_cancellation.cpp
       HDRS loader_cancellation.h
-      DEPENDS .cancellation libc.include.pthread libc.hdr.errno_macros
+      DEPENDS .cancellation .lifecycle libc.include.pthread libc.hdr.errno_macros
         libc.src.__support.OSUtil.linux.loader_services
+        libc.hdr.signal_macros libc.include.sys_syscall
+        libc.src.__support.OSUtil.linux.mmix.syscall
       COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
     )
     add_object_library(

@@ -20,6 +20,9 @@
 #include "src/stdlib/environ_internal.h"
 #include "src/stdlib/linux/mmix/allocator.h"
 #include "thread_reaper.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "src/dlfcn/linux/mmix/loading.h"
+#endif
 #include <sys/syscall.h>
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -71,6 +74,11 @@ ForkOperation::ForkOperation() {
 }
 
 int ForkOperation::prepare_runtime() {
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (int error = prepare_loader_fork())
+    return error;
+  loader_locked = true;
+#endif
   if (caller->priority_protection.guard.lock() != MutexError::NONE)
     __builtin_trap();
   priority = true;
@@ -148,6 +156,12 @@ void ForkOperation::restore_runtime(bool child) {
     if (!internal::adopt_fork_survivor())
       internal::exit(127);
   }
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (loader_locked) {
+    finish_loader_fork(child);
+    loader_locked = false;
+  }
+#endif
 }
 
 ForkOperation::~ForkOperation() {

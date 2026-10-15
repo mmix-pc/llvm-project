@@ -24,12 +24,17 @@ class LoaderLocks {
   public:
     long lock();
     void unlock();
+    void reset_after_fork() { word.store(0, cpp::MemoryOrder::RELAXED); }
   };
   Mutex mutation, registry, arena;
   cpp::Atomic<long> mutation_owner{0};
   uint64_t mutation_depth = 0; // Accessed only by the owning thread.
 
 public:
+  // The libc fork owner already masks signals and suppresses cancellation.
+  // Acquire after user prepare callbacks and before any pthread registry lock.
+  long prepare_fork();
+  void finish_fork(bool child);
   enum class Kind { None, Mutation, Registry, Arena };
   class Guard;
   class Session {
@@ -44,7 +49,7 @@ public:
 
   public:
     Session(LoaderLocks &locks, LoaderCancellation cancellation);
-    ~Session();
+    ~Session() noexcept(false);
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
     long error() const { return failure; }
@@ -53,6 +58,25 @@ public:
     long callback_owner() const {
       return !failure && suppressed && top && rank == Kind::Mutation ? tid : 0;
     }
+    class Callback {
+      Session &session;
+
+    public:
+      explicit Callback(Session &session) : session(session) {
+        if (!session.callback_owner() ||
+            bool(session.cancellation.begin_callback) !=
+                bool(session.cancellation.end_callback))
+          __builtin_trap();
+        if (session.cancellation.begin_callback)
+          session.cancellation.begin_callback();
+      }
+      ~Callback() {
+        if (session.cancellation.end_callback)
+          session.cancellation.end_callback();
+      }
+      Callback(const Callback &) = delete;
+      Callback &operator=(const Callback &) = delete;
+    };
   };
 
   class Guard {

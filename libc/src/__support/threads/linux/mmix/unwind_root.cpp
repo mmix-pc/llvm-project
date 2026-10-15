@@ -119,6 +119,11 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
 [[noreturn]] static void force_exit(void *result, bool cleanup_claimed,
                                   uint64_t callback_mask = 0) {
   auto *control = current_control;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  // Constructor/finalizer exit would abandon a published initializing batch.
+  if (control && control->loader_callbacks.load())
+    __builtin_trap();
+#endif
   if (!control || !control->unwind_root.active || forced.active ||
       control->unwind_root.owner != control ||
       control->unwind_root.chain != current_chain() ||

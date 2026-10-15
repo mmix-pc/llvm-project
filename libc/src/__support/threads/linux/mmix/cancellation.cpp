@@ -110,6 +110,12 @@ int set_cancel_state(int state, int *old_state) {
     return EINVAL;
   if (!current_control)
     return ENOTSUP;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  // Application callbacks cannot re-enable delivery inside a loader
+  // transaction.
+  if (state == PTHREAD_CANCEL_ENABLE && current_control->loader_scopes.load())
+    return EINVAL;
+#endif
   {
     SignalMask mask;
     bool enabled = current_control->cancellation.set_enabled(
