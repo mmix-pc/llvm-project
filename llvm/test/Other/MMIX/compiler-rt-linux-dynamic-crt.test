@@ -1,0 +1,103 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../compiler-rt/lib/builtins %t
+
+# Capture the target build recipe, then compile its actual generic CRT sources.
+#--- recipe.cmake
+set(CMAKE_C_COMPILER_TARGET "${TRIPLE}")
+set(HAVE_UNWIND_H TRUE)
+set(BUILTIN_CFLAGS_mmix -ffreestanding -fno-stack-protector)
+set(CMAKE_CURRENT_SOURCE_DIR "${SOURCE}")
+include("${SOURCE}/mmix/builtins.cmake")
+function(add_compiler_rt_runtime name)
+  cmake_parse_arguments(R "OBJECT" "PARENT_TARGET" "ARCHS;SOURCES;CFLAGS" ${ARGN})
+  string(REPLACE ";" "\n" flags "${R_CFLAGS}")
+  file(WRITE "${OUT}/${name}.flags" "${flags}\n")
+endfunction()
+add_mmix_crt_objects()
+
+#--- consumer.cpp
+extern "C" void *__dso_handle;
+extern "C" void *image_handle() { return __dso_handle; }
+static volatile int initialized;
+__attribute__((constructor)) static void init() { initialized = 1; }
+__attribute__((destructor)) static void fini() { initialized = 0; }
+extern "C" void entry() {}
+
+#--- finalizer.c
+// This fixture supplies only a link-test finalizer, not a runtime provider.
+void __cxa_finalize(void *handle) { (void)handle; }
+
+#--- check.py
+import pathlib, shutil, struct, subprocess, sys
+source, root = map(pathlib.Path, sys.argv[1:3])
+installed = pathlib.Path(sys.argv[3]) if len(sys.argv) == 4 else None
+def run(*args):
+    return subprocess.check_output(list(map(str, args)), text=True)
+for triple in ("mmix-unknown-unknown", "mmix-unknown-linux", "mmix-unknown-linux-unknown"):
+    directory = root / triple
+    directory.mkdir()
+    run("cmake", "-DTRIPLE=" + triple, "-DSOURCE=" + str(source),
+        "-DOUT=" + str(directory), "-P", root / "recipe.cmake")
+    for name in ("crtbegin", "crtend"):
+        flags = (directory / ("clang_rt." + name + ".flags")).read_text().splitlines()
+        assert ("-fPIC" in flags) == ("linux" in triple)
+        assert "-UEH_USE_FRAME_REGISTRY" in flags
+
+def inspect(path, dynamic):
+    b = path.read_bytes()
+    off = struct.unpack_from(">Q", b, 40)[0]
+    count, strings = struct.unpack_from(">HH", b, 60)
+    sections = [struct.unpack_from(">IIQQQQIIQQ", b, off + i*64) for i in range(count)]
+    def string(table, offset):
+        start = table[4] + offset
+        return b[start:b.index(b"\0", start)].decode()
+    named = {string(sections[strings], s[0]): s for s in sections}
+    symtab = named[".symtab"]
+    symbols = {}
+    for pos in range(symtab[4], symtab[4] + symtab[5], 24):
+        name, info, other, index, value, size = struct.unpack_from(">IBBHQQ", b, pos)
+        symbols[string(sections[symtab[6]], name)] = (info, other, index, value, size)
+    handle = symbols["__dso_handle"]
+    assert handle[1] & 3 == 2 and handle[4] == 8
+    assert "__register_frame_info" not in symbols and "__deregister_frame_info" not in symbols
+    for name in (".init_array", ".fini_array"):
+        assert named[name][5] == 16  # One CRT hook and one consumer hook.
+    assert ".ctors" not in named and ".dtors" not in named
+    if dynamic:
+        assert "__dso_handle" not in run("llvm-nm", "-D", "--defined-only", path)
+        assert "TEXTREL" not in run("llvm-readelf", "-d", path)
+    if struct.unpack_from(">H", b, 16)[0] == 3:
+        relas = named[".rela.dyn"]
+        records = [struct.unpack_from(">QQq", b, p)
+                   for p in range(relas[4], relas[4]+relas[5], 24)]
+        own = [r for r in records if r[0] == handle[3]]
+        assert len(own) == 1 and own[0][1] == 41 and own[0][2] == handle[3]
+    else:
+        section = sections[handle[2]]
+        assert struct.unpack_from(">Q", b, section[4]+handle[3]-section[3])[0] == handle[3]
+
+for level in ("O0", "O2"):
+    directory = root / level
+    directory.mkdir()
+    common = ["clang", "--no-default-config", "--target=mmix-unknown-linux", "-"+level]
+    for name in ("crtbegin", "crtend"):
+        flags = (root / "mmix-unknown-linux" / ("clang_rt."+name+".flags")).read_text().splitlines()
+        if installed:
+            shutil.copyfile(installed / ("clang_rt."+name+".o"), directory / (name+".o"))
+        else:
+            run(*common, *flags, "-c", source / (name+".c"), "-o", directory / (name+".o"))
+    run(*common, "-fPIC", "-c", root / "consumer.cpp", "-o", directory / "consumer.o")
+    run(*common, "-fPIC", "-c", root / "finalizer.c", "-o", directory / "finalizer.o")
+    run("ld.lld", "-m", "elf64mmix_linux", "-shared", directory / "finalizer.o", "-o", directory / "finalizer.so")
+    for mode in ("static", "shared", "pie", "exec"):
+        image = directory / (mode+".elf")
+        flags = ["-"+mode] if mode != "exec" else []
+        if mode in ("pie", "exec"):
+            flags += ["--dynamic-linker=/lib/ld-llvm-mmix.so.1"]
+        run("ld.lld", "-m", "elf64mmix_linux", *flags, "-e", "entry", "-z", "defs",
+            directory / "crtbegin.o", directory / "consumer.o",
+            directory / ("finalizer.o" if mode == "static" else "finalizer.so"),
+            directory / "crtend.o", "-o", image)
+        inspect(image, mode != "static")

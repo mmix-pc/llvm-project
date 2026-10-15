@@ -41,13 +41,20 @@ set(mmix_STACK_PROTECTOR_SOURCES
 function(add_mmix_crt_objects)
   # Generic-system CMake defaults to .obj; this is an ELF CRT object.
   set(CMAKE_C_OUTPUT_EXTENSION .o)
-  # Static linker bounds own frame discovery; no runtime registry is needed.
+  # Static bounds or the resident loader own frame discovery, not the CRT.
+  set(crt_flags ${BUILTIN_CFLAGS_mmix} -DCRT_HAS_INITFINI_ARRAY
+    -UEH_USE_FRAME_REGISTRY)
+  if(CMAKE_C_COMPILER_TARGET MATCHES "^mmix-unknown-linux(-unknown)?$")
+    # One PIC pair serves static executables, PIE and DSOs. Keep each image's
+    # hidden self-address handle without a separate shared-runtime CRT owner.
+    list(APPEND crt_flags -fPIC)
+  endif()
   foreach(name crtbegin crtend)
     add_compiler_rt_runtime(clang_rt.${name}
       OBJECT
       ARCHS mmix
       SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/${name}.c
-      CFLAGS ${BUILTIN_CFLAGS_mmix} -DCRT_HAS_INITFINI_ARRAY -UEH_USE_FRAME_REGISTRY
+      CFLAGS ${crt_flags}
       PARENT_TARGET mmix-crt)
   endforeach()
 endfunction()
