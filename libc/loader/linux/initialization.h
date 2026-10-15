@@ -11,20 +11,14 @@
 
 #include "loader/linux/entry.h"
 #include "loader/linux/graph.h"
+#include "loader/linux/initialization_plan.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
-class StartupInitializers {
-  struct Object {
-    const StartupGraph::Node *node;
-    size_t first, count;
-    size_t fini_first = 0, fini_count = 0;
-  };
+class StartupInitializers : private InitializationPlan<StartupGraph::Node> {
   StartupGraph *graph = nullptr;
-  Object *order = nullptr;
-  Address *callbacks = nullptr;
-  size_t count = 0, preinit_count = 0, completed = 0;
+  size_t completed = 0;
   bool finalized = false;
 
 public:

@@ -48,6 +48,11 @@ public:
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
     long error() const { return failure; }
+    // A callback boundary must retain mutation serialization and cancellation
+    // suppression, but never a short registry/arena guard.
+    long callback_owner() const {
+      return !failure && suppressed && top && rank == Kind::Mutation ? tid : 0;
+    }
   };
 
   class Guard {

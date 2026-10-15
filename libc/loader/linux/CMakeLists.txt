@@ -1,6 +1,21 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_initialization
+  SRCS runtime_initialization.cpp
+  HDRS runtime_initialization.h
+  DEPENDS .initialization_plan .image_registry .entry .locks
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_header_library(
+  initialization_plan
+  HDRS initialization_plan.h
+  DEPENDS .arena .dynamic .mmix.target
+    libc.hdr.errno_macros libc.src.__support.CPP.new
+)
+
+add_object_library(
   runtime_unwind
   SRCS runtime_unwind.cpp
   HDRS runtime_unwind.h
@@ -142,7 +157,7 @@ add_object_library(
   initialization
   SRCS initialization.cpp
   HDRS initialization.h
-  DEPENDS .graph .entry .arena .mmix.target libc.hdr.errno_macros
+  DEPENDS .initialization_plan .graph .entry .arena .mmix.target libc.hdr.errno_macros
     libc.hdr.func.free libc.src.__support.common
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
