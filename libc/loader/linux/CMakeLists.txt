@@ -1,6 +1,15 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_state
+  SRCS runtime_state.cpp
+  HDRS runtime_state.h
+  DEPENDS .runtime_api .runtime_unwind .thread_tls .graph .mmix.debug
+    libc.hdr.func.free libc.src.__support.common
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   runtime_api
   SRCS runtime_api.cpp
   HDRS runtime_api.h
@@ -15,7 +24,7 @@ add_object_library(
   DEPENDS .runtime_scopes .dynamic .arena .io
     libc.hdr.types.dl_info libc.hdr.types.struct_link_map
     libc.hdr.types.struct_r_debug libc.hdr.types.struct_dl_phdr_info
-    libc.src.__support.CPP.new libc.hdr.errno_macros
+    libc.hdr.func.free libc.src.__support.common libc.hdr.errno_macros
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 
@@ -31,7 +40,7 @@ add_header_library(
   initialization_plan
   HDRS initialization_plan.h
   DEPENDS .arena .dynamic .mmix.target
-    libc.hdr.errno_macros libc.src.__support.CPP.new
+    libc.hdr.errno_macros libc.hdr.func.free libc.src.__support.common
 )
 
 add_object_library(
@@ -39,7 +48,7 @@ add_object_library(
   SRCS runtime_unwind.cpp
   HDRS runtime_unwind.h
   DEPENDS .runtime_scopes .unwind_images .arena .io
-    libc.hdr.errno_macros libc.src.__support.CPP.new
+    libc.hdr.errno_macros libc.hdr.func.free libc.src.__support.common
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 
@@ -48,7 +57,7 @@ add_object_library(
   SRCS thread_tls.cpp
   HDRS thread_tls.h
   DEPENDS .runtime_tls .runtime_scopes .tls_allocation .mmix.tls_pointer
-    .mmix.syscall .mmix.target libc.src.__support.CPP.new
+    .mmix.syscall .mmix.target libc.hdr.func.free libc.src.__support.common
     libc.hdr.errno_macros libc.hdr.sys_mman_macros libc.include.sys_syscall
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
@@ -78,7 +87,7 @@ add_object_library(
   SRCS runtime_load.cpp
   HDRS runtime_load.h
   DEPENDS .runtime_graph .runtime_scopes .runtime_unwind .relocation .protection .mmix.target
-    libc.hdr.errno_macros libc.src.__support.CPP.new
+    libc.hdr.errno_macros libc.hdr.func.free libc.src.__support.common
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 
@@ -87,7 +96,7 @@ add_object_library(
   SRCS runtime_scopes.cpp
   HDRS runtime_scopes.h
   DEPENDS .image_registry .symbols .arena .unwind_images libc.src.__support.CPP.atomic
-    libc.src.__support.CPP.new libc.hdr.errno_macros
+    libc.hdr.func.free libc.src.__support.common libc.hdr.errno_macros
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 
@@ -96,7 +105,7 @@ add_object_library(
   SRCS runtime_graph.cpp
   HDRS runtime_graph.h
   DEPENDS .image_registry .search .mapping .arena .mmix.syscall .mmix.target
-    libc.hdr.errno_macros libc.include.sys_syscall libc.src.__support.CPP.new
+    libc.hdr.errno_macros libc.include.sys_syscall libc.hdr.func.free libc.src.__support.common
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 
@@ -123,7 +132,7 @@ add_object_library(
   runtime
   SRCS runtime.cpp
   HDRS runtime.h
-  DEPENDS .graph .entry .tls_resolver .unwind_images libc.hdr.errno_macros
+  DEPENDS .graph .entry .tls_resolver .unwind_images .runtime_state libc.hdr.errno_macros
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 

@@ -33,7 +33,7 @@ endforeach()
 set(loader_image "${CMAKE_CURRENT_BINARY_DIR}/ld-llvm-mmix.so.1")
 add_custom_command(OUTPUT "${loader_image}"
   COMMAND "${CMAKE_LINKER}" -m elf64mmix_linux -shared -e _start
-    -z now -z relro --hash-style=both --no-undefined
+    -z now -z relro --hash-style=both --eh-frame-hdr --no-undefined
     -o "${loader_image}" ${loader_objects}
   DEPENDS ${loader_deps} ${loader_objects}
   COMMAND_EXPAND_LISTS VERBATIM)

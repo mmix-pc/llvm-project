@@ -35,10 +35,12 @@ private:
   Arena resident, pending;
   Snapshot *candidate = nullptr;
   const Snapshot *current = nullptr;
-  r_debug debug{};
+  r_debug local_debug{};
+  r_debug &debug;
 
 public:
-  explicit RuntimeQueries(Address page) : resident(page), pending(page) {}
+  explicit RuntimeQueries(Address page, r_debug *record = nullptr)
+      : resident(page), pending(page), debug(record ? *record : local_debug) {}
   long prepare(const ImageRegistry::Snapshot &);
   void publish();
   long abort();

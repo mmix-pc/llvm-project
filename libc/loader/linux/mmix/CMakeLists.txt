@@ -1,4 +1,11 @@
 add_object_library(
+  debug
+  SRCS debug.cpp
+  DEPENDS libc.hdr.types.struct_r_debug
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   tls_pointer
   SRCS tls_pointer.cpp
   DEPENDS libc.loader.linux.tls_allocation

@@ -47,6 +47,10 @@ public:
       return borrowed ? &main_dynamic : mapping.metadata();
     }
     Bytes path() const { return pathname; }
+    const FileIdentity *file_identity() const {
+      return identity_known ? &identity : nullptr;
+    }
+    const Node *discovery_parent() const { return parent; }
     const Node *next() const { return scope_next; }
     const Edge *dependencies() const { return edges; }
     bool fully_discovered() const { return scanned; }

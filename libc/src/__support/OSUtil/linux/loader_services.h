@@ -150,7 +150,7 @@ struct LoaderServices {
   long (*release_thread_tls)(void *, ThreadTLSAllocation *);
   void *(*resolve_startup_tls)(void *, const TLSIndex *);
   // Null until startup finalization is integrated; never a successful no-op.
-  void (*finalize_startup)(void *);
+  void (*finalize_startup)(void *, LoaderCancellation);
   long (*find_unwind_image)(void *, uintptr_t, UnwindImageView *);
   void (*release_unwind_image)(void *, uintptr_t);
   // Empty in the startup-only profile. Adopt once before application threads;
@@ -158,6 +158,7 @@ struct LoaderServices {
   LoaderAPI api{};
   LoaderQueryAPI queries{};
   LoaderProcessAPI process{};
+  long (*run_initializers)(void *, LoaderCancellation) = nullptr;
 };
 
 struct LibcBootstrap {
@@ -168,7 +169,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 160);
+static_assert(sizeof(LoaderServices) == 168);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

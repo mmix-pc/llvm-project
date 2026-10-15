@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "src/__support/threads/linux/mmix/loader_cancellation.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -26,9 +29,19 @@ __llvm_libc_tls_get_addr(const LIBC_NAMESPACE::loader::TLSIndex *index) {
   using namespace LIBC_NAMESPACE;
   if (!index || !mmix::resolver.resolve)
     mmix::fatal_dynamic_tls();
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  auto hooks = mmix::loader_cancellation_hooks();
+  uint64_t saved;
+  if (hooks.enter(&saved))
+    mmix::fatal_dynamic_tls();
+#endif
   void *result = mmix::resolver.resolve(mmix::resolver.context, index);
   if (!result)
     mmix::fatal_dynamic_tls();
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (hooks.leave(saved))
+    mmix::fatal_dynamic_tls();
+#endif
   return result;
 }
 extern "C" __attribute__((alias("__llvm_libc_tls_get_addr"),

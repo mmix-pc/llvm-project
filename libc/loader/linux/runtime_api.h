@@ -19,7 +19,7 @@ namespace loader {
 
 // Post-adoption service owner. Registry, scopes, TLS, startup completion order,
 // stack and search environment are already prepared and remain resident.
-// Installed selection and process-finalization handoff are separate.
+// Startup and late initialization share this mutation/finalization owner.
 class RuntimeAPI {
   struct Request {
     RuntimeLoad load;
@@ -57,14 +57,17 @@ public:
              RuntimeInitializers &initializers, const InitialStack &stack,
              const SearchEnvironment &environment, StartupTLSResolver tls,
              RuntimeInitializers::Invoker invoke = nullptr,
-             RuntimeQueries::PeekTLS peek_tls = nullptr)
+             RuntimeQueries::PeekTLS peek_tls = nullptr,
+             r_debug *debug = nullptr)
       : page(page), resident(page), images(images), scopes(scopes),
         initializers(initializers), stack(stack), environment(environment),
-        tls(tls), closing(page), queries(page), peek_tls(peek_tls),
+        tls(tls), closing(page), queries(page, debug), peek_tls(peek_tls),
         invoke(invoke) {}
   LoaderAPI services();
   LoaderQueryAPI query_services();
   LoaderProcessAPI process_services();
+  long run_startup(RuntimeInitializers::Batch &, LoaderCancellation);
+  long finalize(LoaderCancellation);
   RuntimeQueries &query_metadata() { return queries; }
 };
 

@@ -52,6 +52,12 @@ if(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)
     libc.src.stdio.fprintf)
 endif()
 include(${CMAKE_CURRENT_LIST_DIR}/CxxRuntimeDependencies.cmake)
+if(LIBC_MMIX_BUILD_SHARED_LIBC)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.dlfcn.dlopen libc.src.dlfcn.dlsym libc.src.dlfcn.dlerror
+    libc.src.dlfcn.dlclose libc.src.dlfcn.dladdr libc.src.dlfcn.dlinfo
+    libc.src.link.dl_iterate_phdr)
+endif()
 set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 set(mmix_threaded_entrypoints ${TARGET_LIBC_ENTRYPOINTS})
 

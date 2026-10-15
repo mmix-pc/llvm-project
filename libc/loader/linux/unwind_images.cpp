@@ -91,7 +91,7 @@ static bool valid_index(const ElfImage &image, const Elf64_Phdr &header) {
 static long describe(const ElfImage &image, UnwindImageView &view,
                      UnwindReadableRange *ranges) {
   __builtin_memset_inline(&view, 0, sizeof(view));
-  if (!image.is_mapped() || image.role() == ImageRole::Interpreter)
+  if (!image.is_mapped())
     return EINVAL;
   view.load_bias = image.load_bias();
   view.phdr_count = image.header()->e_phnum;
@@ -133,7 +133,8 @@ long StartupUnwindImages::prepare(cpp::span<const ElfImage *const> images,
     if (!images[i] ||
         (i == 0 ? images[i]->role() != ImageRole::MainExecutable &&
                       images[i]->role() != ImageRole::MainPIE
-                : images[i]->role() != ImageRole::SharedObject))
+                : images[i]->role() != ImageRole::SharedObject &&
+                      images[i]->role() != ImageRole::Interpreter))
       return EINVAL;
     UnwindImageView view;
     long error = describe(*images[i], view, nullptr);

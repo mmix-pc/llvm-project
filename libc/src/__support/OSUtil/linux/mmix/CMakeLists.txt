@@ -1,12 +1,18 @@
+set(mmix_resolver_dependencies)
+if(LIBC_MMIX_BUILD_SHARED_LIBC)
+  list(APPEND mmix_resolver_dependencies
+    libc.src.__support.threads.linux.mmix.loader_cancellation)
+endif()
 add_object_library(
   dynamic_tls
   SRCS dynamic_tls.cpp dynamic_tls_fatal.cpp
   HDRS dynamic_tls.h
   DEPENDS .syscall libc.src.__support.OSUtil.linux.loader_services
+    ${mmix_resolver_dependencies}
     libc.include.sys_syscall
   COMPILE_OPTIONS -ffreestanding -fno-builtin -fPIC -fvisibility=hidden
     -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-stack-protector
-    -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-lto
+    -funwind-tables -fno-asynchronous-unwind-tables -fno-lto
     -fno-sanitize=all -fno-profile-instr-generate -fno-profile-generate
     -fno-profile-arcs -fno-test-coverage -fno-coverage-mapping
     -Werror=global-constructors -Werror=exit-time-destructors

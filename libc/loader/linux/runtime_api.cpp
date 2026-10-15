@@ -11,6 +11,20 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
+long RuntimeAPI::run_startup(RuntimeInitializers::Batch &batch,
+                             LoaderCancellation hooks) {
+  LoaderLocks::Session session(locks, hooks);
+  LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+  if (guard.error())
+    return guard.error();
+  return initializers.run(batch, session, stack, invoke);
+}
+
+long RuntimeAPI::finalize(LoaderCancellation hooks) {
+  LoaderLocks::Session session(locks, hooks);
+  LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+  return guard.error() ? guard.error() : initializers.finalize(session);
+}
 
 static long string_view(const char *text, Bytes &out,
                         size_t limit = __SIZE_MAX__) {

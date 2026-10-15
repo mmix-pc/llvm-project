@@ -50,6 +50,7 @@ public:
     InitializationPlan<Node> plan;
     uint64_t epoch = 0;
     bool attached = false, running = false;
+    bool startup = false, preinitialized = false;
     long runner = 0;
 
   public:
@@ -80,7 +81,7 @@ private:
 public:
   // Prepare before publishing mappings. Attachment is allocation-free, after
   // matching scope publication and before any constructor can reenter.
-  long prepare(const ImageRegistry::Snapshot &, Batch &);
+  long prepare(const ImageRegistry::Snapshot &, Batch &, bool startup = false);
   long attach(Batch &, const ImageRegistry::Snapshot &published);
   // Once-only handoff from a fully completed startup scheduler, in its actual
   // completion order. Do not run startup callbacks twice or keep two fini

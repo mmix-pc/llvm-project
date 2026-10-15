@@ -11,24 +11,26 @@
 #include "loader/linux/entry.h"
 #include "loader/linux/graph.h"
 #include "loader/linux/initialization.h"
+#include "loader/linux/runtime_state.h"
 #include "loader/linux/tls_resolver.h"
 #include "loader/linux/unwind_images.h"
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 class StartupRuntime {
-  TLSAllocationContext allocation_context{};
   StartupUnwindImages *images = nullptr;
-  StartupInitializers *initializers = nullptr;
   StartupProcessView process{};
   LoaderServices services{};
   LibcBootstrap bootstrap{};
+  RuntimeState *resident = nullptr;
   ThreadTLSAllocation allocation{};
   void *thread_state = nullptr;
   bool attempted = false, installed = false, active = false;
 
 public:
+  long prepare_registry(const StartupGraph &, const InitialStack &,
+                        const SearchEnvironment &, Address, Arena &);
   long prepare(const StartupGraph &, const InitialStack &,
-               StartupUnwindImages &, StartupInitializers &);
+               StartupUnwindImages &);
   long adopt();
   long reset();
   Address tp() const { return allocation.tp; }

@@ -497,6 +497,35 @@ tests and artifact inspection do not establish successful target execution.
 Support for other architectures requires their target implementations and
 validation.
 
-The MMIX interpreter artifact is `ld-llvm-mmix.so.1`. Its explicit install
-component is experimental: TLS, shared libc, public dynamic-loading services,
-unload and finalization are not supplied by this no-TLS profile.
+The MMIX interpreter artifact is `ld-llvm-mmix.so.1`. Its freestanding no-libc
+path retains the no-TLS startup profile. With the shared libc provider, the
+resident service composition below is selected instead. Artifact construction
+does not itself qualify an installed runtime-loading package.
+
+## Shared Runtime Service Composition
+
+`linux/runtime_state.*` owns the resident image registry, symbol scopes,
+initialization manager, thread-TLS context and public API service. Startup
+discovery identities, dependency edges and search policy are retained before
+RELRO. The main's DT_DEBUG references the interpreter's protected `_r_debug`
+object. The interpreter has its own unwind index and retained ELF views, but
+does not become part of the application symbol namespace.
+
+After graph protection, the scope/TLS/unwind metadata is published and the
+initial thread receives the same stable DTV owner used by new threads. Shared
+libc adopts loading, query, process and TLS callbacks once, activates thread
+state, registers finalization and invokes the startup batch. Preinit runs once;
+startup and late callbacks share completion ordering. The dynamic CRT does not
+repeat initialization. Resolver slow paths suppress cancellation, while
+restoration occurs after loader operations release their locks.
+
+The shared libc configuration exports dlopen, dlsym, dlerror, dlclose, dladdr,
+dlinfo and dl_iterate_phdr. Static and other-target selection is unchanged.
+Loader objects use private allocation only; placement-new dependencies must
+not link the allocating new.cpp provider. The interpreter links with
+`--no-undefined` and without a libc dependency. Matching loader/libc builds
+are required for the private 168-byte service descriptor.
+
+Resident close does not unload code or repeat constructors. Separate namespaces,
+lazy PLT binding, shared C++ and unloading remain unsupported. Component tests
+and shared export checks do not replace installed guest validation.

@@ -22,6 +22,7 @@ class Startup {
   Address page_size;
   Arena arena;
   ElfImage main;
+  ElfImage *interpreter = nullptr;
   StartupGraph graph;
   StartupInitializers initializers;
   StartupUnwindImages unwind_images;
@@ -41,7 +42,7 @@ public:
   MapResult prepare(const InitialStack &input, const ElfImage &self);
   long run(StartupInitializers::Invoker invoke = nullptr);
   long prepare_runtime() {
-    return runtime.prepare(graph, stack, unwind_images, initializers);
+    return runtime.prepare(graph, stack, unwind_images);
   }
   Address thread_pointer() const { return runtime.tp(); }
   long adopt_runtime() { return runtime.adopt(); }

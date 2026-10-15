@@ -175,6 +175,9 @@ long Startup::prepare_impl(const InitialStack &input, const ElfImage &self) {
   if (!result.error)
     result = graph.relocate();
   if (!result.error)
+    result.error =
+        runtime.prepare_registry(graph, stack, search, self.load_bias(), arena);
+  if (!result.error)
     result = graph.finalize_protections();
   if (result.error)
     cleanup_error = result.cleanup_error;
@@ -183,17 +186,46 @@ long Startup::prepare_impl(const InitialStack &input, const ElfImage &self) {
   error = initializers.prepare(graph, arena);
   if (error)
     return error;
-  if (graph.size() > __SIZE_MAX__ / sizeof(const ElfImage *))
+  if (graph.size() >= __SIZE_MAX__ / sizeof(const ElfImage *))
     return -EOVERFLOW;
   void *image_storage;
-  error = arena.allocate(graph.size() * sizeof(const ElfImage *),
-                          alignof(const ElfImage *), image_storage);
+  error = arena.allocate((graph.size() + 1) * sizeof(const ElfImage *),
+                         alignof(const ElfImage *), image_storage);
   if (error)
     return error;
   auto **images = static_cast<const ElfImage **>(image_storage);
   size_t index = 0;
   for (auto *node = graph.scope(); node; node = node->next())
     images[index++] = node->image();
+  // Bootstrap's region descriptors are temporary; retain independent views
+  // for unwinding through post-startup interpreter service callbacks.
+  error = arena.allocate(self.header()->e_phnum * sizeof(MappedRegion),
+                         alignof(MappedRegion), storage);
+  if (error)
+    return error;
+  auto *self_regions = static_cast<MappedRegion *>(storage);
+  size_t self_count = 0;
+  for (unsigned i = 0; i < self.header()->e_phnum; ++i) {
+    Elf64_Phdr p;
+    if (!self.program_header(i, p))
+      return -ENOEXEC;
+    if (p.p_type == PT_LOAD && p.p_memsz) {
+      auto bytes = self.mapped_memory_bytes(p.p_vaddr, p.p_memsz, p.p_flags);
+      if (bytes.size() != p.p_memsz)
+        return -ENOEXEC;
+      new (self_regions + self_count++) MappedRegion{p.p_vaddr, bytes};
+    }
+  }
+  error = arena.allocate(sizeof(ElfImage), alignof(ElfImage), storage);
+  if (error)
+    return error;
+  interpreter = new (storage) ElfImage;
+  if (ElfImage::open_mapped({self_regions, self_count}, self.header_address(),
+                            self.table_address(), ImageRole::Interpreter,
+                            self.load_bias(), page_size,
+                            *interpreter) != ElfError::None)
+    return -ENOEXEC;
+  images[index++] = interpreter;
   return -unwind_images.prepare({images, index}, arena);
 }
 
@@ -215,7 +247,7 @@ long Startup::run(StartupInitializers::Invoker invoke) {
     return -EINVAL;
   running = true;
   callbacks_started = true;
-  long result = initializers.run(stack, invoke);
+  long result = runtime.is_active() ? 0 : initializers.run(stack, invoke);
   running = false;
   return result;
 }

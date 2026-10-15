@@ -8,6 +8,7 @@
 
 #include "loader/linux/runtime.h"
 #include "hdr/errno_macros.h"
+#include "src/__support/CPP/new.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
@@ -25,8 +26,9 @@ static Address octa(Bytes bytes, size_t offset) {
   return value;
 }
 
-// Decode relocated bytes only after graph protection. The provider identity is
-// its own SONAME; ordinary main-first interposition never supplies this hook.
+// Decode only relocated bytes; execution waits for graph protection. Identity
+// is its own SONAME; ordinary main-first interposition never supplies this
+// hook.
 static long find_bootstrap(const StartupGraph &graph, LibcBootstrap &out) {
   const StartupGraph::Node *provider = nullptr;
   bool unwind_provider = false;
@@ -110,10 +112,25 @@ static long find_bootstrap(const StartupGraph &graph, LibcBootstrap &out) {
   return 0;
 }
 
+long StartupRuntime::prepare_registry(const StartupGraph &graph,
+                                      const InitialStack &stack,
+                                      const SearchEnvironment &search,
+                                      Address bias, Arena &arena) {
+  long error = find_bootstrap(graph, bootstrap);
+  if (error || !bootstrap.size)
+    return error;
+  void *storage;
+  error = arena.allocate(sizeof(RuntimeState), alignof(RuntimeState), storage);
+  if (error)
+    return error;
+  resident = new (storage)
+      RuntimeState(stack.value(AuxField::Pagesz), stack, graph.relocated_tls());
+  return resident->prepare(graph, search, bias);
+}
+
 long StartupRuntime::prepare(const StartupGraph &graph,
                              const InitialStack &stack,
-                             StartupUnwindImages &registry,
-                             StartupInitializers &lifecycle) {
+                             StartupUnwindImages &registry) {
   if (attempted || !graph.protections_complete())
     return -EINVAL;
   attempted = true;
@@ -136,42 +153,23 @@ long StartupRuntime::prepare(const StartupGraph &graph,
              stack.value(AuxField::Pagesz),
              stack.value(AuxField::Random),
              stack.value(AuxField::Entry)};
-  allocation_context = {&graph.relocated_tls(), process.page_size};
   images = &registry;
-  initializers = &lifecycle;
-  LoaderServices prepared_services = {
-      sizeof(services),
-      this,
-      graph.relocated_tls().modules(),
-      [](void *p, void *state, ThreadTLSAllocation *out) {
-        return prepare_thread_tls(
-            &static_cast<StartupRuntime *>(p)->allocation_context, state, out);
-      },
-      [](void *p, ThreadTLSAllocation *out) {
-        return release_thread_tls(
-            &static_cast<StartupRuntime *>(p)->allocation_context, out);
-      },
-      [](void *p, const TLSIndex *index) {
-        return resolve_startup_tls(
-            &static_cast<StartupRuntime *>(p)->allocation_context, index);
-      },
-      [](void *p) {
-        static_cast<StartupRuntime *>(p)->initializers->finalize();
-      },
-      [](void *p, uintptr_t pc, UnwindImageView *out) {
-        return find_unwind_image(static_cast<StartupRuntime *>(p)->images, pc,
-                                 out);
-      },
-      [](void *p, uintptr_t token) {
-        release_unwind_image(static_cast<StartupRuntime *>(p)->images, token);
-      }};
+  LoaderServices prepared_services{};
+  prepared_services.size = sizeof(services);
+  prepared_services.tls_set = graph.relocated_tls().modules();
   __builtin_memcpy_inline(&services, &prepared_services, sizeof(services));
+  if (!resident)
+    return -EINVAL;
+  if ((error = resident->publish()))
+    return error;
+  resident->services(services, &registry);
   error = bootstrap.prepare_main(&process, &thread_state);
   if (error)
     return error > 0 ? -error : -EINVAL;
   if (!thread_state)
     return -EINVAL;
-  error = prepare_thread_tls(&allocation_context, thread_state, &allocation);
+  error =
+      services.prepare_thread_tls(services.context, thread_state, &allocation);
   return error ? -error : 0;
 }
 
@@ -191,14 +189,16 @@ long StartupRuntime::adopt() {
 long StartupRuntime::reset() {
   if (installed)
     return -EBUSY;
-  long error = release_thread_tls(&allocation_context, &allocation);
+  long error = services.release_thread_tls
+                   ? services.release_thread_tls(services.context, &allocation)
+                   : release_thread_tls(nullptr, &allocation);
   if (error)
     return -error;
   if (thread_state) {
     bootstrap.abandon_main(thread_state);
     thread_state = nullptr;
   }
-  return 0;
+  return resident ? resident->reset() : 0;
 }
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

@@ -27,6 +27,12 @@
 #include <unistd.h>
 
 using namespace loader_test;
+namespace LIBC_NAMESPACE::loader {
+r_debug *runtime_debug_record() {
+  static r_debug record{};
+  return &record;
+}
+} // namespace LIBC_NAMESPACE::loader
 template <size_t N> static Bytes text(const char (&s)[N]) {
   return Bytes(reinterpret_cast<const unsigned char *>(s), N - 1);
 }
@@ -142,6 +148,8 @@ namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 Address current_thread_pointer() { return 0; }
 long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
+  if (number == SYS_gettid)
+    return 1;
   ++calls;
   if (number == SYS_close) {
     assert(fd_live && a == 7);
@@ -1247,5 +1255,46 @@ extern "C" int main() {
   CHECK(init_storage.reset() == 0 && graph.reset() == 0 && !live());
   puts("loader graph, rollback, relocation/protection gating and initializer "
        "traces passed");
+  // Exercise the composed production services without executing MMIX code.
+  start();
+  empty_main.add(DT_DEBUG, 0);
+  empty_main.finish();
+  CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
+        0);
+  CHECK(graph.relocate().error == 0);
+  RuntimeState state(page, arguments, graph.relocated_tls());
+  CHECK(state.prepare(graph, environment, 0x123000) == 0);
+  CHECK(graph.finalize_protections().error == 0);
+  CHECK(state.publish() == 0);
+  LoaderServices services{};
+  state.services(services);
+  LoaderCancellation hooks{[](uint64_t *saved) -> long {
+                             *saved = 0;
+                             return 0;
+                           },
+                           [](uint64_t) -> long { return 0; }};
+  CHECK(services.api.context && services.queries.context &&
+        services.process.context);
+  CHECK(services.prepare_thread_tls && services.release_thread_tls &&
+        services.resolve_startup_tls && services.find_unwind_image &&
+        services.release_unwind_image);
+  CHECK(services.run_initializers(services.context, hooks) == 0);
+  CHECK(services.run_initializers(services.context, hooks) == 0);
+  uint64_t handle = 0;
+  CHECK(!services.api.open(services.api.context, nullptr, OpenNow,
+                           bias + 0x2000, hooks, &handle) &&
+        handle);
+  link_map *map = nullptr;
+  CHECK(!services.queries.info(services.queries.context, handle, InfoLinkMap,
+                               &map, hooks) &&
+        map);
+  CHECK(runtime_debug_record()->r_map == map &&
+        runtime_debug_record()->r_ldbase == 0x123000);
+  CHECK(!services.api.close(services.api.context, handle, hooks));
+  CHECK(!services.process.prepare_fork(services.process.context));
+  services.process.finish_fork(services.process.context, false);
+  services.finalize_startup(services.context, hooks);
+  services.finalize_startup(services.context, hooks);
+  puts("resident startup service composition passed");
   return 0;
 }

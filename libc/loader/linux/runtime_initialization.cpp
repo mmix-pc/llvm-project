@@ -46,7 +46,7 @@ long RuntimeInitializers::Batch::abort() {
 }
 
 long RuntimeInitializers::prepare(const ImageRegistry::Snapshot &registry,
-                                  Batch &batch) {
+                                  Batch &batch, bool startup) {
   if (stopping)
     return -ECANCELED;
   if (batch.owner)
@@ -54,6 +54,7 @@ long RuntimeInitializers::prepare(const ImageRegistry::Snapshot &registry,
   if (epoch == ~uint64_t(0))
     return -EOVERFLOW;
   batch.owner = this;
+  batch.startup = startup;
   batch.epoch = epoch;
   const size_t n = registry.images.size();
   if (!n)
@@ -101,7 +102,7 @@ long RuntimeInitializers::prepare(const ImageRegistry::Snapshot &registry,
     const Node *scope() const { return nodes; }
     size_t size() const { return count; }
   };
-  error = batch.plan.prepare(Graph{batch.nodes, n}, batch.arena, false);
+  error = batch.plan.prepare(Graph{batch.nodes, n}, batch.arena, startup);
   if (error)
     return error;
   batch.registry = &registry;
@@ -173,7 +174,8 @@ long RuntimeInitializers::run(Batch &batch, LoaderLocks::Session &session,
   for (size_t i = 0; i < batch.plan.count; ++i) {
     auto *record = batch.plan.order[i].node->record;
     if ((record->state == Record::Initializing && record->tid != tid) ||
-        (record->state == Record::Pending && record->image->startup))
+        (record->state == Record::Pending && record->image->startup &&
+         !batch.startup))
       return -EBUSY;
   }
   batch.running = true;
@@ -190,6 +192,15 @@ long RuntimeInitializers::run(Batch &batch, LoaderLocks::Session &session,
   }
   if (!invoke)
     invoke = invoke_initializer;
+  if (batch.startup && !batch.preinitialized) {
+    batch.preinitialized = true;
+    for (size_t j = 0; j < batch.plan.preinit_count && !stopping; ++j) {
+      LoaderLocks::Session::Callback callback(session);
+      invoke(batch.plan.callbacks[j], static_cast<int>(stack.argc),
+             reinterpret_cast<char **>(stack.argv),
+             reinterpret_cast<char **>(stack.envp));
+    }
+  }
   for (size_t i = 0; i < batch.plan.count && !stopping; ++i) {
     const auto &object = batch.plan.order[i];
     auto *record = object.node->record;

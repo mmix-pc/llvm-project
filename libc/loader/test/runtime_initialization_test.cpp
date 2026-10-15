@@ -77,6 +77,16 @@ struct Input : DynamicFixture {
     put(0x4900, 8, bias + 0x2008);
     put(0x4908, 8, bias + 0x200c);
     put(0x4910, 8, bias + 0x2010);
+    if (startup) {
+      --entries; // Replace the fixture's terminating DT_NULL.
+      add(DT_PREINIT_ARRAY, 0x4920);
+      add(DT_PREINIT_ARRAYSZ, 8);
+      put(0x4000 + entries * 16, 8, DT_NULL);
+      put(0x4008 + entries * 16, 8, 0);
+      put(ph(5, 32), 8, (entries + 1) * 16);
+      put(ph(5, 40), 8, (entries + 1) * 16);
+      put(0x4920, 8, bias + 0x2014);
+    }
     region = {0, view()};
     check(ElfImage::open_mapped({&region, 1}, 0, 64,
                                 startup ? ImageRole::MainPIE
@@ -169,6 +179,25 @@ extern "C" int main() {
   const ImageRegistry::Image *images[] = {&main.record, &a.record, &b.record,
                                           &nested.record};
   ImageRegistry::Snapshot startup{1, {images, 1}};
+  {
+    RuntimeInitializers fresh;
+    RuntimeInitializers::Batch first(page);
+    LoaderLocks::Session session(locks, hooks);
+    LoaderLocks::Guard guard(session, Kind::Mutation);
+    check(!guard.error() && !fresh.prepare(startup, first, true));
+    check(!fresh.attach(first, startup));
+    auto call = [](Address pc, int, char **, char **) { record(pc); };
+    check(!fresh.run(first, session, stack, call));
+    check(!fresh.run(first, session, stack, call));
+    const Address init[] = {0x102014, 0x102000, 0x102008, 0x10200c};
+    expect(init, 4);
+    trace_count = 0;
+    check(!fresh.finalize(session, record));
+    check(!fresh.finalize(session, record));
+    const Address fini[] = {0x102010, 0x102004};
+    expect(fini, 2);
+    trace_count = 0;
+  }
   ImageRegistry::Snapshot late{2, {images, 3}};
   ImageRegistry::Snapshot extra{3, images};
   RuntimeInitializers m;

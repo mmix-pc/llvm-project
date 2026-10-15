@@ -11,10 +11,12 @@
 #include "shared_startup.h"
 #include "src/__support/OSUtil/linux/auxv.h"
 #include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
+#include "src/__support/threads/linux/mmix/loader_cancellation.h"
+#include "src/dlfcn/linux/mmix/loading.h"
 #include "src/errno/program_invocation_name.h"
 #include "src/errno/program_invocation_short_name.h"
-#include "src/unistd/environ.h"
 #include "src/stdlib/atexit.h"
+#include "src/unistd/environ.h"
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
 #include "src/__support/threads/linux/mmix/cancellation_point.h"
 #endif
@@ -29,7 +31,7 @@ static loader::LoaderServices services{};
 static bool attempted;
 
 static void finalize_shared_startup() {
-  services.finalize_startup(services.context);
+  services.finalize_startup(services.context, loader_cancellation_hooks());
 }
 
 long prepare_shared_thread_tls(void *state,
@@ -75,7 +77,8 @@ long adopt_shared_main(const loader::StartupProcessView *process,
       input->size != sizeof(services) || !input->context || !input->tls_set ||
       !input->prepare_thread_tls || !input->release_thread_tls ||
       !input->resolve_startup_tls || !input->find_unwind_image ||
-      !input->release_unwind_image || !input->finalize_startup || !tls->tp ||
+      !input->release_unwind_image || !input->finalize_startup ||
+      !input->run_initializers || !tls->tp ||
       reinterpret_cast<uintptr_t>(__builtin_thread_pointer()) != tls->tp ||
       reinterpret_cast<const uintptr_t *>(tls->tp)[1] !=
           reinterpret_cast<uintptr_t>(state))
@@ -103,10 +106,15 @@ long adopt_shared_main(const loader::StartupProcessView *process,
         program_invocation_short_name = p + 1;
   }
   shared_main.tls = {tls->tls_mapping_size, tls->tls_mapping_base, tls->tp};
+  shared_main.shared_tls = *tls;
   shared_main.attributes.tls = tls->tls_mapping_base;
   shared_main.attributes.tls_size = tls->tls_mapping_size;
   shared_main.attributes.platform_data = &shared_main.clear_tid.value.val;
   if (!internal::activate_main_thread(shared_main))
+    return EINVAL;
+  if (!adopt_loading_services(services.api) ||
+      !adopt_query_services(services.queries) ||
+      !adopt_loader_process_services(services.process))
     return EINVAL;
   MMIXStartupUnwindService unwind{sizeof(unwind), 1, &services, find_image,
                                   release_image};
@@ -119,7 +127,8 @@ long adopt_shared_main(const loader::StartupProcessView *process,
   // the same process manager. _Exit bypasses this path entirely.
   if (atexit(finalize_shared_startup))
     return ENOMEM;
-  return 0;
+  return services.run_initializers(services.context,
+                                   loader_cancellation_hooks());
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
