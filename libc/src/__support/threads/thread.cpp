@@ -151,6 +151,7 @@ extern "C" int __cxa_thread_atexit_impl(AtExitCallback *callback, void *obj,
 #ifdef LIBC_MMIX_TLS_DESTRUCTORS
   return atexit_callback_mgr.add_callback(callback, obj, dso);
 #else
+  (void)dso;
   return atexit_callback_mgr.add_callback(callback, obj);
 #endif
 }
