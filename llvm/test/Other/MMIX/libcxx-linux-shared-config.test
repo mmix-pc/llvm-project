@@ -18,6 +18,25 @@ if(OPTION)
   set(${OPTION} "${VALUE}")
 endif()
 include(${SOURCE}/libcxx/cmake/Modules/MMIX/SharedRuntime.cmake)
+# Stand-ins inspect the deferred target wiring without a host runtime build.
+if(NOT OMIT_UNWIND_TARGETS)
+  add_custom_target(unwind_shared_objects)
+  add_custom_target(unwind_shared)
+endif()
+function(check_unwind)
+  get_target_property(sources unwind_shared_objects SOURCES)
+  get_target_property(options unwind_shared LINK_OPTIONS)
+  get_target_property(dependencies unwind_shared LINK_DEPENDS)
+  if(NOT sources MATCHES "/libunwind/src/mmix/StartupImages.cpp$" OR
+     NOT options STREQUAL "LINKER:--version-script=${dependencies}")
+    message(FATAL_ERROR "Wrong resident unwind service or export selection")
+  endif()
+  file(READ "${dependencies}" exports)
+  if(NOT exports MATCHES "__libunwind_mmix_adopt_startup_images; local: \\*;")
+    message(FATAL_ERROR "Unwind service must be public with private internals")
+  endif()
+endfunction()
+cmake_language(DEFER CALL check_unwind)
 set(LIBCXX_SOURCES sentinel)
 include(${SOURCE}/libcxx/src/support/mmix/Linux.cmake)
 get_target_property(libraries runtimes-libc-shared INTERFACE_LINK_LIBRARIES)
@@ -82,6 +101,7 @@ def configure(error=None, option=None, value=None):
         assert result.returncode == 0, text
 
 configure()
+configure("requires the upstream shared targets", "OMIT_UNWIND_TARGETS", "ON")
 for option in ("LIBCXX_HAS_EXTERNAL_THREAD_API", "LIBCXXABI_HAS_EXTERNAL_THREAD_API",
                "LIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY",
                "LIBCXXABI_STATICALLY_LINK_UNWINDER_IN_SHARED_LIBRARY",

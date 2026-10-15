@@ -72,4 +72,5 @@ endforeach()
 # This permits build-graph preparation only. Complete providers and installed
 # public C++ admission must be validated separately; no install is enabled.
 set(MMIX_LINUX_SHARED_RUNTIME_VALIDATED TRUE)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../libunwind/src/mmix/Shared.cmake")
 message(STATUS "MMIX shared C++: configuration only; packaging must audit PIC providers and dependency closure")
