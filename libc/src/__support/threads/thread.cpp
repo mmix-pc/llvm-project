@@ -147,8 +147,12 @@ static LIBC_THREAD_LOCAL ThreadAtExitCallbackMgr atexit_callback_mgr;
 // The semantics are very similar to the __cxa_atexit function except for the
 // fact that the registered callback is thread specific.
 extern "C" int __cxa_thread_atexit_impl(AtExitCallback *callback, void *obj,
-                                        void *) {
+                                      void *dso) {
+#ifdef LIBC_MMIX_TLS_DESTRUCTORS
+  return atexit_callback_mgr.add_callback(callback, obj, dso);
+#else
   return atexit_callback_mgr.add_callback(callback, obj);
+#endif
 }
 
 namespace internal {

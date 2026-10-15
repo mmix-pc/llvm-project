@@ -13,13 +13,15 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-// Selected by the MMIX static threaded runtime. Only the owning thread may
+// Selected by the MMIX threaded runtime. Only the owning thread may
 // register or drain; callbacks run before TSS and while TLS is still installed.
 class ThreadAtExitCallbackMgr {
   using Callback = void(void *);
   struct Node {
     Callback *callback;
     void *object;
+    // The CRT handle identifies the owning image, not the TLS object mapping.
+    void *dso;
     Node *next;
   };
   enum class Phase { Open, Draining, Done };
@@ -33,7 +35,7 @@ public:
   ThreadAtExitCallbackMgr(const ThreadAtExitCallbackMgr &) = delete;
   ThreadAtExitCallbackMgr &operator=(const ThreadAtExitCallbackMgr &) = delete;
 
-  int add_callback(Callback *callback, void *object);
+  int add_callback(Callback *callback, void *object, void *dso = nullptr);
   void call();
 };
 

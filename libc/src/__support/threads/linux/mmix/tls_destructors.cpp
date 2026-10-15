@@ -1,5 +1,4 @@
-//===-- MMIX Linux TLS destructor registration and draining
-//----------------===//
+//===-- MMIX Linux TLS destructor registration and draining ----------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -22,14 +21,15 @@ bool ThreadAtExitCallbackMgr::is_owner() const {
          control->attributes.atexit_callback_mgr == this;
 }
 
-int ThreadAtExitCallbackMgr::add_callback(Callback *callback, void *object) {
+int ThreadAtExitCallbackMgr::add_callback(Callback *callback, void *object,
+                                        void *dso) {
   if (!is_owner() || !callback || phase == Phase::Done)
     return -1;
   void *memory = LIBC_NAMESPACE::malloc(sizeof(Node));
   if (!memory)
     return -1;
   // Publish only after allocation succeeds; retain every older registration.
-  head = new (memory) Node{callback, object, head};
+  head = new (memory) Node{callback, object, dso, head};
   return 0;
 }
 
@@ -44,10 +44,12 @@ void ThreadAtExitCallbackMgr::call() {
     Callback *callback = node->callback;
     void *object = node->object;
     head = node->next;
-    LIBC_NAMESPACE::free(node);
-    // No runtime lock or registration allocation remains live across a
-    // callback. New registrations become the next entries in this same drain.
+    // Keep the ownership record through callback completion, outside the list
+    // and without a runtime lock. Nested registrations drain next.
+    // FIXME: Resident images need no pin today. Before enabling unload, acquire
+    // a pin for node->dso at registration and release it after the callback.
     callback(object);
+    LIBC_NAMESPACE::free(node);
   }
   phase = Phase::Done;
 }
