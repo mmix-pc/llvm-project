@@ -10,6 +10,17 @@ enable_testing()
 find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
 
+add_executable(loader-runtime-tls-test runtime_tls_test.cpp
+  ../linux/runtime_tls.cpp ../linux/dtv.cpp ../linux/tls_layout.cpp
+  ../linux/elf.cpp ../linux/io.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-runtime-tls-test PRIVATE ../..)
+target_compile_definitions(loader-runtime-tls-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-runtime-tls-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS} -fno-pie)
+target_link_options(loader-runtime-tls-test PRIVATE -no-pie)
+target_compile_features(loader-runtime-tls-test PRIVATE cxx_std_17)
+add_test(NAME loader-runtime-tls COMMAND loader-runtime-tls-test)
+set_tests_properties(loader-runtime-tls PROPERTIES TIMEOUT 30)
+
 add_executable(loader-dtv-test dtv_test.cpp ../linux/dtv.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-dtv-test PRIVATE ../..)
 target_compile_definitions(loader-dtv-test PRIVATE LIBC_NAMESPACE=__llvm_libc)

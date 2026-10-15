@@ -9,6 +9,9 @@
 #include "dynamic_fixture.h"
 #include "loader/linux/syscall.h"
 #include "loader/linux/tls_resolver.h"
+#ifdef TEST_RUNTIME_TLS
+#include "loader/linux/runtime_tls.h"
+#endif
 #include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
 #include <sys/syscall.h>
 
@@ -56,12 +59,54 @@ extern "C" void supervise() {
         StartupRelocationError::None);
   TLSAllocationContext context{&ready, page};
   ThreadTLSAllocation blocks[2]{};
+#ifdef TEST_RUNTIME_TLS
+  alignas(8192) DynamicFixture late;
+  late.segment(7, PT_TLS, PF_R, 0x4a08, 0x4a08, 16, 64, 32768);
+  // A pointer initializer already relocated to this image's code address.
+  late.put(0x4a08, 8, reinterpret_cast<Address>(late.bytes) + 0x2000);
+  late.bytes[0x4a10] = 0xa5;
+  MappedRegion late_region{0, {late.bytes, sizeof(late.bytes)}};
+  ImageRegistry::Image startup_image{}, late_image{};
+  startup_image.elf = image;
+  startup_image.tls = module;
+  startup_image.startup = true;
+  check(ElfImage::open_mapped({&late_region, 1}, 0, 64, ImageRole::SharedObject,
+                              reinterpret_cast<Address>(late.bytes), page,
+                              late_image.elf) == ElfError::None);
+  Address cursor = 0;
+  check(place_tls_module(late_image.elf, cursor, late_image.tls));
+  late_image.tls.module_id = 3;
+  late_image.tls.generation = 2;
+  late_image.tls.tp_offset = 0;
+  const ImageRegistry::Image *records[] = {&startup_image, &late_image};
+  ImageRegistry::Snapshot snapshot{2, records};
+  DTVRefresh refresh[2];
+  RuntimeTLSContext runtime{&snapshot, nullptr, nullptr, page};
+  check(LIBC_NAMESPACE::mmix::adopt_startup_tls_resolver(
+      {&runtime, resolve_runtime_tls}));
+#else
   check(LIBC_NAMESPACE::mmix::adopt_startup_tls_resolver(
       {&context, resolve_startup_tls}));
+#endif
   Address original = current_thread_pointer();
   for (unsigned i = 0; i < 2; ++i) {
     check(prepare_thread_tls(&context, nullptr, &blocks[i]) == 0);
     set_tp(blocks[i].tp);
+#ifdef TEST_RUNTIME_TLS
+    runtime.allocation = &blocks[i];
+    runtime.refresh = &refresh[i];
+    TLSIndex late_gd{3, 8}, late_ld{3, 0};
+    auto *ld_address = static_cast<unsigned char *>(__llvm_libc_tls_get_addr(&late_ld));
+    check(static_cast<unsigned char *>(__tls_get_addr(&late_gd)) == ld_address + 8);
+    check(ld_address[8] == 0xa5);
+    check((reinterpret_cast<Address>(ld_address) & 32767) == (0x4a08 & 32767));
+    for (unsigned j = 0; j < 16; ++j)
+      check(ld_address[j] == late.bytes[0x4a08 + j]);
+    for (unsigned j = 16; j < 64; ++j)
+      check(ld_address[j] == 0);
+    ld_address[8] = static_cast<unsigned char>(i + 20);
+    check(static_cast<unsigned char *>(__tls_get_addr(&late_gd))[0] == i + 20);
+#endif
     TLSIndex gd{1, 8}, ld{1, 0};
     Address ie = blocks[i].tp + module.tp_offset + 8;
     check(reinterpret_cast<Address>(__tls_get_addr(&gd)) == ie);
@@ -73,10 +118,22 @@ extern "C" void supervise() {
   check(blocks[0].tp != blocks[1].tp);
   for (unsigned i = 0; i < 2; ++i) {
     set_tp(blocks[i].tp);
+#ifdef TEST_RUNTIME_TLS
+    runtime.allocation = &blocks[i];
+    runtime.refresh = &refresh[i];
+    TLSIndex late_gd{3, 8};
+    check(*static_cast<unsigned char *>(__tls_get_addr(&late_gd)) == i + 20);
+#endif
     TLSIndex gd{1, 8};
     check(*static_cast<Address *>(__tls_get_addr(&gd)) == i + 10);
     check(current_thread_pointer() == blocks[i].tp);
     set_tp(original);
+#ifdef TEST_RUNTIME_TLS
+    auto *dtv = reinterpret_cast<StartupDTV *>(blocks[i].dtv_mapping_base);
+    auto &entry = reinterpret_cast<StartupDTVEntry *>(dtv->entries)[3];
+    check(!refresh[i].cleanup_pending());
+    check(!raw_syscall(SYS_munmap, entry.allocation_owner, entry.allocation_extent));
+#endif
     check(release_thread_tls(&context, &blocks[i]) == 0);
   }
   check(current_thread_pointer() == original);
