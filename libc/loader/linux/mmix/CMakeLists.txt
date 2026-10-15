@@ -1,7 +1,7 @@
 add_object_library(
   debug
   SRCS debug.cpp
-  DEPENDS libc.hdr.types.struct_r_debug
+  DEPENDS libc.hdr.types.struct_r_debug libc.hdr.elf_proxy
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 
