@@ -14,7 +14,8 @@ namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
 // A debugger breakpoint site, not an application callback.
-__attribute__((noinline)) static void notify_debugger() {
+__attribute__((noinline)) void RuntimeQueries::notify_debugger() {
+  // Keep the state/list stores on their respective sides of the rendezvous.
   asm volatile("" ::: "memory");
 }
 
@@ -29,6 +30,9 @@ long RuntimeQueries::abort() {
 }
 
 long RuntimeQueries::prepare(const ImageRegistry::Snapshot &registry) {
+  // Even an unchanged request supersedes an unpublished candidate.
+  if (long error = abort())
+    return error;
   if (current && current->records.size() == registry.images.size()) {
     bool same = true;
     for (size_t i = 0; i < registry.images.size(); ++i)
@@ -36,8 +40,6 @@ long RuntimeQueries::prepare(const ImageRegistry::Snapshot &registry) {
     if (same)
       return 0;
   }
-  if (long error = abort())
-    return error;
   if (long error = snapshots.reserve(batch))
     return error;
   if (registry.images.empty() ||
@@ -135,11 +137,11 @@ void RuntimeQueries::publish() {
   if (!candidate)
     return;
   debug.r_version = 1;
-  debug.r_brk = reinterpret_cast<Address>(&notify_debugger);
+  debug.r_brk = reinterpret_cast<Address>(notify);
   bool removing = current && candidate->subs != current->subs;
   debug.r_state =
       decltype(debug.r_state)(removing ? 2 : 1); // RT_DELETE / RT_ADD.
-  notify_debugger();
+  notify();
   if (!snapshots.publish(batch, pending, candidate))
     fatal_startup();
   current = candidate;
@@ -147,9 +149,9 @@ void RuntimeQueries::publish() {
   batch = nullptr;
   debug.r_map = &current->records[0].map;
   debug.r_state = decltype(debug.r_state)(0); // RT_CONSISTENT.
-  notify_debugger();
+  notify();
   // Old lists remain available to acquired readers until a writer drain.
-  // Public logical close does not yet request a delete transition.
+  // Handle-only changes prepare no candidate and produce no notification.
 }
 
 long RuntimeQueries::bind_debug(const ElfImage &main,
@@ -175,7 +177,7 @@ long RuntimeQueries::bind_debug(const ElfImage &main,
       if (tag != DT_DEBUG)
         continue;
       debug.r_version = 1;
-      debug.r_brk = reinterpret_cast<Address>(&notify_debugger);
+      debug.r_brk = reinterpret_cast<Address>(notify);
       debug.r_ldbase = interpreter_bias;
       auto *destination = const_cast<unsigned char *>(bytes.data()) + j + 8;
       Address value = reinterpret_cast<Address>(&debug);

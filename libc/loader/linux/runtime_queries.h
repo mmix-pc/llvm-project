@@ -31,6 +31,9 @@ public:
     uint64_t adds = 0, subs = 0;
   };
   using PeekTLS = void *(*)(void *, const StartupTLSModule *);
+  // Production uses the internal breakpoint; native tests observe the same
+  // state/list sequence without attaching a debugger. Never an application hook.
+  using DebugNotify = void (*)();
 
 private:
   SnapshotStorage<Snapshot> snapshots;
@@ -40,12 +43,15 @@ private:
   const Snapshot *current = nullptr;
   r_debug local_debug{};
   r_debug &debug;
+  DebugNotify notify;
+  static void notify_debugger();
 
 public:
   explicit RuntimeQueries(Address page, r_debug *record = nullptr,
-                          RetirementEvents *events = nullptr)
+                          RetirementEvents *events = nullptr,
+                          DebugNotify notify = notify_debugger)
       : snapshots(page, events), pending(page),
-        debug(record ? *record : local_debug) {}
+        debug(record ? *record : local_debug), notify(notify) {}
   long prepare(const ImageRegistry::Snapshot &);
   void publish();
   long abort();

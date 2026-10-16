@@ -37,6 +37,17 @@ target_link_libraries(loader-runtime-initialization-test PRIVATE Threads::Thread
 add_test(NAME loader-runtime-initialization COMMAND loader-runtime-initialization-test)
 set_tests_properties(loader-runtime-initialization PROPERTIES TIMEOUT 30)
 
+add_executable(loader-runtime-queries-test runtime_queries_test.cpp
+  ../linux/runtime_queries.cpp ../linux/arena.cpp ../linux/dynamic.cpp
+  ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-runtime-queries-test PRIVATE ../..)
+target_compile_definitions(loader-runtime-queries-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-runtime-queries-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-runtime-queries-test PRIVATE cxx_std_17)
+target_link_libraries(loader-runtime-queries-test PRIVATE Threads::Threads)
+add_test(NAME loader-runtime-queries COMMAND loader-runtime-queries-test)
+set_tests_properties(loader-runtime-queries PROPERTIES TIMEOUT 30)
+
 add_executable(loader-runtime-retirement-test runtime_retirement_test.cpp
   ../linux/runtime_retirement.cpp ../linux/runtime_initialization.cpp
   ../linux/runtime_queries.cpp ../linux/runtime_scopes.cpp ../linux/runtime_unwind.cpp

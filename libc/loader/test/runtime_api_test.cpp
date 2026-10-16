@@ -531,6 +531,7 @@ int main(int argc, char **argv) {
         unused_tls == tls_address);
   tls_storage = 73;
   void *invalid_handles[] = {RTLD_DEFAULT, RTLD_NEXT, reinterpret_cast<void *>(999)};
+  const auto *before_close_queries = service.query_metadata().snapshot();
   for (void *bad : invalid_handles) {
     check(LIBC_NAMESPACE::dlclose(bad) == -1);
     check(LIBC_NAMESPACE::dlerror() && scopes.snapshot() == retained);
@@ -544,6 +545,10 @@ int main(int argc, char **argv) {
   check(client::loader_lookup(promoted, "access_tls", caller_pc) == function);
   check(!LIBC_NAMESPACE::dlclose(promoted));
   check(!LIBC_NAMESPACE::dlclose(global));
+  // Consuming handles does not publish a graph change while NODELETE or a
+  // runtime ticket still retains the image.
+  check(service.query_metadata().snapshot() == before_close_queries);
+  check(before_close_queries->adds == 2 && !before_close_queries->subs);
   check(scopes.snapshot()->handles.empty());
   check(image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1);
   check(!image_api.release(image_api.context, image_pin, hooks));

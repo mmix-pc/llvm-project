@@ -41,10 +41,10 @@ class RuntimeAPI {
   StartupTLSResolver tls;
   Request *pending = nullptr;
   Request *loads = nullptr;
-  RuntimeQueries queries;
   // Close polls this queue at a callback-safe boundary. Release producers must
   // never run finalizers inline; asynchronous dispatch is a separate service.
   RetirementEvents retirement_events{nullptr, [](void *) {}};
+  RuntimeQueries queries;
   RuntimeRetirement retirement;
   Arena reclamation_scratch;
   RuntimeQueries::PeekTLS peek_tls = nullptr;
@@ -83,7 +83,7 @@ public:
              RuntimeInitializers::Finalizer finish = nullptr)
       : page(page), resident(page), images(images), scopes(scopes),
         initializers(initializers), stack(stack), environment(environment),
-        tls(tls), queries(page, debug),
+        tls(tls), queries(page, debug, &retirement_events),
         retirement(page, retirement_events, scopes, queries, initializers),
         reclamation_scratch(page), peek_tls(peek_tls), invoke(invoke),
         finish(finish) {}
