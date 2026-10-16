@@ -11,6 +11,7 @@
 #include "lifecycle.h"
 #ifdef LIBC_MMIX_SHARED_STARTUP
 #include "callback_ownership.h"
+#include "mmix/CursorLifetime.h"
 #endif
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include <asm/rstack.h>
@@ -87,6 +88,11 @@ bool same_frame(const MmixCleanupFrame &a, const MmixCleanupFrame &b) {
 capture(MmixCleanupRecord *record) {
   unw_context_t context;
   unw_cursor_t cursor;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  // This private cursor never escapes; do not permanently pin its image set.
+  MMIXCursorLifetime lifetime{};
+  __libunwind_mmix_cursor_begin(&lifetime, &cursor);
+#endif
   unw_proc_info_t procedure;
   unw_word_t ro, sp, parent_sp;
   if (unw_getcontext(&context) || unw_init_local(&cursor, &context) ||
@@ -104,6 +110,9 @@ capture(MmixCleanupRecord *record) {
     __builtin_trap();
   auto frame = owner_frame(ro, procedure.start_ip, sp);
   frame.limit = parent_sp;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  __libunwind_mmix_cursor_end(&lifetime);
+#endif
   return frame;
 }
 

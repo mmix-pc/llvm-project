@@ -267,6 +267,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       COMPILE_OPTIONS -fno-lto -funwind-tables ${mmix_cleanup_options} ${mmix_async_options}
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include
+        -I${LIBC_SOURCE_DIR}/../libunwind/src
     )
     add_object_library(
       unwind_root
