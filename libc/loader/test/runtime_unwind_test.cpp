@@ -56,6 +56,7 @@ struct Input : DynamicFixture {
     region = {0, view()};
     check(ElfImage::open_mapped({&region, 1}, 0, 64, role, bias, page,
                                 record.elf) == ElfError::None);
+    check(DynamicInfo::open(record.elf, record.dynamic) == DynamicError::None);
     record.discovered = true;
     record.startup = role == ImageRole::MainPIE;
   }

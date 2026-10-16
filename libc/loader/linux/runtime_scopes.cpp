@@ -66,12 +66,9 @@ long RuntimeScopes::make_scope(Arena &arena,
                                Scope &out) {
   const Image **entries;
   SymbolObject *objects;
-  DynamicInfo *metadata;
   long error = allocate(arena, images.size(), entries);
   if (!error)
     error = allocate(arena, images.size(), objects);
-  if (!error)
-    error = allocate(arena, images.size(), metadata);
   if (error)
     return error;
   for (size_t i = 0; i < images.size(); ++i) {
@@ -81,10 +78,9 @@ long RuntimeScopes::make_scope(Arena &arena,
       if (images[j] == images[i])
         return -EINVAL;
     new (entries + i) const Image *(images[i]);
-    new (metadata + i) DynamicInfo();
-    if (DynamicInfo::open(images[i]->elf, metadata[i]) != DynamicError::None)
+    if (!images[i]->metadata())
       return -ENOEXEC;
-    new (objects + i) SymbolObject{&images[i]->elf, metadata + i};
+    new (objects + i) SymbolObject{&images[i]->elf, images[i]->metadata()};
   }
   out.images = {entries, images.size()};
   out.objects = {objects, images.size()};
@@ -204,7 +200,8 @@ long RuntimeScopes::copy_scopes(Transaction &transaction) {
     out = scope;
     return error;
   };
-  // No pointer to scope arrays or DynamicInfo may borrow the previous arena.
+  // Copy scope arrays independently. Metadata belongs to the pinned images,
+  // not the previous scope arena.
   Scope global;
   long error = make_scope(transaction.arena, next.global.images, global);
   if (error)

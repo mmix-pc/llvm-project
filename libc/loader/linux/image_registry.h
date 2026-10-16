@@ -10,6 +10,7 @@
 #define LLVM_LIBC_LOADER_LINUX_IMAGE_REGISTRY_H
 
 #include "loader/linux/arena.h"
+#include "loader/linux/dynamic.h"
 #include "loader/linux/io.h"
 #include "loader/linux/module_ownership.h"
 #include "loader/linux/search.h"
@@ -50,6 +51,12 @@ public:
     cpp::span<const Image *const> dependencies{};
     // Written only in the private transaction, before relocation completes.
     mutable const Binding *bindings = nullptr;
+    // Validated before publication; borrowed bytes share this image's lifetime.
+    // Scope snapshots must not repeat whole-image relocation validation.
+    DynamicInfo dynamic{};
+    const DynamicInfo *metadata() const {
+      return dynamic.is_valid() ? &dynamic : nullptr;
+    }
   };
   // Indices refer to the complete candidate snapshot (old images first).
   // Parent is the first-discovery ancestor, never a dependency back-edge.

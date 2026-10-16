@@ -31,7 +31,6 @@ public:
     friend class RuntimeGraph;
     DsoMapping mapping;
     const ImageRegistry::Image *resident = nullptr;
-    DynamicInfo dynamic;
     FileIdentity file{};
     Bytes pathname;
     Node *parent = nullptr, *next_node = nullptr, *owned_next = nullptr;
@@ -44,7 +43,7 @@ public:
       return resident ? &resident->elf : mapping.image();
     }
     const DynamicInfo *metadata() const {
-      return resident ? &dynamic : mapping.metadata();
+      return resident ? resident->metadata() : mapping.metadata();
     }
     const ImageRegistry::Image *existing() const { return resident; }
     const FileIdentity &identity() const { return file; }

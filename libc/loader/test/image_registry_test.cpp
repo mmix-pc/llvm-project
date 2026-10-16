@@ -98,6 +98,10 @@ extern "C" int main() {
     path[1] = 'b';
     edges[0] = 1;
     const auto *view = transaction.view();
+    check(view->images[0]->metadata() &&
+          view->images[0]->metadata()->has(DynamicTag::Runpath));
+    // An ELF without dynamic metadata cannot become a validated scope input.
+    check(!view->images[1]->metadata());
     check(view->images[0]->path[1] == 'a');
     check(view->images[0]->dependencies[0] == view->images[0]);
     check(view->images[1]->ancestry.size() == 1);

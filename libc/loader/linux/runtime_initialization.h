@@ -30,12 +30,11 @@ class RuntimeInitializers {
   };
   struct Node {
     const ImageRegistry::Image *source = nullptr;
-    DynamicInfo dynamic;
     Node *next_node = nullptr;
     Edge *edges = nullptr;
     Record *record = nullptr;
     const ElfImage *image() const { return &source->elf; }
-    const DynamicInfo *metadata() const { return &dynamic; }
+    const DynamicInfo *metadata() const { return source->metadata(); }
     const Node *next() const { return next_node; }
     const Edge *dependencies() const { return edges; }
   };

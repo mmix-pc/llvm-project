@@ -73,6 +73,7 @@ struct Input : DynamicFixture {
                                 startup ? ImageRole::MainPIE
                                         : ImageRole::SharedObject,
                                 bias, page, record.elf) == ElfError::None);
+    check(DynamicInfo::open(record.elf, record.dynamic) == DynamicError::None);
     record.startup = startup;
     record.discovered = true;
     record.ownership.~ModuleOwnership();

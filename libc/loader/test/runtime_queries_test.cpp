@@ -42,6 +42,7 @@ struct Input : DynamicFixture {
     check(ElfImage::open_mapped({&region, 1}, 0, 64,
                                ImageRole::SharedObject, address, page,
                                image.elf) == ElfError::None);
+    check(DynamicInfo::open(image.elf, image.dynamic) == DynamicError::None);
     static const unsigned char name[] = "libquery.so";
     image.path = {name, sizeof(name) - 1};
     image.discovered = true;

@@ -226,9 +226,9 @@ long RuntimeQueries::address(const Snapshot &view, uintptr_t address,
         base = start;
     }
   out.dli_fbase = reinterpret_cast<void *>(base);
-  DynamicInfo dynamic;
-  if (DynamicInfo::open(found->image->elf, dynamic) != DynamicError::None)
+  if (!found->image->metadata())
     return ENOEXEC;
+  const DynamicInfo &dynamic = *found->image->metadata();
   Address best = 0;
   bool selected = false;
   for (Address i = 1; i < dynamic.symbol_count(); ++i) {

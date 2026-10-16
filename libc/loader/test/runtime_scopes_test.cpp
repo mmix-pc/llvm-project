@@ -89,6 +89,7 @@ struct Input : DynamicFixture {
     check(ElfImage::open_file(
               view(), id == 1 ? ImageRole::MainPIE : ImageRole::SharedObject,
               bias + id * 0x100000, page, record.elf) == ElfError::None);
+    check(DynamicInfo::open(record.elf, record.dynamic) == DynamicError::None);
     record.startup = id <= 2;
     record.discovered = true;
     record.tls.module_id = id;
@@ -168,9 +169,15 @@ static void retirement_tests() {
   Scopes scopes(page);
   Scopes::Transaction startup(page), open(page);
   check(!scopes.prepare_startup(first, startup) && !scopes.publish(startup));
+  // Validation belongs to the image, not each independently retired scope.
+  check(scopes.snapshot()->global.objects[0].metadata == main.record.metadata());
   uint64_t token;
   check(!scopes.prepare_open(both, &late.record, true, open, token) &&
         !scopes.publish(open));
+  for (const auto &object : scopes.snapshot()->global.objects)
+    check(object.metadata == (object.image == &main.record.elf
+                                 ? main.record.metadata()
+                                 : late.record.metadata()));
   const Image *retired[] = {&late.record};
   Scopes::Transaction rejected(page);
   check(scopes.prepare_retire(retired, rejected) == -EBUSY);
@@ -182,6 +189,7 @@ static void retirement_tests() {
     sched_yield();
   Scopes::Transaction close(page), retire(page);
   check(!scopes.prepare_close(token, close) && !scopes.publish(close));
+  check(scopes.snapshot()->global.objects[0].metadata == main.record.metadata());
   Scopes::Transaction failed(page);
   const auto *before = scopes.snapshot();
   fail_after = 0;

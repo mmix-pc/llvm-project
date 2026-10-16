@@ -71,7 +71,7 @@ long RuntimeInitializers::prepare(const ImageRegistry::Snapshot &registry,
       if (registry.images[j] == node.source)
         return -EINVAL;
     node.next_node = i + 1 < n ? batch.nodes + i + 1 : nullptr;
-    if (DynamicInfo::open(node.source->elf, node.dynamic) != DynamicError::None)
+    if (!node.source->metadata())
       return -ENOEXEC;
     node.record = find(node.source);
     if (!node.record) {

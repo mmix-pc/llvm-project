@@ -49,7 +49,7 @@ long RuntimeGraph::borrow(const ImageRegistry::Image &image, Node *&out) {
   Node *node = make_node(error);
   if (!node)
     return error;
-  if (DynamicInfo::open(image.elf, node->dynamic) != DynamicError::None)
+  if (!image.metadata())
     return -ENOEXEC;
   node->resident = &image;
   node->file = image.identity;
@@ -116,10 +116,10 @@ long RuntimeGraph::ancestry(const Node *node,
     new (objects + index++)
         SearchObject(search_object(p->path(), *p->metadata()));
   if (node) {
-    DynamicInfo info;
-    if (DynamicInfo::open(requester->elf, info) != DynamicError::None)
+    if (!requester->metadata())
       return -ENOEXEC;
-    new (objects + index++) SearchObject(search_object(requester->path, info));
+    new (objects + index++)
+        SearchObject(search_object(requester->path, *requester->metadata()));
   }
   for (const auto &ancestor : requester->ancestry)
     new (objects + index++) SearchObject(ancestor);
@@ -216,11 +216,10 @@ MapResult RuntimeGraph::resolve(Bytes name, Node *parent,
   long error = ancestry(parent, ancestors);
   if (error)
     return {error, 0};
-  DynamicInfo info;
-  if (!parent && DynamicInfo::open(requester->elf, info) != DynamicError::None)
+  if (!parent && !requester->metadata())
     return {-ENOEXEC, 0};
   auto object = parent ? search_object(parent->path(), *parent->metadata())
-                       : search_object(requester->path, info);
+                       : search_object(requester->path, *requester->metadata());
   Request request{this, parent, no_load};
   MapResult result = DependencySearch::resolve(
       name, object, ancestors, environment, candidate, &request);

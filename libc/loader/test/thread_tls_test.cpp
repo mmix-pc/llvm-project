@@ -91,6 +91,8 @@ struct FixtureState {
                                     : ImageRole::MainPIE,
                                   reinterpret_cast<Address>(memory[i]), page,
                                   records[i].elf) == ElfError::None);
+      check(DynamicInfo::open(records[i].elf, records[i].dynamic) ==
+            DynamicError::None);
       records[i].startup = !i;
       records[i].discovered = true;
     }

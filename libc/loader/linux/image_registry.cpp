@@ -366,6 +366,7 @@ long ImageRegistry::prepare(Transaction &transaction,
     new (records + i) Image{*images[i], tls[i], !current,
                            {tls[i].module_id, tls[i].generation,
                             !current || nodelete, ~uint64_t(0), events}};
+    __builtin_memcpy_inline(&records[i].dynamic, &dynamic, sizeof(dynamic));
     new (entries + old_count + i) const Image *(records + i);
   }
   transaction.candidate =
@@ -385,9 +386,9 @@ long ImageRegistry::prepare(Transaction &transaction,
       if (error)
         return error;
       auto *ancestors = static_cast<SearchObject *>(storage);
-      DynamicInfo dynamic;
-      if (DynamicInfo::open(parent->elf, dynamic) != DynamicError::None)
+      if (!parent->metadata())
         return -ENOEXEC;
+      const DynamicInfo &dynamic = *parent->metadata();
       size_t end = parent->path.size();
       while (end && parent->path[end - 1] != '/')
         --end;
@@ -544,6 +545,7 @@ long ImageRegistry::collect_reclaimed() {
         continue;
       for (auto &record : batch->records) {
         record.elf.reset();
+        new (&record.dynamic) DynamicInfo();
         record.path = {};
         record.ancestry = {};
         record.dependencies = {};

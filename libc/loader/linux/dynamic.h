@@ -82,6 +82,7 @@ public:
   // Failed opens invalidate every accessor. Lifecycle arrays remain unexecuted
   // and their pointer contents are not interpreted until after relocation.
   static DynamicError open(const ElfImage &image, DynamicInfo &out);
+  bool is_valid() const { return valid; }
   bool has(DynamicTag tag) const {
     return valid && (seen & (Address(1) << static_cast<unsigned>(tag)));
   }

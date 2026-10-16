@@ -89,6 +89,7 @@ struct RuntimeFixture {
                                     : ImageRole::MainPIE,
                                   reinterpret_cast<Address>(memory[i]), page,
                                   image.elf) == ElfError::None);
+      check(DynamicInfo::open(image.elf, image.dynamic) == DynamicError::None);
       Address cursor = i ? 0 : 16;
       check(place_tls_module(image.elf, cursor, image.tls));
       image.startup = !i;
