@@ -12,7 +12,11 @@
 # RUN: ld.lld -m elf64mmix_linux -pie --dynamic-linker=/lib/ld-llvm-mmix.so.1 -e start %t/main.o %t/provider.o -o %t/self-contained
 # RUN: llvm-readobj --file-headers --dynamic-table %t/self-contained | FileCheck %s --check-prefix=SELF
 # RUN: not ld.lld -m elf64mmix_linux -pie %t/main.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=INTERP
-# RUN: not ld.lld -m elf64mmix_linux --dynamic-linker=/lib/wrong.so %t/main.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=INTERP
+# RUN: not ld.lld -m elf64mmix_linux --dynamic-linker=relative %t/main.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=INTERP
+# RUN: not ld.lld -m elf64mmix_linux --dynamic-linker=/lib/../loader %t/main.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=INTERP
+# RUN: ld.lld -m elf64mmix_linux --dynamic-linker=/opt/loader.so -e start %t/main.o %t/provider.so -o %t/custom
+# RUN: llvm-readobj --string-dump=.interp %t/custom | FileCheck %s --check-prefix=CUSTOM
+# CUSTOM: /opt/loader.so
 # RUN: not ld.lld -m elf64mmix_linux --dynamic-linker=/lib/ld-llvm-mmix.so.1 %t/main.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=ENTRY
 # RUN: not ld.lld -m elf64mmix_linux -pie --dynamic-linker=/lib/ld-llvm-mmix.so.1 -e missing %t/main.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=ENTRY
 # RUN: not ld.lld -m elf64mmix_linux --dynamic-linker=/lib/ld-llvm-mmix.so.1 -e local %t/main.o %t/provider.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=EXECUTABLE
@@ -30,7 +34,7 @@
 # DSO-INTERP: shared objects do not support PT_INTERP
 # TEXT: does not support text relocations
 # RELA: require unpacked RELA relocations
-# INTERP: dynamic executables require interpreter /lib/ld-llvm-mmix.so.1
+# INTERP: dynamic executables require an absolute interpreter path without parent traversal
 # ENTRY: MMIX Linux requires a defined entry symbol or address
 # EXECUTABLE: MMIX Linux entry is not in a loaded executable section
 # UNDEFINED: undefined symbol: external

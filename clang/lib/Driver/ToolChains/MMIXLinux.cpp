@@ -114,12 +114,28 @@ public:
     const bool Shared = Args.hasArg(options::OPT_shared);
     const bool PIE = Args.hasFlag(options::OPT_pie, options::OPT_no_pie,
                                  TC.isPIEDefault(Args));
+    StringRef Interpreter = "/lib/ld-llvm-mmix.so.1";
+    bool ExplicitInterpreter = false;
+    bool NeedsInterpreter = false;
     // Mode selection belongs to the Driver. Accept -Bdynamic for compatibility,
     // but do not allow forwarded role overrides.
     for (const Arg *A :
          Args.filtered(options::OPT_Wl_COMMA, options::OPT_Xlinker)) {
       for (StringRef V : A->getValues()) {
+        if (NeedsInterpreter) {
+          Interpreter = V;
+          NeedsInterpreter = false;
+          continue;
+        }
         StringRef Option = V.split('=').first;
+        if (Option == "--dynamic-linker" || Option == "-dynamic-linker") {
+          ExplicitInterpreter = true;
+          if (V.contains('='))
+            Interpreter = V.split('=').second;
+          else
+            NeedsInterpreter = true;
+          continue;
+        }
         if (V == "-Bdynamic")
           continue;
         if (Option == "-shared" || Option == "--shared" || Option == "-pie" ||
@@ -128,7 +144,6 @@ public:
             Option == "-Bstatic" || Option == "-dn" ||
             Option == "-no-pie" || Option == "--no-pie" ||
             Option == "--no-dynamic-linker" ||
-            Option == "--dynamic-linker" || Option == "-dynamic-linker" ||
             Option == "-I" || V.starts_with("-I") || Option == "-plugin" ||
             Option == "--plugin" || Option == "-r" ||
             Option == "--relocatable" || Option == "-m" ||
@@ -141,6 +156,16 @@ public:
     }
 
     const bool Dynamic = requestsDynamicLink(Args);
+    // This is a guest absolute path, checked inside the selected sysroot when
+    // default providers are used. Never interpret it as a host search path.
+    if (NeedsInterpreter || !Interpreter.starts_with("/") ||
+        Interpreter == "/" || Interpreter.contains("/../") ||
+        Interpreter.ends_with("/..") ||
+        (ExplicitInterpreter && (!Dynamic || Shared || Relocatable))) {
+      D.Diag(diag::err_drv_unsupported_opt_for_target)
+          << "invalid MMIX Linux interpreter selection" << TC.getTripleString();
+      return;
+    }
     if ((Shared && PIE) ||
         (Dynamic && (Relocatable || Args.hasArg(options::OPT_static)))) {
       D.Diag(diag::err_drv_unsupported_opt_for_target)
@@ -169,7 +194,7 @@ public:
       if (!TC.validateSharedCProfile())
         return;
       if (!Shared)
-        TC.getSysrootFile("ld-llvm-mmix.so.1", "lib");
+        TC.getSysrootFile(Interpreter.drop_front(), "");
     }
     ArgStringList CmdArgs{"-m", "elf64mmix_linux"};
     if (Relocatable)
@@ -183,7 +208,7 @@ public:
     if (!Relocatable) {
       if (!Dynamic || Shared)
         CmdArgs.push_back("--no-dynamic-linker");
-      else
+      else if (!ExplicitInterpreter)
         CmdArgs.push_back("--dynamic-linker=/lib/ld-llvm-mmix.so.1");
       if (Dynamic)
         CmdArgs.append({"-z", "now", "-z", "relro", "-z", "text"});

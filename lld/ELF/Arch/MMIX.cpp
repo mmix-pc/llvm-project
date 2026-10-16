@@ -470,9 +470,11 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
         ctx.arg.entry = "";
       if (!ctx.arg.dynamicLinker.empty())
         ErrAlways(ctx) << "MMIX Linux shared objects do not support PT_INTERP";
-    } else if (ctx.arg.dynamicLinker != "/lib/ld-llvm-mmix.so.1") {
-      ErrAlways(ctx) << "MMIX Linux dynamic executables require interpreter "
-                       "/lib/ld-llvm-mmix.so.1";
+    } else if (StringRef path = ctx.arg.dynamicLinker;
+               !path.starts_with("/") || path == "/" ||
+               path.contains("/../") || path.ends_with("/..")) {
+      ErrAlways(ctx) << "MMIX Linux dynamic executables require an absolute "
+                       "interpreter path without parent traversal";
     }
     if (!ctx.arg.isRela || ctx.arg.relrPackDynRelocs ||
         ctx.arg.androidPackDynRelocs)

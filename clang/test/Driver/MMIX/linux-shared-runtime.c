@@ -63,6 +63,28 @@ for args in (["-static"], ["-pthread", "-static"]):
 check(["-no-pie", "-pie"], [crt, '"-pie"'])
 check(["-pie", "-static"], ["conflicting MMIX Linux link modes"], error=True)
 check(["-static-pie"], ["unsupported option"], error=True)
+# Interpreter paths name guest files, resolved under the selected sysroot.
+alternate = root / "opt/loader/custom.so"
+alternate.parent.mkdir(parents=True, exist_ok=True)
+alternate.touch()
+default_loader = root / "lib/ld-llvm-mmix.so.1"
+default_loader.unlink()
+for selection in (["-Wl,--dynamic-linker=/opt/loader/custom.so"],
+                  ["-Wl,--dynamic-linker,/opt/loader/custom.so"],
+                  ["-Xlinker", "--dynamic-linker", "-Xlinker", "/opt/loader/custom.so"],
+                  ["-Wl,--dynamic-linker=/missing", "-Wl,--dynamic-linker=/opt/loader/custom.so"]):
+    check(selection, ["/opt/loader/custom.so"], ["--dynamic-linker=/lib/ld-llvm-mmix.so.1"])
+default_loader.touch()
+for path in ("relative", "", "/", "/lib/../loader", "/lib/.."):
+    check(["-Wl,--dynamic-linker=" + path], ["invalid MMIX Linux interpreter selection"], error=True)
+check(["-Wl,--dynamic-linker"], ["invalid MMIX Linux interpreter selection"], error=True)
+for mode in ("-static", "-shared", "-r"):
+    check([mode, "-Wl,--dynamic-linker=/opt/loader/custom.so"],
+          ["invalid MMIX Linux interpreter selection"], error=True)
+alternate.unlink()
+check(["-Wl,--dynamic-linker=/opt/loader/custom.so"], [str(alternate), "no such file"], error=True)
+check(["-nostdlib", "-Wl,--dynamic-linker=/opt/loader/custom.so"],
+      ["/opt/loader/custom.so"], [crt, *shared])
 for option in ("-fno-exceptions", "-fno-unwind-tables", "--unwindlib=none"):
     check(["-pie", "-pthread", option], ["unsupported option"], error=True)
 

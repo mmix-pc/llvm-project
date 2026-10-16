@@ -25,7 +25,10 @@
 // RUN: not %clang --target=mmix-unknown-linux -static -pie -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=CONFLICT
 // RUN: not %clang --target=mmix-unknown-linux -static -Wl,-Bdynamic -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=CONFLICT
 // RUN: not %clang --target=mmix-unknown-linux -pie -nostdlib -Wl,--no-dynamic-linker -### %t/main.o 2>&1 | FileCheck %s --check-prefix=FORWARD
-// RUN: not %clang --target=mmix-unknown-linux -pie -nostdlib -Wl,--dynamic-linker=/bad -### %t/main.o 2>&1 | FileCheck %s --check-prefix=FORWARD
+// RUN: not %clang --target=mmix-unknown-linux -pie -nostdlib -Wl,--dynamic-linker=relative -### %t/main.o 2>&1 | FileCheck %s --check-prefix=FORWARD
+// RUN: %clang --target=mmix-unknown-linux -nostdlib -e entry -Wl,--dynamic-linker=/lib/custom-loader.so %t/main.o %t/provider.so -o %t/custom
+// RUN: llvm-readobj --string-dump=.interp %t/custom | FileCheck %s --check-prefix=CUSTOM
+// CUSTOM: /lib/custom-loader.so
 // RUN: not %clang --target=mmix-unknown-linux -pie -nostdlib -Wl,-Bstatic -### %t/main.o 2>&1 | FileCheck %s --check-prefix=FORWARD
 // RUN: not %clang --target=mmix-unknown-linux -shared -nostdlib -Wl,-pie -### %t/main.o 2>&1 | FileCheck %s --check-prefix=FORWARD
 // RUN: not %clang --target=mmix-unknown-linux -shared -### %t/provider.o 2>&1 | FileCheck %s --check-prefix=PROVIDER

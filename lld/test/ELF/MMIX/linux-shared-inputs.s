@@ -45,7 +45,7 @@
 # ALL-DAG: libunused.so
 # UNDEFINED: undefined symbol: protected
 # GENERIC: MMIX does not support shared object output
-# STATIC: MMIX Linux dynamic executables require interpreter /lib/ld-llvm-mmix.so.1
+# STATIC: MMIX Linux dynamic executables require an absolute interpreter path without parent traversal
 # ABI: unsupported MMIX Linux shared object ABI
 # MACHINE: incompatible with elf64mmix_linux
 # IFUNC: MMIX Linux does not support IFUNC symbols
