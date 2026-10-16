@@ -118,6 +118,13 @@ public:
   long invoke_finalizers(FinalizationPlan &, LoaderLocks::Session &,
                          Finalizer = nullptr);
   long complete_finalizers(FinalizationPlan &, LoaderLocks::Session &);
+  // Recompute against the CURRENT snapshot and external roots after callback
+  // completion. The result is a writer-serialized borrow, not an unmap permit.
+  long finalization_candidates(
+      const FinalizationPlan &, const ImageRegistry::Snapshot &, Arena &scratch,
+      cpp::span<const ImageRegistry::Image *const> roots,
+      cpp::span<const ImageRegistry::Image *const> &out,
+      LoaderLocks::Session &) const;
 
   // Prepare before publishing mappings. Attachment is allocation-free, after
   // matching scope publication and before any constructor can reenter.

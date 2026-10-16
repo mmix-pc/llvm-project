@@ -182,6 +182,8 @@ long ImageRegistry::record_binding(Transaction &transaction,
   }
   if (!new_requester || !known_provider)
     return -EINVAL;
+  if (!provider->ownership.available_for_load())
+    return -EBUSY;
   if (requester == provider)
     return 0;
   for (const Binding *edge = requester->bindings; edge; edge = edge->next)

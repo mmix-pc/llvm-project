@@ -337,8 +337,63 @@ extern "C" int main() {
       check(!detached.collect_finalizers(all, duplicate, session));
     }
     trace_count = 0;
+    Input nested_image(0xf00000);
+    const ImageRegistry::Image *expanded_set[] = {
+        &root.record, &x.record, &y.record, &nested_image.record};
+    ImageRegistry::Snapshot expanded{3, expanded_set};
+    RuntimeInitializers::Batch nested_batch(page);
+    Arena scratch(page), owners(page);
+    ModuleOwnership::Token external;
+    struct Reentry {
+      RuntimeInitializers &manager;
+      RuntimeInitializers::FinalizationPlan &active;
+      RuntimeInitializers::Batch &batch;
+      ImageRegistry::Snapshot &snapshot;
+      ImageRegistry::Image &image;
+      Arena &scratch, &owners;
+      ModuleOwnership::Token &external;
+      InitialStack &stack;
+      size_t page;
+      bool entered = false;
+      unsigned nested_calls = 0;
+    } context{detached, plan, nested_batch, expanded, x.record, scratch,
+              owners, external, stack, page};
+    static Reentry *reentry;
+    reentry = &context;
     auto unlocked = [](Address pc) {
       record(pc);
+      auto &c = *reentry;
+      if (!c.entered) {
+        c.entered = true;
+        LoaderLocks::Session nested(locks, hooks);
+        check(c.manager.invoke_finalizers(c.active, nested, record) == -EBUSY);
+        RuntimeInitializers::FinalizationPlan nested_plan(c.page);
+        {
+          LoaderLocks::Guard guard(nested, Kind::Mutation);
+          LIBC_NAMESPACE::cpp::span<const ImageRegistry::Image *const> result;
+          check(c.manager.finalization_candidates(c.active, c.snapshot,
+                    c.scratch, {}, result, nested) == -EBUSY);
+          check(result.empty());
+          // A failed nested load must not make the outer finalizer retryable.
+          RuntimeInitializers::Batch failed(c.page);
+          fail_mapping = true;
+          check(c.manager.prepare(c.snapshot, failed) == -ENOMEM);
+          fail_mapping = false;
+          check(!c.manager.prepare(c.snapshot, c.batch));
+          check(!c.manager.attach(c.batch, c.snapshot));
+          check(!c.manager.run(c.batch, nested, c.stack,
+                              [](Address, int, char **, char **) {}));
+          check(!c.manager.collect_finalizers(c.snapshot, nested_plan, nested));
+        }
+        check(!c.manager.invoke_finalizers(nested_plan, nested, [](Address) {
+          ++reentry->nested_calls;
+        }));
+        {
+          LoaderLocks::Guard guard(nested, Kind::Mutation);
+          check(!c.manager.complete_finalizers(nested_plan, nested));
+          check(!nested_plan.reset());
+        }
+      }
       pthread_t probe;
       check(!pthread_create(&probe, nullptr, [](void *) -> void * {
         LoaderLocks::Session other(locks, hooks);
@@ -346,6 +401,13 @@ extern "C" int main() {
         LoaderLocks::Guard registry(other, Kind::Registry);
         LoaderLocks::Guard arena(other, Kind::Arena);
         check(!graph.error() && !registry.error() && !arena.error());
+        auto &c = *reentry;
+        ModuleOwnership::Token rejected;
+        check(c.image.ownership.acquire(c.owners, ModuleOwnership::Kind::Handle,
+                                        rejected) == -EBUSY);
+        if (!c.external.ticket)
+          check(!c.image.ownership.acquire(c.owners,
+                    ModuleOwnership::Kind::Runtime, c.external));
         return nullptr;
       }, nullptr));
       check(!pthread_join(probe, nullptr));
@@ -355,13 +417,36 @@ extern "C" int main() {
     check(!detached.invoke_finalizers(duplicate, session, unlocked));
     const Address cyclic_fini[] = {0xd02010, 0xd02004, 0xb02010, 0xb02004};
     expect(cyclic_fini, 4);
-    check(x.record.ownership.owners() == 1 && y.record.ownership.owners() == 1);
+    check(context.nested_calls == 2);
+    check(x.record.ownership.owners() == 2 && y.record.ownership.owners() == 1);
     {
       LoaderLocks::Guard guard(session, Kind::Mutation);
       check(!detached.complete_finalizers(plan, session));
       check(!detached.complete_finalizers(plan, session));
       check(!detached.complete_finalizers(duplicate, session));
-      check(!x.record.ownership.owners() && !y.record.ownership.owners());
+      LIBC_NAMESPACE::cpp::span<const ImageRegistry::Image *const> candidates;
+      check(!detached.finalization_candidates(plan, expanded, scratch, {},
+                                               candidates, session));
+      check(candidates.empty());
+      check(!x.record.ownership.release(external));
+      const ImageRegistry::Image *roots[] = {&x.record};
+      check(!detached.finalization_candidates(plan, expanded, scratch, roots,
+                                               candidates, session));
+      check(candidates.empty());
+      check(!detached.finalization_candidates(plan, expanded, scratch, {},
+                                               candidates, session));
+      check(candidates.size() == 2);
+      Input pending(0x1000000);
+      pending.record.dependencies = roots;
+      const ImageRegistry::Image *new_set[] = {
+          &root.record, &x.record, &y.record, &nested_image.record,
+          &pending.record};
+      ImageRegistry::Snapshot current{4, new_set};
+      check(!detached.finalization_candidates(plan, current, scratch, {},
+                                               candidates, session));
+      check(candidates.empty());
+      check(!x.record.ownership.available_for_load());
+      check(!y.record.ownership.available_for_load());
       check(!detached.collect_finalizers(all, exit, session, true));
     }
     trace_count = 0;

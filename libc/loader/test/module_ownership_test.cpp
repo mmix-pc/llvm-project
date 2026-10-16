@@ -95,6 +95,16 @@ extern "C" int main() {
     check(!permanent.acquire(arena, Kind::Handle, h));
     check(!permanent.release(h) && permanent.mark_reclaimed() == -EBUSY);
   }
+  ModuleOwnership finalizing(19, 1, false);
+  check(finalizing.available_for_load());
+  finalizing.begin_finalization();
+  check(!finalizing.available_for_load());
+  check(finalizing.acquire(arena, Kind::Handle, h) == -EBUSY);
+  check(finalizing.acquire(arena, Kind::Dependency, h) == -EBUSY);
+  check(!finalizing.acquire(arena, Kind::Runtime, lease));
+  check(!finalizing.release(lease));
+  check(!finalizing.available_for_load());
+
   ModuleOwnership bounded(20, 2, false, 2);
   check(!bounded.acquire(arena, Kind::Handle, h));
   check(!bounded.acquire(arena, Kind::Runtime, lease));

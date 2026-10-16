@@ -300,6 +300,12 @@ long RuntimeScopes::prepare_open(const ImageRegistry::Snapshot &registry,
     error = closure(transaction.arena, registry, *root, *local);
   else
     *local = old->global;
+  // Unrelated opens may proceed while a detached finalizer is running.
+  // Only the requested dependency closure must admit a new handle.
+  if (!error && root)
+    for (const Image *image : local->images)
+      if (!image->ownership.available_for_load())
+        return -EBUSY;
   next->unwind = old->unwind;
   if (!error)
     error = combine(transaction.arena, old->global, *local, *binding);

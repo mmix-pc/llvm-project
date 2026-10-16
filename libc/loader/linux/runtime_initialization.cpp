@@ -328,6 +328,10 @@ long RuntimeInitializers::collect_finalizers(
       selected |= record->image == image;
     if (!selected || record->state != Record::Complete)
       continue;
+    if (!record->image->ownership.available_for_load()) {
+      error = -EBUSY;
+      break;
+    }
     FinalizationPlan::Item *item;
     error = allocate(plan.arena, 1, item);
     if (error)
@@ -362,13 +366,63 @@ long RuntimeInitializers::collect_finalizers(
     plan.items = nullptr;
     return error;
   }
-  for (auto *item = plan.items; item; item = item->next)
+  for (auto *item = plan.items; item; item = item->next) {
+    item->record->image->ownership.begin_finalization();
     item->record->state = Record::Finalizing;
+  }
   if (process_exit)
     stopping = true;
   plan.owner = this;
   plan.runner = session.callback_owner();
   plan.state = FinalizationPlan::Prepared;
+  return 0;
+}
+
+long RuntimeInitializers::finalization_candidates(
+    const FinalizationPlan &plan, const ImageRegistry::Snapshot &snapshot,
+    Arena &scratch, cpp::span<const ImageRegistry::Image *const> roots,
+    cpp::span<const ImageRegistry::Image *const> &out,
+    LoaderLocks::Session &session) const {
+  out = {};
+  if (!session.callback_owner() || plan.owner != this)
+    return -EINVAL;
+  if (plan.state != FinalizationPlan::Done)
+    return -EBUSY;
+  // Completion released this plan's invocation pins. Never wait for those
+  // pins from inside a callback, nor reuse a pre-callback reachability result.
+  if (roots.size() > ~size_t(0) - snapshot.images.size())
+    return -EOVERFLOW;
+  const ImageRegistry::Image **current_roots;
+  long error = allocate(scratch, roots.size() + snapshot.images.size(),
+                        current_roots);
+  if (error)
+    return error;
+  size_t root_count = 0;
+  for (const auto *image : roots)
+    current_roots[root_count++] = image;
+  for (const auto *image : snapshot.images) {
+    const auto *record = find(image);
+    if (!record || record->state == Record::Pending ||
+        record->state == Record::Initializing)
+      current_roots[root_count++] = image;
+  }
+  cpp::span<const ImageRegistry::Image *const> eligible;
+  error = snapshot.reclaimable(scratch, {current_roots, root_count}, eligible);
+  if (error)
+    return error;
+  const ImageRegistry::Image **selected;
+  error = allocate(scratch, eligible.size(), selected);
+  if (error)
+    return error;
+  size_t count = 0;
+  for (const auto *image : eligible)
+    for (auto *item = plan.items; item; item = item->next)
+      if (item->record->image == image &&
+          item->record->state == Record::Finalized) {
+        selected[count++] = image;
+        break;
+      }
+  out = {selected, count};
   return 0;
 }
 

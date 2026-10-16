@@ -45,6 +45,7 @@ private:
   Slot *slots = nullptr;
   State state = State::Live;
   bool permanent;
+  bool finalization_started = false;
   // Signal-side registration cannot allocate tickets or take the writer lock.
   // Bit 0 closes admission, bit 1 is a permanent signal-code pin, higher bits
   // count temporary registration leases. Retirement races use the same CAS.
@@ -65,6 +66,9 @@ public:
     if (!image || !generation || index >= 4)
       return -EINVAL;
     if (state != State::Live)
+      return -EBUSY;
+    if (finalization_started &&
+        (kind == Kind::Handle || kind == Kind::Dependency))
       return -EBUSY;
     if (!next_ticket || next_ticket > limit || total >= limit)
       return -EOVERFLOW;
@@ -149,6 +153,16 @@ public:
     return 0;
   }
   bool is_permanent() const { return permanent || (signal_owners.load() & 2); }
+  // Writer-serialized and irreversible for this image lifetime. Runtime
+  // callbacks may still retain code, but a load must never resurrect it.
+  bool available_for_load() const {
+    return state == State::Live && !finalization_started;
+  }
+  void begin_finalization() {
+    if (!available_for_load())
+      __builtin_trap();
+    finalization_started = true;
+  }
   State admission() const { return state; }
   uint64_t owners() const {
     uint64_t transient = signal_owners.load() >> 2;

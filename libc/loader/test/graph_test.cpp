@@ -691,6 +691,16 @@ static int runtime_tests() {
   CHECK(reopen.size() == 5 && !reopen.new_images() && mapped_files == old_maps);
   CHECK(reopen.scope()->existing() == registry.snapshot()->images[3]);
   CHECK(!reopen.reset() && opens == closes);
+  registry.snapshot()->images[3]->ownership.begin_finalization();
+  for (unsigned no_load = 0; no_load != 2; ++no_load) {
+    CHECK(reopen.build(*registry.snapshot(), *snapshot->images[0], text("B.so"),
+                       environment, no_load).error == -EBUSY);
+    CHECK(!reopen.reset() && opens == closes && mapped_files == old_maps);
+  }
+  // C's retained dependency on B cannot bypass the same admission decision.
+  CHECK(reopen.build(*registry.snapshot(), *snapshot->images[0], text("C.so"),
+                     environment, true).error == -EBUSY);
+  CHECK(!reopen.reset() && opens == closes);
   // This child exits with intentionally resident registry and graph mappings.
   return 0;
 }

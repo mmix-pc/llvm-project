@@ -492,6 +492,21 @@ extern "C" int main() {
   check(Scopes::resolve_binding(*scopes.snapshot(), &weak.record, 1, value) ==
             SymbolError::None &&
         value.symbol.weak_zero && !value.symbol.address);
+  // Closing admission does not block unrelated opens. Reopening any member
+  // of a dependency closure containing the finalized image does fail.
+  dependency.record.ownership.begin_finalization();
+  Scopes::Transaction blocked(page), unrelated(page);
+  uint64_t denied = 0, allowed = 0;
+  check(scopes.prepare_open(registries[6], &dependency.record, false, blocked, denied) ==
+        -EBUSY);
+  check(!denied && !blocked.abort());
+  check(scopes.prepare_open(registries[6], &a.record, false, blocked, denied) ==
+        -EBUSY);
+  check(!denied && !blocked.abort());
+  check(!scopes.prepare_open(registries[6], &newly.record, false, unrelated,
+                             allowed));
+  check(allowed && !unrelated.abort());
+
   puts("runtime lookup scopes, retained binding and snapshot publication "
        "passed");
   return 0;

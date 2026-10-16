@@ -160,6 +160,9 @@ long RuntimeAPI::lookup(uint64_t handle, const char *name, uintptr_t pc,
   }
   if (error != SymbolError::None)
     return ENOENT;
+  if (!result.symbol.weak_zero && result.image &&
+      !result.image->ownership.available_for_load())
+    return EBUSY;
   if (result.symbol.tls) {
     if (!result.image || !tls.context || !tls.resolve)
       return ENOSYS;

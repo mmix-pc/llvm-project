@@ -38,6 +38,8 @@ void RuntimeGraph::append(Node &node) {
 }
 
 long RuntimeGraph::borrow(const ImageRegistry::Image &image, Node *&out) {
+  if (!image.ownership.available_for_load())
+    return -EBUSY;
   for (Node *node = head; node; node = node->next_node)
     if (node->resident == &image) {
       out = node;
