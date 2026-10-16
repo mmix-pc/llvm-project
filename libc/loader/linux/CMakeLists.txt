@@ -139,7 +139,7 @@ add_object_library(
   image_registry
   SRCS image_registry.cpp
   HDRS image_registry.h module_ownership.h retirement_events.h
-  DEPENDS .arena .io .tls_layout .dynamic libc.hdr.errno_macros
+  DEPENDS .arena .io .search .tls_layout .dynamic libc.hdr.errno_macros
     libc.hdr.func.free libc.src.__support.common libc.src.__support.CPP.atomic
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )

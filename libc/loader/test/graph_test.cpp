@@ -510,7 +510,7 @@ static int runtime_tests() {
   const auto *snapshot = registry.snapshot();
   CHECK(snapshot->images[1]->dependencies[0] == snapshot->images[2]);
   CHECK(snapshot->images[2]->dependencies[0] == snapshot->images[1]);
-  CHECK(snapshot->images[1]->parent == snapshot->images[0]);
+  CHECK(snapshot->images[1]->ancestry.size() == 1);
   CHECK(snapshot->images[0]->path.data() != origins[0].path.data());
   const unsigned resident_live = live(),
                  resident_allocations = allocations_count;

@@ -96,8 +96,9 @@ long RuntimeGraph::ancestry(const Node *node,
   // A new root was requested by the published caller. Its descendants inherit
   // that caller's first-discovery ancestry, not arbitrary dependency
   // back-edges.
-  for (const auto *p = node ? requester : requester->parent; p; p = p->parent)
-    ++depth;
+  if (requester->ancestry.size() > __SIZE_MAX__ - depth - (node ? 1 : 0))
+    return -EOVERFLOW;
+  depth += requester->ancestry.size() + (node ? 1 : 0);
   out = {};
   if (!depth)
     return 0;
@@ -114,12 +115,14 @@ long RuntimeGraph::ancestry(const Node *node,
   for (const Node *p = node ? node->parent : nullptr; p; p = p->parent)
     new (objects + index++)
         SearchObject(search_object(p->path(), *p->metadata()));
-  for (const auto *p = node ? requester : requester->parent; p; p = p->parent) {
+  if (node) {
     DynamicInfo info;
-    if (DynamicInfo::open(p->elf, info) != DynamicError::None)
+    if (DynamicInfo::open(requester->elf, info) != DynamicError::None)
       return -ENOEXEC;
-    new (objects + index++) SearchObject(search_object(p->path, info));
+    new (objects + index++) SearchObject(search_object(requester->path, info));
   }
+  for (const auto &ancestor : requester->ancestry)
+    new (objects + index++) SearchObject(ancestor);
   out = {objects, depth};
   return 0;
 }

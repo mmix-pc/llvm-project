@@ -12,6 +12,7 @@
 #include "loader/linux/arena.h"
 #include "loader/linux/io.h"
 #include "loader/linux/module_ownership.h"
+#include "loader/linux/search.h"
 #include "loader/linux/tls_layout.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -44,7 +45,8 @@ public:
     bool discovered = false, identity_known = false;
     FileIdentity identity{};
     Bytes path{};
-    const Image *parent = nullptr;
+    // Deep-copied search metadata, not a code-lifetime edge to the requester.
+    cpp::span<const SearchObject> ancestry{};
     cpp::span<const Image *const> dependencies{};
     // Written only in the private transaction, before relocation completes.
     mutable const Binding *bindings = nullptr;

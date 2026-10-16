@@ -55,8 +55,6 @@ long ImageRegistry::Snapshot::reclaimable(
     const Image *image = images[i];
     if (!image || index(image) != i)
       return -EINVAL;
-    if (image->parent && index(image->parent) == count)
-      return -EINVAL;
     for (const Image *dependency : image->dependencies)
       if (index(dependency) == count)
         return -EINVAL;
@@ -99,8 +97,6 @@ long ImageRegistry::Snapshot::reclaimable(
     mark(root);
   // Each image enters the queue once, regardless of cycles or duplicate edges.
   for (size_t i = 0; i < used; ++i) {
-    if (queue[i]->parent)
-      mark(queue[i]->parent); // Retained RPATH ancestry is live loader metadata.
     for (const Image *dependency : queue[i]->dependencies)
       mark(dependency);
     for (const Binding *edge = queue[i]->bindings; edge; edge = edge->next)
@@ -145,8 +141,6 @@ long ImageRegistry::Snapshot::without(Arena &arena,
   for (const Image *image : images) {
     if (excluded(image))
       continue;
-    if (image->parent && excluded(image->parent))
-      return -EBUSY;
     for (const Image *dependency : image->dependencies)
       if (excluded(dependency))
         return -EBUSY;
@@ -381,7 +375,48 @@ long ImageRegistry::prepare(Transaction &transaction,
     const auto &info = discovery[i];
     record.identity_known = info.identity_known;
     record.identity = info.identity;
-    record.parent = info.parent == ~size_t(0) ? nullptr : entries[info.parent];
+    if (info.parent != ~size_t(0)) {
+      const auto *parent = entries[info.parent];
+      if (parent->ancestry.size() >= max / sizeof(SearchObject))
+        return -EOVERFLOW;
+      size_t count = parent->ancestry.size() + 1;
+      error = transaction.arena.allocate(count * sizeof(SearchObject),
+                                         alignof(SearchObject), storage);
+      if (error)
+        return error;
+      auto *ancestors = static_cast<SearchObject *>(storage);
+      DynamicInfo dynamic;
+      if (DynamicInfo::open(parent->elf, dynamic) != DynamicError::None)
+        return -ENOEXEC;
+      size_t end = parent->path.size();
+      while (end && parent->path[end - 1] != '/')
+        --end;
+      SearchObject direct{{parent->path.data(), end > 1 ? end - 1 : end},
+                          {}, {}, dynamic.has(DynamicTag::Runpath)};
+      if (dynamic.has(DynamicTag::Rpath))
+        dynamic.string(dynamic.value(DynamicTag::Rpath), direct.rpath);
+      if (direct.has_runpath)
+        dynamic.string(dynamic.value(DynamicTag::Runpath), direct.runpath);
+      for (size_t j = 0; j < count; ++j) {
+        new (ancestors + j) SearchObject(j ? parent->ancestry[j - 1] : direct);
+        // Copy every byte view: ancestor mappings and their registry batches
+        // may disappear while this image still performs dependency searches.
+        Bytes *fields[] = {&ancestors[j].origin, &ancestors[j].rpath,
+                           &ancestors[j].runpath};
+        for (Bytes *bytes : fields) {
+          if (bytes->empty())
+            continue;
+          error = transaction.arena.allocate(bytes->size(), 1, storage);
+          if (error)
+            return error;
+          auto *copy = static_cast<unsigned char *>(storage);
+          for (size_t k = 0; k < bytes->size(); ++k)
+            copy[k] = (*bytes)[k];
+          *bytes = {copy, bytes->size()};
+        }
+      }
+      record.ancestry = {ancestors, count};
+    }
     if (!info.path.empty()) {
       error = transaction.arena.allocate(info.path.size(), 1, storage);
       if (error)
@@ -510,7 +545,7 @@ long ImageRegistry::collect_reclaimed() {
       for (auto &record : batch->records) {
         record.elf.reset();
         record.path = {};
-        record.parent = nullptr;
+        record.ancestry = {};
         record.dependencies = {};
         record.bindings = nullptr;
         // Reclamation remains freestanding, without a libc memset dependency.

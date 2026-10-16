@@ -81,13 +81,18 @@ extern "C" int main() {
   {
     ImageRegistry metadata(host_page);
     ImageRegistry::Transaction transaction(host_page);
+    DynamicFixture parent_file(ImageRole::MainPIE);
+    ElfImage parent_image;
+    check(ElfImage::open_file(parent_file.view(), ImageRole::MainPIE, bias,
+                             page, parent_image) == ElfError::None);
+    const ElfImage *metadata_images[] = {&parent_image, &initial.image};
     unsigned char path[] = {'/', 'a'};
     size_t edges[1024] = {};
     ImageRegistry::Discovery discovery[] = {
         {true, {1, 1, 0}, {path, sizeof(path)}, ~size_t(0), edges},
         {true, {2, 1, 0}, {}, 0, {}}};
     unsigned before = mappings;
-    check(!metadata.prepare(transaction, startup, discovery));
+    check(!metadata.prepare(transaction, metadata_images, discovery));
     unsigned required = mappings - before;
     check(required > 1);
     path[1] = 'b';
@@ -95,11 +100,19 @@ extern "C" int main() {
     const auto *view = transaction.view();
     check(view->images[0]->path[1] == 'a');
     check(view->images[0]->dependencies[0] == view->images[0]);
-    check(view->images[1]->parent == view->images[0]);
+    check(view->images[1]->ancestry.size() == 1);
+    check(view->images[1]->ancestry[0].origin.size() == 1 &&
+          view->images[1]->ancestry[0].origin[0] == '/');
+    const auto &ancestor = view->images[1]->ancestry[0];
+    check(ancestor.has_runpath && ancestor.rpath.size() == 7 &&
+          ancestor.runpath.size() == 7);
+    parent_file.bytes[0x700 + 21] = '!';
+    check(ancestor.rpath[0] == '$' && ancestor.runpath[0] == '$');
+    parent_file.bytes[0x700 + 21] = '$';
     check(!transaction.abort());
     for (unsigned fail = 0; fail < required; ++fail) {
       maps_before_failure = fail;
-      check(metadata.prepare(transaction, startup, discovery) == -ENOMEM);
+      check(metadata.prepare(transaction, metadata_images, discovery) == -ENOMEM);
       check(!transaction.view() && !metadata.snapshot());
       maps_before_failure = -1;
       check(!transaction.abort() && mappings == unmappings);
@@ -284,18 +297,18 @@ extern "C" int main() {
   ImageRegistry::Image permanent{{}, {}, true};
   {
     ImageRegistry::Image ancestor{}, child{};
-    child.parent = &ancestor;
+    SearchObject search{{}, {}, {}, false};
+    child.ancestry = {&search, 1};
     const ImageRegistry::Image *ancestry[] = {&ancestor, &child};
     const ImageRegistry::Image *child_root[] = {&child};
     ImageRegistry::Snapshot ancestry_view{1, ancestry};
     check(!ancestry_view.reclaimable(scratch, child_root, candidates) &&
-          candidates.empty());
+          candidates.size() == 1 && candidates[0] == &ancestor);
     check(!scratch.reset());
     const ImageRegistry::Image *removed_parent[] = {&ancestor};
     ImageRegistry::Snapshot *replacement;
-    check(ancestry_view.without(scratch, removed_parent, replacement) == -EBUSY);
-    child.parent = &outsider;
-    check(ancestry_view.reclaimable(scratch, {}, candidates) == -EINVAL);
+    check(!ancestry_view.without(scratch, removed_parent, replacement));
+    check(replacement->images.size() == 1 && replacement->images[0] == &child);
     check(!scratch.reset());
   }
   const ImageRegistry::Image *permanent_edges[] = {a_record};
