@@ -18,6 +18,7 @@
 
 #include "config.h"
 #include "libunwind_ext.h"
+#include "CursorLifetime.h"
 #include "libunwind.h"
 #include "Unwind-EHABI.h"
 #include "unwind.h"
@@ -115,15 +116,17 @@ _LIBUNWIND_EXPORT void *_Unwind_FindEnclosingFunction(void *pc) {
   // This is slow, but works.
   // We create an unwind cursor then alter the IP to be pc
   unw_cursor_t cursor;
+  _LIBUNWIND_CURSOR_SCOPE(cursor);
   unw_context_t uc;
   unw_proc_info_t info;
   if (__unw_getcontext(&uc) != UNW_ESUCCESS ||
       __unw_init_local(&cursor, &uc) != UNW_ESUCCESS ||
       __unw_set_reg(&cursor, UNW_REG_IP, (unw_word_t)(intptr_t)pc) != UNW_ESUCCESS)
     return NULL;
-  if (__unw_get_proc_info(&cursor, &info) == UNW_ESUCCESS)
+  if (__unw_get_proc_info(&cursor, &info) == UNW_ESUCCESS) {
+    _LIBUNWIND_CURSOR_ESCAPE(&cursor);
     return (void *)(intptr_t) info.start_ip;
-  else
+  } else
     return NULL;
 #endif
 }
@@ -216,6 +219,7 @@ _LIBUNWIND_EXPORT const void *_Unwind_Find_FDE(const void *pc,
   // This is slow, but works.
   // We create an unwind cursor then alter the IP to be pc
   unw_cursor_t cursor;
+  _LIBUNWIND_CURSOR_SCOPE(cursor);
   unw_context_t uc;
   unw_proc_info_t info;
   bases->tbase = 0;
@@ -231,6 +235,7 @@ _LIBUNWIND_EXPORT const void *_Unwind_Find_FDE(const void *pc,
   bases->func = (uintptr_t)info.start_ip;
   _LIBUNWIND_TRACE_API("_Unwind_Find_FDE(pc=%p) => %p", pc,
                   (void *)(intptr_t) info.unwind_info);
+  _LIBUNWIND_CURSOR_ESCAPE(&cursor);
   return (void *)(intptr_t) info.unwind_info;
 }
 

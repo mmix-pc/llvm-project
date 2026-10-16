@@ -16,7 +16,8 @@ extern "C" __attribute__((visibility("protected"))) bool
 __libunwind_mmix_adopt_startup_images(const MMIXStartupUnwindService *input) {
   if (service.find || !input || input->size != sizeof(*input) ||
       input->process_resident != 1 || !input->context || !input->find ||
-      !input->release || !input->acquire || !input->retain || !input->drop)
+      !input->release || !input->acquire || !input->retain || !input->drop ||
+      !input->lookup || !input->pin)
     return false;
   service = *input;
   return true;
@@ -35,16 +36,7 @@ extern "C" void __libunwind_mmix_release_startup_image(uintptr_t token) {
     service.release(service.context, token);
 }
 
-static bool checked_image(long (*query)(void *, uintptr_t, MMIXUnwindImage *),
-                          uintptr_t key, MMIXUnwindImage *out) {
-  if (!out)
-    return false;
-  *out = {};
-  if (!query)
-    return false;
-  MMIXUnwindImage view{};
-  if (query(service.context, key, &view))
-    return false;
+static bool valid_image(const MMIXUnwindImage &view) {
   bool invalid =
       !view.token || !view.phdr_address || view.phdr_address % 8 ||
       !view.phdr_count || view.phdr_count > UINT16_MAX ||
@@ -74,7 +66,20 @@ static bool checked_image(long (*query)(void *, uintptr_t, MMIXUnwindImage *),
     }
     invalid |= !headers || !index;
   }
-  if (invalid) {
+  return !invalid;
+}
+
+static bool checked_image(long (*query)(void *, uintptr_t, MMIXUnwindImage *),
+                          uintptr_t key, MMIXUnwindImage *out) {
+  if (!out)
+    return false;
+  *out = {};
+  if (!query)
+    return false;
+  MMIXUnwindImage view{};
+  if (query(service.context, key, &view))
+    return false;
+  if (!valid_image(view)) {
     if (view.token && service.drop(service.context, view.token))
       __builtin_trap();
     return false;
@@ -93,4 +98,19 @@ extern "C" bool __libunwind_mmix_retain_image(uintptr_t token,
 }
 extern "C" bool __libunwind_mmix_drop_image(uintptr_t token) {
   return token && service.drop && !service.drop(service.context, token);
+}
+extern "C" bool __libunwind_mmix_lookup_image(uintptr_t token, uintptr_t pc,
+                                              MMIXUnwindImage *out) {
+  if (!out)
+    return false;
+  *out = {};
+  MMIXUnwindImage view{};
+  if (!service.lookup || service.lookup(service.context, token, pc, &view) ||
+      view.token != token || !valid_image(view))
+    return false;
+  *out = view;
+  return true;
+}
+extern "C" bool __libunwind_mmix_pin_image(uintptr_t token) {
+  return token && service.pin && !service.pin(service.context, token);
 }

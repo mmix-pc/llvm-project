@@ -277,6 +277,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       COMPILE_OPTIONS -fno-lto -funwind-tables
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include
+        -I${LIBC_SOURCE_DIR}/../libunwind/src
     )
     set(mmix_root_dependency .unwind_root)
     set(mmix_root_options -DLIBC_MMIX_UNWIND_ROOTS -funwind-tables)

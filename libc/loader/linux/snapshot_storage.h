@@ -112,6 +112,12 @@ public:
           __builtin_trap();
       } while (!batch->readers.compare_exchange_weak(count, count + 1));
     }
+    static const T *view_detached(void *token) {
+      return static_cast<Batch *>(token)->view;
+    }
+    static void pin_detached(void *token) {
+      static_cast<Batch *>(token)->pinned.store(true);
+    }
   };
 
   const T *snapshot() const {

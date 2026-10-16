@@ -40,6 +40,8 @@ struct MMIXStartupUnwindService {
   long (*acquire)(void *, uintptr_t, MMIXUnwindImage *);
   long (*retain)(void *, uintptr_t, MMIXUnwindImage *);
   long (*drop)(void *, uintptr_t);
+  long (*lookup)(void *, uintptr_t, uintptr_t, MMIXUnwindImage *);
+  long (*pin)(void *, uintptr_t);
 };
 
 extern "C" bool
@@ -54,5 +56,9 @@ extern "C" __attribute__((visibility("hidden"))) bool
 __libunwind_mmix_retain_image(uintptr_t, MMIXUnwindImage *);
 extern "C" __attribute__((visibility("hidden"))) bool
 __libunwind_mmix_drop_image(uintptr_t);
+extern "C" __attribute__((visibility("hidden"))) bool
+__libunwind_mmix_lookup_image(uintptr_t, uintptr_t, MMIXUnwindImage *);
+extern "C" __attribute__((visibility("hidden"))) bool
+__libunwind_mmix_pin_image(uintptr_t);
 
 #endif

@@ -13,6 +13,7 @@
 
 #include "config.h"
 #include "libunwind_ext.h"
+#include "CursorLifetime.h"
 
 #include <stdlib.h>
 
@@ -95,6 +96,20 @@ _LIBUNWIND_HIDDEN int __unw_init_local(unw_cursor_t *cursor,
   return UNW_ESUCCESS;
 }
 _LIBUNWIND_WEAK_ALIAS(__unw_init_local, unw_init_local)
+
+// Internal owners explicitly copy/destroy cursors. Public raw-storage clients
+// have no destruction protocol and retain their existing lifetime policy.
+_LIBUNWIND_HIDDEN int __unw_copy_cursor(unw_cursor_t *to,
+                                      const unw_cursor_t *from) {
+  if (!to || !from || to == from || !_LIBUNWIND_CURSOR_COPY(to, from))
+    return UNW_EINVAL;
+  memcpy(to, from, sizeof(*to));
+  return UNW_ESUCCESS;
+}
+_LIBUNWIND_HIDDEN void __unw_destroy_cursor(unw_cursor_t *cursor) {
+  ((AbstractUnwindCursor *)cursor)->~AbstractUnwindCursor();
+  _LIBUNWIND_CURSOR_RESET(cursor);
+}
 
 /// Get value of specified register at cursor position in stack frame.
 _LIBUNWIND_HIDDEN int __unw_get_reg(unw_cursor_t *cursor, unw_regnum_t regNum,
@@ -276,6 +291,9 @@ _LIBUNWIND_HIDDEN int __unw_resume(unw_cursor_t *cursor) {
   __asan_handle_no_return();
 #endif
   AbstractUnwindCursor *co = (AbstractUnwindCursor *)cursor;
+  // Metadata/personality use is complete. MMIX restores only copied register
+  // state after this point; active application code still needs its own owner.
+  _LIBUNWIND_CURSOR_FINISH(cursor);
   co->jumpto();
   return UNW_EUNSPEC;
 }

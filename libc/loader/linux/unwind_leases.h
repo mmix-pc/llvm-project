@@ -151,6 +151,29 @@ public:
     slot->token.store(0);
     return 0;
   }
+  long lookup(uintptr_t token, uintptr_t pc, UnwindImageView &out) {
+    out = {};
+    Slot *slot = claim(token);
+    if (!slot)
+      return EINVAL;
+    const auto *snapshot = Lease::view_detached(slot->snapshot);
+    long error = snapshot->unwind->images.find(pc, out);
+    if (!error)
+      out.token = token; // Borrowed view, not an additional owner.
+    slot->token.store(token);
+    return error;
+  }
+  long pin(uintptr_t token) {
+    Slot *slot = claim(token);
+    if (!slot)
+      return EINVAL;
+    Lease::pin_detached(slot->snapshot);
+    Lease::release_detached(slot->snapshot);
+    slot->snapshot = nullptr;
+    slot->view = {};
+    slot->token.store(0);
+    return 0;
+  }
 };
 
 } // namespace loader

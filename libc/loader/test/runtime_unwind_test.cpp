@@ -81,6 +81,9 @@ static void *hold_lease(void *opaque) {
   while (!reader.finish.load())
     sched_yield();
   check(copy.eh_frame_header == 0x300c00);
+  UnwindImageView borrowed{};
+  check(!reader.scopes.unwind_leases.lookup(copy.token, 0x302000, borrowed));
+  check(borrowed.token == copy.token);
   const auto *ranges = reinterpret_cast<const UnwindReadableRange *>(
       copy.readable_ranges);
   check(copy.range_count == 3 && ranges[0].address == 0x300000);
@@ -143,6 +146,13 @@ static void checked_leases() {
     check(!pthread_join(worker, nullptr));
   check(scopes.readers_drained(&late.record));
   check(!scopes.collect_snapshots());
+  check(!acquire_runtime_unwind_image(&scopes, 0x102000, &copy));
+  check(!scopes.unwind_leases.pin(copy.token));
+  check(!scopes.active_readers());
+  check(drop_runtime_unwind_image(&scopes, copy.token) == EINVAL);
+  UnwindImageView resident_view{};
+  check(!scopes.snapshot()->unwind->images.find(0x102000, resident_view));
+  check(scopes.owns_unwind_token(resident_view.token));
 }
 static void *read(void *opaque) {
   auto &shared = *static_cast<Readers *>(opaque);

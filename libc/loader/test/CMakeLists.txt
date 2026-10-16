@@ -48,6 +48,14 @@ target_link_libraries(loader-runtime-unwind-test PRIVATE Threads::Threads)
 add_test(NAME loader-runtime-unwind COMMAND loader-runtime-unwind-test)
 set_tests_properties(loader-runtime-unwind PROPERTIES TIMEOUT 30)
 
+add_executable(loader-unwind-cursor-test unwind_cursor_test.cpp
+  ../../../libunwind/src/mmix/CursorLifetime.cpp
+  ../../../libunwind/src/mmix/StartupImages.cpp)
+target_compile_features(loader-unwind-cursor-test PRIVATE cxx_std_17)
+target_link_libraries(loader-unwind-cursor-test PRIVATE Threads::Threads)
+add_test(NAME loader-unwind-cursor COMMAND loader-unwind-cursor-test)
+set_tests_properties(loader-unwind-cursor PROPERTIES TIMEOUT 30)
+
 add_executable(loader-thread-tls-test thread_tls_test.cpp
   ../linux/thread_tls.cpp ../linux/runtime_tls.cpp ../linux/dtv.cpp
   ../linux/tls_allocation.cpp ../linux/tls_layout.cpp ../linux/runtime_scopes.cpp

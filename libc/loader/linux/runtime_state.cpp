@@ -188,6 +188,22 @@ void RuntimeState::services(LoaderServices &out, StartupUnwindImages *unwind) {
     return drop_runtime_unwind_image(&static_cast<RuntimeState *>(p)->scopes,
                                      token);
   };
+  out.lookup_unwind_lease = [](void *p, uintptr_t token, uintptr_t pc,
+                               UnwindImageView *v) -> long {
+    if (!v)
+      return EINVAL;
+    auto &state = *static_cast<RuntimeState *>(p);
+    long error = state.scopes.unwind_leases.lookup(token, pc, *v);
+    if (error == ENOENT && state.startup_unwind) {
+      error = find_unwind_image(state.startup_unwind, pc, v);
+      if (!error)
+        v->token = token;
+    }
+    return error;
+  };
+  out.pin_unwind_lease = [](void *p, uintptr_t token) {
+    return static_cast<RuntimeState *>(p)->scopes.unwind_leases.pin(token);
+  };
   out.finalize_startup = [](void *p, LoaderCancellation hooks) {
     if (static_cast<RuntimeState *>(p)->api.finalize(hooks))
       fatal_startup();

@@ -28,6 +28,7 @@
 #include "config.h"
 #include "libunwind.h"
 #include "libunwind_ext.h"
+#include "CursorLifetime.h"
 #include "shadow_stack_unwind.h"
 #include "unwind.h"
 
@@ -471,6 +472,7 @@ _Unwind_RaiseException(_Unwind_Exception *exception_object) {
                        (void *)exception_object);
   unw_context_t uc;
   unw_cursor_t cursor;
+  _LIBUNWIND_CURSOR_SCOPE(cursor);
   if (__unw_getcontext(&uc) != UNW_ESUCCESS)
     return _URC_FATAL_PHASE1_ERROR;
 
@@ -506,6 +508,7 @@ _Unwind_Resume(_Unwind_Exception *exception_object) {
   _LIBUNWIND_TRACE_API("_Unwind_Resume(ex_obj=%p)", (void *)exception_object);
   unw_context_t uc;
   unw_cursor_t cursor;
+  _LIBUNWIND_CURSOR_SCOPE_WITH_STOP(cursor, exception_object->private_1);
   if (__unw_getcontext(&uc) != UNW_ESUCCESS)
     _LIBUNWIND_ABORT("_Unwind_Resume() could not capture context");
 
@@ -532,6 +535,7 @@ _Unwind_ForcedUnwind(_Unwind_Exception *exception_object,
                        (void *)exception_object, (void *)(uintptr_t)stop);
   unw_context_t uc;
   unw_cursor_t cursor;
+  _LIBUNWIND_CURSOR_SCOPE_WITH_STOP(cursor, stop);
   if (__unw_getcontext(&uc) != UNW_ESUCCESS)
     return _URC_FATAL_PHASE2_ERROR;
 

@@ -15,6 +15,9 @@
 #include <asm/unistd.h>
 #include <libunwind.h>
 #include <unwind.h>
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "mmix/CursorLifetime.h"
+#endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
 #include "cancellation_point.h"
 #endif
@@ -43,6 +46,10 @@ uint64_t current_chain() {
 capture_root(ThreadControl &control) {
   unw_context_t context;
   unw_cursor_t cursor;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  MMIXCursorLifetime lifetime{};
+  __libunwind_mmix_cursor_begin(&lifetime, &cursor);
+#endif
   unw_proc_info_t procedure;
   unw_word_t ro, sp;
   if (unw_getcontext(&context) || unw_init_local(&cursor, &context) ||
@@ -67,6 +74,9 @@ capture_root(ThreadControl &control) {
   root.procedure = procedure.start_ip;
   root.chain = current_chain();
   root.active = true;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  __libunwind_mmix_cursor_end(&lifetime);
+#endif
 }
 
 _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
@@ -93,6 +103,10 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
       __builtin_trap();
     control->unwind_root.active = false;
     state.active = false;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    // No more cursor metadata is read after the terminal root decision.
+    __libunwind_mmix_cursor_finish(context);
+#endif
     // Never return through consumed frames or release the current backing.
     complete_thread_cleanup(*control, ThreadReturnValue(state.result));
   }
@@ -140,6 +154,9 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
                         reinterpret_cast<long>(&callback_mask), 0,
                         sizeof(callback_mask)))
     __builtin_trap();
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  __libunwind_mmix_set_managed_stop(reinterpret_cast<uintptr_t>(&stop));
+#endif
   _Unwind_ForcedUnwind(&forced.exception, stop, &forced);
   __builtin_trap();
 }

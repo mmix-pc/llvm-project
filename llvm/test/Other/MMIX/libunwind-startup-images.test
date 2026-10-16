@@ -7,6 +7,12 @@
 #--- check.cpp
 #include "AddressSpace.hpp"
 #include "mmix/StartupImages.cpp"
+// This fixture isolates section validation; cursor lifetime has its own native
+// fixture because the interpreter does not implement native thread-local state.
+bool mmixFindCursorImage(uintptr_t pc, MMIXUnwindImage &view, bool &owned) {
+  owned = false;
+  return __libunwind_mmix_find_startup_image(pc, &view);
+}
 
 #define CHECK(C) do { if (!(C)) return __LINE__; } while (false)
 
@@ -57,6 +63,15 @@ static long drop(void *, uintptr_t token) {
   owners[token] = {};
   return 0;
 }
+static long lookup(void *, uintptr_t token, uintptr_t pc, MMIXUnwindImage *out) {
+  if (token >= 128 || !owners[token].token)
+    return 22;
+  long error = find(nullptr, pc, out);
+  if (!error)
+    out->token = token;
+  return error;
+}
+static long pin(void *p, uintptr_t token) { return drop(p, token); }
 int main() {
   for (unsigned i = 0; i < 2; ++i) {
     auto &image = images[i];
@@ -92,7 +107,7 @@ int main() {
   };
   CHECK(!lookup(images[0])); // Never fall back to the main ELF without adoption.
   MMIXStartupUnwindService input{sizeof(input), 1, images, find, release,
-                                 acquire, retain, drop};
+                                 acquire, retain, drop, ::lookup, pin};
   CHECK(!__libunwind_mmix_adopt_startup_images(nullptr));
   input.process_resident = 0;
   CHECK(!__libunwind_mmix_adopt_startup_images(&input));

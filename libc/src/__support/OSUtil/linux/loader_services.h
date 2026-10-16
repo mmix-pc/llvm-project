@@ -203,6 +203,9 @@ struct LoaderServices {
   long (*acquire_unwind_image)(void *, uintptr_t, UnwindImageView *) = nullptr;
   long (*retain_unwind_image)(void *, uintptr_t, UnwindImageView *) = nullptr;
   long (*drop_unwind_image)(void *, uintptr_t) = nullptr;
+  long (*lookup_unwind_lease)(void *, uintptr_t, uintptr_t,
+                              UnwindImageView *) = nullptr;
+  long (*pin_unwind_lease)(void *, uintptr_t) = nullptr;
 };
 
 struct LibcBootstrap {
@@ -213,7 +216,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 248);
+static_assert(sizeof(LoaderServices) == 264);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

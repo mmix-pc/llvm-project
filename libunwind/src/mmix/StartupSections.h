@@ -11,19 +11,24 @@
 #define LIBUNWIND_MMIX_STARTUP_SECTIONS_H
 
 #include "StartupImages.h"
+#include "CursorLifetime.h"
 
 namespace libunwind {
 template <typename A, typename S>
 bool findMMIXStartupUnwindSections(A &addressSpace, uintptr_t pc, S &info) {
   MMIXUnwindImage view{};
-  if (!__libunwind_mmix_find_startup_image(pc, &view))
+  bool owned = false;
+  if (!mmixFindCursorImage(pc, view, owned))
     return false;
-  // Tokens witness permanent publication, not temporary reference counts.
-  // Releasing the query does not invalidate cursor copies or later FDE use.
+  // Owned queries borrow their cursor's lease through later FDE/LSDA use.
+  // Public raw cursors retain the conservative resident witness protocol.
   struct Query {
     uintptr_t token;
-    ~Query() { __libunwind_mmix_release_startup_image(token); }
-  } query{view.token};
+    ~Query() {
+      if (token)
+        __libunwind_mmix_release_startup_image(token);
+    }
+  } query{owned ? 0 : view.token};
   if (!view.token || !view.readable_ranges || !view.range_count ||
       view.readable_ranges % alignof(MMIXUnwindReadableRange) ||
       view.phdr_address % alignof(Elf64_Phdr) ||

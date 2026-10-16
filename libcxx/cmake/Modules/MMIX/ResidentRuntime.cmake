@@ -116,10 +116,11 @@ set(MMIX_LINUX_RESIDENT_RUNTIME_VALIDATED TRUE)
 
 function(mmix_resident_providers)
   target_sources(unwind_static_objects PRIVATE
-    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../../../libunwind/src/mmix/StartupImages.cpp")
+    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../../../libunwind/src/mmix/StartupImages.cpp"
+    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../../../libunwind/src/mmix/CursorLifetime.cpp")
   set(out "${CMAKE_BINARY_DIR}/mmix-resident-runtime")
   file(GENERATE OUTPUT "${out}/unwind.map" CONTENT
-    "{ global: _Unwind_*; unw_*; __gcc_personality_v0; __libunwind_mmix_adopt_startup_images; local: *; };\n")
+    "{ global: _Unwind_*; unw_*; __gcc_personality_v0; __libunwind_mmix_adopt_startup_images; __libunwind_mmix_cursor_begin; __libunwind_mmix_cursor_end; __libunwind_mmix_cursor_finish; __libunwind_mmix_set_managed_stop; local: *; };\n")
   file(GENERATE OUTPUT "${out}/cleanup.map" CONTENT
     "{ global: __cxa_begin_catch; __gxx_personality_v0; _ZSt9terminatev; local: *; };\n")
   add_custom_command(OUTPUT "${out}/libunwind.so.1"
