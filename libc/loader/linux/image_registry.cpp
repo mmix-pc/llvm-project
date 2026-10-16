@@ -8,6 +8,7 @@
 
 #include "loader/linux/image_registry.h"
 #include "hdr/errno_macros.h"
+#include "loader/linux/dynamic.h"
 #include "src/__support/CPP/new.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -185,7 +186,12 @@ long ImageRegistry::prepare(Transaction &transaction,
   for (size_t i = 0; i < images.size(); ++i) {
     tls[i].module_id = first + i;
     tls[i].generation = generation;
-    new (records + i) Image{*images[i], tls[i], !current};
+    DynamicInfo dynamic;
+    bool nodelete = DynamicInfo::open(*images[i], dynamic) == DynamicError::None &&
+                    (dynamic.value(DynamicTag::Flags1) & DF_1_NODELETE);
+    new (records + i) Image{*images[i], tls[i], !current,
+                           {tls[i].module_id, tls[i].generation,
+                            !current || nodelete}};
     new (entries + old_count + i) const Image *(records + i);
   }
   transaction.candidate =

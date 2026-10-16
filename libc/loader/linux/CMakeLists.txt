@@ -122,8 +122,8 @@ add_object_library(
 add_object_library(
   image_registry
   SRCS image_registry.cpp
-  HDRS image_registry.h
-  DEPENDS .arena .io .tls_layout libc.hdr.errno_macros
+  HDRS image_registry.h module_ownership.h
+  DEPENDS .arena .io .tls_layout .dynamic libc.hdr.errno_macros
     libc.hdr.func.free libc.src.__support.common
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )

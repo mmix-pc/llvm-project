@@ -10,6 +10,16 @@ enable_testing()
 find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
 
+add_executable(loader-module-ownership-test module_ownership_test.cpp
+  ../linux/arena.cpp)
+target_include_directories(loader-module-ownership-test PRIVATE ../..)
+target_compile_definitions(loader-module-ownership-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-module-ownership-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-module-ownership-test PRIVATE cxx_std_17)
+target_link_libraries(loader-module-ownership-test PRIVATE Threads::Threads)
+add_test(NAME loader-module-ownership COMMAND loader-module-ownership-test)
+set_tests_properties(loader-module-ownership PROPERTIES TIMEOUT 30)
+
 add_executable(loader-runtime-initialization-test runtime_initialization_test.cpp
   ../linux/runtime_initialization.cpp ../linux/locks.cpp
   ../linux/arena.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
@@ -115,7 +125,7 @@ target_link_libraries(loader-locks-test PRIVATE Threads::Threads)
 add_test(NAME loader-locks COMMAND loader-locks-test)
 set_tests_properties(loader-locks PROPERTIES TIMEOUT 30)
 add_executable(loader-image-registry-test image_registry_test.cpp
-  ../linux/image_registry.cpp ../linux/arena.cpp ../linux/tls_layout.cpp
+  ../linux/image_registry.cpp ../linux/dynamic.cpp ../linux/arena.cpp ../linux/tls_layout.cpp
   ../linux/elf.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-image-registry-test PRIVATE ../..)
 target_compile_definitions(loader-image-registry-test PRIVATE LIBC_NAMESPACE=__llvm_libc)

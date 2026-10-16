@@ -532,7 +532,8 @@ static int runtime_tests() {
   CHECK(!environment.parse(false, env, text("/origin")));
   RuntimeGraph graph(page);
   rewind();
-  ImageRegistry::Image foreign = *snapshot->images[0];
+  const auto &original = *snapshot->images[0];
+  ImageRegistry::Image foreign{original.elf, original.tls, original.startup};
   CHECK(graph.build(*snapshot, foreign, text("B.so"), environment).error ==
         -EINVAL);
   CHECK(!calls && live() == resident_live);

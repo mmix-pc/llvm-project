@@ -11,6 +11,7 @@
 
 #include "loader/linux/arena.h"
 #include "loader/linux/io.h"
+#include "loader/linux/module_ownership.h"
 #include "loader/linux/tls_layout.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -33,6 +34,7 @@ public:
     ElfImage elf;
     StartupTLSModule tls;
     bool startup;
+    mutable ModuleOwnership ownership{tls.module_id, tls.generation, startup};
     bool discovered = false, identity_known = false;
     FileIdentity identity{};
     Bytes path{};

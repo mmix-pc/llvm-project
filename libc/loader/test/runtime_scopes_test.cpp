@@ -265,7 +265,7 @@ extern "C" int main() {
   check(Scopes::caller(*scopes.snapshot(), a.record.elf.load_bias() + 0x2001,
                        caller) == SymbolError::Scope);
   check(Scopes::caller(*scopes.snapshot(), 0, caller) == SymbolError::Scope);
-  Image collision = main.record;
+  Image collision{main.record.elf, main.record.tls, main.record.startup};
   const Image *overlapping[] = {&main.record, &collision};
   ImageRegistry::Snapshot conflict{1, overlapping};
   Scopes::Snapshot ambiguous = *initial;

@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "elf_fixture.h"
+#include "dynamic_fixture.h"
 #include "loader/linux/image_registry.h"
 #include "loader/linux/syscall.h"
 #include <errno.h>
@@ -129,6 +130,8 @@ extern "C" int main() {
   check(first.abort() == -EBUSY && registry.publish(first) == -EINVAL);
   check(registry.prepare(first, batch) == -EBUSY);
   check(old->find(1, 1) == old->images[0]);
+  check(old->images[0]->ownership.is_permanent());
+  check(old->images[1]->ownership.is_permanent());
   check(!old->find(1, 2) && !old->find(0, 0));
 
   ImageRegistry::Transaction a(host_page), b(host_page);
@@ -143,6 +146,7 @@ extern "C" int main() {
   check(a.view()->images[0] == old->images[0]);
   check(a.view()->images[2]->tls.tp_offset == 0);
   check(!a.view()->images[2]->startup);
+  check(!a.view()->images[2]->ownership.is_permanent());
   check(a.view()->images[2]->tls.alignment == 64);
   check(a.view()->images[2]->tls.residue == 8);
   check(registry.snapshot() == old && old->images.size() == 2);
@@ -218,5 +222,17 @@ extern "C" int main() {
   check(!ids.reserve(2, id) && id == 1);
   check(ids.reserve(1, id) && id == ~uint64_t(0));
   check(!ids.can_reserve(1) && !ids.reserve(1, id));
+
+  DynamicFixture pinned;
+  ElfImage pinned_image;
+  check(ElfImage::open_file(pinned.view(), ImageRole::SharedObject, bias, page,
+                            pinned_image) == ElfError::None);
+  const ElfImage *pinned_batch[] = {&pinned_image};
+  ImageRegistry::Transaction nodelete(host_page);
+  check(!registry.prepare(nodelete, pinned_batch));
+  auto *pinned_record = nodelete.view()->images[nodelete.view()->images.size() - 1];
+  check(!pinned_record->startup && pinned_record->ownership.is_permanent());
+  check(pinned_record->ownership.retire() == -EBUSY);
+  check(!nodelete.abort());
   return 0;
 }
