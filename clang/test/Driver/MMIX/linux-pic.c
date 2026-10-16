@@ -10,7 +10,10 @@
 // RUN: %clang --target=mmix-unknown-linux -fno-pic -fPIC -### -c %s 2>&1 | FileCheck %s --check-prefix=LARGE
 // RUN: %clang --target=mmix-unknown-linux -fPIC -fpie -### -c %s 2>&1 | FileCheck %s --check-prefixes=SMALL,PIE
 // RUN: %clang --target=mmix-unknown-linux -fPIE -fpic -### -c %s 2>&1 | FileCheck %s --check-prefix=SMALL --implicit-check-not=pic-is-pie
-// RUN: %clang --target=mmix-unknown-linux -### -c %s 2>&1 | FileCheck %s --check-prefix=STATIC
+// RUN: %clang --target=mmix-unknown-linux -### -c %s 2>&1 | FileCheck %s --check-prefixes=LARGE,PIE
+// RUN: %clang --target=mmix-unknown-linux -static -### -c %s 2>&1 | FileCheck %s --check-prefix=STATIC
+// RUN: %clang --target=mmix-unknown-linux -no-pie -### -c %s 2>&1 | FileCheck %s --check-prefixes=LARGE,PIE
+// RUN: %clang --target=mmix-unknown-linux -E -dM %s | FileCheck %s --check-prefixes=MACRO-LARGE,MACRO-PIE-LARGE
 // RUN: %clang --target=mmix-unknown-linux -fpic -E -dM %s | FileCheck %s --check-prefix=MACRO-SMALL --implicit-check-not=__PIE__
 // RUN: %clang --target=mmix-unknown-linux -fPIC -E -dM %s | FileCheck %s --check-prefix=MACRO-LARGE --implicit-check-not=__PIE__
 // RUN: %clang --target=mmix-unknown-linux -fpie -E -dM %s | FileCheck %s --check-prefixes=MACRO-SMALL,MACRO-PIE-SMALL

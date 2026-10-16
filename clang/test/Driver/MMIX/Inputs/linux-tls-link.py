@@ -92,7 +92,7 @@ for alignment in (64, 16384):
                           ("lto-o2", ["-O2", "-flto=full"])):
         work = root / f"{alignment}-{mode}"
         work.mkdir(exist_ok=True)
-        cc = clang + ["--target=mmix-unknown-linux", "-ffreestanding",
+        cc = clang + ["--target=mmix-unknown-linux", "-static", "-ffreestanding",
                       "-nostdinc", f"-DALIGN={alignment}"] + options
         for source in ("consumer", "provider", "unused", "wrong"):
             run(cc + ["-c", root / (source + ".c"), "-o", work / (source + ".o")])

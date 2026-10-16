@@ -4,6 +4,10 @@
 // RUN: %clang --target=mmix-unknown-linux -c %t/main.s -o %t/main.o
 // RUN: %clang --target=mmix-unknown-linux -shared -nostdlib %t/provider.o -Wl,-soname,libprovider.so -o %t/provider.so
 // RUN: %clang --target=mmix-unknown-linux -pie -nostdlib -e entry %t/main.o %t/provider.so -o %t/pie
+// RUN: %clang --target=mmix-unknown-linux -nostdlib -e entry %t/main.o %t/provider.so -o %t/default
+// RUN: llvm-readobj -h --program-headers --dynamic-table %t/default | FileCheck %s --check-prefixes=PIE,MAIN
+// RUN: %clang --target=mmix-unknown-linux -no-pie -nostdlib -e entry %t/main.o %t/provider.so -o %t/default-exec
+// RUN: llvm-readobj -h --program-headers --dynamic-table %t/default-exec | FileCheck %s --check-prefixes=EXEC,MAIN
 // RUN: %clang --target=mmix-unknown-linux -no-pie -Wl,-Bdynamic -nostdlib -e entry %t/main.o %t/provider.so -o %t/exec
 // RUN: %clang --target=mmix-unknown-linux -no-pie -Xlinker -Bdynamic -nostdlib -Wl,-e,entry %t/main.o %t/provider.so -o %t/exec-xlinker
 // RUN: llvm-readobj -h --program-headers --dynamic-table %t/provider.so | FileCheck %s --check-prefix=DSO --implicit-check-not=PT_INTERP
@@ -11,13 +15,15 @@
 // RUN: llvm-readobj -h --program-headers --dynamic-table %t/exec %t/exec-xlinker | FileCheck %s --check-prefixes=EXEC,MAIN
 // RUN: llvm-readobj --string-dump=.interp %t/pie %t/exec %t/exec-xlinker | FileCheck %s --check-prefix=INTERP
 // RUN: %clang --target=mmix-unknown-linux -pie -nostdlib -e entry -### %t/main.o %t/provider.so 2>&1 | FileCheck %s --check-prefix=COMMAND --implicit-check-not=crt --implicit-check-not=libclang_rt --implicit-check-not=libc.a
-// RUN: %clang --target=mmix-unknown-linux -pie -no-pie -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=STATIC
+// RUN: %clang --target=mmix-unknown-linux -pie -no-pie -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=EXEC-COMMAND
 // RUN: %clang --target=mmix-unknown-linux -static -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=STATIC
-// RUN: %clang --target=mmix-unknown-linux -no-pie -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=STATIC
+// RUN: %clang --target=mmix-unknown-linux -no-pie -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=EXEC-COMMAND
 // RUN: not %clang --target=mmix-unknown-linux -shared -static -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=CONFLICT
 // RUN: not %clang --target=mmix-unknown-linux -shared -pie -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=CONFLICT
 // RUN: not %clang --target=mmix-unknown-linux -pie -r -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=CONFLICT
-// RUN: not %clang --target=mmix-unknown-linux -Wl,-Bdynamic -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=CONFLICT
+// RUN: %clang --target=mmix-unknown-linux -Wl,-Bdynamic -nostdlib -e entry -### %t/main.o 2>&1 | FileCheck %s --check-prefix=COMMAND
+// RUN: not %clang --target=mmix-unknown-linux -static -pie -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=CONFLICT
+// RUN: not %clang --target=mmix-unknown-linux -static -Wl,-Bdynamic -nostdlib -### %t/main.o 2>&1 | FileCheck %s --check-prefix=CONFLICT
 // RUN: not %clang --target=mmix-unknown-linux -pie -nostdlib -Wl,--no-dynamic-linker -### %t/main.o 2>&1 | FileCheck %s --check-prefix=FORWARD
 // RUN: not %clang --target=mmix-unknown-linux -pie -nostdlib -Wl,--dynamic-linker=/bad -### %t/main.o 2>&1 | FileCheck %s --check-prefix=FORWARD
 // RUN: not %clang --target=mmix-unknown-linux -pie -nostdlib -Wl,-Bstatic -### %t/main.o 2>&1 | FileCheck %s --check-prefix=FORWARD
@@ -47,6 +53,7 @@
 // COMMAND-SAME: "-z" "now" "-z" "relro" "-z" "text"
 // COMMAND-SAME: "-e" "entry"
 // STATIC: "-m" "elf64mmix_linux" "-static" "--no-dynamic-linker"
+// EXEC-COMMAND: "-m" "elf64mmix_linux" "--dynamic-linker=/lib/ld-llvm-mmix.so.1"
 // CONFLICT: error: unsupported option 'conflicting MMIX Linux link modes'
 // FORWARD: error: unsupported option
 // PROVIDER: error: the clang compiler does not support 'implicit system resources without --sysroot for MMIX Linux'

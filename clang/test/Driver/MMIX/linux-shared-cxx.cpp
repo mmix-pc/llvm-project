@@ -38,7 +38,7 @@ def check(args, error=False):
     result = subprocess.run(base + args, capture_output=True, text=True)
     assert (result.returncode != 0) == error, result.stderr
     return result.stderr
-for mode in (["-pie"], ["-shared"], ["-no-pie", "-Wl,-Bdynamic"]):
+for mode in ([], ["-pie"], ["-shared"], ["-no-pie"], ["-no-pie", "-Wl,-Bdynamic"]):
     for pthread in ([], ["-pthread"]):
         text = check(mode + pthread)
         order = [str(rt / "clang_rt.crtbegin.o"), str(obj), str(lib / "libc++.so"),
@@ -56,7 +56,7 @@ for mode in (["-pie"], ["-shared"], ["-no-pie", "-Wl,-Bdynamic"]):
     assert "crtbegin" not in text and "libc++.so" not in text
     text = check(mode + ["-flto=full", "-O2"])
     assert "-relocation-model=pic" in text and "-plugin-opt=O2" in text
-text = check([])
+text = check(["-static"])
 assert str(lib / "libc++.a") in text and str(lib / "libc++.so") not in text
 for path in (lib / "libc++.so", lib / "libc++abi.so", lib / "libunwind.so",
              rt / "clang_rt.crtbegin.o", rt / "clang_rt.crtend.o"):

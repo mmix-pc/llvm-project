@@ -26,7 +26,7 @@ public:
                      const llvm::opt::ArgList &Args);
 
   bool isPICDefault() const override { return false; }
-  bool isPIEDefault(const llvm::opt::ArgList &) const override { return false; }
+  bool isPIEDefault(const llvm::opt::ArgList &Args) const override;
   bool isPICDefaultForced() const override { return false; }
   bool HasNativeLLVMSupport() const override { return true; }
   // Native Linux system and environment search is not implemented yet.

@@ -4,59 +4,59 @@
 // RUN: cp %t/profile %t/root/usr/lib/mmix-libc-profile
 // These empty files test selection, not the package producer's archive audit.
 // RUN: touch %t/root/usr/include/pthread.h %t/root/usr/lib/libc.a %t/root/usr/lib/crt1.o %t/root/usr/lib/libc++.a %t/root/usr/lib/libc++abi.a %t/root/usr/lib/libunwind.a %t/root/usr/lib/libm.a %t/root/usr/include/c++/v1/__config_site %t/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o %t/resource/lib/mmix-unknown-linux/clang_rt.crtend.o %t/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a %t/input.o
-// RUN: %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=CC1
-// RUN: %clangxx --target=mmix-unknown-linux-unknown --sysroot=%t/root -resource-dir %t/resource -pthread -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=CC1
-// RUN: %clangxx --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-cxx-exceptions -fexceptions -fno-unwind-tables -funwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=CC1
-// RUN: %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -flto=full -O2 -S -emit-llvm %t/input.c -o - | FileCheck %s --check-prefix=IR
-// RUN: %clangxx --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=LINK --implicit-check-not=-lpthread --implicit-check-not=-lgcc
-// RUN: %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=C-LINK --implicit-check-not=libc++.a
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-cxx-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-unwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fignore-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fasynchronous-unwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread --unwindlib=none -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fsjlj-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fseh-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fwasm-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=CC1
+// RUN: %clangxx -static --target=mmix-unknown-linux-unknown --sysroot=%t/root -resource-dir %t/resource -pthread -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=CC1
+// RUN: %clangxx -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-cxx-exceptions -fexceptions -fno-unwind-tables -funwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=CC1
+// RUN: %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -flto=full -O2 -S -emit-llvm %t/input.c -o - | FileCheck %s --check-prefix=IR
+// RUN: %clangxx -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=LINK --implicit-check-not=-lpthread --implicit-check-not=-lgcc
+// RUN: %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=C-LINK --implicit-check-not=libc++.a
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-cxx-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-unwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fignore-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fasynchronous-unwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread --unwindlib=none -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fsjlj-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fseh-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fwasm-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -shared -### %t/input.c 2>&1 | FileCheck %s --check-prefix=DYNAMIC
-// RUN: %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -ftls-model=initial-exec -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=TLS
+// RUN: %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -ftls-model=initial-exec -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=TLS
 // RUN: mv %t/root/usr/lib/libc.a %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/root/usr/lib/libc.a
 // RUN: mv %t/root/usr/lib/crt1.o %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/root/usr/lib/crt1.o
 // RUN: mv %t/root/usr/lib/libc++.a %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/root/usr/lib/libc++.a
 // RUN: mv %t/root/usr/lib/libc++abi.a %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/root/usr/lib/libc++abi.a
 // RUN: mv %t/root/usr/lib/libunwind.a %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/root/usr/lib/libunwind.a
 // RUN: mv %t/root/usr/lib/libm.a %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/root/usr/lib/libm.a
 // RUN: mv %t/root/usr/include/c++/v1/__config_site %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/root/usr/include/c++/v1/__config_site
 // RUN: mv %t/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o
 // RUN: mv %t/resource/lib/mmix-unknown-linux/clang_rt.crtend.o %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/resource/lib/mmix-unknown-linux/clang_rt.crtend.o
 // RUN: mv %t/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a %t/saved
-// RUN: not %clang --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -nostdlib -L%t -B%t -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=MISSING
 // RUN: mv %t/saved %t/resource/lib/mmix-unknown-linux/libclang_rt.builtins.a
 // RUN: cp %t/stale %t/root/usr/lib/mmix-libc-profile
-// RUN: not %clangxx --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=STALE
+// RUN: not %clangxx -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=STALE
 // RUN: cp %t/wrong %t/root/usr/lib/mmix-libc-profile
-// RUN: not %clangxx --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=WRONG
+// RUN: not %clangxx -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=WRONG
 // RUN: rm %t/root/usr/lib/mmix-libc-profile
-// RUN: not %clangxx --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=MISSING
+// RUN: not %clangxx -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -### %t/input.o 2>&1 | FileCheck %s --check-prefix=MISSING
 
 // CC1: "-cc1"
 // CC1-SAME: "-ftls-model=local-exec" "-fexceptions" "-funwind-tables=1"

@@ -89,7 +89,7 @@ for triple in ("mmix-unknown-linux", "mmix-unknown-linux-unknown",
     for opt in ("-O0", "-O2"):
         work = root / (triple + opt)
         work.mkdir(exist_ok=True)
-        cc = clang + ["--target=" + triple, opt, "-ffreestanding", "-nostdinc",
+        cc = clang + ["--target=" + triple, "-static", opt, "-ffreestanding", "-nostdinc",
                       "-fno-stack-protector", "-ffunction-sections", "-fdata-sections"]
         for source, output in (("entry.c", "entry.o"), ("provider.c", "provider.o"),
                                ("consumer.cpp", "cpp.o"), ("consumer.ll", "ir.o"),

@@ -1,21 +1,22 @@
 // REQUIRES: mmix-registered-target
-// RUN: %clang --target=mmix-unknown-linux -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
-// RUN: %clang --target=mmix-unknown-linux-unknown -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
+// RUN: %clang --target=mmix-unknown-linux -S -emit-llvm %s -o - | FileCheck %s --check-prefix=PIC
+// RUN: %clang -static --target=mmix-unknown-linux -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
+// RUN: %clang -static --target=mmix-unknown-linux-unknown -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
 // RUN: %clang --target=mmix-unknown-unknown -### -c %s 2>&1 | FileCheck %s --check-prefix=GENERIC
-// RUN: %clang --target=mmix-unknown-linux -ftls-model=global-dynamic -ftls-model=local-exec -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
+// RUN: %clang -static --target=mmix-unknown-linux -ftls-model=global-dynamic -ftls-model=local-exec -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
 // RUN: %clang --target=mmix-unknown-linux -ftls-model=local-exec -ftls-model=global-dynamic -### -c %s 2>&1 | FileCheck %s --check-prefix=GD
 // RUN: %clang --target=mmix-unknown-linux -ftls-model=initial-exec -### -c %s 2>&1 | FileCheck %s --check-prefix=IE
 // RUN: %clang --target=mmix-unknown-linux -ftls-model=local-dynamic -### -c %s 2>&1 | FileCheck %s --check-prefix=LD
 // RUN: not %clang --target=mmix-unknown-linux -femulated-tls -### -c %s 2>&1 | FileCheck %s --check-prefix=EMULATED
-// RUN: %clang --target=mmix-unknown-linux -femulated-tls -fno-emulated-tls -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
+// RUN: %clang -static --target=mmix-unknown-linux -femulated-tls -fno-emulated-tls -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
 // RUN: not %clang --target=mmix-unknown-linux -fno-emulated-tls -femulated-tls -### -c %s 2>&1 | FileCheck %s --check-prefix=EMULATED
 // RUN: %clang --target=mmix-unknown-linux -fPIC -S -emit-llvm %s -o - | FileCheck %s --check-prefix=PIC
 // RUN: %clang --target=mmix-unknown-linux -fPIE -S -emit-llvm %s -o - | FileCheck %s --check-prefix=PIC
-// RUN: %clang --target=mmix-unknown-linux -fPIC -fno-pic -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
+// RUN: %clang -static --target=mmix-unknown-linux -fPIC -fno-pic -### -c %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
 // RUN: not %clang --target=mmix-unknown-linux -shared -### %s 2>&1 | FileCheck %s --check-prefix=SHARED
 // RUN: not %clang --target=mmix-unknown-linux -pthread -### -c %s 2>&1 | FileCheck %s --check-prefix=THREAD
-// RUN: %clang --target=mmix-unknown-linux -ffreestanding -O0 -S -emit-llvm %s -o - | FileCheck %s --check-prefix=IR
-// RUN: %clang --target=mmix-unknown-linux -ffreestanding -O2 -c %s -o %t.o
+// RUN: %clang -static --target=mmix-unknown-linux -ffreestanding -O0 -S -emit-llvm %s -o - | FileCheck %s --check-prefix=IR
+// RUN: %clang -static --target=mmix-unknown-linux -ffreestanding -O2 -c %s -o %t.o
 // RUN: llvm-readobj -r %t.o | FileCheck %s --check-prefix=OBJ
 
 // DEFAULT: "-cc1"

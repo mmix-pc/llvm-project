@@ -30,6 +30,12 @@ MMIXLinuxToolChain::GetExceptionModel(const ArgList &) const {
   return llvm::ExceptionHandling::DwarfCFI;
 }
 
+bool MMIXLinuxToolChain::isPIEDefault(const ArgList &Args) const {
+  // -no-pie changes the link role without disabling position-independent code.
+  return !Args.hasArg(options::OPT_static, options::OPT_static_pie,
+                     options::OPT_shared, options::OPT_r);
+}
+
 namespace {
 bool requestsDynamicLink(const ArgList &Args) {
   if (Args.hasArg(options::OPT_shared) ||
@@ -40,7 +46,8 @@ bool requestsDynamicLink(const ArgList &Args) {
     for (StringRef V : A->getValues())
       if (V == "-Bdynamic")
         return true;
-  return false;
+  return !Args.hasArg(options::OPT_static, options::OPT_static_pie,
+                     options::OPT_r);
 }
 
 bool diagnoseMissing(const ToolChain &TC, StringRef Path, bool Directory) {
@@ -105,18 +112,16 @@ public:
       return;
     }
     const bool Shared = Args.hasArg(options::OPT_shared);
-    const bool PIE = Args.hasFlag(options::OPT_pie, options::OPT_no_pie, false);
-    bool DynamicInputs = false;
-    // Mode selection belongs to the Driver, except the explicit -Bdynamic
-    // selector for dynamic ET_EXEC. Do not allow forwarded role overrides.
+    const bool PIE = Args.hasFlag(options::OPT_pie, options::OPT_no_pie,
+                                 TC.isPIEDefault(Args));
+    // Mode selection belongs to the Driver. Accept -Bdynamic for compatibility,
+    // but do not allow forwarded role overrides.
     for (const Arg *A :
          Args.filtered(options::OPT_Wl_COMMA, options::OPT_Xlinker)) {
       for (StringRef V : A->getValues()) {
         StringRef Option = V.split('=').first;
-        if (V == "-Bdynamic") {
-          DynamicInputs = true;
+        if (V == "-Bdynamic")
           continue;
-        }
         if (Option == "-shared" || Option == "--shared" || Option == "-pie" ||
             Option == "--pie" || Option == "-dy" ||
             Option == "-static" || Option == "--static" ||
@@ -135,11 +140,9 @@ public:
       }
     }
 
-    const bool Dynamic = Shared || PIE || DynamicInputs;
+    const bool Dynamic = requestsDynamicLink(Args);
     if ((Shared && PIE) ||
-        (Dynamic && (Relocatable || Args.hasArg(options::OPT_static))) ||
-        (DynamicInputs && !Shared && !PIE &&
-         !Args.hasArg(options::OPT_no_pie))) {
+        (Dynamic && (Relocatable || Args.hasArg(options::OPT_static)))) {
       D.Diag(diag::err_drv_unsupported_opt_for_target)
           << "conflicting MMIX Linux link modes" << TC.getTripleString();
       return;

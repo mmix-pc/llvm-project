@@ -44,7 +44,7 @@ shared = [str(root / ("usr/lib/" + name))
           for name in ("libc.so", "libunwind.so.1", "libc++abi.so.1")]
 crt = str(root / "usr/lib/Scrt1.o")
 static = [str(root / "usr/lib/crt1.o"), str(root / "usr/lib/libc.a")]
-for mode in (["-pie"], ["-no-pie", "-Wl,-Bdynamic"]):
+for mode in ([], ["-pie"], ["-no-pie"], ["-pie", "-no-pie"], ["-no-pie", "-Wl,-Bdynamic"]):
     for pthread in ([], ["-pthread"]):
         check([*mode, *pthread], [crt, *shared, "--dynamic-linker=/lib/ld-llvm-mmix.so.1",
               "--no-allow-shlib-undefined", "--exclude-libs=libclang_rt.builtins.a"],
@@ -58,7 +58,7 @@ for mode in (["-pie"], ["-no-pie", "-Wl,-Bdynamic"]):
     check([*mode, "--unwindlib=libunwind"], ["mmix-shared-cxx-profile"], error=True)
 check(["-shared"], [*shared, '"-shared"', '"--no-dynamic-linker"'], [crt, "crtbegin", "crtend"])
 check(["-shared", "-nodefaultlibs"], no=[crt, *shared, "builtins"])
-for args in ([], ["-static"], ["-no-pie"], ["-pie", "-no-pie"], ["-pthread", "-static"]):
+for args in (["-static"], ["-pthread", "-static"]):
     check(args, [*static, '"-static"'], [crt, *shared])
 check(["-no-pie", "-pie"], [crt, '"-pie"'])
 check(["-pie", "-static"], ["conflicting MMIX Linux link modes"], error=True)

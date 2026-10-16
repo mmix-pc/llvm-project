@@ -17,7 +17,7 @@
 // RUN: not %clang --target=mmix-unknown-linux  -### %t.o 2>&1 | FileCheck %s --check-prefix=LINK --implicit-check-not='"-cc1"' --implicit-check-not='"ld"' --implicit-check-not='"ld.lld"'
 // RUN: not %clang --target=mmix-unknown-linux -static -### %t.o 2>&1 | FileCheck %s --check-prefix=LINK --implicit-check-not='"-cc1"' --implicit-check-not='"ld"' --implicit-check-not='"ld.lld"'
 // RUN: %clang --target=mmix-unknown-linux -r -nostdlib -### %t.o 2>&1 | FileCheck %s --check-prefix=LINK-RELOC
-// RUN: %clang --target=mmix-unknown-linux -nostartfiles -nodefaultlibs -### %t.o 2>&1 | FileCheck %s --check-prefix=LINK-STATIC
+// RUN: %clang --target=mmix-unknown-linux -nostartfiles -nodefaultlibs -### %t.o 2>&1 | FileCheck %s --check-prefix=LINK-PIE
 // RUN: not %clang --target=mmix-unknown-linux -fuse-ld=lld -### %t.o 2>&1 | FileCheck %s --check-prefix=LINK --implicit-check-not='"-cc1"' --implicit-check-not='"ld"' --implicit-check-not='"ld.lld"'
 // RUN: not %clang --target=mmix-unknown-linux -fno-integrated-as -### -c %s 2>&1 | FileCheck %s --check-prefix=ASSEMBLER
 // RUN: %clang --target=mmix-unknown-linux -shared -### -c %s 2>&1 | FileCheck %s --check-prefix=COMPILE
@@ -36,14 +36,13 @@
 // RUN: %clang --target=mmix-unknown-unknown -nostdlib -r -### %t.o 2>&1 | FileCheck %s --check-prefix=BARE
 
 // COMPILE: "-cc1" "-triple" "mmix-unknown-linux"
-// COMPILE-SAME: "-mrelocation-model" "static"
 // ALIAS: "-cc1" "-triple" "mmix-unknown-linux-unknown"
-// ALIAS-SAME: "-mrelocation-model" "static"
+// ALIAS-SAME: "-mrelocation-model" "pic"
 // BUILTIN: "-internal-isystem" "{{.*}}/include"
 // ELF-COUNT-3: Format: elf64-mmix
 // LINK: error: the clang compiler does not support 'implicit system resources without --sysroot for MMIX Linux'
 // LINK-RELOC: "-m" "elf64mmix_linux" "-r"
-// LINK-STATIC: "-m" "elf64mmix_linux" "-static" "--no-dynamic-linker"
+// LINK-PIE: "-m" "elf64mmix_linux" "-pie" "--dynamic-linker=/lib/ld-llvm-mmix.so.1"
 // ASSEMBLER: error: the clang compiler does not support 'external assembly for MMIX Linux'
 // REJECT: error: unsupported option '{{.*}}' for target 'mmix-unknown-linux'
 // BARE: "{{.*}}ld.lld{{.*}}"
