@@ -25,3 +25,15 @@ function(mmix_shared_installation)
   mmix_install_shared_profile(mmix-shared-cxx-profile
     mmix-linux-shared-pthread-cxx mmix-shared-cxx)
 endfunction()
+
+function(mmix_install_shared_libc image)
+  mmix_install_shared_library("${image}" libc mmix-shared-libc)
+  mmix_install_shared_profile(mmix-shared-libc-profile
+    mmix-linux-shared-pthread-c mmix-shared-libc)
+  # Math entrypoints belong to libc. Dynamic -lm must not select the static
+  # libm.a script, which would introduce a second libc into the process.
+  set(directory "${CMAKE_CURRENT_BINARY_DIR}/mmix-install-links/mmix-shared-libc")
+  file(CREATE_LINK "libc.so.1" "${directory}/libm.so" SYMBOLIC)
+  install(FILES "${directory}/libm.so" DESTINATION lib
+    COMPONENT mmix-shared-libc EXCLUDE_FROM_ALL)
+endfunction()

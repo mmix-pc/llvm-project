@@ -14,9 +14,7 @@ foreach(pair "cxx_shared|libc++" "cxxabi_shared|libc++abi" "unwind_shared|libunw
   set_target_properties(${target} PROPERTIES IMPORTED_LOCATION "${INPUTS}/${name}.so.1")
 endforeach()
 mmix_shared_installation()
-mmix_install_shared_library("${INPUTS}/libc.so.1" libc mmix-shared-libc)
-mmix_install_shared_profile(mmix-shared-libc-profile
-  mmix-linux-shared-pthread-c mmix-shared-libc)
+mmix_install_shared_libc("${INPUTS}/libc.so.1")
 
 #--- check.py
 import os
@@ -47,8 +45,9 @@ for component in ("mmix-shared-libc", "mmix-shared-cxx"):
     paths = set((build / ("install_manifest_" + component + ".txt")).read_text().splitlines())
     assert not ownership & paths, "duplicate owner"
     ownership |= paths
-assert len(ownership) == 10
+assert len(ownership) == 11
 (prefix / "lib/libc.a").write_text("retained static archive")
+(prefix / "lib/libm.a").write_text("INPUT ( libc.a )\n")
 moved = root / "moved prefix"
 prefix.rename(moved)
 for name in ("libc", "libc++", "libc++abi", "libunwind"):
@@ -56,11 +55,17 @@ for name in ("libc", "libc++", "libc++abi", "libunwind"):
     assert link.readlink() == Path(name + ".so.1")
     assert link.read_text() == "provider " + name
 assert (moved / "lib/mmix-shared-cxx-profile").read_text() == "mmix-linux-shared-pthread-cxx\n"
+assert (moved / "lib/libm.so").readlink() == Path("libc.so.1")
+assert (moved / "lib/libm.so").read_text() == "provider libc"
+run("cmake", "--install", build, "--prefix", moved, "--component", "mmix-shared-libc")
+assert (moved / "lib/libm.a").read_text() == "INPUT ( libc.a )\n"
 run("cmake", "--install", build, "--prefix", moved, "--component", "mmix-shared-cxx")
 assert (moved / "lib/libc.a").read_text() == "retained static archive"
 env = dict(os.environ, DESTDIR=str(root / "destdir"))
 run("cmake", "--install", build, "--prefix", "/usr", "--component", "mmix-shared-cxx", env=env)
 assert (root / "destdir/usr/lib/libc++.so").readlink() == Path("libc++.so.1")
+run("cmake", "--install", build, "--prefix", "/usr", "--component", "mmix-shared-libc", env=env)
+assert (root / "destdir/usr/lib/libm.so").readlink() == Path("libc.so.1")
 (inputs / "libunwind.so.1").unlink()
 p = run("cmake", "--install", build, "--prefix", root / "missing",
         "--component", "mmix-shared-cxx", ok=False)

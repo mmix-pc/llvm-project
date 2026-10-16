@@ -165,8 +165,6 @@ function(mmix_resident_providers)
     "${libc_build}/mmix-shared-libc/link-inputs.cmake" "${builtins}"
     "${abi_provider}" "${unwind_provider}")
   add_custom_target(mmix_resident_runtime DEPENDS "${out}/libc.so.1")
-  mmix_install_shared_library("${out}/libc.so.1" libc mmix-shared-libc)
-  mmix_install_shared_profile(mmix-shared-libc-profile
-    mmix-linux-shared-pthread-c mmix-shared-libc)
+  mmix_install_shared_libc("${out}/libc.so.1")
 endfunction()
 cmake_language(DEFER CALL mmix_resident_providers)
