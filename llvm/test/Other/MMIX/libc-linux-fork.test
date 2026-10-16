@@ -79,6 +79,7 @@ for missing in [None, *variables]:
 #--- semantics.cpp
 #include "src/unistd/linux/mmix/fork.cpp"
 #include "src/__support/threads/thread.cpp"
+#include "src/__support/threads/tss.cpp"
 #include "src/__support/threads/fork_callbacks.cpp"
 #include "src/__support/threads/linux/mmix/main_thread.cpp"
 #include "src/__support/OSUtil/linux/exit.cpp"

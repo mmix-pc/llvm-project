@@ -15,6 +15,7 @@ common = ["clang", "-cc1", "-std=c++17", "-ffreestanding",
           "-I", str(root), "-I", str(libc), "-I", str(libc / "include"), "-DLIBC_FULL_BUILD",
           "-DLIBC_NAMESPACE=state_test", "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE"]
 sources = [libc / "src/__support/threads/thread.cpp",
+           libc / "src/__support/threads/tss.cpp",
            libc / "src/__support/threads/linux/mmix/main_thread.cpp",
            libc.parent / "libcxx/src/support/mmix/linux/ThreadState.cpp",
            root / "test.cpp"]

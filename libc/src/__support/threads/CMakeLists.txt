@@ -136,6 +136,15 @@ add_header_library(
 )
 
 if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.thread)
+  set(thread_tss_source tss.cpp)
+  set(thread_tss_dependencies)
+  if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_MMIX_BUILD_SHARED_LIBC)
+    set(thread_tss_source linux/mmix/tss.cpp)
+    set(thread_tss_dependencies
+      .linux.mmix.loader_cancellation
+      libc.src.__support.OSUtil.linux.mmix.dynamic_tls
+      libc.src.__support.CPP.new libc.src.stdlib.malloc libc.src.stdlib.free)
+  endif()
   if(TARGET libc.src.__support.threads.linux.mmix.tls_destructors)
     set(thread_atexit_dependency .linux.mmix.tls_destructors)
     set(thread_atexit_options -DLIBC_MMIX_TLS_DESTRUCTORS)
@@ -144,10 +153,14 @@ if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.thread)
     thread
     SRCS
       thread.cpp
+      ${thread_tss_source}
+    HDRS
+      tss.h
     DEPENDS
       .mutex
       .${LIBC_TARGET_OS}.thread
       ${thread_atexit_dependency}
+      ${thread_tss_dependencies}
       libc.hdr.limits_macros
       libc.hdr.stdint_proxy
       libc.src.__support.common
