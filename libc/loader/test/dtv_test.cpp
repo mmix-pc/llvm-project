@@ -157,7 +157,8 @@ struct Fixture {
     check(!munmap(reinterpret_cast<void *>(allocation.dtv_mapping_base),
                   allocation.dtv_mapping_size));
     check(!munmap(reinterpret_cast<void *>(tp), page));
-    check(!munmap(reinterpret_cast<void *>(late_storage), page));
+    if (late_storage)
+      check(!munmap(reinterpret_cast<void *>(late_storage), page));
     tp = 0;
     observed = nullptr;
   }
@@ -189,6 +190,34 @@ static void success() {
 
 extern "C" int main() {
   success();
+  for (unsigned initialized = 0; initialized != 2; ++initialized) {
+    Fixture f;
+    if (!initialized)
+      f.entries()[3] = {};
+    // Remove the late module without changing the registry generation. A
+    // refresh must inspect membership even when the generation matches.
+    f.images[1] = &f.added;
+    f.snapshot.images = {f.images, 2};
+    f.dtv().generation = f.snapshot.generation;
+    Address old = f.allocation.dtv_mapping_base;
+    if (initialized) {
+      fail_unmap = true;
+      check(f.run() == EIO && f.entries()[3].allocation_owner == f.late_storage);
+      check(f.allocation.dtv_mapping_base == old && mask == 0x42);
+      fail_unmap = false;
+    }
+    check(!f.run());
+    if (initialized)
+      f.late_storage = 0;
+    check(!f.entries()[3].generation && !f.entries()[3].allocation_owner);
+    check(*reinterpret_cast<Address *>(tp + 16) == 42);
+    unsigned before = unmaps;
+    check(!f.run() && unmaps == before);
+    // A reload gets a fresh identity, never the cleared slot.
+    f.added.tls.module_id = 7;
+    f.added.tls.generation = ++f.snapshot.generation;
+    check(!f.run() && !f.entries()[7].generation);
+  }
   {
     Fixture f;
     Address old = f.allocation.dtv_mapping_base;
@@ -210,7 +239,7 @@ extern "C" int main() {
     f.entries()[1].image_base += 8;
     reject();
     f.entries()[1].image_base -= 8;
-    f.entries()[2] = {2, f.late_storage, f.late_storage, page};
+    f.entries()[2] = {2, f.late_storage, 0, 0};
     reject();
     f.entries()[2] = {};
     f.added.tls.module_id = ~Address(0);

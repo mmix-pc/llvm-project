@@ -68,8 +68,19 @@ static long validate(const ImageRegistry::Snapshot &snapshot,
         return EINVAL;
       continue;
     }
-    if (!i || !image || entry.generation != image->tls.generation ||
-        entry.generation > dtv.generation)
+    if (!i || !entry.generation || entry.generation > dtv.generation)
+      return EINVAL;
+    if (!image) {
+      // Removed identities are never reused. Only independently owned late
+      // storage may survive removal; startup entries must remain discoverable.
+      if (!contains(entry.allocation_owner, entry.allocation_extent,
+                    entry.image_base, 1) ||
+          entry.allocation_owner == allocation.tls_mapping_base ||
+          entry.allocation_owner == allocation.dtv_mapping_base)
+        return EINVAL;
+      continue;
+    }
+    if (entry.generation != image->tls.generation)
       return EINVAL;
     const auto &module = image->tls;
     if (!module.alignment || (module.alignment & (module.alignment - 1)) ||
@@ -154,6 +165,23 @@ long DTVRefresh::update(const ImageRegistry::Snapshot &snapshot,
   long error = validate(snapshot, allocation, *old, required);
   if (error)
     return restore(error);
+  // Only the owner (or unpublished creator) edits this DTV. No image/template
+  // access is needed to reclaim a removed module. Keep failed mappings in the
+  // entry for retry or terminal cleanup, and never reuse their module IDs.
+  auto *old_entries = reinterpret_cast<StartupDTVEntry *>(old->entries);
+  for (Address i = 1; i < old->capacity; ++i) {
+    auto &entry = old_entries[i];
+    bool present = false;
+    for (const auto *image : snapshot.images)
+      present |= image->tls.module_id == i;
+    if (empty(entry) || present)
+      continue;
+    result = raw_syscall(SYS_munmap, entry.allocation_owner,
+                        entry.allocation_extent);
+    if (result)
+      return restore(result < 0 ? -result : EIO);
+    entry = {};
+  }
   if (required <= old->capacity) {
     __atomic_store_n(&old->generation, snapshot.generation, __ATOMIC_RELEASE);
     return restore(0);

@@ -17,6 +17,8 @@ namespace loader {
 // Per-thread state, never shared by live threads. The caller suppresses
 // cancellation and pins a published scope's registry snapshot before entry.
 // This helper masks signals itself and never allocates a module's TLS image.
+// Missing identities retire independent TLS storage on this thread only.
+// Failed unmaps retain their entry for retry or terminal reaper cleanup.
 class DTVRefresh {
   Address retired_base = 0, retired_size = 0;
   const ThreadTLSAllocation *owner = nullptr;

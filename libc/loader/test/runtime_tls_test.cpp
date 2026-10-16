@@ -164,8 +164,27 @@ extern "C" int main() {
           mask == 0x42);
     check(f.entries()[3].allocation_owner && f.entries()[3].allocation_extent);
   }
+  {
+    RuntimeFixture f;
+    f.get(3);
+    f.records[1] = &f.images[2];
+    f.snapshot.images = {f.records, 2};
+    // No access to retired template metadata is needed during owner cleanup.
+    f.images[1].tls.template_address = 1;
+    check(*static_cast<Address *>(f.get(1)) == 42);
+    check(!f.entries()[3].generation && !f.entries()[3].allocation_extent);
+    ++f.snapshot.generation;
+    Address cursor = 0;
+    check(place_tls_module(f.images[1].elf, cursor, f.images[1].tls));
+    f.images[1].tls.module_id = 7;
+    f.images[1].tls.generation = f.snapshot.generation;
+    f.records[2] = &f.images[1];
+    f.snapshot.images = {f.records, 3};
+    check(*static_cast<unsigned char *>(f.get(7, 8)) == 0xa5);
+    check(!f.entries()[3].generation);
+  }
   // Fatal cases execute the production diagnostic/exit path in a child.
-  for (unsigned scenario = 0; scenario < 11; ++scenario) {
+  for (unsigned scenario = 0; scenario < 12; ++scenario) {
     int pipefd[2];
     check(!pipe(pipefd));
     pid_t child = fork();
@@ -210,6 +229,12 @@ extern "C" int main() {
       case 10:
         resolve_runtime_tls(nullptr, nullptr);
         break;
+      case 11:
+        f.get(3);
+        f.records[1] = &f.images[2];
+        f.snapshot.images = {f.records, 2};
+        f.images[1].tls.template_address = 1;
+        break; // Retired ID fails before reading obsolete template bytes.
       }
       f.get(3);
       _exit(1);

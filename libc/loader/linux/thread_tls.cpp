@@ -138,6 +138,13 @@ void *peek_runtime_thread_tls(void *context, const StartupTLSModule *module) {
   const auto &state = *reinterpret_cast<const State *>(dtv->runtime_owner);
   if (state.context != context || state.retiring || state.allocation.tp != tp)
     return nullptr;
+  const auto &ctx = *static_cast<const ThreadTLSContext *>(context);
+  if (!ctx.scopes)
+    return nullptr;
+  auto lease = ctx.scopes->acquire();
+  if (!lease.get() ||
+      !lease.get()->registry->find(module->module_id, module->generation))
+    return nullptr;
   const auto &entry = reinterpret_cast<const StartupDTVEntry *>(
       dtv->entries)[module->module_id];
   if (__atomic_load_n(&entry.generation, __ATOMIC_ACQUIRE) !=

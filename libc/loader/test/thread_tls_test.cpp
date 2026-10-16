@@ -80,6 +80,7 @@ struct FixtureState {
   RelocatedTLS ready;
   RuntimeScopes scopes{page};
   ThreadTLSContext context{{&ready, page}, &scopes};
+  uint64_t handle = 0;
   FixtureState() {
     for (unsigned i = 0; i < 2; ++i) {
       files[i].segment(7, PT_TLS, PF_R, 0x4a08, 0x4a08, 16, 64, 32);
@@ -115,8 +116,7 @@ struct FixtureState {
   }
   void publish() {
     RuntimeScopes::Transaction tx(page);
-    uint64_t token;
-    check(!scopes.prepare_open(late, images[1], false, tx, token));
+    check(!scopes.prepare_open(late, images[1], false, tx, handle));
     check(!scopes.publish(tx));
   }
   unsigned char *lookup(ThreadTLSAllocation &a, unsigned id) {
@@ -208,6 +208,32 @@ extern "C" int main() {
   fail_all_unmaps = false;
   check(!release_runtime_thread_tls(&f.context, &aborted));
   check(live_count == resident);
+  ThreadTLSAllocation initialized{}, untouched{};
+  check(!prepare_runtime_thread_tls(&f.context, &f, &initialized));
+  check(!prepare_runtime_thread_tls(&f.context, &f, &untouched));
+  f.lookup(initialized, 3);
+  auto *table = reinterpret_cast<StartupDTV *>(
+      *reinterpret_cast<Address *>(initialized.tp));
+  auto *entries = reinterpret_cast<StartupDTVEntry *>(table->entries);
+  Address owned = entries[3].allocation_owner;
+  tp = 0;
+  RuntimeScopes::Transaction close(page), retire(page);
+  check(!f.scopes.prepare_close(f.handle, close) && !f.scopes.publish(close));
+  check(!f.scopes.prepare_retire({f.images + 1, 1}, retire));
+  check(!f.scopes.publish(retire));
+  check(entries[3].allocation_owner == owned); // No remote DTV edits.
+  tp = initialized.tp;
+  check(!peek_runtime_thread_tls(&f.context, &f.records[1].tls));
+  check(entries[3].allocation_owner == owned); // Inspection does not allocate.
+  // A terminal reaper can reclaim stale storage without consulting the now
+  // absent module or its template. Failed cleanup remains owned for retry.
+  tp = 0;
+  fail_unmap = unmaps + 1;
+  check(release_runtime_thread_tls(&f.context, &initialized) == EIO);
+  check(entries[3].allocation_owner == owned);
+  fail_unmap = 0;
+  check(!release_runtime_thread_tls(&f.context, &initialized));
+  check(!release_runtime_thread_tls(&f.context, &untouched));
   std::puts("runtime TLS prepare, publication, copied retirement and rollback "
             "passed");
   return 0;
