@@ -77,6 +77,7 @@ public:
                LoaderLocks::Session &);
   // Writer-serialized borrow. Ready means readers drained, NOT unmapped.
   const Removal *removals() const { return removed; }
+  bool draining() const { return active; } // Writer-serialized borrow.
 };
 
 } // namespace loader

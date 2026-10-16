@@ -24,14 +24,12 @@ struct MMIXCursorLifetime {
 #ifdef __cplusplus
 extern "C" {
 #endif
-__attribute__((visibility("protected"))) void
-__libunwind_mmix_cursor_begin(struct MMIXCursorLifetime *, void *);
-__attribute__((visibility("protected"))) void
-__libunwind_mmix_cursor_end(struct MMIXCursorLifetime *);
-__attribute__((visibility("protected"))) void
-__libunwind_mmix_cursor_finish(void *);
-__attribute__((visibility("protected"))) void
-__libunwind_mmix_set_managed_stop(uintptr_t);
+// Imported by libc as well as used internally; protection belongs to the
+// provider definitions, not to declarations in another shared object.
+void __libunwind_mmix_cursor_begin(struct MMIXCursorLifetime *, void *);
+void __libunwind_mmix_cursor_end(struct MMIXCursorLifetime *);
+void __libunwind_mmix_cursor_finish(void *);
+void __libunwind_mmix_set_managed_stop(uintptr_t);
 __attribute__((visibility("hidden"))) void
 __libunwind_mmix_cursor_begin_with_stop(struct MMIXCursorLifetime *, void *,
                                         uintptr_t);

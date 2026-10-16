@@ -750,6 +750,74 @@ static int runtime_load_tests() {
   file_count = 2;
   SearchEnvironment environment;
   CHECK(!environment.parse(false, {}, text("/lib")));
+  // Exercise the public service on an isolated mapping model. The caller stays
+  // in the permanent main image; no stale code pointer is ever executed.
+  pid_t api_child = fork();
+  CHECK(api_child >= 0);
+  if (!api_child) {
+    RuntimeInitializers initializers;
+    RuntimeInitializers::Batch boot(page);
+    CHECK(!initializers.prepare(*registry.snapshot(), boot, true));
+    CHECK(!initializers.attach(boot, *registry.snapshot()));
+    CHECK(!initializers.adopt_startup(boot, registry.snapshot()->images));
+    InitialStack arguments{};
+    arguments.valid = true;
+    static unsigned starts, finishes;
+    RuntimeAPI runtime(page, registry, scopes, initializers, arguments,
+                       environment, {},
+                       [](Address, int, char **, char **) { ++starts; },
+                       nullptr, nullptr, [](Address) { ++finishes; });
+    auto api = runtime.services();
+    LoaderCancellation hooks{[](uint64_t *saved) -> long {
+                               *saved = 0;
+                               return 0;
+                             }, [](uint64_t) -> long { return 0; }};
+    uint64_t first, second;
+    CHECK(!api.open(api.context, "/lib/A.so", OpenNow, bias + page, hooks, &first));
+    auto *old = registry.snapshot()->images[1];
+    Address old_bias = old->elf.load_bias();
+    uint64_t old_id = old->tls.module_id;
+    CHECK(starts == 6 && !finishes);
+    CHECK(!api.open(api.context, "/lib/A.so", OpenNow | OpenNoLoad,
+                    bias + page, hooks, &second));
+    CHECK(!api.close(api.context, first, hooks) && !finishes);
+    CHECK(owner(old_bias, 1));
+    CHECK(api.close(api.context, first, hooks) == EINVAL);
+    CHECK(!api.close(api.context, second, hooks) && finishes == 6);
+    CHECK(!owner(old_bias, 1) && registry.snapshot()->images.size() == 1);
+    CHECK(api.open(api.context, "/lib/A.so", OpenNow | OpenNoLoad,
+                   bias + page, hooks, &first) == ENOENT);
+    CHECK(!api.open(api.context, "/lib/A.so", OpenNow, bias + page, hooks, &first));
+    auto *fresh = registry.snapshot()->images[1];
+    CHECK(fresh != old && fresh->tls.module_id > old_id && starts == 12);
+    // B depends on A, so a B handle retains both members of the cycle.
+    CHECK(!api.open(api.context, "/lib/B.so", OpenNow | OpenNoLoad,
+                    bias + page, hooks, &second));
+    CHECK(!api.close(api.context, first, hooks) && finishes == 6);
+    CHECK(owner(fresh->elf.load_bias(), 1));
+    auto image_api = runtime.image_services();
+    uint64_t lease = 0;
+    CHECK(!image_api.retain(image_api.context, fresh->elf.load_bias(),
+                            fresh->elf.load_bias() + page, hooks, &lease));
+    CHECK(!api.close(api.context, second, hooks) && finishes == 6);
+    CHECK(owner(fresh->elf.load_bias(), 1));
+    CHECK(!image_api.release(image_api.context, lease, hooks));
+    // Release never runs callbacks inline. An explicit close supplies the next
+    // safe point; autonomous release dispatch has its own integration boundary.
+    CHECK(!api.open(api.context, nullptr, OpenNow, bias + page, hooks, &second));
+    CHECK(!api.close(api.context, second, hooks) && finishes == 12);
+    CHECK(!api.open(api.context, "/lib/A.so", OpenNow | OpenNoDelete,
+                    bias + page, hooks, &first));
+    auto *pinned = registry.snapshot()->images[1];
+    CHECK(!api.close(api.context, first, hooks) && finishes == 12);
+    CHECK(pinned->ownership.is_permanent() && owner(pinned->elf.load_bias(), 1));
+    CHECK(!api.open(api.context, "/lib/A.so", OpenNow | OpenNoLoad,
+                    bias + page, hooks, &first));
+    CHECK(starts == 18 && !api.close(api.context, first, hooks));
+    _exit(0);
+  }
+  int api_status;
+  CHECK(waitpid(api_child, &api_status, 0) == api_child && api_status == 0);
   RuntimeLoad load(page);
   auto prepare = [&]() {
     return load.prepare(registry, scopes, *caller, text("A.so"), environment,

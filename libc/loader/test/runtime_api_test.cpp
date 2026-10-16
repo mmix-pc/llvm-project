@@ -27,6 +27,7 @@
 #include <pthread.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 using namespace loader_test;
@@ -295,6 +296,32 @@ int main(int argc, char **argv) {
     check(client::loader_error() && scopes.snapshot() == before);
   }
   Enumeration first{0, argv[1], nullptr, false};
+  // Reject a retiring callback after acquiring a distinct DSO owner. Keep
+  // this rollback case independent of the NODELETE image used below.
+  pid_t admission_child = fork();
+  check(admission_child >= 0);
+  if (!admission_child) {
+    uint64_t handle = 0;
+    auto hooks = client::loader_cancellation_hooks();
+    check(!production.open(production.context, argv[1], RTLD_NOW, caller_pc,
+                            hooks, &handle));
+    uintptr_t callback = 0;
+    check(!production.lookup(production.context, handle, "access_tls", caller_pc,
+                              hooks, &callback));
+    auto *image = registry.snapshot()->images[1];
+    auto *main_image = registry.snapshot()->images[0];
+    check(!image->ownership.retire());
+    auto api = service.image_services();
+    uint64_t pin = 0;
+    check(api.retain(api.context, bias + 0x4000, callback, hooks, &pin) == EBUSY);
+    check(!pin && !main_image->ownership.owners());
+    check(api.retain_process(api.context, bias + 0x4000, callback, hooks, &pin) == EBUSY);
+    check(!pin && !main_image->ownership.owners());
+    _exit(0);
+  }
+  int admission_status;
+  check(waitpid(admission_child, &admission_status, 0) == admission_child &&
+        admission_status == 0);
   check(!LIBC_NAMESPACE::dl_iterate_phdr(
       [](dl_phdr_info *info, size_t, void *p) {
         auto &state = *static_cast<Enumeration *>(p);
@@ -564,19 +591,7 @@ int main(int argc, char **argv) {
   }
   check(retiring_queries.readers_drained(image));
   check(!retiring_queries.collect_snapshots());
-  // The DSO owner can be acquired before a distinct callback owner rejects
-  // admission. Roll back that first ticket without publishing a client token.
-  check(!image->ownership.retire());
-  image_pin = 0;
-  check(image_api.retain(image_api.context, bias + 0x4000, callback_address,
-                         hooks, &image_pin) == EBUSY);
-  check(!image_pin &&
-        !main_image->ownership.owners(ModuleOwnership::Kind::Runtime) &&
-        !image->ownership.owners(ModuleOwnership::Kind::Runtime));
-  check(image_api.retain_process(image_api.context, bias + 0x4000,
-                                 callback_address, hooks, &image_pin) == EBUSY);
-  check(!image_pin &&
-        !main_image->ownership.owners(ModuleOwnership::Kind::ProcessCallback));
+  check(image->ownership.is_permanent() && image->ownership.retire() == -EBUSY);
   std::puts("image query, reentrant enumeration, nonallocating TLS and "
             "debugger record checks passed");
   std::puts("logical close, stale handles, balanced reopen and resident TLS/unwind checks passed");

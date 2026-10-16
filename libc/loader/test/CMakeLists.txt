@@ -107,6 +107,7 @@ set_tests_properties(loader-dtv PROPERTIES TIMEOUT 30)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   add_executable(loader-runtime-api-test runtime_api_test.cpp
+    ../linux/runtime_retirement.cpp ../linux/runtime_reclamation.cpp
     ../linux/runtime_api.cpp ../linux/runtime_queries.cpp ../linux/runtime_initialization.cpp ../linux/locks.cpp
     ../linux/runtime_load.cpp ../linux/runtime_unwind.cpp ../linux/unwind_images.cpp
     ../linux/runtime_graph.cpp ../linux/runtime_scopes.cpp ../linux/image_registry.cpp

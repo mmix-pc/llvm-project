@@ -61,6 +61,14 @@ public:
   struct Snapshot {
     uint64_t generation;
     cpp::span<const Image *const> images;
+    bool same_images(const Snapshot &other) const {
+      if (generation != other.generation || images.size() != other.images.size())
+        return false;
+      for (size_t i = 0; i < images.size(); ++i)
+        if (images[i] != other.images[i])
+          return false;
+      return true;
+    }
     const Image *find(uint64_t id, uint64_t module_generation) const;
     // Caller holds mutation serialization. Explicit roots supplement permanent
     // roots and external ownership tickets. Edges are not reference-counted:

@@ -29,6 +29,7 @@ add_object_library(
   SRCS runtime_api.cpp
   HDRS runtime_api.h
   DEPENDS .runtime_load .runtime_initialization .runtime_queries .locks .io
+    .runtime_reclamation
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS} -funwind-tables
 )
 

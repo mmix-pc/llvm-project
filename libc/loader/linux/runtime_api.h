@@ -1,5 +1,4 @@
-//===-- Resident runtime loading services ------------------------*- C++
-//-*-===//
+//===-- Runtime loading and retirement services ------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,6 +12,7 @@
 #include "loader/linux/runtime_initialization.h"
 #include "loader/linux/runtime_load.h"
 #include "loader/linux/runtime_queries.h"
+#include "loader/linux/runtime_retirement.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
@@ -25,6 +25,7 @@ class RuntimeAPI {
     RuntimeLoad load;
     RuntimeScopes::Transaction scope;
     RuntimeInitializers::Batch initialization;
+    Request *next = nullptr;
     explicit Request(Address page)
         : load(page), scope(page), initialization(page) {}
     long reset();
@@ -39,10 +40,16 @@ class RuntimeAPI {
   const SearchEnvironment &environment;
   StartupTLSResolver tls;
   Request *pending = nullptr;
-  RuntimeScopes::Transaction closing;
+  Request *loads = nullptr;
   RuntimeQueries queries;
+  // Close polls this queue at a callback-safe boundary. Release producers must
+  // never run finalizers inline; asynchronous dispatch is a separate service.
+  RetirementEvents retirement_events{nullptr, [](void *) {}};
+  RuntimeRetirement retirement;
+  Arena reclamation_scratch;
   RuntimeQueries::PeekTLS peek_tls = nullptr;
   RuntimeInitializers::Invoker invoke;
+  RuntimeInitializers::Finalizer finish;
   struct ImagePin {
     uint64_t token = 0;
     const ImageRegistry::Image *images[2] = {};
@@ -64,6 +71,7 @@ class RuntimeAPI {
   long iterate(int (*)(void *, void *), void *, LoaderCancellation, int *,
                LoaderQueryLease *);
   long refresh_queries();
+  long collect(LoaderLocks::Session &);
 
 public:
   RuntimeAPI(Address page, ImageRegistry &images, RuntimeScopes &scopes,
@@ -71,11 +79,14 @@ public:
              const SearchEnvironment &environment, StartupTLSResolver tls,
              RuntimeInitializers::Invoker invoke = nullptr,
              RuntimeQueries::PeekTLS peek_tls = nullptr,
-             r_debug *debug = nullptr)
+             r_debug *debug = nullptr,
+             RuntimeInitializers::Finalizer finish = nullptr)
       : page(page), resident(page), images(images), scopes(scopes),
         initializers(initializers), stack(stack), environment(environment),
-        tls(tls), closing(page), queries(page, debug), peek_tls(peek_tls),
-        invoke(invoke) {}
+        tls(tls), queries(page, debug),
+        retirement(page, retirement_events, scopes, queries, initializers),
+        reclamation_scratch(page), peek_tls(peek_tls), invoke(invoke),
+        finish(finish) {}
   LoaderAPI services();
   LoaderQueryAPI query_services();
   LoaderProcessAPI process_services();

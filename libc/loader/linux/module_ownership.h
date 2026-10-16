@@ -161,6 +161,8 @@ public:
     return 0;
   }
   bool is_permanent() const { return permanent || (signal_owners.load() & 2); }
+  // Writer-serialized successful RTLD_NODELETE admission is irreversible.
+  void pin() { permanent = true; }
   // Writer-serialized and irreversible for this image lifetime. Runtime
   // callbacks may still retain code, but a load must never resurrect it.
   bool available_for_load() const {

@@ -40,14 +40,15 @@ void remove(MMIXCursorLifetime &owner) {
 }
 } // namespace
 
-extern "C" void __libunwind_mmix_cursor_begin(MMIXCursorLifetime *owner,
-                                              void *cursor) {
+extern "C" __attribute__((visibility("protected"))) void
+__libunwind_mmix_cursor_begin(MMIXCursorLifetime *owner, void *cursor) {
   if (!owner || !cursor || find(cursor))
     __builtin_trap();
   *owner = {cursor, 0, owners};
   owners = owner;
 }
-extern "C" void __libunwind_mmix_set_managed_stop(uintptr_t stop) {
+extern "C" __attribute__((visibility("protected"))) void
+__libunwind_mmix_set_managed_stop(uintptr_t stop) {
   if (!stop || (managed_stop && managed_stop != stop))
     __builtin_trap();
   managed_stop = stop;
@@ -62,13 +63,15 @@ __libunwind_mmix_cursor_begin_with_stop(MMIXCursorLifetime *owner, void *cursor,
   else
     *owner = {};
 }
-extern "C" void __libunwind_mmix_cursor_end(MMIXCursorLifetime *owner) {
+extern "C" __attribute__((visibility("protected"))) void
+__libunwind_mmix_cursor_end(MMIXCursorLifetime *owner) {
   if (owner->cursor) {
     release(*owner, false);
     remove(*owner);
   }
 }
-extern "C" void __libunwind_mmix_cursor_finish(void *cursor) {
+extern "C" __attribute__((visibility("protected"))) void
+__libunwind_mmix_cursor_finish(void *cursor) {
   if (auto *owner = find(cursor))
     __libunwind_mmix_cursor_end(owner);
 }

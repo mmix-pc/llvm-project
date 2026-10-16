@@ -193,7 +193,7 @@ MapResult RuntimeLoad::prepare(ImageRegistry &owner, RuntimeScopes &namespace_,
   if (active)
     return {-EBUSY, 0};
   if (!owner.snapshot() || !namespace_.snapshot() ||
-      namespace_.snapshot()->registry != owner.snapshot())
+      !namespace_.snapshot()->registry->same_images(*owner.snapshot()))
     return {-EINVAL, 0};
   active = true;
   registry = &owner;

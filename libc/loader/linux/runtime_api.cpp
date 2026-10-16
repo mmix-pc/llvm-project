@@ -22,8 +22,15 @@ long RuntimeAPI::run_startup(RuntimeInitializers::Batch &batch,
 
 long RuntimeAPI::finalize(LoaderCancellation hooks) {
   LoaderLocks::Session session(locks, hooks);
-  LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
-  return guard.error() ? guard.error() : initializers.finalize(session);
+  {
+    LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+    if (guard.error())
+      return guard.error();
+    if (long error = retirement.request_exit(session))
+      return error;
+  }
+  return session.unlocked_callback_owner() ? retirement.drain(session, finish)
+                                          : 0;
 }
 
 static long string_view(const char *text, Bytes &out,
@@ -67,9 +74,11 @@ long RuntimeAPI::open(const char *name, int flags, uintptr_t pc,
     return -mutation.error();
   auto *snapshot = scopes.snapshot();
   const ImageRegistry::Image *caller;
-  if (!snapshot || snapshot->registry != images.snapshot() ||
+  if (!snapshot || !images.snapshot() ||
       RuntimeScopes::caller(*snapshot, pc, caller) != SymbolError::None)
     return EINVAL;
+  if (long error = images.adopt_removal(*snapshot->registry))
+    return -error;
   if (long error = refresh_queries())
     return error;
   if (pending) {
@@ -119,6 +128,12 @@ long RuntimeAPI::open(const char *name, int flags, uintptr_t pc,
   // before callbacks so a nested open owns an independent transaction.
   pending = nullptr;
   if (name) {
+    request->next = loads;
+    loads = request;
+    if (flags & OpenNoDelete)
+      for (const auto &handle : scopes.snapshot()->handles)
+        if (handle.token == token && !handle.global_namespace)
+          handle.local->images[0]->ownership.pin();
     error = initializers.run(request->initialization, session, stack, invoke);
     if (error)
       return -error; // Process termination does not roll back user effects.
@@ -178,29 +193,49 @@ long RuntimeAPI::lookup(uint64_t handle, const char *name, uintptr_t pc,
 
 long RuntimeAPI::close(uint64_t handle, LoaderCancellation cancellation) {
   LoaderLocks::Session session(locks, cancellation);
-  LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
-  if (mutation.error())
-    return -mutation.error();
-  // Keep failed private cleanup owned by this service until it can be retried.
-  long error = closing.abort();
-  if (error)
-    return -error;
-  error = scopes.prepare_close(handle, closing);
-  if (!error)
-    error = scopes.prepare_unwind(closing);
-  if (!error)
-    error = scopes.publish(closing);
-  if (error) {
-    long cleanup = closing.abort();
-    return cleanup ? -cleanup : -error;
+  {
+    LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
+    if (mutation.error())
+      return -mutation.error();
+    if (long error = retirement.close(handle, session))
+      return -error;
   }
-  // FIXME: Residency, including dependency cycles, TLS and unwind records,
-  // is unconditional until coordinated unloading exists. Do not finalize here.
-  // Publication transferred the arena; only the empty transaction is replaced.
-  closing.~Transaction();
-  new (&closing) RuntimeScopes::Transaction(page);
-  long cleanup = scopes.collect_snapshots();
-  return cleanup == -EBUSY ? 0 : -cleanup;
+  // A nested constructor owns an outer mutation guard. Leave its close queued;
+  // never invoke detached finalizers while that guard is held.
+  return session.unlocked_callback_owner() ? -collect(session) : 0;
+}
+
+long RuntimeAPI::collect(LoaderLocks::Session &session) {
+  long error = retirement.drain(session, finish);
+  if (error)
+    return error;
+  LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+  if (guard.error())
+    return guard.error();
+  if (retirement.draining())
+    return 0; // A recursive close belongs to the active callback owner's pass.
+  if ((error = reclamation_scratch.reset()))
+    return error;
+  size_t count = 0;
+  for (auto *request = loads; request; request = request->next)
+    ++count;
+  if (count > __SIZE_MAX__ / sizeof(RuntimeLoad *))
+    return -EOVERFLOW;
+  RuntimeLoad **owners = nullptr;
+  if (count) {
+    void *memory;
+    error = reclamation_scratch.allocate(count * sizeof(RuntimeLoad *),
+                                         alignof(RuntimeLoad *), memory);
+    if (error)
+      return error;
+    owners = static_cast<RuntimeLoad **>(memory);
+    size_t i = 0;
+    for (auto *request = loads; request; request = request->next)
+      owners[i++] = &request->load;
+  }
+  error = retirement.reclaim(images, {owners, count}, session);
+  long cleanup = reclamation_scratch.reset();
+  return error ? error : cleanup;
 }
 
 LoaderAPI RuntimeAPI::services() {

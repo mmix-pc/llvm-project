@@ -65,8 +65,13 @@ function(mmix_configure_shared_libc)
     libc.startup.linux.mmix.shared_run
     libc.startup.linux.mmix.stack_guard)
   set(objects)
+  get_all_object_file_deps(archive_objects "${mmix_threaded_entrypoints}")
   foreach(object IN LISTS extra_objects)
-    list(APPEND objects $<TARGET_OBJECTS:${object}>)
+    # Shared runtime entrypoints can already pull these support objects into
+    # the whole archive (notably the TLS resolver). Link each provider once.
+    if(NOT object IN_LIST archive_objects)
+      list(APPEND objects $<TARGET_OBJECTS:${object}>)
+    endif()
   endforeach()
   # Explicit-input preparation can relink against real resident providers
   # without copying this archive or replacing it with an installed profile.

@@ -7,6 +7,10 @@ _ZSt9terminatev
 __cxa_begin_catch
 __gxx_personality_v0
 __libunwind_mmix_adopt_startup_images
+__libunwind_mmix_cursor_begin
+__libunwind_mmix_cursor_end
+__libunwind_mmix_cursor_finish
+__libunwind_mmix_set_managed_stop
 unw_get_proc_info
 unw_get_reg
 unw_getcontext
