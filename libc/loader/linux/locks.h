@@ -29,6 +29,8 @@ class LoaderLocks {
   Mutex mutation, registry, arena;
   cpp::Atomic<long> mutation_owner{0};
   uint64_t mutation_depth = 0; // Accessed only by the owning thread.
+  // Only the surviving child writes this, before callbacks/signals resume.
+  bool fork_child = false;
 
 public:
   // The libc fork owner already masks signals and suppresses cancellation.
@@ -58,12 +60,16 @@ public:
     // A callback boundary must retain mutation serialization and cancellation
     // suppression, but never a short registry/arena guard.
     long callback_owner() const {
-      return !failure && suppressed && top && rank == Kind::Mutation ? tid : 0;
+      return !failure && !locks.fork_child && suppressed && top &&
+                     rank == Kind::Mutation
+                 ? tid
+                 : 0;
     }
     // Detached plans retain their code explicitly and invoke outside all
     // loader guards, including a mutation guard held by an outer session.
     long unlocked_callback_owner() const {
-      return !failure && suppressed && !top && rank == Kind::None &&
+      return !failure && !locks.fork_child && suppressed && !top &&
+                     rank == Kind::None &&
                      locks.mutation_owner.load() != tid
                  ? tid
                  : 0;

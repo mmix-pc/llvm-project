@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <pthread.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 using namespace loader_test;
@@ -102,6 +103,7 @@ struct RetirementFixture {
   bool inject_failure = false;
   bool exit_from_callback = false;
   bool cancel_from_callback = false;
+  bool fork_from_callback = false;
 
   RetirementFixture() {
     stack.valid = true;
@@ -145,6 +147,27 @@ static void finalizer(Address pc) {
   if (f.cancel_from_callback)
     pending_cancellation = true;
   ++f.callbacks;
+  if (f.fork_from_callback && f.callbacks == 1) {
+    // Detached finalization has no mutation guard. A copied active plan must
+    // stay inert in the child rather than waiting for or replaying its owner.
+    LoaderLocks::Session inherited(f.locks, hooks);
+    check(!f.locks.prepare_fork());
+    pid_t child = fork();
+    check(child >= 0);
+    f.locks.finish_fork(child == 0);
+    if (!child) {
+      LoaderLocks::Guard old_guard(inherited, Kind::Mutation);
+      check(old_guard.error() == -ENOTSUP &&
+            !inherited.unlocked_callback_owner());
+      LoaderLocks::Session session(f.locks, hooks);
+      check(session.error() == -ENOTSUP);
+      check(f.retirement.drain(session, finalizer) == -EINVAL);
+      check(f.retirement.draining() && f.callbacks == 1);
+      _exit(0);
+    }
+    int status;
+    check(waitpid(child, &status, 0) == child && status == 0);
+  }
   if (pc >= 0x300000) {
     LoaderLocks::Session nested(f.locks, hooks);
     // Competing safe points schedule, never wait on the current callback.
@@ -215,6 +238,7 @@ extern "C" int main() {
     check(!f.late.record.ownership.release(f.tss));
   }
   f.inject_failure = true;
+  f.fork_from_callback = true;
   f.cancel_from_callback = true;
   check(f.drain() == -ENOMEM && f.callbacks == 2);
   check(cancellation_deliveries == 1 && !pending_cancellation && !suppressed);

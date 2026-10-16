@@ -77,6 +77,25 @@ long raw_syscall(long n, long a, long b, long c, long d, long e, long f) {
 static LoaderLocks locks;
 using Kind = LoaderLocks::Kind;
 static unsigned counter;
+static unsigned published;
+static void *fork_after_writer(void *) {
+  uint64_t saved;
+  check(!enter(&saved));
+  check(!locks.prepare_fork());
+  check(published == 37);
+  pid_t child = fork();
+  check(child >= 0);
+  locks.finish_fork(child == 0);
+  if (!child) {
+    LoaderLocks::Session session(locks, hooks);
+    check(session.error() == -ENOTSUP && published == 37);
+    _exit(0);
+  }
+  int status;
+  check(waitpid(child, &status, 0) == child && status == 0);
+  check(!leave(saved));
+  return nullptr;
+}
 static void *worker(void *opaque) {
   auto &storage = *static_cast<Arena *>(opaque);
   for (unsigned i = 0; i < 16; ++i) {
@@ -167,6 +186,18 @@ extern "C" int main() {
       sched_yield();
   }
   check(!pthread_join(interrupted, nullptr));
+  pthread_t forking;
+  before_wait = waits.load();
+  {
+    LoaderLocks::Session scope(locks, hooks);
+    LoaderLocks::Guard mutation(scope, Kind::Mutation);
+    check(!pthread_create(&forking, nullptr, fork_after_writer, nullptr));
+    while (waits.load() == before_wait)
+      sched_yield();
+    // The fork snapshot cannot observe a half-published writer transaction.
+    published = 37;
+  }
+  check(!pthread_join(forking, nullptr));
   struct sigaction action{};
   action.sa_handler = [](int) { signal_seen = 1; };
   sigemptyset(&action.sa_mask);
@@ -181,7 +212,8 @@ extern "C" int main() {
     {
       LoaderLocks::Session scope(locks, hooks);
       LoaderLocks::Guard guard(scope, Kind::Mutation);
-      check(!guard.error());
+      check(scope.error() == -ENOTSUP && guard.error() == -ENOTSUP);
+      check(locks.prepare_fork() == -ENOTSUP);
     }
     check(!leave(saved));
     _exit(0);

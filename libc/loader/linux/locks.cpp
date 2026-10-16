@@ -41,6 +41,10 @@ void LoaderLocks::Mutex::unlock() {
 
 LoaderLocks::Session::Session(LoaderLocks &owner, LoaderCancellation hooks)
     : locks(owner), cancellation(hooks) {
+  if (locks.fork_child) {
+    failure = -ENOTSUP;
+    return;
+  }
   if (!hooks.enter || !hooks.leave) {
     failure = -EINVAL;
     return;
@@ -55,6 +59,8 @@ LoaderLocks::Session::Session(LoaderLocks &owner, LoaderCancellation hooks)
 }
 
 long LoaderLocks::prepare_fork() {
+  if (fork_child)
+    return -ENOTSUP;
   long tid = raw_syscall(SYS_gettid);
   if (tid <= 0)
     return tid < 0 ? tid : -EINVAL;
@@ -77,6 +83,10 @@ void LoaderLocks::finish_fork(bool child) {
   mutation_depth = 0;
   mutation_owner.store(0, cpp::MemoryOrder::RELEASE);
   if (child) {
+    // The child is exec/_exit-only. Freeze copied retirement plans, tickets
+    // and reader counts; never wait for vanished owners or finalize for them.
+    // Clearing those counts could free code still used by the survivor.
+    fork_child = true;
     // The copied wait queues name vanished threads. Do not wake/unlock them.
     arena.reset_after_fork();
     registry.reset_after_fork();
@@ -98,6 +108,10 @@ LoaderLocks::Guard::Guard(Session &scope, Kind requested)
       failure(scope.error()) {
   if (failure)
     return;
+  if (session.locks.fork_child) {
+    failure = -ENOTSUP;
+    return;
+  }
   if (kind == Kind::None || kind > Kind::Arena || kind < previous_rank ||
       (kind == previous_rank && kind != Kind::Mutation)) {
     failure = -EDEADLK;

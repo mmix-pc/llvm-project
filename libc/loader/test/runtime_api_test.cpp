@@ -448,6 +448,60 @@ int main(int argc, char **argv) {
   check(image_pin != old_pin &&
         image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1 &&
         !main_image->ownership.owners(ModuleOwnership::Kind::Runtime));
+  {
+    // Fork copies a peer's reader and runtime tickets, not the peer itself.
+    // The child must neither wait for their release nor pretend they are gone.
+    struct Reader {
+      RuntimeQueries *queries;
+      pthread_barrier_t ready, finish;
+    } reader{&service.query_metadata(), {}, {}};
+    check(!pthread_barrier_init(&reader.ready, nullptr, 2));
+    check(!pthread_barrier_init(&reader.finish, nullptr, 2));
+    pthread_t peer;
+    check(!pthread_create(&peer, nullptr, [](void *p) -> void * {
+      auto &r = *static_cast<Reader *>(p);
+      auto lease = r.queries->acquire();
+      check(lease.get());
+      pthread_barrier_wait(&r.ready);
+      pthread_barrier_wait(&r.finish);
+      return nullptr;
+    }, &reader));
+    pthread_barrier_wait(&reader.ready);
+    auto *inherited = scopes.snapshot();
+    check(!enter(&saved_state));
+    check(!client::prepare_loader_fork());
+    pid_t child = fork();
+    check(child >= 0);
+    client::finish_loader_fork(child == 0);
+    if (!child) {
+      uint64_t ignored = 0;
+      check(production.open(production.context, nullptr, RTLD_NOW, caller_pc,
+                            hooks, &ignored) == ENOTSUP && !ignored);
+      check(production.close(production.context,
+                             reinterpret_cast<uintptr_t>(local), hooks) == ENOTSUP);
+      check(image_api.release(image_api.context, image_pin, hooks) == ENOTSUP);
+      check(service.finalize(hooks) == -ENOTSUP);
+      check(client::prepare_loader_fork() == ENOTSUP);
+      check(scopes.snapshot() == inherited &&
+            service.query_metadata().active_readers() == 1 &&
+            image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1);
+      _exit(0);
+    }
+    check(!leave(saved_state));
+    int status;
+    check(waitpid(child, &status, 0) == child && status == 0);
+    pthread_barrier_wait(&reader.finish);
+    check(!pthread_join(peer, nullptr));
+    check(!pthread_barrier_destroy(&reader.ready));
+    check(!pthread_barrier_destroy(&reader.finish));
+    check(!service.query_metadata().active_readers() &&
+          scopes.snapshot() == inherited);
+    // The same release path handles a failed kernel clone without committing
+    // child state. The parent remains able to query and mutate afterwards.
+    check(!enter(&saved_state) && !client::prepare_loader_fork());
+    client::finish_loader_fork(false);
+    check(!leave(saved_state));
+  }
   DynamicInfo dynamic;
   check(DynamicInfo::open(image->elf, dynamic) == DynamicError::None);
   Address index;
