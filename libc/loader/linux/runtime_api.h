@@ -43,6 +43,16 @@ class RuntimeAPI {
   RuntimeQueries queries;
   RuntimeQueries::PeekTLS peek_tls = nullptr;
   RuntimeInitializers::Invoker invoke;
+  struct ImagePin {
+    uint64_t token = 0;
+    const ImageRegistry::Image *images[2] = {};
+    ModuleOwnership::Token owners[2] = {};
+    ImagePin *next = nullptr;
+  };
+  ImagePin *pins = nullptr;
+  RegistrySequence pin_ids;
+  long retain_image(uintptr_t, uintptr_t, LoaderCancellation, uint64_t *);
+  long release_image(uint64_t, LoaderCancellation);
   long open(const char *, int, uintptr_t, LoaderCancellation, uint64_t *);
   long lookup(uint64_t, const char *, uintptr_t, LoaderCancellation,
               uintptr_t *);
@@ -67,6 +77,7 @@ public:
   LoaderAPI services();
   LoaderQueryAPI query_services();
   LoaderProcessAPI process_services();
+  LoaderImageAPI image_services();
   long run_startup(RuntimeInitializers::Batch &, LoaderCancellation);
   long finalize(LoaderCancellation);
   RuntimeQueries &query_metadata() { return queries; }

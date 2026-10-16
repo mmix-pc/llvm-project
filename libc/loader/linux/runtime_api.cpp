@@ -217,6 +217,102 @@ LoaderAPI RuntimeAPI::services() {
           }};
 }
 
+long RuntimeAPI::retain_image(uintptr_t dso, uintptr_t callback,
+                              LoaderCancellation hooks, uint64_t *out) {
+  if (!out || *out || !callback)
+    return EINVAL;
+  LoaderLocks::Session session(locks, hooks);
+  LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
+  if (mutation.error())
+    return -mutation.error();
+  const auto *view = scopes.snapshot();
+  if (!view)
+    return EINVAL;
+  const ImageRegistry::Image *owners[2] = {};
+  uintptr_t addresses[] = {dso ? dso : callback, callback};
+  for (unsigned i = 0; i != 2; ++i) {
+    for (const auto *image : view->registry->images) {
+      Address address;
+      if (addresses[i] >= image->elf.load_bias() &&
+          image->elf.runtime_address(addresses[i] - image->elf.load_bias(), 1,
+                                     i ? PF_X : PF_R, address)) {
+        if (owners[i])
+          return EINVAL;
+        owners[i] = image;
+      }
+    }
+    if (!owners[i])
+      return ENOENT;
+  }
+  ImagePin *pin = pins;
+  while (pin && pin->token)
+    pin = pin->next;
+  if (!pin) {
+    void *memory;
+    long error = resident.allocate(sizeof(ImagePin), alignof(ImagePin), memory);
+    if (error)
+      return -error;
+    pin = new (memory) ImagePin;
+    pin->next = pins;
+    pins = pin;
+  }
+  uint64_t token;
+  if (!pin_ids.reserve(1, token))
+    return EOVERFLOW;
+  for (unsigned i = 0; i != 2; ++i) {
+    if (i && owners[i] == owners[0])
+      continue;
+    long error = owners[i]->ownership.acquire(
+        resident, ModuleOwnership::Kind::Runtime, pin->owners[i]);
+    if (error) {
+      if (i && pin->images[0]) {
+        if (pin->images[0]->ownership.release(pin->owners[0]))
+          __builtin_trap();
+        pin->images[0] = nullptr;
+      }
+      return -error;
+    }
+    pin->images[i] = owners[i];
+  }
+  pin->token = *out = token;
+  return 0;
+}
+
+long RuntimeAPI::release_image(uint64_t token, LoaderCancellation hooks) {
+  if (!token)
+    return EINVAL;
+  LoaderLocks::Session session(locks, hooks);
+  LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
+  if (mutation.error())
+    return -mutation.error();
+  for (ImagePin *pin = pins; pin; pin = pin->next) {
+    if (pin->token != token)
+      continue;
+    for (unsigned i = 0; i != 2; ++i) {
+      if (pin->images[i]) {
+        if (pin->images[i]->ownership.release(pin->owners[i]))
+          __builtin_trap();
+        pin->images[i] = nullptr;
+      }
+    }
+    pin->token = 0;
+    return 0;
+  }
+  return EINVAL;
+}
+
+LoaderImageAPI RuntimeAPI::image_services() {
+  return {this,
+          [](void *p, uintptr_t dso, uintptr_t callback, LoaderCancellation c,
+             uint64_t *out) {
+            return static_cast<RuntimeAPI *>(p)->retain_image(dso, callback, c,
+                                                              out);
+          },
+          [](void *p, uint64_t token, LoaderCancellation c) {
+            return static_cast<RuntimeAPI *>(p)->release_image(token, c);
+          }};
+}
+
 long RuntimeAPI::refresh_queries() {
   long cleanup = scopes.collect_snapshots();
   if (cleanup && cleanup != -EBUSY)

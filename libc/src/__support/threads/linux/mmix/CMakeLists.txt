@@ -268,12 +268,18 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     set(mmix_root_options -DLIBC_MMIX_UNWIND_ROOTS -funwind-tables)
   endif()
   if(LIBC_MMIX_BUILD_TLS_DESTRUCTORS)
+    set(mmix_tls_destructor_deps)
+    if(LIBC_MMIX_BUILD_SHARED_LIBC)
+      list(APPEND mmix_tls_destructor_deps .loader_cancellation
+        libc.src.__support.OSUtil.linux.mmix.dynamic_tls)
+    endif()
     add_object_library(
       tls_destructors
       SRCS tls_destructors.cpp
       HDRS tls_destructors.h
       DEPENDS .lifecycle libc.src.__support.threads.thread_common
               libc.src.__support.CPP.new libc.src.stdlib.malloc libc.src.stdlib.free
+              ${mmix_tls_destructor_deps}
       COMPILE_OPTIONS -fno-lto
     )
   endif()

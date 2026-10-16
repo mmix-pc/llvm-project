@@ -303,6 +303,37 @@ int main(int argc, char **argv) {
   check(!client::loader_lookup(RTLD_DEFAULT, "access_tls", caller_pc));
   check(client::loader_error());
   const auto *image = registry.snapshot()->images[1];
+  auto image_api = service.image_services();
+  auto hooks = client::loader_cancellation_hooks();
+  uint64_t image_pin = 0;
+  const auto *main_image = registry.snapshot()->images[0];
+  const uintptr_t callback_address = reinterpret_cast<uintptr_t>(function);
+  {
+    RuntimeAPI failing(page, registry, scopes, initializers, stack, environment,
+                       {nullptr, resolve});
+    auto api = failing.image_services();
+    fail_query_allocation = true;
+    check(api.retain(api.context, callback_address, callback_address, hooks,
+                     &image_pin) == ENOMEM);
+    check(!image_pin &&
+          !image->ownership.owners(ModuleOwnership::Kind::Runtime));
+  }
+  check(image_api.retain(image_api.context, 1, callback_address, hooks,
+                         &image_pin) == ENOENT &&
+        !image_pin);
+  check(!image_api.retain(image_api.context, bias + 0x4000, callback_address,
+                          hooks, &image_pin));
+  check(image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1 &&
+        main_image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1);
+  check(!image_api.release(image_api.context, image_pin, hooks));
+  check(image_api.release(image_api.context, image_pin, hooks) == EINVAL);
+  uint64_t old_pin = image_pin;
+  image_pin = 0;
+  check(!image_api.retain(image_api.context, callback_address, callback_address,
+                          hooks, &image_pin));
+  check(image_pin != old_pin &&
+        image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1 &&
+        !main_image->ownership.owners(ModuleOwnership::Kind::Runtime));
   DynamicInfo dynamic;
   check(DynamicInfo::open(image->elf, dynamic) == DynamicError::None);
   Address index;
@@ -423,6 +454,9 @@ int main(int argc, char **argv) {
   check(!LIBC_NAMESPACE::dlclose(promoted));
   check(!LIBC_NAMESPACE::dlclose(global));
   check(scopes.snapshot()->handles.empty());
+  check(image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1);
+  check(!image_api.release(image_api.context, image_pin, hooks));
+  check(!image->ownership.owners(ModuleOwnership::Kind::Runtime));
   check(registry.snapshot() == retained_images &&
         scopes.snapshot()->unwind->registry == retained->unwind->registry);
   RuntimeScopes::Value value;
@@ -466,6 +500,15 @@ int main(int argc, char **argv) {
   }
   check(retiring_queries.readers_drained(image));
   check(!retiring_queries.collect_snapshots());
+  // The DSO owner can be acquired before a distinct callback owner rejects
+  // admission. Roll back that first ticket without publishing a client token.
+  check(!image->ownership.retire());
+  image_pin = 0;
+  check(image_api.retain(image_api.context, bias + 0x4000, callback_address,
+                         hooks, &image_pin) == EBUSY);
+  check(!image_pin &&
+        !main_image->ownership.owners(ModuleOwnership::Kind::Runtime) &&
+        !image->ownership.owners(ModuleOwnership::Kind::Runtime));
   std::puts("image query, reentrant enumeration, nonallocating TLS and "
             "debugger record checks passed");
   std::puts("logical close, stale handles, balanced reopen and resident TLS/unwind checks passed");

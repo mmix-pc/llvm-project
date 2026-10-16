@@ -30,6 +30,22 @@ namespace mmix {
 static loader::LoaderServices services{};
 static bool attempted;
 
+long retain_shared_tls_destructor(void *dso, uintptr_t callback,
+                                  uint64_t *token) {
+  if (!services.images.retain)
+    return EINVAL;
+  return services.images.retain(services.images.context,
+                                reinterpret_cast<uintptr_t>(dso), callback,
+                                loader_cancellation_hooks(), token);
+}
+
+long release_shared_tls_destructor(uint64_t token) {
+  if (!services.images.release)
+    return EINVAL;
+  return services.images.release(services.images.context, token,
+                                 loader_cancellation_hooks());
+}
+
 static void finalize_shared_startup() {
   services.finalize_startup(services.context, loader_cancellation_hooks());
 }
@@ -78,7 +94,8 @@ long adopt_shared_main(const loader::StartupProcessView *process,
       !input->prepare_thread_tls || !input->release_thread_tls ||
       !input->resolve_startup_tls || !input->find_unwind_image ||
       !input->release_unwind_image || !input->finalize_startup ||
-      !input->run_initializers || !tls->tp ||
+      !input->run_initializers || !input->images.context ||
+      !input->images.retain || !input->images.release || !tls->tp ||
       reinterpret_cast<uintptr_t>(__builtin_thread_pointer()) != tls->tp ||
       reinterpret_cast<const uintptr_t *>(tls->tp)[1] !=
           reinterpret_cast<uintptr_t>(state))

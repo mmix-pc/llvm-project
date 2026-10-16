@@ -10,6 +10,9 @@
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_TLS_DESTRUCTORS_H
 
 #include "src/__support/macros/config.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "hdr/stdint_proxy.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -23,6 +26,9 @@ class ThreadAtExitCallbackMgr {
     // The CRT handle identifies the owning image, not the TLS object mapping.
     void *dso;
     Node *next;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    uint64_t pin = 0;
+#endif
   };
   enum class Phase { Open, Draining, Done };
   Node *head = nullptr;

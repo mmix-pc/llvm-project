@@ -139,6 +139,16 @@ struct LoaderProcessAPI {
   void (*finish_fork)(void *, bool child);
 };
 
+// Same-source ownership service. Tokens are single-owner and never reused.
+// The caller suppresses cancellation through retain and publication/rollback,
+// and through callback completion and release. No lock spans the callback.
+struct LoaderImageAPI {
+  void *context;
+  long (*retain)(void *, uintptr_t dso, uintptr_t callback, LoaderCancellation,
+                 uint64_t *token);
+  long (*release)(void *, uint64_t token, LoaderCancellation);
+};
+
 enum LoaderOpenFlag : unsigned {
   OpenLazy = 1,
   OpenNow = 2,
@@ -170,6 +180,7 @@ struct LoaderServices {
   LoaderQueryAPI queries{};
   LoaderProcessAPI process{};
   long (*run_initializers)(void *, LoaderCancellation) = nullptr;
+  LoaderImageAPI images{};
 };
 
 struct LibcBootstrap {
@@ -180,7 +191,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 168);
+static_assert(sizeof(LoaderServices) == 192);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

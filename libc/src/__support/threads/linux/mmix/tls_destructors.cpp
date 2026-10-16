@@ -12,8 +12,32 @@
 #include "src/__support/threads/thread.h"
 #include "src/stdlib/free.h"
 #include "src/stdlib/malloc.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "loader_cancellation.h"
+#include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
+
+#ifdef LIBC_MMIX_SHARED_STARTUP
+namespace {
+// Retain/publication and callback/release are indivisible with cancellation.
+class RegistrationScope {
+  loader::LoaderCancellation hooks = mmix::loader_cancellation_hooks();
+  uint64_t saved = 0;
+
+public:
+  RegistrationScope() {
+    if (hooks.enter(&saved))
+      __builtin_trap();
+  }
+  ~RegistrationScope() noexcept(false) {
+    if (hooks.leave(saved))
+      __builtin_trap();
+  }
+};
+} // namespace
+#endif
 
 bool ThreadAtExitCallbackMgr::is_owner() const {
   auto *control = mmix::current_control;
@@ -25,11 +49,27 @@ int ThreadAtExitCallbackMgr::add_callback(Callback *callback, void *object,
                                         void *dso) {
   if (!is_owner() || !callback || phase == Phase::Done)
     return -1;
-  void *memory = LIBC_NAMESPACE::malloc(sizeof(Node));
-  if (!memory)
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  RegistrationScope scope;
+  uint64_t pin = 0;
+  if (mmix::retain_shared_tls_destructor(
+          dso, reinterpret_cast<uintptr_t>(callback), &pin))
     return -1;
+#endif
+  void *memory = LIBC_NAMESPACE::malloc(sizeof(Node));
+  if (!memory) {
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    if (mmix::release_shared_tls_destructor(pin))
+      __builtin_trap();
+#endif
+    return -1;
+  }
   // Publish only after allocation succeeds; retain every older registration.
-  head = new (memory) Node{callback, object, dso, head};
+  auto *node = new (memory) Node{callback, object, dso, head};
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  node->pin = pin;
+#endif
+  head = node;
   return 0;
 }
 
@@ -38,6 +78,9 @@ void ThreadAtExitCallbackMgr::call() {
     __builtin_trap();
   if (phase == Phase::Done)
     return;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  RegistrationScope scope;
+#endif
   phase = Phase::Draining;
   while (head) {
     Node *node = head;
@@ -46,9 +89,11 @@ void ThreadAtExitCallbackMgr::call() {
     head = node->next;
     // Keep the ownership record through callback completion, outside the list
     // and without a runtime lock. Nested registrations drain next.
-    // FIXME: Resident images need no pin today. Before enabling unload, acquire
-    // a pin for node->dso at registration and release it after the callback.
     callback(object);
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    if (mmix::release_shared_tls_destructor(node->pin))
+      __builtin_trap();
+#endif
     LIBC_NAMESPACE::free(node);
   }
   phase = Phase::Done;

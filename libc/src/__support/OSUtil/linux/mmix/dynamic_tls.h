@@ -20,6 +20,9 @@ adopt_startup_tls_resolver(const loader::StartupTLSResolver &service);
 long prepare_shared_thread_tls(void *state,
                                loader::ThreadTLSAllocation &allocation);
 long release_shared_thread_tls(loader::ThreadTLSAllocation &allocation);
+long retain_shared_tls_destructor(void *dso, uintptr_t callback,
+                                  uint64_t *token);
+long release_shared_tls_destructor(uint64_t token);
 [[noreturn]] __attribute__((visibility("hidden"), no_instrument_function))
 void fatal_dynamic_tls();
 } // namespace mmix
