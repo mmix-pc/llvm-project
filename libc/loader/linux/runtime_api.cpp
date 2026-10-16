@@ -304,6 +304,68 @@ long RuntimeAPI::release_image(uint64_t token, LoaderCancellation hooks) {
   return EINVAL;
 }
 
+long RuntimeAPI::retain_signal(uintptr_t handler, uintptr_t restorer,
+                               LoaderSignalLease *out) {
+  if (!out || out->snapshot || out->images[0] || out->images[1] || !handler)
+    return EINVAL;
+  auto lease = scopes.acquire();
+  if (!lease.get())
+    return EINVAL;
+  const ImageRegistry::Image *owners[2] = {};
+  uintptr_t addresses[] = {handler, restorer};
+  for (unsigned i = 0; i != 2; ++i) {
+    if (!addresses[i])
+      continue;
+    for (const auto *image : lease.get()->registry->images) {
+      Address address;
+      if (addresses[i] >= image->elf.load_bias() &&
+          image->elf.runtime_address(addresses[i] - image->elf.load_bias(), 1,
+                                     PF_X, address)) {
+        if (owners[i])
+          return EINVAL;
+        owners[i] = image;
+      }
+    }
+    if (!owners[i])
+      return ENOENT;
+  }
+  if (owners[1] == owners[0])
+    owners[1] = nullptr;
+  for (unsigned i = 0; i != 2; ++i) {
+    if (!owners[i])
+      continue;
+    long error = owners[i]->ownership.retain_signal();
+    if (error) {
+      if (i)
+        owners[0]->ownership.finish_signal(false);
+      return -error;
+    }
+  }
+  out->images[0] = owners[0];
+  out->images[1] = owners[1];
+  out->snapshot = lease.detach();
+  return 0;
+}
+
+LoaderSignalAPI RuntimeAPI::signal_services() {
+  return {this,
+          [](void *p, uintptr_t handler, uintptr_t restorer,
+             LoaderSignalLease *out) {
+            return static_cast<RuntimeAPI *>(p)->retain_signal(handler, restorer,
+                                                               out);
+          },
+          [](void *, LoaderSignalLease *lease, bool installed) {
+            if (!lease || !lease->snapshot || !lease->images[0])
+              __builtin_trap();
+            for (auto *entry : lease->images)
+              if (entry)
+                static_cast<const ImageRegistry::Image *>(entry)
+                    ->ownership.finish_signal(installed);
+            RuntimeScopes::Lease::release_detached(lease->snapshot);
+            *lease = {};
+          }};
+}
+
 LoaderImageAPI RuntimeAPI::image_services() {
   return {this,
           [](void *p, uintptr_t dso, uintptr_t callback, LoaderCancellation c,

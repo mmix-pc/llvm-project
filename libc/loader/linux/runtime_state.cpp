@@ -179,6 +179,7 @@ void RuntimeState::services(LoaderServices &out, StartupUnwindImages *unwind) {
   out.queries = api.query_services();
   out.process = api.process_services();
   out.images = api.image_services();
+  out.signals = api.signal_services();
 }
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

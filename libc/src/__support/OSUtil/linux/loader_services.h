@@ -153,6 +153,18 @@ struct LoaderImageAPI {
                         LoaderCancellation, uint64_t *token) = nullptr;
 };
 
+// Single-owner stack record; never copy or expose to application code.
+struct LoaderSignalLease {
+  void *snapshot = nullptr;
+  const void *images[2] = {};
+};
+struct LoaderSignalAPI {
+  void *context = nullptr;
+  long (*retain)(void *, uintptr_t handler, uintptr_t restorer,
+                 LoaderSignalLease *) = nullptr;
+  void (*finish)(void *, LoaderSignalLease *, bool installed) = nullptr;
+};
+
 enum LoaderOpenFlag : unsigned {
   OpenLazy = 1,
   OpenNow = 2,
@@ -185,6 +197,7 @@ struct LoaderServices {
   LoaderProcessAPI process{};
   long (*run_initializers)(void *, LoaderCancellation) = nullptr;
   LoaderImageAPI images{};
+  LoaderSignalAPI signals{};
 };
 
 struct LibcBootstrap {
@@ -195,7 +208,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 200);
+static_assert(sizeof(LoaderServices) == 224);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

@@ -1,0 +1,120 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %S/libc-linux-sigaction.test %t
+# RUN: split-file %s %t
+# RUN: %python %t/ownership.py %S/../../../../libc %t
+
+#--- sys/syscall.h
+#define SYS_rt_sigaction 134
+#define SYS_rt_sigprocmask 135
+
+#--- ownership.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_NAMESPACE=signal_owned", "-DLIBC_ERRNO_MODE=3",
+          "-DLIBC_MMIX_SHARED_STARTUP", "-I", str(root), "-I", str(libc)]
+for opt in ("0", "2"):
+    subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+                    "-mrelocation-model", "static", "-internal-isystem",
+                    resource + "/include", *common, "-O" + opt, "-emit-obj",
+                    str(root / "ownership.cpp"), "-o", str(root / (opt + ".o"))],
+                   check=True)
+    if len(sys.argv) == 4:
+        exe = root / ("native-" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt,
+                        "-include", str(root / "native-boundary.h"),
+                        str(root / "ownership.cpp"), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- ownership.cpp
+#include "src/signal/linux/mmix/sigaction.cpp"
+#include "src/signal/linux/signal.cpp"
+using namespace signal_owned;
+static void check(bool value) { if (!value) __builtin_trap(); }
+static uint64_t mask = 0x1234;
+static int error_value, kernel_error, retain_error, mask_error;
+static unsigned retained, completed, committed, kernel_calls;
+static uintptr_t seen_handler, seen_restorer;
+namespace signal_owned {
+Errno libc_errno;
+void Errno::operator=(int value) { error_value = value; }
+Errno::operator int() { return error_value; }
+namespace mmix {
+long retain_shared_signal(uintptr_t handler, uintptr_t restorer,
+                           loader::LoaderSignalLease *lease) {
+  check(mask == UINT64_MAX && !lease->snapshot);
+  if (retain_error) return retain_error;
+  ++retained;
+  seen_handler = handler;
+  seen_restorer = restorer;
+  lease->snapshot = reinterpret_cast<void *>(1);
+  return 0;
+}
+void finish_shared_signal(loader::LoaderSignalLease *lease, bool installed) {
+  check(mask == UINT64_MAX && lease->snapshot);
+  ++completed;
+  committed += installed;
+  *lease = {};
+}
+}
+}
+extern "C" void __llvm_libc_mmix_signal_trampoline() {}
+static void handler(int) {}
+static void handler3(int, siginfo_t *, void *) {}
+static void restorer() {}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
+                                         long c, long d, long, long) {
+  if (n == SYS_rt_sigprocmask) {
+    check(a == SIG_SETMASK && d == 8);
+    if (mask_error) return -mask_error;
+    if (c) *reinterpret_cast<uint64_t *>(c) = mask;
+    mask = *reinterpret_cast<uint64_t *>(b);
+    return 0;
+  }
+  check(n == SYS_rt_sigaction);
+  ++kernel_calls;
+  if (b) {
+    auto *action = reinterpret_cast<mmix::KernelSigaction *>(b);
+    if (action->sa_handler != SIG_DFL && action->sa_handler != SIG_IGN)
+      check(mask == UINT64_MAX && retained == completed + 1);
+  }
+  if (c) *reinterpret_cast<mmix::KernelSigaction *>(c) = {};
+  return -kernel_error;
+}
+extern "C" int main() {
+  struct sigaction action{};
+  action.sa_handler = handler;
+  check(!signal_owned::sigaction(SIGUSR1, &action, nullptr));
+  check(mask == 0x1234 && retained == 1 && completed == 1 && committed == 1);
+  check(seen_handler == reinterpret_cast<uintptr_t>(handler));
+  check(seen_restorer == reinterpret_cast<uintptr_t>(__llvm_libc_mmix_signal_trampoline));
+  action.sa_flags = SA_SIGINFO | SA_RESTORER | SA_RESETHAND;
+  action.sa_sigaction = handler3;
+  action.sa_restorer = restorer;
+  check(!signal_owned::sigaction(SIGUSR1, &action, nullptr));
+  check(seen_handler == reinterpret_cast<uintptr_t>(handler3) &&
+        seen_restorer == reinterpret_cast<uintptr_t>(restorer));
+  kernel_error = EINVAL;
+  check(signal_owned::sigaction(SIGUSR1, &action, nullptr) == -1);
+  check(retained == 3 && completed == 3 && committed == 2 && mask == 0x1234);
+  check(int(libc_errno) == EINVAL);
+  kernel_error = 0;
+  auto calls = kernel_calls;
+  retain_error = EINVAL;
+  check(signal_owned::sigaction(SIGUSR1, &action, nullptr) == -1);
+  check(kernel_calls == calls && retained == 3 && mask == 0x1234);
+  retain_error = 0;
+  mask_error = EINVAL;
+  check(signal_owned::sigaction(SIGUSR1, &action, nullptr) == -1);
+  check(kernel_calls == calls && retained == 3 && mask == 0x1234);
+  mask_error = 0;
+  check(signal_owned::signal(SIGUSR1, SIG_IGN) != SIG_ERR);
+  check(signal_owned::signal(SIGUSR1, SIG_DFL) != SIG_ERR);
+  check(!signal_owned::sigaction(SIGUSR1, nullptr, &action));
+  check(retained == 3 && completed == 3 && committed == 2 && mask == 0x1234);
+  return 0;
+}

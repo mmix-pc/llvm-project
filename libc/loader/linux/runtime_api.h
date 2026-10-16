@@ -54,6 +54,7 @@ class RuntimeAPI {
   long retain_image(uintptr_t, uintptr_t, LoaderCancellation, uint64_t *,
                     bool process = false);
   long release_image(uint64_t, LoaderCancellation);
+  long retain_signal(uintptr_t, uintptr_t, LoaderSignalLease *);
   long open(const char *, int, uintptr_t, LoaderCancellation, uint64_t *);
   long lookup(uint64_t, const char *, uintptr_t, LoaderCancellation,
               uintptr_t *);
@@ -79,6 +80,7 @@ public:
   LoaderQueryAPI query_services();
   LoaderProcessAPI process_services();
   LoaderImageAPI image_services();
+  LoaderSignalAPI signal_services();
   long run_startup(RuntimeInitializers::Batch &, LoaderCancellation);
   long finalize(LoaderCancellation);
   RuntimeQueries &query_metadata() { return queries; }

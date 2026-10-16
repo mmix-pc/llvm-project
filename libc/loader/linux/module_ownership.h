@@ -14,11 +14,13 @@
 #include "hdr/stdint_proxy.h"
 #include "loader/linux/arena.h"
 #include "src/__support/CPP/new.h"
+#include "src/__support/CPP/atomic.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
-// Callers serialize every access, including admission versus retirement.
+// Callers serialize ticket and state-transition operations. Signal retention
+// alone is lock-free and races retirement through its atomic admission gate.
 // This accounts for owners, not graph reachability, callbacks or unmapping.
 // Supplied arena storage must outlive this object and every outstanding token.
 class ModuleOwnership {
@@ -43,6 +45,10 @@ private:
   Slot *slots = nullptr;
   State state = State::Live;
   bool permanent;
+  // Signal-side registration cannot allocate tickets or take the writer lock.
+  // Bit 0 closes admission, bit 1 is a permanent signal-code pin, higher bits
+  // count temporary registration leases. Retirement races use the same CAS.
+  mutable cpp::Atomic<uint64_t> signal_owners{0};
 
 public:
   // The bound limits both live owners and lifetime ticket issuance. Exhaustion
@@ -102,8 +108,36 @@ public:
   long retire() {
     if (permanent || state != State::Live)
       return -EBUSY;
+    uint64_t expected = 0;
+    if (!signal_owners.compare_exchange_strong(expected, 1))
+      return -EBUSY;
     state = State::Retiring;
     return 0;
+  }
+  // Roll back a writer's unpublished multi-image retirement reservation.
+  void cancel_retirement() {
+    if (state != State::Retiring || signal_owners.load() != 1)
+      __builtin_trap();
+    state = State::Live;
+    signal_owners.store(0);
+  }
+  long retain_signal() {
+    static_assert(__atomic_always_lock_free(sizeof(uint64_t), nullptr));
+    uint64_t value = signal_owners.load();
+    for (;;) {
+      if (value & 1)
+        return -EBUSY;
+      if (value > ~uint64_t(0) - 4)
+        return -EOVERFLOW;
+      if (signal_owners.compare_exchange_weak(value, value + 4))
+        return 0;
+    }
+  }
+  void finish_signal(bool installed) {
+    if (installed)
+      signal_owners.fetch_or(2);
+    if (signal_owners.fetch_sub(4) < 4)
+      __builtin_trap();
   }
 
   // Only the coordinator may attest finalization and physical release. This
@@ -114,9 +148,12 @@ public:
     state = State::Reclaimed;
     return 0;
   }
-  bool is_permanent() const { return permanent; }
+  bool is_permanent() const { return permanent || (signal_owners.load() & 2); }
   State admission() const { return state; }
-  uint64_t owners() const { return total; }
+  uint64_t owners() const {
+    uint64_t transient = signal_owners.load() >> 2;
+    return transient > ~uint64_t(0) - total ? ~uint64_t(0) : total + transient;
+  }
   uint64_t owners(Kind kind) const {
     unsigned index = static_cast<unsigned>(kind);
     return index < 4 ? counts[index] : 0;

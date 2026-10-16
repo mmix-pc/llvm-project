@@ -25,6 +25,9 @@ long retain_shared_tls_destructor(void *dso, uintptr_t callback,
 long release_shared_tls_destructor(uint64_t token);
 long retain_shared_process_callback(void *dso, uintptr_t callback,
                                     uint64_t *token);
+long retain_shared_signal(uintptr_t handler, uintptr_t restorer,
+                           loader::LoaderSignalLease *lease);
+void finish_shared_signal(loader::LoaderSignalLease *lease, bool installed);
 [[noreturn]] __attribute__((visibility("hidden"), no_instrument_function))
 void fatal_dynamic_tls();
 } // namespace mmix

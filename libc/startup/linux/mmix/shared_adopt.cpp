@@ -49,6 +49,17 @@ long retain_shared_process_callback(void *dso, uintptr_t callback,
                                         token);
 }
 
+long retain_shared_signal(uintptr_t handler, uintptr_t restorer,
+                           loader::LoaderSignalLease *lease) {
+  if (!services.signals.retain)
+    return EINVAL;
+  return services.signals.retain(services.signals.context, handler, restorer,
+                                 lease);
+}
+void finish_shared_signal(loader::LoaderSignalLease *lease, bool installed) {
+  services.signals.finish(services.signals.context, lease, installed);
+}
+
 long release_shared_tls_destructor(uint64_t token) {
   if (!services.images.release)
     return EINVAL;
@@ -106,7 +117,8 @@ long adopt_shared_main(const loader::StartupProcessView *process,
       !input->release_unwind_image || !input->finalize_startup ||
       !input->run_initializers || !input->images.context ||
       !input->images.retain || !input->images.release ||
-      !input->images.retain_process || !tls->tp ||
+      !input->images.retain_process || !input->signals.context ||
+      !input->signals.retain || !input->signals.finish || !tls->tp ||
       reinterpret_cast<uintptr_t>(__builtin_thread_pointer()) != tls->tp ||
       reinterpret_cast<const uintptr_t *>(tls->tp)[1] !=
           reinterpret_cast<uintptr_t>(state))

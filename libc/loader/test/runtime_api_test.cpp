@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csignal>
 #include <dlfcn.h>
 #include <pthread.h>
 #include <sys/mman.h>
@@ -37,6 +38,10 @@ static LoaderAPI production;
 static bool inject_nested_error;
 static bool fail_query_allocation;
 static bool deliver_pending;
+static LoaderSignalAPI signal_api;
+static uintptr_t signal_callback;
+static volatile sig_atomic_t signal_calls;
+static bool interrupt_allocation, in_signal;
 struct PendingCancellation {};
 static uintptr_t caller_pc = bias + 0x2000, observed_pc;
 static void check(bool value, int line = __builtin_LINE()) {
@@ -47,6 +52,11 @@ static void check(bool value, int line = __builtin_LINE()) {
 }
 namespace LIBC_NAMESPACE::loader {
 long raw_syscall(long n, long a, long b, long c, long d, long e, long f) {
+  check(!in_signal);
+  if (n == SYS_mmap && interrupt_allocation) {
+    interrupt_allocation = false;
+    check(!::raise(SIGUSR1));
+  }
   if (n == SYS_mmap && fail_query_allocation) {
     fail_query_allocation = false;
     return -ENOMEM;
@@ -308,6 +318,44 @@ int main(int argc, char **argv) {
   uint64_t image_pin = 0;
   const auto *main_image = registry.snapshot()->images[0];
   const uintptr_t callback_address = reinterpret_cast<uintptr_t>(function);
+  {
+    RuntimeAPI interrupted(page, registry, scopes, initializers, stack,
+                            environment, {nullptr, resolve});
+    signal_api = interrupted.signal_services();
+    signal_callback = callback_address;
+    struct sigaction action{}, previous{};
+    action.sa_handler = [](int) {
+      in_signal = true;
+      auto before = disabled;
+      LoaderSignalLease first, nested;
+      check(!signal_api.retain(signal_api.context, signal_callback,
+                               signal_callback, &first));
+      check(!signal_api.retain(signal_api.context, signal_callback, 0, &nested));
+      signal_api.finish(signal_api.context, &nested, false);
+      signal_api.finish(signal_api.context, &first, false);
+      check(before == disabled);
+      ++signal_calls;
+      in_signal = false;
+    };
+    check(!::sigemptyset(&action.sa_mask));
+    check(!::sigaction(SIGUSR1, &action, &previous));
+    interrupt_allocation = true;
+    auto pins = interrupted.image_services();
+    check(!pins.retain(pins.context, callback_address, callback_address, hooks,
+                       &image_pin));
+    check(signal_calls == 1 && !interrupt_allocation);
+    check(!pins.release(pins.context, image_pin, hooks));
+    image_pin = 0;
+    check(!::sigaction(SIGUSR1, &previous, nullptr));
+    LoaderSignalLease invalid;
+    check(signal_api.retain(signal_api.context, callback_address, 1, &invalid)
+          == ENOENT && !invalid.snapshot && !image->ownership.owners());
+    // The startup code image is already permanent; commit adds a signal pin
+    // without perturbing the late-image retirement tests below.
+    check(!signal_api.retain(signal_api.context, caller_pc, 0, &invalid));
+    signal_api.finish(signal_api.context, &invalid, true);
+    check(!invalid.snapshot && main_image->ownership.is_permanent());
+  }
   // A module-owned exit record does not root its own finalization. Its
   // callback in a different image remains a runtime root until consumed.
   check(image_api.retain_process(image_api.context, 0, callback_address, hooks,

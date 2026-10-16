@@ -9,6 +9,9 @@
 #include "cleanup.h"
 #include "hdr/signal_macros.h"
 #include "lifecycle.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "callback_ownership.h"
+#endif
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include <asm/rstack.h>
 #include <asm/unistd.h>
@@ -20,6 +23,9 @@ namespace {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL MmixCleanupLink head{};
 LIBC_CONSTINIT LIBC_THREAD_LOCAL uint64_t serial = 0;
 LIBC_CONSTINIT LIBC_THREAD_LOCAL bool dispatching = false;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+LIBC_CONSTINIT LIBC_THREAD_LOCAL CallbackOwners callback_owners;
+#endif
 
 class RegistrationMask {
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
@@ -114,17 +120,28 @@ void invoke_callback(void (*callback)(void *), void *argument) noexcept {
   callback(argument);
 }
 
-void remove(bool execute) {
+void remove(bool execute, RegistrationMask *mask = nullptr) {
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  CallbackOwnershipScope ownership_scope;
+#endif
   validate_link(head);
   auto *record = head.record;
   if (record->previous.record && record->previous.serial >= head.serial)
     __builtin_trap();
   auto callback = record->callback;
   auto argument = record->argument;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  auto *owner = callback_owners.detach(record);
+#endif
   head = record->previous;
   record->serial = 0;
+  if (mask)
+    mask->restore();
   if (execute)
     invoke_callback(callback, argument);
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  CallbackOwners::release(owner);
+#endif
 }
 void publish(MmixCleanupRecord *record, void (*callback)(void *), void *argument,
              const MmixCleanupFrame &frame, bool cpp_record) {
@@ -150,6 +167,13 @@ void publish(MmixCleanupRecord *record, void (*callback)(void *), void *argument
     validate_link(link);
     newer = link.serial;
   }
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  CallbackOwnershipScope ownership_scope;
+  // The public push operation has no error result. Fail closed after rolling
+  // back a failed retain/allocation rather than publish unprotected code.
+  if (!callback_owners.push(record, reinterpret_cast<uintptr_t>(callback)))
+    __builtin_trap();
+#endif
   serial = next;
   *record = {head, callback, argument, identifier};
   head = {record, frame, identifier};
@@ -182,12 +206,7 @@ __llvm_libc_mmix_thread_cleanup_pop(MmixCleanupRecord *record, int execute) {
   if (dispatching || head.record != record || !same_frame(head.frame, frame))
     __builtin_trap();
   validate_link(head);
-  auto callback = record->callback;
-  auto argument = record->argument;
-  remove(false);
-  mask.restore();
-  if (execute)
-    invoke_callback(callback, argument);
+  remove(execute, &mask);
 }
 
 void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {

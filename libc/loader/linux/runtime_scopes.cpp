@@ -493,8 +493,13 @@ long RuntimeScopes::publish(Transaction &transaction) {
       return -EBUSY;
   if (!storage.can_publish(transaction.batch, transaction.arena))
     return -EINVAL;
-  for (const Image *image : transaction.retiring)
-    (void)image->ownership.retire();
+  for (size_t i = 0; i < transaction.retiring.size(); ++i) {
+    if (transaction.retiring[i]->ownership.retire()) {
+      while (i)
+        transaction.retiring[--i]->ownership.cancel_retirement();
+      return -EBUSY;
+    }
+  }
   (void)storage.publish(transaction.batch, transaction.arena,
                         transaction.candidate);
   transaction.published = true;

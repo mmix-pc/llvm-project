@@ -202,7 +202,13 @@ static void retirement_tests() {
   check(!scopes.prepare_retire(retired, retire));
   check(late.record.ownership.admission() == ModuleOwnership::State::Live);
   check(scopes.collect_snapshots() == -EBUSY); // Prepared writer borrows base.
+  check(!late.record.ownership.retain_signal());
+  check(!scopes.can_publish(retire) && scopes.publish(retire) == -EBUSY);
+  check(scopes.snapshot() == before &&
+        late.record.ownership.admission() == ModuleOwnership::State::Live);
+  late.record.ownership.finish_signal(false);
   check(!scopes.publish(retire));
+  check(late.record.ownership.retain_signal() == -EBUSY);
   check(late.record.ownership.admission() == ModuleOwnership::State::Retiring);
   check(scopes.snapshot()->registry->images.size() == 1);
   reader.phase.store(2);

@@ -76,6 +76,18 @@ extern "C" int main() {
   check(!process.retire() && process.mark_reclaimed() == -EBUSY);
   check(!process.release(h) && !process.mark_reclaimed());
 
+  ModuleOwnership signal(5, 1, false);
+  check(!signal.retain_signal() && signal.owners() == 1);
+  check(signal.retire() == -EBUSY);
+  signal.finish_signal(false);
+  check(!signal.owners() && !signal.is_permanent());
+  check(!signal.retire() && signal.retain_signal() == -EBUSY);
+  signal.cancel_retirement();
+  check(!signal.retain_signal());
+  signal.finish_signal(true);
+  check(!signal.owners() && signal.is_permanent());
+  check(signal.retire() == -EBUSY);
+
   for (unsigned root = 0; root != 2; ++root) {
     // Startup and NODELETE share the same irreversible root policy.
     ModuleOwnership permanent(10 + root, 1, true);
