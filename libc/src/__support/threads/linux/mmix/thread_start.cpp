@@ -15,6 +15,10 @@
 #include "src/__support/threads/thread.h"
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include <asm/rstack.h>
+#include <asm/unistd.h>
+#endif
 #ifdef LIBC_MMIX_ROBUST_MUTEX
 #include "robust_mutex.h"
 #endif
@@ -53,6 +57,13 @@ static int initialize_child(ThreadControl &control) {
   if (!attributes.atexit_callback_mgr)
     return ENOMEM;
   current_control = &control;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  mmix_rstack_query query{};
+  if (syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) ||
+      !query.chain_id)
+    return EINVAL;
+  control.loader_chain = query.chain_id;
+#endif
 #ifdef LIBC_MMIX_PTHREAD_SCHEDULING
   if (control.apply_scheduling) {
     int policy, priority;

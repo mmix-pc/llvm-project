@@ -108,27 +108,42 @@ public:
 };
 
 void *loader_open(const char *name, int flags, uintptr_t caller) {
-  CancellationScope guard;
-  if (guard.error()) {
-    set_error(guard.error());
-    return nullptr;
+  // Restoration may deliver pending cancellation before the caller receives
+  // the handle. Keep its cleanup outside the cancellation scope.
+  struct UnreturnedHandle {
+    uint64_t token = 0;
+    ~UnreturnedHandle() {
+      if (token && loader_close(reinterpret_cast<void *>(token)))
+        __builtin_trap();
+    }
+  } result;
+  {
+    CancellationScope guard;
+    if (guard.error()) {
+      set_error(guard.error());
+      return nullptr;
+    }
+    error_state.pending = false;
+    uint64_t token = 0;
+    long error = !loader::valid_open_flags(static_cast<unsigned>(flags))
+                     ? EINVAL
+                 : !api.open ? ENOSYS
+                             : api.open(api.context, name, flags, caller,
+                                        guard.callbacks(), &token);
+    if (!error && (!token || token == loader::LookupNext))
+      error = EINVAL;
+    if (error) {
+      set_error(error);
+      return nullptr;
+    }
+    // A constructor may have handled a nested loading failure. The completed
+    // outer operation owns the status returned to its caller.
+    error_state.pending = false;
+    result.token = token;
   }
-  error_state.pending = false;
-  uint64_t token = 0;
-  long error = !loader::valid_open_flags(static_cast<unsigned>(flags)) ? EINVAL
-               : !api.open ? ENOSYS
-                           : api.open(api.context, name, flags, caller,
-                                      guard.callbacks(), &token);
-  if (!error && (!token || token == loader::LookupNext))
-    error = EINVAL;
-  if (error) {
-    set_error(error);
-    return nullptr;
-  }
-  // A constructor may have handled a nested loading failure. The completed
-  // outer operation owns the status returned to its caller.
-  error_state.pending = false;
-  return reinterpret_cast<void *>(token);
+  void *handle = reinterpret_cast<void *>(result.token);
+  result.token = 0;
+  return handle;
 }
 
 void *loader_lookup(void *handle, const char *name, uintptr_t caller) {

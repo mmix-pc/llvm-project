@@ -11,12 +11,15 @@
 #include "shared_startup.h"
 #include "src/__support/OSUtil/linux/auxv.h"
 #include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/threads/linux/mmix/loader_cancellation.h"
 #include "src/dlfcn/linux/mmix/loading.h"
 #include "src/errno/program_invocation_name.h"
 #include "src/errno/program_invocation_short_name.h"
 #include "src/stdlib/atexit.h"
 #include "src/unistd/environ.h"
+#include <asm/rstack.h>
+#include <asm/unistd.h>
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
 #include "src/__support/threads/linux/mmix/cancellation_point.h"
 #endif
@@ -186,6 +189,12 @@ long adopt_shared_main(const loader::StartupProcessView *process,
   shared_main.attributes.platform_data = &shared_main.clear_tid.value.val;
   if (!internal::activate_main_thread(shared_main))
     return EINVAL;
+  mmix_rstack_query loader_chain{};
+  if (syscall_impl(__NR_mmix_rstack_query,
+                   reinterpret_cast<long>(&loader_chain)) ||
+      !loader_chain.chain_id)
+    return EINVAL;
+  shared_main.loader_chain = loader_chain.chain_id;
   if (!adopt_loading_services(services.api) ||
       !adopt_query_services(services.queries) ||
       !adopt_loader_process_services(services.process))

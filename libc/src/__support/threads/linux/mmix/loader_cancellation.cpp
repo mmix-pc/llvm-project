@@ -14,6 +14,10 @@
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include <pthread.h>
 #include <sys/syscall.h>
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include <asm/rstack.h>
+#include <asm/unistd.h>
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 // The C-only companion does not provide these barriers. Full shared libc++abi
@@ -42,6 +46,19 @@ public:
 };
 long enter(uint64_t *saved) {
   Mask mask;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  // A handler must not reenter a suspended loader transaction. Signal image
+  // leases use their separate lock-free service and never enter this scope.
+  mmix_rstack_query query{};
+  if (!current_control || !current_control->loader_chain)
+    return -ENOTSUP;
+  long query_error = syscall_impl(__NR_mmix_rstack_query,
+                                 reinterpret_cast<long>(&query));
+  if (query_error)
+    return query_error;
+  if (query.chain_id != current_control->loader_chain)
+    return -ENOTSUP;
+#endif
   int previous;
   int error = set_cancel_state(PTHREAD_CANCEL_DISABLE, &previous);
   if (!error) {

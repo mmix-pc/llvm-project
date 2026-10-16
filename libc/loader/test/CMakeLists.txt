@@ -10,6 +10,14 @@ enable_testing()
 find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
 
+add_executable(loader-cancellation-hooks-test cancellation_hooks_test.cpp)
+target_include_directories(loader-cancellation-hooks-test PRIVATE
+  Inputs/cancellation ../..)
+target_compile_definitions(loader-cancellation-hooks-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_features(loader-cancellation-hooks-test PRIVATE cxx_std_17)
+add_test(NAME loader-cancellation-hooks COMMAND loader-cancellation-hooks-test)
+set_tests_properties(loader-cancellation-hooks PROPERTIES TIMEOUT 30)
+
 # Match the interpreter's no-personality frames when callbacks unwind into the
 # libc caller. The API fixture and libc wrapper retain native exception support.
 set_source_files_properties(../linux/runtime_api.cpp PROPERTIES

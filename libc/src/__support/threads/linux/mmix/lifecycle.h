@@ -69,6 +69,8 @@ struct ThreadControl {
 #ifdef LIBC_MMIX_SHARED_STARTUP
   loader::ThreadTLSAllocation shared_tls{};
   cpp::Atomic<uint64_t> loader_scopes{0}, loader_callbacks{0};
+  // Established before user callbacks, independently of unwind-root capture.
+  uint64_t loader_chain = 0;
 #endif
   UnwindRoot unwind_root{};
   PriorityProtectionState priority_protection;

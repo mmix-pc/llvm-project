@@ -20,6 +20,9 @@ using namespace loader_test;
 using LIBC_NAMESPACE::cpp::Atomic;
 using Kind = LoaderLocks::Kind;
 static thread_local unsigned suppressed;
+static thread_local bool pending_cancellation;
+static unsigned cancellation_deliveries;
+static void restore_cancellation();
 static bool fail_mapping;
 static void check(bool value, int line = __builtin_LINE()) {
   if (!value) {
@@ -43,6 +46,8 @@ static LoaderCancellation hooks{[](uint64_t *saved) -> long {
                                 },
                                 [](uint64_t saved) -> long {
                                   suppressed = saved;
+                                  if (!saved && pending_cancellation)
+                                    restore_cancellation();
                                   return 0;
                                 }};
 
@@ -96,6 +101,7 @@ struct RetirementFixture {
   unsigned callbacks = 0;
   bool inject_failure = false;
   bool exit_from_callback = false;
+  bool cancel_from_callback = false;
 
   RetirementFixture() {
     stack.valid = true;
@@ -128,8 +134,16 @@ struct RetirementFixture {
   long drain();
 };
 static RetirementFixture *fixture;
+static void restore_cancellation() {
+  check(!suppressed && !fixture->retirement.draining());
+  pending_cancellation = false;
+  ++cancellation_deliveries;
+}
 static void finalizer(Address pc) {
   auto &f = *fixture;
+  check(suppressed);
+  if (f.cancel_from_callback)
+    pending_cancellation = true;
   ++f.callbacks;
   if (pc >= 0x300000) {
     LoaderLocks::Session nested(f.locks, hooks);
@@ -201,7 +215,10 @@ extern "C" int main() {
     check(!f.late.record.ownership.release(f.tss));
   }
   f.inject_failure = true;
+  f.cancel_from_callback = true;
   check(f.drain() == -ENOMEM && f.callbacks == 2);
+  check(cancellation_deliveries == 1 && !pending_cancellation && !suppressed);
+  f.cancel_from_callback = false;
   fail_mapping = false;
   check(f.events.requested() && !f.drain() && f.callbacks == 2);
   auto *entry = f.retirement.removals();

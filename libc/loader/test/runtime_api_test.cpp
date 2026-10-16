@@ -260,6 +260,20 @@ int main(int argc, char **argv) {
   client::finish_loader_fork(false);
   check(!leave(saved_state));
 
+  // A published handle still belongs to libc until cancellation restoration
+  // returns. Losing the caller here must not leave a permanent handle root.
+  auto handle_count = scopes.snapshot()->handles.size();
+  deliver_pending = true;
+  delivered = false;
+  try {
+    client::loader_open(nullptr, RTLD_NOW, caller_pc);
+    check(false);
+  } catch (const PendingCancellation &) {
+    delivered = true;
+  }
+  check(delivered && !disabled &&
+        scopes.snapshot()->handles.size() == handle_count);
+
   const int invalid_flags[] = {0, RTLD_NOW | RTLD_LAZY,
                                RTLD_NOW | RTLD_DEEPBIND, RTLD_NOW | 0x8000, -1};
   for (int flags : invalid_flags) {
@@ -289,6 +303,15 @@ int main(int argc, char **argv) {
   check(!LIBC_NAMESPACE::dlsym(global, "foo") && LIBC_NAMESPACE::dlerror());
 
   const auto *before = scopes.snapshot();
+  // Acquisition failure must restore cancellation without publishing a handle.
+  fail_query_allocation = true;
+  deliver_pending = true;
+  try {
+    client::loader_open(argv[1], RTLD_NOW, caller_pc);
+    check(false);
+  } catch (const PendingCancellation &) {
+    check(!disabled && scopes.snapshot() == before);
+  }
   check(!client::loader_open(argv[1], RTLD_NOW | RTLD_NOLOAD, caller_pc));
   check(client::loader_error() && scopes.snapshot() == before);
   for (int i = 2; i < 4; ++i) {
@@ -481,6 +504,14 @@ int main(int argc, char **argv) {
     check(value == 73);
   }
   check(!service.query_metadata().active_readers() && !disabled);
+  deliver_pending = true;
+  try {
+    LIBC_NAMESPACE::dl_iterate_phdr(
+        [](dl_phdr_info *, size_t, void *) { return 0; }, nullptr);
+    check(false);
+  } catch (const PendingCancellation &) {
+    check(!service.query_metadata().active_readers() && !disabled);
+  }
   pthread_t exiting;
   check(!pthread_create(
       &exiting, nullptr,
@@ -536,7 +567,15 @@ int main(int argc, char **argv) {
     check(LIBC_NAMESPACE::dlclose(bad) == -1);
     check(LIBC_NAMESPACE::dlerror() && scopes.snapshot() == retained);
   }
-  check(!LIBC_NAMESPACE::dlclose(local) && !LIBC_NAMESPACE::dlerror());
+  // Cancellation restoration occurs after handle consumption and retirement
+  // cleanup. It must not resurrect the handle or strand the writer lock.
+  deliver_pending = true;
+  try {
+    LIBC_NAMESPACE::dlclose(local);
+    check(false);
+  } catch (const PendingCancellation &) {
+    check(!disabled);
+  }
   check(LIBC_NAMESPACE::dlclose(local) == -1 && LIBC_NAMESPACE::dlerror());
   check(!client::loader_lookup(local, "access_tls", caller_pc));
   check(client::loader_error());
@@ -551,7 +590,14 @@ int main(int argc, char **argv) {
   check(before_close_queries->adds == 2 && !before_close_queries->subs);
   check(scopes.snapshot()->handles.empty());
   check(image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1);
-  check(!image_api.release(image_api.context, image_pin, hooks));
+  deliver_pending = true;
+  try {
+    image_api.release(image_api.context, image_pin, hooks);
+    check(false);
+  } catch (const PendingCancellation &) {
+    check(!disabled);
+  }
+  check(image_api.release(image_api.context, image_pin, hooks) == EINVAL);
   check(!image->ownership.owners(ModuleOwnership::Kind::Runtime));
   check(registry.snapshot() == retained_images &&
         scopes.snapshot()->unwind->registry == retained->unwind->registry);
