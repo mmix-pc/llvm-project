@@ -121,6 +121,7 @@ long RuntimeInitializers::attach(Batch &batch,
     const auto &object = batch.plan.order[i];
     auto *record = object.node->record;
     if (!find(record->image)) {
+      record->ownership_arena = &batch.arena;
       record->fini = object.fini_count
                          ? batch.plan.callbacks + object.fini_first
                          : nullptr;
@@ -241,12 +242,178 @@ long RuntimeInitializers::finalize(LoaderLocks::Session &session,
   while (completed) {
     auto *record = completed;
     completed = record->previous_completion;
+    if (record->state != Record::Complete)
+      continue;
     record->state = Record::Finalized;
     for (size_t j = record->fini_count; j != 0; --j) {
       LoaderLocks::Session::Callback callback(session);
       invoke(record->fini[j - 1]);
     }
   }
+  return 0;
+}
+
+long RuntimeInitializers::FinalizationPlan::release_pins() {
+  while (pins) {
+    long error = pins->image->ownership.release(pins->token);
+    if (error)
+      return error;
+    pins = pins->next;
+  }
+  return 0;
+}
+
+long RuntimeInitializers::FinalizationPlan::reset() {
+  if ((state != Empty && state != Done) || pins)
+    return -EBUSY;
+  owner = nullptr;
+  items = nullptr;
+  runner = 0;
+  state = Empty;
+  return arena.reset();
+}
+
+long RuntimeInitializers::collect_finalizers(
+    const ImageRegistry::Snapshot &snapshot, FinalizationPlan &plan,
+    LoaderLocks::Session &session, bool process_exit) {
+  if (!session.callback_owner() || plan.owner ||
+      plan.state != FinalizationPlan::Empty)
+    return -EINVAL;
+  if (stopping && !process_exit)
+    return -ECANCELED;
+  cpp::span<const ImageRegistry::Image *const> candidates = snapshot.images;
+  long error = 0;
+  if (!process_exit) {
+    const ImageRegistry::Image **roots = nullptr;
+    error = allocate(plan.arena, snapshot.images.size(), roots);
+    size_t count = 0;
+    if (!error) {
+      for (auto *image : snapshot.images) {
+        auto *record = find(image);
+        // An unfinished initializer can still call its completed providers.
+        if (!record || record->state == Record::Pending ||
+            record->state == Record::Initializing)
+          roots[count++] = image;
+      }
+      error = snapshot.reclaimable(plan.arena, {roots, count}, candidates);
+    }
+  }
+  auto pin = [&](const ImageRegistry::Image *image) -> long {
+    for (auto *p = plan.pins; p; p = p->next)
+      if (p->image == image)
+        return 0;
+    auto *record = find(image);
+    if (!record || !record->ownership_arena)
+      return -EINVAL;
+    FinalizationPlan::Pin *p;
+    long result = allocate(plan.arena, 1, p);
+    if (result)
+      return result;
+    new (p) FinalizationPlan::Pin{image, {}, nullptr};
+    result = image->ownership.acquire(*record->ownership_arena,
+                                      ModuleOwnership::Kind::Runtime, p->token);
+    if (!result) {
+      p->next = plan.pins;
+      plan.pins = p;
+    }
+    return result;
+  };
+  auto **tail = &plan.items;
+  // Completion order already incorporates dependency-first SCC scheduling
+  // and nested initialization. Never finalize an unfinished constructor.
+  for (auto *record = completed; record && !error;
+       record = record->previous_completion) {
+    bool selected = false;
+    for (auto *image : candidates)
+      selected |= record->image == image;
+    if (!selected || record->state != Record::Complete)
+      continue;
+    FinalizationPlan::Item *item;
+    error = allocate(plan.arena, 1, item);
+    if (error)
+      break;
+    new (item) FinalizationPlan::Item{record, nullptr};
+    *tail = item;
+    tail = &item->next;
+    error = pin(record->image);
+    for (size_t i = 0; i < record->fini_count && !error; ++i) {
+      const ImageRegistry::Image *provider = nullptr;
+      for (auto *image : snapshot.images) {
+        Address address;
+        Address pc = record->fini[i];
+        if (pc >= image->elf.load_bias() &&
+            image->elf.runtime_address(pc - image->elf.load_bias(), 4,
+                                       PF_R | PF_X, address)) {
+          if (provider) {
+            error = -EINVAL;
+            break;
+          }
+          provider = image;
+        }
+      }
+      if (!error)
+        error = provider ? pin(provider) : -ENOEXEC;
+    }
+  }
+  if (error) {
+    if (plan.release_pins())
+      __builtin_trap();
+    // Preserve arena ownership for explicit reset even if unmapping fails.
+    plan.items = nullptr;
+    return error;
+  }
+  for (auto *item = plan.items; item; item = item->next)
+    item->record->state = Record::Finalizing;
+  if (process_exit)
+    stopping = true;
+  plan.owner = this;
+  plan.runner = session.callback_owner();
+  plan.state = FinalizationPlan::Prepared;
+  return 0;
+}
+
+long RuntimeInitializers::invoke_finalizers(FinalizationPlan &plan,
+                                           LoaderLocks::Session &session,
+                                           Finalizer invoke) {
+  if (plan.owner != this || !session.unlocked_callback_owner() ||
+      plan.runner != session.unlocked_callback_owner())
+    return -EINVAL;
+  if (plan.state == FinalizationPlan::Invoked ||
+      plan.state == FinalizationPlan::Done)
+    return 0;
+  if (plan.state != FinalizationPlan::Prepared)
+    return -EBUSY;
+  plan.state = FinalizationPlan::Running;
+  if (!invoke)
+    invoke = session.finalizer_barrier() ? session.finalizer_barrier()
+                                        : invoke_finalizer;
+  for (auto *item = plan.items; item; item = item->next) {
+    auto *record = item->record;
+    // The CRT's fini-array entry invokes __cxa_finalize(__dso_handle).
+    // Do not separately drain the same process registrations here.
+    for (size_t j = record->fini_count; j; --j) {
+      LoaderLocks::Session::Callback callback(session, true);
+      invoke(record->fini[j - 1]);
+    }
+  }
+  plan.state = FinalizationPlan::Invoked;
+  return 0;
+}
+
+long RuntimeInitializers::complete_finalizers(FinalizationPlan &plan,
+                                             LoaderLocks::Session &session) {
+  if (!session.callback_owner() || plan.owner != this ||
+      plan.runner != session.callback_owner())
+    return -EINVAL;
+  if (plan.state == FinalizationPlan::Done)
+    return 0;
+  if (plan.state != FinalizationPlan::Invoked)
+    return -EBUSY;
+  for (auto *item = plan.items; item; item = item->next)
+    item->record->state = Record::Finalized;
+  if (plan.release_pins())
+    __builtin_trap();
+  plan.state = FinalizationPlan::Done;
   return 0;
 }
 

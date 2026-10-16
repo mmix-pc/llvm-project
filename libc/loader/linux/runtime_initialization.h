@@ -18,9 +18,9 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
-// All operations require the same recursive mutation guard and cancellation
-// suppression. No registry/arena guard may span run/finalize. Other threads
-// wait at the mutation guard, not on a partially initialized object's state.
+// State operations require mutation serialization and cancellation suppression.
+// Legacy run/finalize retain mutation but no registry/arena guard. Detached
+// finalization invokes callbacks without any loader guard.
 class RuntimeInitializers {
   struct Record;
   struct Node;
@@ -65,12 +65,14 @@ public:
 
 private:
   struct Record {
-    enum State { Pending, Initializing, Complete, Finalized } state = Pending;
+    enum State { Pending, Initializing, Complete, Finalizing, Finalized } state =
+        Pending;
     const ImageRegistry::Image *image;
     Record *next = nullptr, *previous_completion = nullptr;
     const Address *fini = nullptr;
     size_t fini_count = 0;
     Batch *batch = nullptr;
+    Arena *ownership_arena = nullptr;
     long tid = 0;
   };
   Record *records = nullptr, *completed = nullptr;
@@ -79,6 +81,44 @@ private:
   Record *find(const ImageRegistry::Image *) const;
 
 public:
+  // A single-thread-owned detached plan. Its arena may be reset only after
+  // completion or failed preparation; ownership slots use the resident batch
+  // arena, never this temporary storage.
+  class FinalizationPlan {
+    friend class RuntimeInitializers;
+    struct Item {
+      Record *record;
+      Item *next;
+    };
+    struct Pin {
+      const ImageRegistry::Image *image;
+      ModuleOwnership::Token token;
+      Pin *next;
+    };
+    Arena arena;
+    RuntimeInitializers *owner = nullptr;
+    Item *items = nullptr;
+    Pin *pins = nullptr;
+    long runner = 0;
+    enum State { Empty, Prepared, Running, Invoked, Done } state = Empty;
+    long release_pins();
+
+  public:
+    explicit FinalizationPlan(size_t page_size) : arena(page_size) {}
+    FinalizationPlan(const FinalizationPlan &) = delete;
+    FinalizationPlan &operator=(const FinalizationPlan &) = delete;
+    long reset();
+  };
+  // Collection and completion require mutation serialization. The snapshot
+  // and attached initializer batches must remain alive through completion.
+  // Process exit includes permanent images; ordinary collection uses graph
+  // reachability, so NODELETE and externally held dependency cycles stay live.
+  long collect_finalizers(const ImageRegistry::Snapshot &, FinalizationPlan &,
+                          LoaderLocks::Session &, bool process_exit = false);
+  long invoke_finalizers(FinalizationPlan &, LoaderLocks::Session &,
+                         Finalizer = nullptr);
+  long complete_finalizers(FinalizationPlan &, LoaderLocks::Session &);
+
   // Prepare before publishing mappings. Attachment is allocation-free, after
   // matching scope publication and before any constructor can reenter.
   long prepare(const ImageRegistry::Snapshot &, Batch &, bool startup = false);

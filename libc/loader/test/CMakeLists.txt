@@ -27,6 +27,7 @@ set_tests_properties(loader-module-ownership PROPERTIES TIMEOUT 30)
 
 add_executable(loader-runtime-initialization-test runtime_initialization_test.cpp
   ../linux/runtime_initialization.cpp ../linux/locks.cpp
+  ../linux/image_registry.cpp ../linux/tls_layout.cpp
   ../linux/arena.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
 target_include_directories(loader-runtime-initialization-test PRIVATE ../..)
 target_compile_definitions(loader-runtime-initialization-test PRIVATE LIBC_NAMESPACE=__llvm_libc)

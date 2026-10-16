@@ -60,12 +60,22 @@ public:
     long callback_owner() const {
       return !failure && suppressed && top && rank == Kind::Mutation ? tid : 0;
     }
+    // Detached plans retain their code explicitly and invoke outside all
+    // loader guards, including a mutation guard held by an outer session.
+    long unlocked_callback_owner() const {
+      return !failure && suppressed && !top && rank == Kind::None &&
+                     locks.mutation_owner.load() != tid
+                 ? tid
+                 : 0;
+    }
     class Callback {
       Session &session;
 
     public:
-      explicit Callback(Session &session) : session(session) {
-        if (!session.callback_owner() ||
+      explicit Callback(Session &session, bool unlocked = false)
+          : session(session) {
+        if (!(unlocked ? session.unlocked_callback_owner()
+                       : session.callback_owner()) ||
             bool(session.cancellation.begin_callback) !=
                 bool(session.cancellation.end_callback))
           __builtin_trap();

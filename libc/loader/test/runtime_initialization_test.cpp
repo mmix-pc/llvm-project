@@ -93,6 +93,8 @@ struct Input : DynamicFixture {
                                         : ImageRole::SharedObject,
                                 bias, page, record.elf) == ElfError::None);
     record.startup = startup;
+    record.ownership.~ModuleOwnership();
+    new (&record.ownership) ModuleOwnership(bias, 1, startup);
     record.discovered = true;
   }
 };
@@ -160,8 +162,13 @@ static void seed(RuntimeInitializers &m, RuntimeInitializers::Batch &batch,
 }
 static void expect(const Address *values, size_t n) {
   check(trace_count == n);
-  for (size_t i = 0; i < n; ++i)
+  for (size_t i = 0; i < n; ++i) {
+    if (trace[i] != values[i])
+      std::fprintf(stderr, "trace[%zu]: %#lx expected %#lx\n", i,
+                   static_cast<unsigned long>(trace[i]),
+                   static_cast<unsigned long>(values[i]));
     check(trace[i] == values[i]);
+  }
 }
 
 extern "C" int main() {
@@ -290,6 +297,165 @@ extern "C" int main() {
   const Address dependencies[] = {0x502000, 0x502008, 0x50200c,
                                   0x302000, 0x302008, 0x30200c};
   expect(dependencies, sizeof(dependencies) / sizeof(*dependencies));
+
+  // Detached finalization preserves actual SCC completion order, reserves
+  // code through callback return, and does not retain even the mutation lock.
+  {
+    Input root(0x900000, true), x(0xb00000), y(0xd00000);
+    const ImageRegistry::Image *xd[] = {&y.record}, *yd[] = {&x.record};
+    x.record.dependencies = xd;
+    y.record.dependencies = yd;
+    const ImageRegistry::Image *set[] = {&root.record, &x.record, &y.record};
+    ImageRegistry::Snapshot initial{1, {set, 1}}, all{2, set};
+    RuntimeInitializers detached;
+    RuntimeInitializers::Batch boot(page), loaded(page);
+    RuntimeInitializers::FinalizationPlan plan(page), duplicate(page), exit(page);
+    LoaderLocks::Session session(locks, hooks);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      seed(detached, boot, initial);
+      check(!detached.prepare(all, loaded) && !detached.attach(loaded, all));
+      check(!detached.run(loaded, session, stack,
+                          [](Address, int, char **, char **) {}));
+      fail_mapping = true;
+      check(detached.collect_finalizers(all, plan, session) == -ENOMEM);
+      fail_mapping = false;
+      check(!plan.reset());
+      // A later pin failure must undo earlier pins without claiming records.
+      x.record.ownership.~ModuleOwnership();
+      new (&x.record.ownership) ModuleOwnership(0xb00000, 1, false, 0);
+      check(detached.collect_finalizers(all, plan, session) == -EOVERFLOW);
+      check(!x.record.ownership.owners() && !y.record.ownership.owners());
+      check(!plan.reset());
+      x.record.ownership.~ModuleOwnership();
+      new (&x.record.ownership) ModuleOwnership(0xb00000, 1, false);
+      check(!detached.collect_finalizers(all, plan, session));
+      check(x.record.ownership.owners() == 1 && y.record.ownership.owners() == 1);
+      check(plan.reset() == -EBUSY);
+      check(detached.invoke_finalizers(plan, session, record) == -EINVAL);
+      check(detached.complete_finalizers(plan, session) == -EBUSY);
+      check(!detached.collect_finalizers(all, duplicate, session));
+    }
+    trace_count = 0;
+    auto unlocked = [](Address pc) {
+      record(pc);
+      pthread_t probe;
+      check(!pthread_create(&probe, nullptr, [](void *) -> void * {
+        LoaderLocks::Session other(locks, hooks);
+        LoaderLocks::Guard graph(other, Kind::Mutation);
+        LoaderLocks::Guard registry(other, Kind::Registry);
+        LoaderLocks::Guard arena(other, Kind::Arena);
+        check(!graph.error() && !registry.error() && !arena.error());
+        return nullptr;
+      }, nullptr));
+      check(!pthread_join(probe, nullptr));
+    };
+    check(!detached.invoke_finalizers(plan, session, unlocked));
+    check(!detached.invoke_finalizers(plan, session, unlocked));
+    check(!detached.invoke_finalizers(duplicate, session, unlocked));
+    const Address cyclic_fini[] = {0xd02010, 0xd02004, 0xb02010, 0xb02004};
+    expect(cyclic_fini, 4);
+    check(x.record.ownership.owners() == 1 && y.record.ownership.owners() == 1);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      check(!detached.complete_finalizers(plan, session));
+      check(!detached.complete_finalizers(plan, session));
+      check(!detached.complete_finalizers(duplicate, session));
+      check(!x.record.ownership.owners() && !y.record.ownership.owners());
+      check(!detached.collect_finalizers(all, exit, session, true));
+    }
+    trace_count = 0;
+    check(!detached.invoke_finalizers(exit, session, unlocked));
+    const Address root_fini[] = {0x902010, 0x902004};
+    expect(root_fini, 2);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      check(!detached.complete_finalizers(exit, session));
+      check(!detached.finalize(session, record));
+      check(!plan.reset() && !duplicate.reset() && !exit.reset());
+    }
+    expect(root_fini, 2);
+  }
+
+  // A NODELETE provider stays at close but still finalizes at process exit.
+  // Cross-image fini pointers retain the actual provider, not just the owner.
+  {
+    Input root(0x1100000, true), consumer(0x1300000), provider(0x1500000);
+    provider.record.ownership.~ModuleOwnership();
+    new (&provider.record.ownership) ModuleOwnership(0x1500000, 1, true);
+    consumer.put(0x4910, 8, 0x1502010);
+    const ImageRegistry::Image *set[] = {&root.record, &consumer.record,
+                                       &provider.record};
+    ImageRegistry::Snapshot all{1, set};
+    RuntimeInitializers selective;
+    RuntimeInitializers::Batch batch(page);
+    RuntimeInitializers::FinalizationPlan plan(page);
+    LoaderLocks::Session session(locks, hooks);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      check(!selective.prepare(all, batch, true));
+      check(!selective.attach(batch, all));
+      check(!selective.run(batch, session, stack,
+                           [](Address, int, char **, char **) {}));
+      check(!selective.collect_finalizers(all, plan, session));
+      check(provider.record.ownership.owners() == 1);
+    }
+    trace_count = 0;
+    check(!selective.invoke_finalizers(plan, session, record));
+    const Address selected[] = {0x1502010, 0x1302004};
+    expect(selected, 2);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      check(!selective.complete_finalizers(plan, session) && !plan.reset());
+      check(!selective.collect_finalizers(all, plan, session, true));
+    }
+    trace_count = 0;
+    check(!selective.invoke_finalizers(plan, session, record));
+    const Address exit_order[] = {0x1102010, 0x1102004, 0x1502010, 0x1502004};
+    expect(exit_order, 4);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      check(!selective.complete_finalizers(plan, session) && !plan.reset());
+    }
+  }
+
+  // A pending consumer keeps its already-completed dependency live at close.
+  // Exit may finalize that dependency, but never the unfinished consumer.
+  {
+    Input root(0x1900000, true), dependency(0x1b00000), pending(0x1d00000);
+    const ImageRegistry::Image *deps[] = {&dependency.record};
+    pending.record.dependencies = deps;
+    const ImageRegistry::Image *set[] = {&root.record, &dependency.record,
+                                       &pending.record};
+    ImageRegistry::Snapshot initial{1, {set, 1}}, first{2, {set, 2}}, all{3, set};
+    RuntimeInitializers partial;
+    RuntimeInitializers::Batch boot(page), loaded(page), unfinished(page);
+    RuntimeInitializers::FinalizationPlan plan(page);
+    LoaderLocks::Session session(locks, hooks);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      seed(partial, boot, initial);
+      check(!partial.prepare(first, loaded) && !partial.attach(loaded, first));
+      check(!partial.run(loaded, session, stack,
+                         [](Address, int, char **, char **) {}));
+      check(!partial.prepare(all, unfinished) && !partial.attach(unfinished, all));
+      check(!partial.collect_finalizers(all, plan, session));
+    }
+    trace_count = 0;
+    check(!partial.invoke_finalizers(plan, session, record) && !trace_count);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      check(!partial.complete_finalizers(plan, session) && !plan.reset());
+      check(!partial.collect_finalizers(all, plan, session, true));
+    }
+    check(!partial.invoke_finalizers(plan, session, record));
+    const Address partial_exit[] = {0x1b02010, 0x1b02004, 0x1902010, 0x1902004};
+    expect(partial_exit, 4);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      check(!partial.complete_finalizers(plan, session) && !plan.reset());
+    }
+  }
 
   // Bad callback snapshots and allocation failures must stay unpublished.
   RuntimeInitializers failed;
