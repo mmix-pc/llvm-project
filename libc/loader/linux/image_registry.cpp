@@ -38,6 +38,105 @@ ImageRegistry::Snapshot::find(uint64_t id, uint64_t module_generation) const {
   return nullptr;
 }
 
+long ImageRegistry::Snapshot::reclaimable(
+    Arena &scratch, cpp::span<const Image *const> roots,
+    cpp::span<const Image *const> &out) const {
+  out = {};
+  const size_t count = images.size();
+  if (count > __SIZE_MAX__ / sizeof(Image *))
+    return -EOVERFLOW;
+  auto index = [&](const Image *image) {
+    for (size_t i = 0; i < count; ++i)
+      if (images[i] == image)
+        return i;
+    return count;
+  };
+  for (size_t i = 0; i < count; ++i) {
+    const Image *image = images[i];
+    if (!image || index(image) != i)
+      return -EINVAL;
+    for (const Image *dependency : image->dependencies)
+      if (index(dependency) == count)
+        return -EINVAL;
+    for (const Binding *edge = image->bindings; edge; edge = edge->next)
+      if (index(edge->provider) == count)
+        return -EINVAL;
+  }
+  for (const Image *root : roots)
+    if (index(root) == count)
+      return -EINVAL;
+  if (!count)
+    return 0;
+  void *storage;
+  long error = scratch.allocate(count, 1, storage);
+  if (error)
+    return error;
+  auto *live = static_cast<unsigned char *>(storage);
+  for (size_t i = 0; i < count; ++i)
+    live[i] = 0;
+  error = scratch.allocate(count * sizeof(Image *), alignof(Image *), storage);
+  if (error)
+    return error;
+  auto **queue = static_cast<const Image **>(storage);
+  size_t used = 0;
+  auto mark = [&](const Image *image) {
+    size_t i = index(image);
+    if (!live[i]) {
+      live[i] = 1;
+      new (queue + used++) const Image *(image);
+    }
+  };
+  for (const Image *image : images)
+    if (image->ownership.is_permanent() || image->ownership.owners())
+      mark(image);
+  for (const Image *root : roots)
+    mark(root);
+  // Each image enters the queue once, regardless of cycles or duplicate edges.
+  for (size_t i = 0; i < used; ++i) {
+    for (const Image *dependency : queue[i]->dependencies)
+      mark(dependency);
+    for (const Binding *edge = queue[i]->bindings; edge; edge = edge->next)
+      mark(edge->provider);
+  }
+  used = 0;
+  for (size_t i = 0; i < count; ++i)
+    if (!live[i] && images[i]->ownership.admission() !=
+                        ModuleOwnership::State::Reclaimed)
+      new (queue + used++) const Image *(images[i]);
+  out = {queue, used};
+  return 0;
+}
+
+long ImageRegistry::record_binding(Transaction &transaction,
+                                   const Image *requester,
+                                   const Image *provider) {
+  if (transaction.owner != this ||
+      transaction.state != Transaction::State::Prepared || !requester ||
+      !provider)
+    return -EINVAL;
+  bool new_requester = false, known_provider = false;
+  const size_t first = transaction.base ? transaction.base->images.size() : 0;
+  const auto &images = transaction.candidate->images;
+  for (size_t i = 0; i < images.size(); ++i) {
+    new_requester |= i >= first && images[i] == requester;
+    known_provider |= images[i] == provider;
+  }
+  if (!new_requester || !known_provider)
+    return -EINVAL;
+  if (requester == provider)
+    return 0;
+  for (const Binding *edge = requester->bindings; edge; edge = edge->next)
+    if (edge->provider == provider)
+      return 0;
+  void *storage;
+  long error =
+      transaction.arena.allocate(sizeof(Binding), alignof(Binding), storage);
+  if (error)
+    return error;
+  requester->bindings = new (storage) Binding{provider, requester->bindings};
+  return 0;
+}
+
 const ImageRegistry::Snapshot *ImageRegistry::Transaction::view() const {
   return state == State::Empty || state == State::Aborting ? nullptr
                                                            : candidate;
@@ -220,9 +319,16 @@ long ImageRegistry::prepare(Transaction &transaction,
       if (error)
         return error;
       auto **edges = static_cast<const Image **>(storage);
-      for (size_t j = 0; j < info.dependencies.size(); ++j)
-        new (edges + j) const Image *(entries[info.dependencies[j]]);
-      record.dependencies = {edges, info.dependencies.size()};
+      size_t used = 0;
+      for (size_t dependency : info.dependencies) {
+        const Image *target = entries[dependency];
+        size_t j = 0;
+        while (j < used && edges[j] != target)
+          ++j;
+        if (j == used)
+          new (edges + used++) const Image *(target);
+      }
+      record.dependencies = {edges, used};
     }
     record.discovered = true;
   }

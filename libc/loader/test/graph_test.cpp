@@ -810,6 +810,25 @@ static int runtime_load_tests() {
   main_file.bytes[0x81d] = b.bytes[0x81d] = STV_HIDDEN;
   CHECK(prepare().error == -ENOEXEC && live() == resident_live);
   main_file.bytes[0x81d] = b.bytes[0x81d] = 0;
+  // The globally selected main definition is not a DT_NEEDED edge of A.
+  // Record the real interposer once despite both relocation passes.
+  rewind();
+  CHECK(!prepare().error);
+  const auto *bound = load.view()->registry->images[1];
+  CHECK(bound->bindings && bound->bindings->provider == caller &&
+        !bound->bindings->next);
+  for (const auto *dependency : bound->dependencies)
+    CHECK(dependency != caller);
+  CHECK(!caller->bindings);
+  CHECK(!load.abort() && live() == resident_live && !caller->bindings);
+  // Weak-zero bindings have no code/data provider to retain.
+  rewind();
+  main_file.bytes[0x81d] = b.bytes[0x81d] = STV_HIDDEN;
+  a.bytes[0x81c] = (STB_WEAK << 4) | STT_FUNC;
+  CHECK(!prepare().error && !load.view()->registry->images[1]->bindings);
+  CHECK(!load.abort() && live() == resident_live);
+  main_file.bytes[0x81d] = b.bytes[0x81d] = 0;
+  a.bytes[0x81c] = (STB_GLOBAL << 4) | STT_FUNC;
   a.put(0x81e, 2, 1);
   a.put(0x820, 8, 0x2000);
   a.put(0xb08, 8, 41);
@@ -833,6 +852,8 @@ static int runtime_load_tests() {
   CHECK(!load.abort() && registry.snapshot() == before->registry);
   // The old registry is still valid; the final release-store publishes all
   // late records and fully relocated templates together, without syscalls.
+  a.put(0xb08, 8, (Address(1) << 32) | 42);
+  a.set(DT_RELACOUNT, 0);
   CHECK(!prepare().error);
   unsigned prior_calls = calls;
   CHECK(!load.commit(token) && token && calls == prior_calls);
@@ -843,12 +864,16 @@ static int runtime_load_tests() {
   CHECK(load.abort() == -EBUSY);
   RuntimeLoad reopen(page);
   const auto *published = registry.snapshot();
+  const auto *original_bindings = published->images[1]->bindings;
+  CHECK(original_bindings && original_bindings->provider == caller &&
+        !original_bindings->next);
   const Address template_address = published->images[1]->tls.template_address;
   unsigned maps = mapped_files;
   CHECK(!reopen.prepare(registry, scopes, *caller, text("A.so"), environment,
                         true, true).error);
   CHECK(!reopen.commit(token) && registry.snapshot() == published &&
         mapped_files == maps && published->images[1]->tls.template_address == template_address);
+  CHECK(published->images[1]->bindings == original_bindings);
   printf("late transaction: %u syscall failure positions, TLS and metadata rejection, rollback and coherent commit passed\n", baseline);
   return 0;
 }

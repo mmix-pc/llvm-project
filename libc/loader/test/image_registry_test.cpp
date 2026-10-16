@@ -234,5 +234,113 @@ extern "C" int main() {
   check(!pinned_record->startup && pinned_record->ownership.is_permanent());
   check(pinned_record->ownership.retire() == -EBUSY);
   check(!nodelete.abort());
+
+  // Edge reachability, rather than incoming-reference counts, collects cycles.
+  Input ga, gb, provider, consumer;
+  const ElfImage *graph_images[] = {&ga.image, &gb.image, &provider.image,
+                                   &consumer.image};
+  const size_t first_new = registry.snapshot()->images.size();
+  size_t ab[] = {first_new + 1, first_new + 1};
+  size_t ba[] = {first_new};
+  ImageRegistry::Discovery graph_info[] = {
+      {false, {}, {}, ~size_t(0), ab},
+      {false, {}, {}, ~size_t(0), ba},
+      {},
+      {false, {}, {}, ~size_t(0), ba}};
+  ImageRegistry::Transaction graph_tx(host_page);
+  check(!registry.prepare(graph_tx, graph_images, graph_info));
+  auto *graph_view = graph_tx.view();
+  const auto *a_record = graph_view->images[first_new];
+  const auto *b_record = graph_view->images[first_new + 1];
+  const auto *p_record = graph_view->images[first_new + 2];
+  const auto *c_record = graph_view->images[first_new + 3];
+  check(a_record->dependencies.size() == 1);
+  check(!registry.record_binding(graph_tx, a_record, p_record));
+  const auto *edge = a_record->bindings;
+  check(edge && edge->provider == p_record && !edge->next);
+  check(!registry.record_binding(graph_tx, a_record, p_record) &&
+        a_record->bindings == edge);
+  check(!registry.record_binding(graph_tx, a_record, a_record));
+  check(registry.record_binding(graph_tx, old->images[0], a_record) == -EINVAL);
+  check(registry.record_binding(graph_tx, a_record, nullptr) == -EINVAL);
+  ImageRegistry::Image outsider{};
+  check(registry.record_binding(graph_tx, a_record, &outsider) == -EINVAL);
+
+  // Limit this view to the subgraph, so earlier unrelated late records do not
+  // obscure the set under test. Production snapshots retain all live images.
+  const ImageRegistry::Image *subgraph[] = {a_record, b_record, p_record, c_record};
+  ImageRegistry::Snapshot graph_snapshot{graph_view->generation, subgraph};
+  Arena scratch(host_page), tickets(host_page);
+  LIBC_NAMESPACE::cpp::span<const ImageRegistry::Image *const> candidates;
+  check(!graph_snapshot.reclaimable(scratch, {}, candidates) && candidates.size() == 4);
+  check(!scratch.reset());
+  const ImageRegistry::Image *root[] = {c_record};
+  check(!graph_snapshot.reclaimable(scratch, root, candidates) && candidates.empty());
+  check(!scratch.reset());
+  root[0] = a_record;
+  check(!graph_snapshot.reclaimable(scratch, root, candidates) &&
+        candidates.size() == 1 && candidates[0] == c_record);
+  check(!scratch.reset());
+  ImageRegistry::Image permanent{{}, {}, true};
+  const ImageRegistry::Image *permanent_edges[] = {a_record};
+  permanent.dependencies = permanent_edges;
+  const ImageRegistry::Image *rooted[] = {
+      &permanent, a_record, b_record, p_record, c_record};
+  ImageRegistry::Snapshot permanent_graph{1, rooted};
+  check(!permanent_graph.reclaimable(scratch, {}, candidates) &&
+        candidates.size() == 1 && candidates[0] == c_record);
+  check(!scratch.reset());
+  ModuleOwnership::Token lease;
+  check(!p_record->ownership.acquire(tickets, ModuleOwnership::Kind::Runtime, lease));
+  check(!graph_snapshot.reclaimable(scratch, {}, candidates) && candidates.size() == 3);
+  for (const auto *entry : candidates)
+    check(entry != p_record);
+  check(!scratch.reset());
+  check(!p_record->ownership.release(lease) && !tickets.reset());
+  fail_map = true;
+  check(graph_snapshot.reclaimable(scratch, {}, candidates) == -ENOMEM && candidates.empty());
+  fail_map = false;
+  check(!scratch.reset());
+  root[0] = &outsider;
+  check(graph_snapshot.reclaimable(scratch, root, candidates) == -EINVAL);
+  check(graph_tx.mark_relocated());
+  check(registry.record_binding(graph_tx, b_record, p_record) == -EINVAL);
+  check(!graph_tx.abort() && !old->images[0]->bindings);
+
+  // Inject a failure while growing the private provider-edge ledger.
+  ImageRegistry::Transaction edge_failure(host_page);
+  constexpr size_t edge_count = 64;
+  auto *edge_inputs = static_cast<Input *>(::mmap(
+      nullptr, sizeof(Input) * edge_count, PROT_READ | PROT_WRITE,
+      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+  check(edge_inputs != MAP_FAILED);
+  const ElfImage *edge_images[edge_count];
+  for (size_t i = 0; i < edge_count; ++i) {
+    new (edge_inputs + i) Input;
+    edge_images[i] = &edge_inputs[i].image;
+  }
+  check(!registry.prepare(edge_failure, edge_images));
+  const auto *edge_view = edge_failure.view();
+  const size_t begin = edge_view->images.size() - edge_count;
+  fail_map = true;
+  bool saw_failure = false;
+  for (size_t i = begin; i < edge_view->images.size() && !saw_failure; ++i) {
+    const auto *requester = edge_view->images[i];
+    for (size_t j = begin; j < edge_view->images.size(); ++j) {
+      const auto *previous = requester->bindings;
+      long error = registry.record_binding(edge_failure, requester, edge_view->images[j]);
+      if (error) {
+        check(error == -ENOMEM && requester->bindings == previous);
+        saw_failure = true;
+        break;
+      }
+    }
+  }
+  check(saw_failure);
+  fail_map = false;
+  check(!edge_failure.abort() && !old->images[0]->bindings);
+  for (size_t i = 0; i < edge_count; ++i)
+    edge_inputs[i].~Input();
+  check(!::munmap(edge_inputs, sizeof(Input) * edge_count));
   return 0;
 }

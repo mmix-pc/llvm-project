@@ -30,6 +30,11 @@ public:
 
 class ImageRegistry {
 public:
+  struct Image;
+  struct Binding {
+    const Image *provider;
+    const Binding *next;
+  };
   struct Image {
     ElfImage elf;
     StartupTLSModule tls;
@@ -40,6 +45,8 @@ public:
     Bytes path{};
     const Image *parent = nullptr;
     cpp::span<const Image *const> dependencies{};
+    // Written only in the private transaction, before relocation completes.
+    mutable const Binding *bindings = nullptr;
   };
   // Indices refer to the complete candidate snapshot (old images first).
   // Parent is the first-discovery ancestor, never a dependency back-edge.
@@ -54,6 +61,12 @@ public:
     uint64_t generation;
     cpp::span<const Image *const> images;
     const Image *find(uint64_t id, uint64_t module_generation) const;
+    // Caller holds mutation serialization. Explicit roots supplement permanent
+    // roots and external ownership tickets. Edges are not reference-counted:
+    // unreachable cycles belong to the returned set together. Does not retire
+    // or unmap; storage belongs to scratch and must not escape its lifetime.
+    long reclaimable(Arena &scratch, cpp::span<const Image *const> roots,
+                     cpp::span<const Image *const> &out) const;
   };
   class Transaction {
     friend class ImageRegistry;
@@ -107,6 +120,11 @@ public:
   // edges. Runtime graph discovery requires it for every resident image.
   long prepare(Transaction &, cpp::span<const ElfImage *const> images,
                cpp::span<const Discovery> discovery = {});
+  // Retain the actual eager binding, not a later lookup result. Both ends must
+  // belong to this candidate; only new requesters may be modified. Repeated
+  // resolver preflight/write visits are allocation-free after the first edge.
+  long record_binding(Transaction &, const Image *requester,
+                      const Image *provider);
   long publish(Transaction &);
   bool can_publish(const Transaction &) const;
   const Snapshot *snapshot() const { return current; }

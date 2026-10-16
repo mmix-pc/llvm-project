@@ -32,6 +32,9 @@ template <class T> static long allocate(Arena &arena, size_t count, T *&out) {
 struct BindingContext {
   const RuntimeScopes::Snapshot &snapshot;
   size_t first;
+  ImageRegistry &registry;
+  ImageRegistry::Transaction &transaction;
+  long error = 0;
 };
 
 static StartupRelocationError
@@ -48,6 +51,12 @@ resolve(void *opaque, size_t i, const DynamicRelocation &r, Address &out) {
       return StartupRelocationError::Symbol;
     provider = value.image;
     address = value.symbol.address;
+    if (!value.symbol.weak_zero) {
+      context.error = context.registry.record_binding(context.transaction,
+                                                     requester, provider);
+      if (context.error)
+        return StartupRelocationError::Symbol;
+    }
   }
   if (is_tls_relocation(r.info)) {
     if (!is_late_tls_relocation(r.info))
@@ -162,10 +171,10 @@ long RuntimeLoad::prepare_records(const ImageRegistry::Image &caller,
                                         global, scopes, handle);
   if (error || !count)
     return error ? error : namespace_owner->prepare_unwind(scopes);
-  BindingContext binding{*scopes.view(), old_count};
+  BindingContext binding{*scopes.view(), old_count, *registry, images};
   if (relocate_objects({objects, count}, {writes, count}, resolve, &binding)
           .error != StartupRelocationError::None)
-    return -ENOEXEC;
+    return binding.error ? binding.error : -ENOEXEC;
   // Template addresses now name fully relocated storage. These retained
   // templates are never used as thread instances or rewritten on reopen.
   if (!images.mark_relocated() || !images.mark_tls_ready())
