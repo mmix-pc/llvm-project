@@ -23,7 +23,9 @@ namespace loader {
 // Supplied arena storage must outlive this object and every outstanding token.
 class ModuleOwnership {
 public:
-  enum class Kind : unsigned { Handle, Dependency, Runtime };
+  // Process callbacks are drained by their owner's finalization, not external
+  // roots that prevent that finalization. All tickets still prevent unmapping.
+  enum class Kind : unsigned { Handle, Dependency, Runtime, ProcessCallback };
   enum class State { Live, Retiring, Reclaimed };
   struct Token {
     uint64_t image = 0, generation = 0, ticket = 0;
@@ -37,7 +39,7 @@ private:
     bool active;
   };
   uint64_t image, generation, limit;
-  uint64_t next_ticket = 1, total = 0, counts[3] = {};
+  uint64_t next_ticket = 1, total = 0, counts[4] = {};
   Slot *slots = nullptr;
   State state = State::Live;
   bool permanent;
@@ -54,7 +56,7 @@ public:
 
   long acquire(Arena &arena, Kind kind, Token &out) {
     unsigned index = static_cast<unsigned>(kind);
-    if (!image || !generation || index >= 3)
+    if (!image || !generation || index >= 4)
       return -EINVAL;
     if (state != State::Live)
       return -EBUSY;
@@ -83,7 +85,7 @@ public:
   long release(const Token &token) {
     unsigned index = static_cast<unsigned>(token.kind);
     if (token.image != image || token.generation != generation ||
-        !token.ticket || index >= 3)
+        !token.ticket || index >= 4)
       return -EINVAL;
     for (Slot *slot = slots; slot; slot = slot->next) {
       if (slot->active && slot->token.ticket == token.ticket &&
@@ -117,7 +119,7 @@ public:
   uint64_t owners() const { return total; }
   uint64_t owners(Kind kind) const {
     unsigned index = static_cast<unsigned>(kind);
-    return index < 3 ? counts[index] : 0;
+    return index < 4 ? counts[index] : 0;
   }
 };
 

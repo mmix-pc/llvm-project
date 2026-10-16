@@ -69,6 +69,13 @@ extern "C" int main() {
   check(module.retire() == -EBUSY && module.release(h) == -EINVAL);
   check(module.acquire(arena, Kind::Handle, h) == -EBUSY);
 
+  ModuleOwnership process(4, 1, false);
+  check(!process.acquire(arena, Kind::ProcessCallback, h));
+  check(process.owners(Kind::ProcessCallback) == 1 &&
+        !process.owners(Kind::Runtime));
+  check(!process.retire() && process.mark_reclaimed() == -EBUSY);
+  check(!process.release(h) && !process.mark_reclaimed());
+
   for (unsigned root = 0; root != 2; ++root) {
     // Startup and NODELETE share the same irreversible root policy.
     ModuleOwnership permanent(10 + root, 1, true);

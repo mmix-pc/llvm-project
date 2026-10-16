@@ -51,7 +51,8 @@ class RuntimeAPI {
   };
   ImagePin *pins = nullptr;
   RegistrySequence pin_ids;
-  long retain_image(uintptr_t, uintptr_t, LoaderCancellation, uint64_t *);
+  long retain_image(uintptr_t, uintptr_t, LoaderCancellation, uint64_t *,
+                    bool process = false);
   long release_image(uint64_t, LoaderCancellation);
   long open(const char *, int, uintptr_t, LoaderCancellation, uint64_t *);
   long lookup(uint64_t, const char *, uintptr_t, LoaderCancellation,

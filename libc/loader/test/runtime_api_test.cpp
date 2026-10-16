@@ -308,6 +308,22 @@ int main(int argc, char **argv) {
   uint64_t image_pin = 0;
   const auto *main_image = registry.snapshot()->images[0];
   const uintptr_t callback_address = reinterpret_cast<uintptr_t>(function);
+  // A module-owned exit record does not root its own finalization. Its
+  // callback in a different image remains a runtime root until consumed.
+  check(image_api.retain_process(image_api.context, 0, callback_address, hooks,
+                                 &image_pin) == EINVAL && !image_pin);
+  check(!image_api.retain_process(image_api.context, callback_address,
+                                  callback_address, hooks, &image_pin));
+  check(image->ownership.owners(ModuleOwnership::Kind::ProcessCallback) == 1 &&
+        !image->ownership.owners(ModuleOwnership::Kind::Runtime));
+  check(!image_api.release(image_api.context, image_pin, hooks));
+  image_pin = 0;
+  check(!image_api.retain_process(image_api.context, bias + 0x4000,
+                                  callback_address, hooks, &image_pin));
+  check(main_image->ownership.owners(ModuleOwnership::Kind::ProcessCallback) == 1 &&
+        image->ownership.owners(ModuleOwnership::Kind::Runtime) == 1);
+  check(!image_api.release(image_api.context, image_pin, hooks));
+  image_pin = 0;
   {
     RuntimeAPI failing(page, registry, scopes, initializers, stack, environment,
                        {nullptr, resolve});
@@ -509,6 +525,10 @@ int main(int argc, char **argv) {
   check(!image_pin &&
         !main_image->ownership.owners(ModuleOwnership::Kind::Runtime) &&
         !image->ownership.owners(ModuleOwnership::Kind::Runtime));
+  check(image_api.retain_process(image_api.context, bias + 0x4000,
+                                 callback_address, hooks, &image_pin) == EBUSY);
+  check(!image_pin &&
+        !main_image->ownership.owners(ModuleOwnership::Kind::ProcessCallback));
   std::puts("image query, reentrant enumeration, nonallocating TLS and "
             "debugger record checks passed");
   std::puts("logical close, stale handles, balanced reopen and resident TLS/unwind checks passed");

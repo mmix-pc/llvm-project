@@ -23,6 +23,8 @@ long release_shared_thread_tls(loader::ThreadTLSAllocation &allocation);
 long retain_shared_tls_destructor(void *dso, uintptr_t callback,
                                   uint64_t *token);
 long release_shared_tls_destructor(uint64_t token);
+long retain_shared_process_callback(void *dso, uintptr_t callback,
+                                    uint64_t *token);
 [[noreturn]] __attribute__((visibility("hidden"), no_instrument_function))
 void fatal_dynamic_tls();
 } // namespace mmix

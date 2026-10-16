@@ -147,6 +147,10 @@ struct LoaderImageAPI {
   long (*retain)(void *, uintptr_t dso, uintptr_t callback, LoaderCancellation,
                  uint64_t *token);
   long (*release)(void *, uint64_t token, LoaderCancellation);
+  // DSO-owned process callback; a distinct callback image remains an external
+  // runtime owner until invocation completes. Release uses the same service.
+  long (*retain_process)(void *, uintptr_t dso, uintptr_t callback,
+                        LoaderCancellation, uint64_t *token) = nullptr;
 };
 
 enum LoaderOpenFlag : unsigned {
@@ -191,7 +195,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 192);
+static_assert(sizeof(LoaderServices) == 200);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

@@ -218,8 +218,9 @@ LoaderAPI RuntimeAPI::services() {
 }
 
 long RuntimeAPI::retain_image(uintptr_t dso, uintptr_t callback,
-                              LoaderCancellation hooks, uint64_t *out) {
-  if (!out || *out || !callback)
+                              LoaderCancellation hooks, uint64_t *out,
+                              bool process) {
+  if (!out || *out || !callback || (process && !dso))
     return EINVAL;
   LoaderLocks::Session session(locks, hooks);
   LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
@@ -263,7 +264,9 @@ long RuntimeAPI::retain_image(uintptr_t dso, uintptr_t callback,
     if (i && owners[i] == owners[0])
       continue;
     long error = owners[i]->ownership.acquire(
-        resident, ModuleOwnership::Kind::Runtime, pin->owners[i]);
+        resident, process && !i ? ModuleOwnership::Kind::ProcessCallback
+                                : ModuleOwnership::Kind::Runtime,
+        pin->owners[i]);
     if (error) {
       if (i && pin->images[0]) {
         if (pin->images[0]->ownership.release(pin->owners[0]))
@@ -310,6 +313,11 @@ LoaderImageAPI RuntimeAPI::image_services() {
           },
           [](void *p, uint64_t token, LoaderCancellation c) {
             return static_cast<RuntimeAPI *>(p)->release_image(token, c);
+          },
+          [](void *p, uintptr_t dso, uintptr_t callback, LoaderCancellation c,
+             uint64_t *out) {
+            return static_cast<RuntimeAPI *>(p)->retain_image(dso, callback, c,
+                                                              out, true);
           }};
 }
 
