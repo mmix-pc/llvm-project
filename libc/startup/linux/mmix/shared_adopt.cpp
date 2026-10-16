@@ -207,3 +207,16 @@ long adopt_shared_main(const loader::StartupProcessView *process,
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
+
+// Private same-source ABI: publish ownership before restoring cancellation.
+extern "C" __attribute__((visibility("default"))) long
+__llvm_libc_mmix_retain_exception_images(uintptr_t type, uintptr_t callback,
+                                       uint64_t *token) {
+  return LIBC_NAMESPACE::mmix::retain_shared_tls_destructor(
+      reinterpret_cast<void *>(type), callback, token);
+}
+
+extern "C" __attribute__((visibility("default"))) long
+__llvm_libc_mmix_release_exception_images(uint64_t token) {
+  return LIBC_NAMESPACE::mmix::release_shared_tls_destructor(token);
+}

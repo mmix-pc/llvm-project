@@ -7,6 +7,9 @@ if(MMIX_LINUX_SHARED_RUNTIME_VALIDATED)
   endif()
   list(REMOVE_ITEM LIBCXXABI_SOURCES cxa_thread_atexit.cpp)
   list(APPEND LIBCXXABI_SOURCES mmix/cxa_thread_atexit.cpp mmix/loader_callbacks.cpp)
+  list(APPEND LIBCXXABI_SOURCES mmix/ExceptionStorage.cpp)
+  set_property(SOURCE cxa_exception.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS _LIBCXXABI_MMIX_EXCEPTION_OWNERS)
   set_source_files_properties(mmix/cxa_thread_atexit.cpp PROPERTIES
     COMPILE_OPTIONS -fno-exceptions)
   set_property(SOURCE cxa_guard.cpp APPEND PROPERTY

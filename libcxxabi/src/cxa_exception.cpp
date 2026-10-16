@@ -17,6 +17,7 @@
 #include "cxa_exception.h"
 #include "cxa_handlers.h"
 #include "fallback_malloc.h"
+#include "exception_storage.h"
 #include "include/atomic_support.h" // from libc++
 
 #if __has_feature(address_sanitizer)
@@ -187,7 +188,7 @@ void *__cxa_allocate_exception(size_t thrown_size) throw() {
     // start of the thrown object is sufficiently aligned.
     size_t header_offset = get_cxa_exception_offset();
     char *raw_buffer =
-        (char *)__aligned_malloc_with_fallback(header_offset + actual_size);
+        (char *)allocate_exception_storage(header_offset + actual_size);
     if (NULL == raw_buffer)
         std::terminate();
     __cxa_exception *exception_header =
@@ -205,7 +206,7 @@ void __cxa_free_exception(void *thrown_object) throw() {
     size_t header_offset = get_cxa_exception_offset();
     char *raw_buffer =
         ((char *)cxa_exception_from_thrown_object(thrown_object)) - header_offset;
-    __aligned_free_with_fallback((void *)raw_buffer);
+    free_exception_storage((void *)raw_buffer);
 }
 
 __cxa_exception* __cxa_init_primary_exception(void* object, std::type_info* tinfo,
@@ -221,6 +222,13 @@ __cxa_exception* __cxa_init_primary_exception(void* object, std::type_info* tinf
   exception_header->terminateHandler = std::get_terminate();
   exception_header->exceptionType = tinfo;
   exception_header->exceptionDestructor = dest;
+#if defined(_LIBCXXABI_MMIX_EXCEPTION_OWNERS)
+  mmix::retain_exception_storage(
+      reinterpret_cast<char *>(exception_header) - get_cxa_exception_offset(),
+      reinterpret_cast<uintptr_t>(tinfo), reinterpret_cast<uintptr_t>(dest),
+      reinterpret_cast<uintptr_t>(exception_header->unexpectedHandler),
+      reinterpret_cast<uintptr_t>(exception_header->terminateHandler));
+#endif
   setOurExceptionClass(&exception_header->unwindHeader);
   exception_header->unwindHeader.exception_cleanup = exception_cleanup_func;
 

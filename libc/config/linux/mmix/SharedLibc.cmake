@@ -27,6 +27,8 @@ endif()
 # Run after the normal threaded archive has acquired its support objects.
 function(mmix_configure_shared_libc)
   set(exports __llvm_libc_loader_bootstrap __llvm_libc_mmix_dynamic_start
+    __llvm_libc_mmix_retain_exception_images
+    __llvm_libc_mmix_release_exception_images
     __tls_get_addr __stack_chk_guard __stack_chk_fail
     __cxa_atexit __cxa_finalize __cxa_thread_atexit_impl
     __llvm_libc_mmix_thread_cleanup_push __llvm_libc_mmix_thread_cleanup_pop
