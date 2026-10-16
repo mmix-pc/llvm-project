@@ -184,6 +184,8 @@ long RuntimeAPI::close(uint64_t handle, LoaderCancellation cancellation) {
     return -error;
   error = scopes.prepare_close(handle, closing);
   if (!error)
+    error = scopes.prepare_unwind(closing);
+  if (!error)
     error = scopes.publish(closing);
   if (error) {
     long cleanup = closing.abort();
@@ -194,7 +196,8 @@ long RuntimeAPI::close(uint64_t handle, LoaderCancellation cancellation) {
   // Publication transferred the arena; only the empty transaction is replaced.
   closing.~Transaction();
   new (&closing) RuntimeScopes::Transaction(page);
-  return 0;
+  long cleanup = scopes.collect_snapshots();
+  return cleanup == -EBUSY ? 0 : -cleanup;
 }
 
 LoaderAPI RuntimeAPI::services() {
@@ -215,6 +218,12 @@ LoaderAPI RuntimeAPI::services() {
 }
 
 long RuntimeAPI::refresh_queries() {
+  long cleanup = scopes.collect_snapshots();
+  if (cleanup && cleanup != -EBUSY)
+    return -cleanup;
+  cleanup = queries.collect_snapshots();
+  if (cleanup && cleanup != -EBUSY)
+    return -cleanup;
   const auto *view = scopes.snapshot();
   if (!view)
     return EINVAL;
@@ -234,8 +243,13 @@ long RuntimeAPI::address(uintptr_t addr, void *out, LoaderCancellation hooks) {
     return -mutation.error();
   if (long error = refresh_queries())
     return error;
-  return RuntimeQueries::address(*queries.snapshot(), addr,
-                                 *static_cast<Dl_info *>(out));
+  auto lease = queries.acquire();
+  long error =
+      RuntimeQueries::address(*lease.get(), addr, *static_cast<Dl_info *>(out));
+  // FIXME: Returned name/link-map pointers still lack handle-scoped ownership.
+  if (!error)
+    lease.pin();
+  return error;
 }
 
 long RuntimeAPI::info(uint64_t token, int request, void *out,
@@ -263,9 +277,11 @@ long RuntimeAPI::info(uint64_t token, int request, void *out,
   const auto *record = RuntimeQueries::record(*queries.snapshot(), image);
   if (!record)
     return EINVAL;
-  if (request == InfoLinkMap)
+  if (request == InfoLinkMap) {
+    auto lease = queries.acquire();
+    lease.pin();
     *static_cast<link_map **>(out) = const_cast<link_map *>(&record->map);
-  else if (request == InfoTLSModid)
+  } else if (request == InfoTLSModid)
     *static_cast<size_t *>(out) =
         image->elf.tls_header() ? image->tls.module_id : 0;
   else {
@@ -278,11 +294,14 @@ long RuntimeAPI::info(uint64_t token, int request, void *out,
 }
 
 long RuntimeAPI::iterate(int (*callback)(void *, void *), void *argument,
-                         LoaderCancellation hooks, int *result) {
-  if (!callback || !result)
+                         LoaderCancellation hooks, int *result,
+                         LoaderQueryLease *owner) {
+  if (!callback || !result || !owner || owner->token || owner->release)
     return EINVAL;
   *result = 0;
   const RuntimeQueries::Snapshot *view;
+  RuntimeQueries::Lease query_lease;
+  // No loader lock spans callbacks; libc retains the cancellation policy.
   {
     LoaderLocks::Session session(locks, hooks);
     LoaderLocks::Guard mutation(session, LoaderLocks::Kind::Mutation);
@@ -290,9 +309,12 @@ long RuntimeAPI::iterate(int (*callback)(void *, void *), void *argument,
       return -mutation.error();
     if (long error = refresh_queries())
       return error;
-    view = queries.snapshot();
+    query_lease = queries.acquire();
+    view = query_lease.get();
+    owner->release = RuntimeQueries::Lease::release_detached;
+    owner->token = query_lease.detach();
   }
-  // Residency pins the immutable list. No loader lock spans application code.
+  // The libc caller releases on return or unwind; the interpreter has no EH.
   for (const auto &record : view->records) {
     dl_phdr_info info;
     if (long error = RuntimeQueries::phdr_info(*view, record, tls.context,
@@ -324,8 +346,8 @@ LoaderQueryAPI RuntimeAPI::query_services() {
             return static_cast<RuntimeAPI *>(p)->info(h, r, out, c);
           },
           [](void *p, int (*f)(void *, void *), void *a, LoaderCancellation c,
-             int *out) {
-            return static_cast<RuntimeAPI *>(p)->iterate(f, a, c, out);
+             int *out, LoaderQueryLease *lease) {
+            return static_cast<RuntimeAPI *>(p)->iterate(f, a, c, out, lease);
           }};
 }
 

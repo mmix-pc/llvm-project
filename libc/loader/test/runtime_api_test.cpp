@@ -350,6 +350,31 @@ int main(int argc, char **argv) {
             },
             &stops) == 27 &&
         stops == 1);
+  check(!service.query_metadata().active_readers());
+  try {
+    LIBC_NAMESPACE::dl_iterate_phdr(
+        [](dl_phdr_info *, size_t, void *) -> int { throw 73; }, nullptr);
+    check(false);
+  } catch (int value) {
+    check(value == 73);
+  }
+  check(!service.query_metadata().active_readers() && !disabled);
+  pthread_t exiting;
+  check(!pthread_create(
+      &exiting, nullptr,
+      [](void *) -> void * {
+        LIBC_NAMESPACE::dl_iterate_phdr(
+            [](dl_phdr_info *, size_t, void *) -> int {
+              pthread_exit(reinterpret_cast<void *>(7));
+            },
+            nullptr);
+        return nullptr;
+      },
+      nullptr));
+  void *exit_value;
+  check(!pthread_join(exiting, &exit_value) &&
+        exit_value == reinterpret_cast<void *>(7));
+  check(!service.query_metadata().active_readers());
   auto *debug = service.query_metadata().debug_record();
   check(debug->r_version == 1 && debug->r_state == 0 && debug->r_brk &&
         debug->r_ldbase == 0x123000);
@@ -372,7 +397,8 @@ int main(int argc, char **argv) {
   check(results[0].tls != results[1].tls &&
         results[0].message != results[1].message);
   check(!client::loader_error() && !tls_calls && !disabled);
-  const auto *retained = scopes.snapshot();
+  auto retained_lease = scopes.acquire();
+  const auto *retained = retained_lease.get();
   const auto *retained_images = registry.snapshot();
   UnwindImageView unwind{};
   check(!find_runtime_unwind_image(&scopes,
@@ -398,7 +424,7 @@ int main(int argc, char **argv) {
   check(!LIBC_NAMESPACE::dlclose(global));
   check(scopes.snapshot()->handles.empty());
   check(registry.snapshot() == retained_images &&
-        scopes.snapshot()->unwind == retained->unwind);
+        scopes.snapshot()->unwind->registry == retained->unwind->registry);
   RuntimeScopes::Value value;
   check(RuntimeScopes::lookup(*retained, reinterpret_cast<uintptr_t>(local),
                               text("access_tls"), value) == SymbolError::None);
@@ -413,11 +439,33 @@ int main(int argc, char **argv) {
   UnwindImageView after{};
   check(!find_runtime_unwind_image(&scopes,
           reinterpret_cast<uintptr_t>(function), &after));
-  check(after.token == unwind.token && after.eh_frame_header == unwind.eh_frame_header);
+  check(after.token && after.eh_frame_header == unwind.eh_frame_header);
   release_runtime_unwind_image(&scopes, unwind.token);
   release_runtime_unwind_image(&scopes, after.token);
   check(scopes.snapshot()->handles.empty() && !disabled);
   check(debug->r_map->l_next && debug->r_state == 0);
+  // PHDR/debug views retire independently of raw-pointer query pins. An old
+  // callback lease retains its list while new readers see the deletion.
+  RuntimeQueries retiring_queries(page);
+  check(!retiring_queries.prepare(*retained_images));
+  retiring_queries.publish();
+  {
+    auto reader = retiring_queries.acquire();
+    ImageRegistry::Snapshot reduced{retained_images->generation,
+                                    {retained_images->images.data(), 1}};
+    check(!retiring_queries.prepare(reduced));
+    retiring_queries.publish();
+    check(retiring_queries.snapshot()->records.size() == 1);
+    check(retiring_queries.snapshot()->adds == retained_images->images.size() &&
+          retiring_queries.snapshot()->subs == retained_images->images.size() - 1);
+    check(retiring_queries.debug_record()->r_state == 0 &&
+          !retiring_queries.debug_record()->r_map->l_next);
+    check(RuntimeQueries::record(*reader.get(), image));
+    check(!retiring_queries.readers_drained(image));
+    check(retiring_queries.collect_snapshots() == -EBUSY);
+  }
+  check(retiring_queries.readers_drained(image));
+  check(!retiring_queries.collect_snapshots());
   std::puts("image query, reentrant enumeration, nonallocating TLS and "
             "debugger record checks passed");
   std::puts("logical close, stale handles, balanced reopen and resident TLS/unwind checks passed");

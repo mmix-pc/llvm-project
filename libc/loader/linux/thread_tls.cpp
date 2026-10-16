@@ -36,11 +36,6 @@ bool empty(const ThreadTLSAllocation &a) {
          !a.runtime_owner;
 }
 
-const ImageRegistry::Snapshot *snapshot(const ThreadTLSContext &ctx) {
-  const auto *scope = ctx.scopes ? ctx.scopes->snapshot() : nullptr;
-  return scope ? scope->registry : nullptr;
-}
-
 void copy_owner(ThreadTLSAllocation &out, State &state) {
   out = state.allocation;
   out.runtime_owner = reinterpret_cast<Address>(&state);
@@ -105,9 +100,13 @@ long prepare_runtime_thread_tls(void *context, void *thread,
     return EINVAL;
   // Acquire before any pthread insertion. A later publication is observed by
   // the worker's first resolver call; no writer/registry lock spans cloning.
-  const auto *view = snapshot(ctx);
-  if (!view)
+  if (!ctx.scopes)
     return EINVAL;
+  auto lease = ctx.scopes->acquire();
+  const auto *scope = lease.get();
+  if (!scope)
+    return EINVAL;
+  const auto *view = scope->registry;
   long mapped = raw_syscall(SYS_mmap, 0, page, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (mapped < 0)
@@ -160,8 +159,12 @@ void *resolve_runtime_thread_tls(void *context, const TLSIndex *index) {
   auto &ctx = *static_cast<ThreadTLSContext *>(context);
   if (state.context != &ctx || state.retiring || state.allocation.tp != tp)
     return resolve_runtime_tls(nullptr, index);
-  RuntimeTLSContext lookup{snapshot(ctx), &state.allocation, &state.refresh,
-                           ctx.startup.page_size};
+  if (!ctx.scopes)
+    return resolve_runtime_tls(nullptr, index);
+  auto lease = ctx.scopes->acquire();
+  const auto *scope = lease.get();
+  RuntimeTLSContext lookup{scope ? scope->registry : nullptr, &state.allocation,
+                           &state.refresh, ctx.startup.page_size};
   return resolve_runtime_tls(&lookup, index);
 }
 

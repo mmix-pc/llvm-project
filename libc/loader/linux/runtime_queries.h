@@ -28,11 +28,14 @@ public:
   struct Snapshot {
     const ImageRegistry::Snapshot *registry;
     cpp::span<Record> records;
+    uint64_t adds = 0, subs = 0;
   };
   using PeekTLS = void *(*)(void *, const StartupTLSModule *);
 
 private:
-  Arena resident, pending;
+  SnapshotStorage<Snapshot> snapshots;
+  Arena pending;
+  SnapshotStorage<Snapshot>::Batch *batch = nullptr;
   Snapshot *candidate = nullptr;
   const Snapshot *current = nullptr;
   r_debug local_debug{};
@@ -40,11 +43,19 @@ private:
 
 public:
   explicit RuntimeQueries(Address page, r_debug *record = nullptr)
-      : resident(page), pending(page), debug(record ? *record : local_debug) {}
+      : snapshots(page), pending(page), debug(record ? *record : local_debug) {}
   long prepare(const ImageRegistry::Snapshot &);
   void publish();
   long abort();
   const Snapshot *snapshot() const { return current; }
+  using Lease = SnapshotStorage<Snapshot>::Lease;
+  Lease acquire() { return Lease(snapshots); }
+  long collect_snapshots() { return snapshots.collect(); }
+  size_t active_readers() const { return snapshots.active_readers(); }
+  bool readers_drained(const ImageRegistry::Image *image) const {
+    return !snapshots.referenced(
+        [&](const Snapshot &view) { return record(view, image) != nullptr; });
+  }
   r_debug *debug_record() { return &debug; }
   // Called before main RELRO protection, never by a query or debugger callback.
   long bind_debug(const ElfImage &main, Address interpreter_bias);

@@ -117,12 +117,19 @@ struct LoaderAPI {
 
 // Opaque output records use the public Dl_info, link_map and dl_phdr_info ABI.
 // The iteration status and the application callback result are independent.
+// The libc caller owns cleanup across application callbacks, including forced
+// unwind. The interpreter has no C++ exception personality or cleanup runtime.
+struct LoaderQueryLease {
+  void *token = nullptr;
+  void (*release)(void *) = nullptr;
+};
+
 struct LoaderQueryAPI {
   void *context;
   long (*address)(void *, uintptr_t, void *, LoaderCancellation);
   long (*info)(void *, uint64_t, int, void *, LoaderCancellation);
   long (*iterate)(void *, int (*)(void *, void *), void *, LoaderCancellation,
-                  int *);
+                  int *, LoaderQueryLease *);
 };
 enum LoaderInfoRequest { InfoLinkMap = 2, InfoTLSModid = 9, InfoTLSData = 10 };
 

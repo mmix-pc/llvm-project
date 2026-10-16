@@ -49,7 +49,8 @@ class RuntimeAPI {
   long close(uint64_t, LoaderCancellation);
   long address(uintptr_t, void *, LoaderCancellation);
   long info(uint64_t, int, void *, LoaderCancellation);
-  long iterate(int (*)(void *, void *), void *, LoaderCancellation, int *);
+  long iterate(int (*)(void *, void *), void *, LoaderCancellation, int *,
+               LoaderQueryLease *);
   long refresh_queries();
 
 public:

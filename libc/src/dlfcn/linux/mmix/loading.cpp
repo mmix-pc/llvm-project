@@ -204,12 +204,19 @@ int loader_info(void *handle, int request, void *out) {
 
 int loader_iterate(int (*callback)(void *, void *), void *argument) {
   CancellationScope guard;
+  struct QueryGuard {
+    loader::LoaderQueryLease lease{};
+    ~QueryGuard() {
+      if (lease.release)
+        lease.release(lease.token);
+    }
+  } query;
   long error = guard.error();
   int result = 0;
   if (!error)
     error = queries.iterate
                 ? queries.iterate(queries.context, callback, argument,
-                                  guard.callbacks(), &result)
+                                  guard.callbacks(), &result, &query.lease)
                 : ENOSYS;
   if (error) {
     set_error(error);

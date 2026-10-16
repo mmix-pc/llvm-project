@@ -5,7 +5,8 @@ add_object_library(
   DEPENDS libc.src.__support.OSUtil.linux.loader_services
     libc.src.__support.threads.linux.mmix.loader_cancellation
     libc.hdr.errno_macros
-  COMPILE_OPTIONS -fno-lto -ftls-model=initial-exec -funwind-tables
+  # Libc, not the bootstrap interpreter, owns leases across user callbacks.
+  COMPILE_OPTIONS -fno-lto -ftls-model=initial-exec -fexceptions -funwind-tables
 )
 foreach(name dlopen dlsym dlerror dlclose dladdr dlinfo)
   add_entrypoint_object(

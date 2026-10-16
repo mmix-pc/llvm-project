@@ -10,6 +10,11 @@ enable_testing()
 find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
 
+# Match the interpreter's no-personality frames when callbacks unwind into the
+# libc caller. The API fixture and libc wrapper retain native exception support.
+set_source_files_properties(../linux/runtime_api.cpp PROPERTIES
+  COMPILE_OPTIONS "-fno-exceptions;-funwind-tables")
+
 add_executable(loader-module-ownership-test module_ownership_test.cpp
   ../linux/arena.cpp)
 target_include_directories(loader-module-ownership-test PRIVATE ../..)

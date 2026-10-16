@@ -109,7 +109,8 @@ static void *read_snapshots(void *opaque) {
   unsigned last = 0;
   do {
     unsigned epoch = shared.epoch.load();
-    const auto *snapshot = shared.scopes->snapshot();
+    auto lease = shared.scopes->acquire();
+    const auto *snapshot = lease.get();
     Scopes::Value value;
     check(snapshot && snapshot->global.images.size() >= 2);
     check(Scopes::lookup_default(*snapshot, shared.caller, text("foo"),
@@ -133,6 +134,114 @@ static void *read_snapshots(void *opaque) {
     }
   } while (!shared.done.load());
   return nullptr;
+}
+
+struct RetiringReader {
+  Scopes &scopes;
+  uint64_t handle;
+  Atomic<unsigned> phase{0};
+};
+static void *read_retiring(void *opaque) {
+  auto &shared = *static_cast<RetiringReader *>(opaque);
+  auto lease = shared.scopes.acquire();
+  shared.phase.store(1);
+  while (shared.phase.load() != 2)
+    sched_yield();
+  Scopes::Value value;
+  check(Scopes::lookup(*lease.get(), shared.handle, text("bar"), value) ==
+        SymbolError::None);
+  // An already leased operation can finish; a fresh reader cannot rediscover.
+  auto fresh = shared.scopes.acquire();
+  check(fresh.get()->registry->images.size() == 1);
+  check(Scopes::lookup_default(*fresh.get(), fresh.get()->registry->images[0],
+                               text("bar"), value) == SymbolError::Undefined);
+  shared.phase.store(3);
+  while (shared.phase.load() != 4)
+    sched_yield();
+  return nullptr;
+}
+
+static void retirement_tests() {
+  Input main(1), late(3, "bar");
+  const Image *images[] = {&main.record, &late.record};
+  ImageRegistry::Snapshot first{1, {images, 1}}, both{2, images};
+  Scopes scopes(page);
+  Scopes::Transaction startup(page), open(page);
+  check(!scopes.prepare_startup(first, startup) && !scopes.publish(startup));
+  uint64_t token;
+  check(!scopes.prepare_open(both, &late.record, true, open, token) &&
+        !scopes.publish(open));
+  const Image *retired[] = {&late.record};
+  Scopes::Transaction rejected(page);
+  check(scopes.prepare_retire(retired, rejected) == -EBUSY);
+  check(!rejected.abort());
+  RetiringReader reader{scopes, token};
+  pthread_t thread;
+  check(!pthread_create(&thread, nullptr, read_retiring, &reader));
+  while (reader.phase.load() != 1)
+    sched_yield();
+  Scopes::Transaction close(page), retire(page);
+  check(!scopes.prepare_close(token, close) && !scopes.publish(close));
+  Scopes::Transaction failed(page);
+  const auto *before = scopes.snapshot();
+  fail_after = 0;
+  check(scopes.prepare_retire(retired, failed) == -ENOMEM);
+  fail_after = -1;
+  check(!failed.abort() && scopes.snapshot() == before &&
+        late.record.ownership.admission() == ModuleOwnership::State::Live);
+  const Image *needed[] = {&late.record};
+  main.record.dependencies = needed;
+  check(scopes.prepare_retire(retired, failed) == -EBUSY);
+  check(!failed.abort());
+  main.record.dependencies = {};
+  ImageRegistry::Binding binding{&late.record, nullptr};
+  main.record.bindings = &binding;
+  check(scopes.prepare_retire(retired, failed) == -EBUSY);
+  check(!failed.abort());
+  main.record.bindings = nullptr;
+  check(!scopes.prepare_retire(retired, retire));
+  check(late.record.ownership.admission() == ModuleOwnership::State::Live);
+  check(scopes.collect_snapshots() == -EBUSY); // Prepared writer borrows base.
+  check(!scopes.publish(retire));
+  check(late.record.ownership.admission() == ModuleOwnership::State::Retiring);
+  check(scopes.snapshot()->registry->images.size() == 1);
+  reader.phase.store(2);
+  while (reader.phase.load() != 3)
+    sched_yield();
+  check(scopes.collect_snapshots() == -EBUSY);
+  check(!scopes.readers_drained(&late.record));
+  reader.phase.store(4);
+  check(!pthread_join(thread, nullptr) && !scopes.active_readers());
+  check(scopes.readers_drained(&late.record));
+  fail_unmap = true;
+  check(scopes.collect_snapshots() == -EIO);
+  fail_unmap = false;
+  check(!scopes.collect_snapshots());
+  check(scopes.prepare_open(both, &late.record, false, rejected, token) ==
+        -EBUSY);
+  check(!rejected.abort());
+
+  auto failed_lookup = [&]() {
+    auto lease = scopes.acquire();
+    Scopes::Value value;
+    return Scopes::lookup(*lease.get(), 0, {}, value);
+  };
+  check(failed_lookup() == SymbolError::Scope && !scopes.active_readers());
+  // Repeated publication reuses controls and releases historical arrays. Warm
+  // up both slots before asserting bounded live arena mappings.
+  unsigned steady = 0;
+  for (unsigned i = 0; i < 8; ++i) {
+    Scopes::Transaction opened(page), closed(page);
+    check(!scopes.prepare_open(*scopes.snapshot()->registry, nullptr, false,
+                               opened, token));
+    check(!scopes.publish(opened));
+    check(!scopes.prepare_close(token, closed) && !scopes.publish(closed));
+    check(!scopes.collect_snapshots());
+    if (i == 2)
+      steady = allocations - releases;
+    if (i > 2)
+      check(allocations - releases == steady);
+  }
 }
 
 extern "C" int main() {
@@ -230,6 +339,7 @@ extern "C" int main() {
   check(Scopes::resolve_binding(*scopes.snapshot(), &weak.record, 1, value) ==
             SymbolError::None &&
         value.symbol.weak_zero && !value.symbol.address);
+  retirement_tests();
   check(Scopes::lookup(*scopes.snapshot(), tw, text("zzz"), value) ==
         SymbolError::Undefined);
   check(Scopes::lookup(*scopes.snapshot(), th, text("foo"), value) ==
@@ -360,10 +470,13 @@ extern "C" int main() {
     readers.epoch.store(i);
     while (readers.acknowledgements.load() != i * 4)
       sched_yield();
+    long collected = scopes.collect_snapshots();
+    check(!collected || collected == -EBUSY);
   }
   readers.done.store(true);
   for (auto &thread : threads)
     check(!pthread_join(thread, nullptr));
+  check(!scopes.collect_snapshots());
   // New global definitions affect future queries, not previously bound weak
   // references. Recomputing the old binding against the new global scope would
   // incorrectly replace its committed zero value.

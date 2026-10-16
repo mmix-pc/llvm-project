@@ -107,6 +107,65 @@ long ImageRegistry::Snapshot::reclaimable(
   return 0;
 }
 
+long ImageRegistry::Snapshot::without(Arena &arena,
+                                      cpp::span<const Image *const> removed,
+                                      Snapshot *&out) const {
+  out = nullptr;
+  if (removed.empty() || images.size() > __SIZE_MAX__ / sizeof(Image *))
+    return -EINVAL;
+  auto excluded = [&](const Image *image) {
+    for (const Image *entry : removed)
+      if (entry == image)
+        return true;
+    return false;
+  };
+  for (size_t i = 0; i < removed.size(); ++i) {
+    const Image *image = removed[i];
+    bool found = false;
+    for (const Image *entry : images)
+      found |= entry == image;
+    if (!image || !found)
+      return -EINVAL;
+    for (size_t j = 0; j < i; ++j)
+      if (removed[j] == image)
+        return -EINVAL;
+    if (image->startup || image->ownership.is_permanent() ||
+        image->ownership.owners() ||
+        image->ownership.admission() != ModuleOwnership::State::Live)
+      return -EBUSY;
+  }
+  for (const Image *image : images) {
+    if (excluded(image))
+      continue;
+    for (const Image *dependency : image->dependencies)
+      if (excluded(dependency))
+        return -EBUSY;
+    for (const Binding *binding = image->bindings; binding;
+         binding = binding->next)
+      if (excluded(binding->provider))
+        return -EBUSY;
+  }
+  void *memory;
+  long error = arena.allocate(sizeof(Snapshot), alignof(Snapshot), memory);
+  if (error)
+    return error;
+  auto *result = new (memory) Snapshot{generation, {}};
+  if (!images.empty()) {
+    error = arena.allocate(images.size() * sizeof(Image *), alignof(Image *),
+                           memory);
+    if (error)
+      return error;
+    auto **entries = static_cast<const Image **>(memory);
+    size_t size = 0;
+    for (const Image *image : images)
+      if (!excluded(image))
+        new (entries + size++) const Image *(image);
+    result->images = {entries, size};
+  }
+  out = result;
+  return 0;
+}
+
 long ImageRegistry::record_binding(Transaction &transaction,
                                    const Image *requester,
                                    const Image *provider) {

@@ -67,6 +67,10 @@ public:
     // or unmap; storage belongs to scratch and must not escape its lifetime.
     long reclaimable(Arena &scratch, cpp::span<const Image *const> roots,
                      cpp::span<const Image *const> &out) const;
+    // Prepare an independent discovery view. Descriptor ownership and the
+    // admission transition stay with the serialized publication coordinator.
+    long without(Arena &, cpp::span<const Image *const> removed,
+                 Snapshot *&out) const;
   };
   class Transaction {
     friend class ImageRegistry;

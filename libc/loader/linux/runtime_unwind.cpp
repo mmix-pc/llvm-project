@@ -24,25 +24,24 @@ long RuntimeScopes::prepare_unwind(Transaction &transaction) {
   const auto &images = next.registry->images;
   if (images.empty() || images.size() > __SIZE_MAX__ / sizeof(const ElfImage *))
     return -EINVAL;
-  void *storage;
+  void *memory;
   long error =
       transaction.arena.allocate(images.size() * sizeof(const ElfImage *),
-                                 alignof(const ElfImage *), storage);
+                                 alignof(const ElfImage *), memory);
   if (error)
     return error;
-  auto **views = static_cast<const ElfImage **>(storage);
+  auto **views = static_cast<const ElfImage **>(memory);
   for (size_t i = 0; i < images.size(); ++i) {
     if (!images[i])
       return -EINVAL;
     new (views + i) const ElfImage *(&images[i]->elf);
   }
   error = transaction.arena.allocate(sizeof(UnwindState), alignof(UnwindState),
-                                     storage);
+                                     memory);
   if (error)
     return error;
-  auto *state = new (storage) UnwindState;
+  auto *state = new (memory) UnwindState;
   state->registry = next.registry;
-  state->previous = next.unwind;
   error = state->images.prepare({views, images.size()}, transaction.arena);
   if (error)
     return -error;
@@ -61,20 +60,28 @@ long find_runtime_unwind_image(void *context, uintptr_t pc,
   __builtin_memset_inline(out, 0, sizeof(*out));
   if (!context)
     return EINVAL;
-  const auto *snapshot = static_cast<RuntimeScopes *>(context)->snapshot();
-  return snapshot && snapshot->unwind ? snapshot->unwind->images.find(pc, *out)
-                                      : EINVAL;
+  auto lease = static_cast<RuntimeScopes *>(context)->acquire();
+  const auto *snapshot = lease.get();
+  long error = snapshot && snapshot->unwind
+                   ? snapshot->unwind->images.find(pc, *out)
+                   : EINVAL;
+  if (!error)
+    lease.pin(); // FIXME: Copied public cursors still lack release tracking.
+  return error;
+}
+
+bool RuntimeScopes::owns_unwind_token(uintptr_t token) const {
+  return storage.pinned_contains([&](const Snapshot &view) {
+    return view.unwind && view.unwind->images.owns(token);
+  });
 }
 
 void release_runtime_unwind_image(void *context, uintptr_t token) {
   if (context && token) {
-    const auto *snapshot = static_cast<RuntimeScopes *>(context)->snapshot();
-    // Earlier copied cursor witnesses remain valid after another publication.
-    // Resident images and historical metadata are never reclaimed here.
-    for (auto *state = snapshot ? snapshot->unwind : nullptr; state;
-         state = state->previous)
-      if (state->images.owns(token))
-        return;
+    auto &scopes = *static_cast<RuntimeScopes *>(context);
+    auto lease = scopes.acquire();
+    if (scopes.owns_unwind_token(token))
+      return;
   }
   fatal_startup();
 }

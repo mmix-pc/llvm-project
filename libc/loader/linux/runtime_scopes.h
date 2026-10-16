@@ -11,6 +11,7 @@
 #define LLVM_LIBC_LOADER_LINUX_RUNTIME_SCOPES_H
 
 #include "loader/linux/image_registry.h"
+#include "loader/linux/snapshot_storage.h"
 #include "loader/linux/symbols.h"
 #include "loader/linux/unwind_images.h"
 #include "src/__support/CPP/atomic.h"
@@ -44,7 +45,6 @@ public:
   struct UnwindState {
     const ImageRegistry::Snapshot *registry;
     StartupUnwindImages images;
-    const UnwindState *previous;
   };
   struct Snapshot {
     const ImageRegistry::Snapshot *registry;
@@ -52,37 +52,40 @@ public:
     cpp::span<const Handle> handles;
     cpp::span<const Context> contexts;
     const UnwindState *unwind = nullptr;
+    bool owns_registry = false;
     const Context *context(const Image *) const;
   };
   class Transaction {
     friend class RuntimeScopes;
     Arena arena;
-    const RuntimeScopes *owner = nullptr;
+    RuntimeScopes *owner = nullptr;
+    SnapshotStorage<Snapshot>::Batch *batch = nullptr;
     const Snapshot *base = nullptr;
     Snapshot *candidate = nullptr;
     bool active = false, published = false;
     bool unwind_required = false;
+    cpp::span<const Image *const> retiring{};
 
   public:
     explicit Transaction(size_t page) : arena(page) {}
     Transaction(const Transaction &) = delete;
     Transaction &operator=(const Transaction &) = delete;
-    const Snapshot *view() const { return candidate; }
+    const Snapshot *view() const { return published ? nullptr : candidate; }
     long abort();
   };
 
 private:
-  Arena resident;
+  SnapshotStorage<Snapshot> storage;
   RegistrySequence tokens;
-  mutable cpp::Atomic<const Snapshot *> current{nullptr};
   long begin(Transaction &);
   static long make_scope(Arena &, cpp::span<const Image *const>, Scope &);
   static long closure(Arena &, const ImageRegistry::Snapshot &, const Image &,
                       Scope &);
   static long combine(Arena &, const Scope &, const Scope &, Scope &);
+  static long copy_scopes(Transaction &);
 
 public:
-  explicit RuntimeScopes(size_t page) : resident(page) {}
+  explicit RuntimeScopes(size_t page) : storage(page) {}
   RuntimeScopes(const RuntimeScopes &) = delete;
   RuntimeScopes &operator=(const RuntimeScopes &) = delete;
   // Writers hold mutation serialization and cancellation suppression. Inputs
@@ -92,6 +95,9 @@ public:
   long prepare_open(const ImageRegistry::Snapshot &, const Image *root,
                     bool global, Transaction &, uint64_t &token);
   long prepare_close(uint64_t token, Transaction &);
+  // Private coordinator operation, not public dlclose. Reject live handles,
+  // rooted owners and incoming dependency/binding edges. Does not unmap.
+  long prepare_retire(cpp::span<const Image *const>, Transaction &);
   // After relocation/protection, before publication or any user callback.
   // Implemented by runtime_unwind; failed preparation stays private to the tx.
   long prepare_unwind(Transaction &);
@@ -99,9 +105,21 @@ public:
   // This publishes scopes only, not registry records or constructor completion.
   long publish(Transaction &);
   bool can_publish(const Transaction &) const;
-  const Snapshot *snapshot() const {
-    return current.load(cpp::MemoryOrder::ACQUIRE);
+  const Snapshot *snapshot() const { return storage.snapshot(); }
+  using Lease = SnapshotStorage<Snapshot>::Lease;
+  Lease acquire() const { return Lease(storage); }
+  // Writer safe point after readers drain. EBUSY is not permission to unmap.
+  long collect_snapshots() { return storage.collect(); }
+  size_t active_readers() const { return storage.active_readers(); }
+  bool readers_drained(const Image *image) const {
+    return !storage.referenced([&](const Snapshot &view) {
+      for (const Image *entry : view.registry->images)
+        if (entry == image)
+          return true;
+      return false;
+    });
   }
+  bool owns_unwind_token(uintptr_t token) const;
 
   // Untrusted handles are integer tokens, never dereferenced application data.
   static SymbolError lookup(const Snapshot &, uint64_t token, Bytes, Value &);
@@ -114,8 +132,8 @@ public:
   // Preserve the original API caller before entering helpers. Only an admitted
   // executable LOAD identifies a caller; unknown/ambiguous PCs are rejected.
   static SymbolError caller(const Snapshot &, Address pc, const Image *&);
-  // FIXME: Closed tokens disappear from new snapshots, but image scopes and
-  // old reader snapshots remain resident until coordinated unloading exists.
+  // snapshot() is a writer-serialized borrow. Concurrent or retained reads
+  // require a Lease. Image bytes still await coordinated physical retirement.
 };
 
 } // namespace loader

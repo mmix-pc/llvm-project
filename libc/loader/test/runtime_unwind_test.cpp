@@ -79,7 +79,8 @@ static void *read(void *opaque) {
       release_runtime_unwind_image(&shared.scopes, view.token);
       sched_yield();
     }
-    const auto *snapshot = shared.scopes.snapshot();
+    auto lease = shared.scopes.acquire();
+    const auto *snapshot = lease.get();
     check(snapshot->registry->images.size() == epoch + 1);
     check(snapshot->unwind->registry == snapshot->registry);
     check(!find_runtime_unwind_image(&shared.scopes, 0x302000, &view));
@@ -121,6 +122,7 @@ extern "C" int main() {
   while (shared.ready.load() != 2)
     sched_yield();
   uint64_t token = 0;
+  uint64_t late_handle = 0;
   for (unsigned epoch = 1; epoch <= 2; ++epoch) {
     RuntimeScopes::Transaction tx(page);
     const auto *before = scopes.snapshot();
@@ -132,6 +134,8 @@ extern "C" int main() {
     check(find_runtime_unwind_image(&scopes, epoch == 1 ? 0x302000 : 0x502000,
                                     &view) == ENOENT);
     check(!scopes.publish(tx));
+    if (epoch == 1)
+      late_handle = token;
     shared.epoch.store(epoch);
     while (shared.done.load() != epoch * 2)
       sched_yield();
@@ -141,7 +145,9 @@ extern "C" int main() {
   const auto *retained = scopes.snapshot()->unwind;
   RuntimeScopes::Transaction close(page);
   check(!scopes.prepare_close(token, close) && !scopes.prepare_unwind(close));
-  check(!scopes.publish(close) && scopes.snapshot()->unwind == retained);
+  check(!scopes.publish(close));
+  check(scopes.snapshot()->unwind->registry == retained->registry);
+  retained = scopes.snapshot()->unwind;
   release_runtime_unwind_image(&scopes, saved_token);
   check(!find_runtime_unwind_image(&scopes, 0x302000, &view));
   check(find_runtime_unwind_image(&scopes, 0x304000, &view) == ENOENT &&
@@ -152,6 +158,16 @@ extern "C" int main() {
   check(scopes.prepare_unwind(malformed) == -ENOEXEC);
   check(!scopes.can_publish(malformed) && !malformed.abort());
   check(scopes.snapshot()->unwind == retained);
+  RuntimeScopes::Transaction close_late(page), retire(page);
+  check(!scopes.prepare_close(late_handle, close_late));
+  check(!scopes.prepare_unwind(close_late) && !scopes.publish(close_late));
+  const ImageRegistry::Image *removed[] = {&late.record};
+  check(!scopes.prepare_retire(removed, retire));
+  check(!scopes.prepare_unwind(retire) && !scopes.publish(retire));
+  check(find_runtime_unwind_image(&scopes, 0x302000, &view) == ENOENT);
+  check(!scopes.readers_drained(&late.record)); // Copied cursors pin metadata.
+  check(!scopes.collect_snapshots());
+  release_runtime_unwind_image(&scopes, saved_token);
   // Small arena chunks force a mapping during frame metadata construction.
   RuntimeScopes failed(64);
   RuntimeScopes::Transaction failure(64);

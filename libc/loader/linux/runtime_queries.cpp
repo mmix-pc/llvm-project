@@ -20,13 +20,25 @@ __attribute__((noinline)) static void notify_debugger() {
 
 long RuntimeQueries::abort() {
   candidate = nullptr;
-  return pending.reset();
+  long error = pending.reset();
+  if (!error) {
+    snapshots.cancel(batch);
+    batch = nullptr;
+  }
+  return error;
 }
 
 long RuntimeQueries::prepare(const ImageRegistry::Snapshot &registry) {
-  if (current && current->registry == &registry)
-    return 0;
+  if (current && current->records.size() == registry.images.size()) {
+    bool same = true;
+    for (size_t i = 0; i < registry.images.size(); ++i)
+      same &= current->records[i].image == registry.images[i];
+    if (same)
+      return 0;
+  }
   if (long error = abort())
+    return error;
+  if (long error = snapshots.reserve(batch))
     return error;
   if (registry.images.empty() ||
       registry.images.size() > __SIZE_MAX__ / sizeof(Record))
@@ -36,7 +48,41 @@ long RuntimeQueries::prepare(const ImageRegistry::Snapshot &registry) {
   if (error)
     return error;
   auto *next = new (storage) Snapshot{};
-  next->registry = &registry;
+  next->adds = current ? current->adds : 0;
+  next->subs = current ? current->subs : 0;
+  for (const auto *image : registry.images) {
+    if (current && record(*current, image))
+      continue;
+    if (next->adds == UINT64_MAX)
+      return -EOVERFLOW;
+    ++next->adds;
+  }
+  if (current)
+    for (const auto &old : current->records) {
+      bool present = false;
+      for (const auto *image : registry.images)
+        present |= image == old.image;
+      if (present)
+        continue;
+      if (next->subs == UINT64_MAX)
+        return -EOVERFLOW;
+      ++next->subs;
+    }
+  error = pending.allocate(sizeof(ImageRegistry::Snapshot),
+                           alignof(ImageRegistry::Snapshot), storage);
+  if (error)
+    return error;
+  auto *registry_copy = new (storage) ImageRegistry::Snapshot{};
+  error = pending.allocate(registry.images.size() * sizeof(void *),
+                           alignof(void *), storage);
+  if (error)
+    return error;
+  auto **images = static_cast<const ImageRegistry::Image **>(storage);
+  for (size_t i = 0; i < registry.images.size(); ++i)
+    new (images + i) const ImageRegistry::Image *(registry.images[i]);
+  registry_copy->generation = registry.generation;
+  registry_copy->images = {images, registry.images.size()};
+  next->registry = registry_copy;
   error = pending.allocate(registry.images.size() * sizeof(Record),
                            alignof(Record), storage);
   if (error)
@@ -90,17 +136,20 @@ void RuntimeQueries::publish() {
     return;
   debug.r_version = 1;
   debug.r_brk = reinterpret_cast<Address>(&notify_debugger);
-  debug.r_state = decltype(debug.r_state)(1); // RT_ADD, old list still visible.
+  bool removing = current && candidate->subs != current->subs;
+  debug.r_state =
+      decltype(debug.r_state)(removing ? 2 : 1); // RT_DELETE / RT_ADD.
   notify_debugger();
-  if (!resident.adopt(pending))
+  if (!snapshots.publish(batch, pending, candidate))
     fatal_startup();
   current = candidate;
   candidate = nullptr;
+  batch = nullptr;
   debug.r_map = &current->records[0].map;
   debug.r_state = decltype(debug.r_state)(0); // RT_CONSISTENT.
   notify_debugger();
-  // FIXME: Old lists stay resident with their query snapshots until unloading
-  // supplies reader leases. Logical close has no debugger delete transition.
+  // Old lists remain available to acquired readers until a writer drain.
+  // Public logical close does not yet request a delete transition.
 }
 
 long RuntimeQueries::bind_debug(const ElfImage &main,
@@ -218,7 +267,8 @@ long RuntimeQueries::phdr_info(const Snapshot &view, const Record &record,
   out.dlpi_name = record.map.l_name;
   out.dlpi_phdr = record.headers;
   out.dlpi_phnum = record.image->elf.header()->e_phnum;
-  out.dlpi_adds = view.records.size();
+  out.dlpi_adds = view.adds;
+  out.dlpi_subs = view.subs;
   out.dlpi_tls_modid =
       record.image->elf.tls_header() ? record.image->tls.module_id : 0;
   if (out.dlpi_tls_modid) {

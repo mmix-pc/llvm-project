@@ -151,10 +151,16 @@ long RuntimeScopes::Transaction::abort() {
   candidate = nullptr;
   long error = arena.reset();
   if (!error) {
+    if (owner)
+      owner->storage.cancel(batch);
+    if (owner && active)
+      owner->storage.release();
+    batch = nullptr;
     owner = nullptr;
     base = nullptr;
     active = false;
     unwind_required = false;
+    retiring = {};
   }
   return error;
 }
@@ -164,7 +170,56 @@ long RuntimeScopes::begin(Transaction &transaction) {
     return -EBUSY;
   transaction.active = true;
   transaction.owner = this;
+  storage.retain(); // A prepared writer also borrows its base generation.
   transaction.base = snapshot();
+  return storage.reserve(transaction.batch);
+}
+
+long RuntimeScopes::copy_scopes(Transaction &transaction) {
+  auto &next = *transaction.candidate;
+  if (next.owns_registry) {
+    ImageRegistry::Snapshot *registry;
+    const Image **images;
+    long error = allocate(transaction.arena, 1, registry);
+    if (!error)
+      error = allocate(transaction.arena, next.registry->images.size(), images);
+    if (error)
+      return error;
+    for (size_t i = 0; i < next.registry->images.size(); ++i)
+      new (images + i) const Image *(next.registry->images[i]);
+    new (registry) ImageRegistry::Snapshot{
+        next.registry->generation, {images, next.registry->images.size()}};
+    next.registry = registry;
+  }
+  auto copy = [&](const Scope *source, const Scope *&out) -> long {
+    Scope *scope;
+    long error = allocate(transaction.arena, 1, scope);
+    if (error)
+      return error;
+    new (scope) Scope{};
+    error = make_scope(transaction.arena, source->images, *scope);
+    out = scope;
+    return error;
+  };
+  // No pointer to scope arrays or DynamicInfo may borrow the previous arena.
+  Scope global;
+  long error = make_scope(transaction.arena, next.global.images, global);
+  if (error)
+    return error;
+  next.global = global;
+  for (auto &context : next.contexts) {
+    auto &entry = const_cast<Context &>(context);
+    if ((error = copy(entry.local, entry.local)) ||
+        (error = copy(entry.binding, entry.binding)))
+      return error;
+  }
+  for (auto &handle : next.handles) {
+    auto &entry = const_cast<Handle &>(handle);
+    if ((error = copy(entry.local, entry.local)))
+      return error;
+  }
+  transaction.unwind_required = next.unwind != nullptr;
+  next.unwind = nullptr;
   return 0;
 }
 
@@ -205,6 +260,9 @@ long RuntimeScopes::prepare_open(const ImageRegistry::Snapshot &registry,
   const Snapshot *old = snapshot();
   if (!old || registry.images.size() < old->registry->images.size())
     return -EINVAL;
+  for (const Image *image : registry.images)
+    if (!image || image->ownership.admission() != ModuleOwnership::State::Live)
+      return -EBUSY;
   for (size_t i = 0; i < old->registry->images.size(); ++i)
     if (old->registry->images[i] != registry.images[i])
       return -EINVAL;
@@ -234,6 +292,7 @@ long RuntimeScopes::prepare_open(const ImageRegistry::Snapshot &registry,
   new (local) Scope{};
   new (binding) Scope{};
   next->registry = &registry;
+  next->owns_registry = old->owns_registry && old->registry == &registry;
   if (root)
     error = closure(transaction.arena, registry, *root, *local);
   else
@@ -273,7 +332,10 @@ long RuntimeScopes::prepare_open(const ImageRegistry::Snapshot &registry,
   new (handles + old->handles.size()) Handle{token, local, !root};
   next->handles = {handles, old->handles.size() + 1};
   transaction.candidate = next;
-  return 0;
+  error = copy_scopes(transaction);
+  if (error)
+    transaction.candidate = nullptr;
+  return error;
 }
 
 long RuntimeScopes::prepare_close(uint64_t token, Transaction &transaction) {
@@ -304,17 +366,115 @@ long RuntimeScopes::prepare_close(uint64_t token, Transaction &transaction) {
     if (i != selected)
       new (handles + size++) Handle(old->handles[i]);
   next->handles = {handles, size};
+  Context *contexts;
+  error = allocate(transaction.arena, old->contexts.size(), contexts);
+  if (error)
+    return error;
+  for (size_t i = 0; i < old->contexts.size(); ++i)
+    new (contexts + i) Context(old->contexts[i]);
+  next->contexts = {contexts, old->contexts.size()};
+  transaction.candidate = next;
+  error = copy_scopes(transaction);
+  if (error)
+    transaction.candidate = nullptr;
+  return error;
+}
+
+long RuntimeScopes::prepare_retire(cpp::span<const Image *const> retiring,
+                                   Transaction &transaction) {
+  const auto *old = snapshot();
+  if (!old || retiring.empty())
+    return -EINVAL;
+  auto removed = [&](const Image *image) {
+    for (const Image *entry : retiring)
+      if (entry == image)
+        return true;
+    return false;
+  };
+  for (const auto &handle : old->handles)
+    if (!handle.global_namespace)
+      for (const Image *image : handle.local->images)
+        if (removed(image))
+          return -EBUSY;
+  long error = begin(transaction);
+  if (error)
+    return error;
+  auto &arena = transaction.arena;
+  Snapshot *next;
+  ImageRegistry::Snapshot *registry;
+  const Image **retired;
+  Context *contexts;
+  Handle *handles;
+  if ((error = allocate(arena, 1, next)) ||
+      (error = old->registry->without(arena, retiring, registry)) ||
+      (error = allocate(arena, retiring.size(), retired)) ||
+      (error = allocate(arena, old->contexts.size(), contexts)) ||
+      (error = allocate(arena, old->handles.size(), handles)))
+    return error;
+  new (next) Snapshot{};
+  next->registry = registry;
+  next->owns_registry = true;
+  auto filter = [&](const Scope &source, Scope &out) -> long {
+    const Image **images;
+    long result = allocate(arena, source.images.size(), images);
+    if (result)
+      return result;
+    size_t used = 0;
+    for (const Image *image : source.images)
+      if (!removed(image))
+        new (images + used++) const Image *(image);
+    return make_scope(arena, {images, used}, out);
+  };
+  if ((error = filter(old->global, next->global)))
+    return error;
+  size_t count = 0;
+  for (const auto &context : old->contexts) {
+    if (removed(context.image))
+      continue;
+    Scope *local, *binding;
+    if ((error = allocate(arena, 1, local)) ||
+        (error = allocate(arena, 1, binding)))
+      return error;
+    new (local) Scope{};
+    new (binding) Scope{};
+    if ((error = filter(*context.local, *local)) ||
+        (error = filter(*context.binding, *binding)))
+      return error;
+    new (contexts + count++) Context{context.image, local, binding};
+  }
+  next->contexts = {contexts, count};
+  for (size_t i = 0; i < old->handles.size(); ++i) {
+    Scope *local;
+    if ((error = allocate(arena, 1, local)))
+      return error;
+    new (local) Scope{};
+    if ((error = filter(*old->handles[i].local, *local)))
+      return error;
+    new (handles + i)
+        Handle{old->handles[i].token, local, old->handles[i].global_namespace};
+  }
+  next->handles = {handles, old->handles.size()};
+  for (size_t i = 0; i < retiring.size(); ++i)
+    new (retired + i) const Image *(retiring[i]);
+  transaction.retiring = {retired, retiring.size()};
+  transaction.unwind_required = old->unwind != nullptr;
   transaction.candidate = next;
   return 0;
 }
 
 bool RuntimeScopes::can_publish(const Transaction &transaction) const {
-  return transaction.owner == this && transaction.candidate &&
-         !transaction.published && transaction.base == snapshot() &&
-         resident.can_adopt(transaction.arena) &&
+  if (transaction.owner != this || !transaction.candidate ||
+      transaction.published || transaction.base != snapshot())
+    return false;
+  for (const Image *image : transaction.retiring)
+    if (image->ownership.is_permanent() || image->ownership.owners() ||
+        image->ownership.admission() != ModuleOwnership::State::Live)
+      return false;
+  return storage.can_publish(transaction.batch, transaction.arena) &&
          (!transaction.unwind_required || transaction.candidate->unwind) &&
          (!transaction.candidate->unwind ||
-          transaction.candidate->unwind->registry == transaction.candidate->registry);
+          transaction.candidate->unwind->registry ==
+              transaction.candidate->registry);
 }
 
 long RuntimeScopes::publish(Transaction &transaction) {
@@ -327,10 +487,18 @@ long RuntimeScopes::publish(Transaction &transaction) {
       (transaction.candidate->unwind &&
        transaction.candidate->unwind->registry != transaction.candidate->registry))
     return -EINVAL;
-  if (!resident.adopt(transaction.arena))
+  for (const Image *image : transaction.retiring)
+    if (image->ownership.is_permanent() || image->ownership.owners() ||
+        image->ownership.admission() != ModuleOwnership::State::Live)
+      return -EBUSY;
+  if (!storage.can_publish(transaction.batch, transaction.arena))
     return -EINVAL;
-  current.store(transaction.candidate, cpp::MemoryOrder::RELEASE);
+  for (const Image *image : transaction.retiring)
+    (void)image->ownership.retire();
+  (void)storage.publish(transaction.batch, transaction.arena,
+                        transaction.candidate);
   transaction.published = true;
+  storage.release();
   return 0;
 }
 
