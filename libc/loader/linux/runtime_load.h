@@ -48,11 +48,18 @@ public:
   // scope release-store is the sole reader-visible publication point.
   long commit(uint64_t &token);
   long abort();
+  long release_mapping(Address bias) {
+    return committed ? graph.release_mapping(bias) : -EINVAL;
+  }
+  long collect_storage();
+  bool owns_mapping(Address bias) const {
+    return committed && graph.owns_mapping(bias);
+  }
   const RuntimeScopes::Snapshot *view() const {
     return ready ? scopes.view() : nullptr;
   }
-  // FIXME: Retain this transaction and its mappings after commit until image
-  // unloading and coordinated reader reclamation are implemented.
+  // Keep this control alive through coordinated release, including failed
+  // unmap retries; collect_storage releases payloads, not this object.
 };
 
 } // namespace loader

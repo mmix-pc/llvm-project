@@ -36,6 +36,7 @@ public:
     Bytes pathname;
     Node *parent = nullptr, *next_node = nullptr, *owned_next = nullptr;
     Edge *edges = nullptr, *edge_tail = nullptr;
+    bool released = false;
     explicit Node(Address page) : mapping(page) {}
 
   public:
@@ -91,6 +92,12 @@ public:
   // must retain this object and its storage for process lifetime. This does not
   // perform relocation, TLS allocation or registry publication.
   bool retain();
+  // Only after coordinated retirement/readers drain. A failed reset keeps
+  // this node's mapping ownership; successful nodes are never reset twice.
+  long release_mapping(Address load_bias);
+  bool owns_mapping(Address load_bias) const;
+  // Shared graph/search storage is released only after every owned mapping.
+  long collect_storage();
   // Explicit rollback; failed unmaps retain ownership and block reuse. Never
   // unmap registry images. Published storage cannot be rolled back here.
   long reset();

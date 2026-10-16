@@ -1,6 +1,13 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_reclamation
+  SRCS runtime_reclamation.cpp
+  DEPENDS .runtime_retirement .runtime_load
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   runtime_retirement
   SRCS runtime_retirement.cpp
   HDRS runtime_retirement.h

@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "dynamic_fixture.h"
+#include "loader/linux/runtime_retirement.h"
 #include "loader/linux/graph.h"
 #include "loader/linux/runtime_graph.h"
 #include "loader/linux/runtime_load.h"
@@ -108,6 +109,7 @@ static File files[8];
 static unsigned file_count, active_file, calls, fail_at, closes, opens,
     mapped_files;
 static bool fd_live, fail_unmaps, no_identity, interrupt_stat;
+static Address fail_release_address;
 static size_t file_position;
 alignas(page) static unsigned char pool[8 * 1024 * 1024];
 struct Allocation {
@@ -261,7 +263,7 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
   if (number == SYS_munmap) {
     auto *range = owner(a, b);
     assert(range && range->address == Address(a) && range->size == Address(b));
-    if (fail_unmaps)
+    if (fail_unmaps || Address(a) == fail_release_address)
       return -EIO;
     range->live = false;
     memset(reinterpret_cast<void *>(a), 0xa5, b);
@@ -864,9 +866,13 @@ static int runtime_load_tests() {
   // late records and fully relocated templates together, without syscalls.
   a.put(0xb08, 8, (Address(1) << 32) | 42);
   a.set(DT_RELACOUNT, 0);
+  // This fixture reuses the first array word as a TLS/interposition probe;
+  // it is not a callable initializer in the final committed image.
+  a.set(DT_INIT_ARRAYSZ, 0);
   CHECK(!prepare().error);
   unsigned prior_calls = calls;
   CHECK(!load.commit(token) && token && calls == prior_calls);
+  uint64_t first_handle = token;
   CHECK(scopes.snapshot()->registry == registry.snapshot());
   CHECK(scopes.snapshot()->unwind &&
         scopes.snapshot()->unwind->registry == registry.snapshot());
@@ -884,6 +890,108 @@ static int runtime_load_tests() {
   CHECK(!reopen.commit(token) && registry.snapshot() == published &&
         mapped_files == maps && published->images[1]->tls.template_address == template_address);
   CHECK(published->images[1]->bindings == original_bindings);
+  // Private retirement uses the real committed graph/mapping owners. Keep
+  // publication descriptors stable while releasing their backing metadata.
+  RuntimeInitializers initialization;
+  RuntimeInitializers::Batch boot(page), late(page);
+  LoaderLocks locks;
+  LoaderCancellation cancellation{
+      [](uint64_t *saved) -> long { *saved = 0; return 0; },
+      [](uint64_t) -> long { return 0; }};
+  LoaderLocks::Session session(locks, cancellation);
+  InitialStack stack{};
+  stack.valid = true;
+  RuntimeQueries queries(page);
+  RetirementEvents events(nullptr, [](void *) {});
+  RuntimeRetirement retirement(page, events, scopes, queries, initialization);
+  const ImageRegistry::Image *removed[] = {published->images[1], published->images[2]};
+  Address biases[] = {removed[0]->elf.load_bias(), removed[1]->elf.load_bias()};
+  {
+    LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+    CHECK(!initialization.prepare(*before->registry, boot, true));
+    CHECK(!initialization.attach(boot, *before->registry));
+    CHECK(!initialization.adopt_startup(boot, before->registry->images));
+    CHECK(!initialization.prepare(*published, late));
+    CHECK(!initialization.attach(late, *published));
+    CHECK(!initialization.run(late, session, stack,
+                              [](Address, int, char **, char **) {}));
+    CHECK(!queries.prepare(*published));
+    queries.publish();
+    CHECK(!retirement.close(first_handle, session));
+    CHECK(!retirement.close(token, session));
+  }
+  RuntimeLoad *owners[] = {&load, &reopen};
+  pid_t reader_child = fork();
+  CHECK(reader_child >= 0);
+  if (!reader_child) {
+    auto reader = scopes.acquire();
+    CHECK(!retirement.drain(session, [](Address) {}));
+    CHECK(retirement.removals()->state ==
+          RuntimeRetirement::Removal::WaitingReaders);
+    LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+    CHECK(!retirement.reclaim(registry, owners, session));
+    CHECK(owner(biases[0], 1) && owner(biases[1], 1));
+    _exit(0);
+  }
+  int reader_status;
+  CHECK(waitpid(reader_child, &reader_status, 0) == reader_child &&
+        reader_status == 0);
+  CHECK(!retirement.drain(session, [](Address) {}));
+  CHECK(retirement.removals() &&
+        retirement.removals()->state == RuntimeRetirement::Removal::Ready);
+  {
+    LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+    // Fork the model so every syscall boundary starts from the same Ready
+    // ownership state. The model rejects duplicate unmaps of successful ranges.
+    unsigned begin = calls;
+    pid_t baseline_child = fork();
+    CHECK(baseline_child >= 0);
+    if (!baseline_child) {
+      CHECK(!retirement.reclaim(registry, owners, session));
+      CHECK(calls - begin < 250);
+      _exit(calls - begin);
+    }
+    int baseline_status;
+    CHECK(waitpid(baseline_child, &baseline_status, 0) == baseline_child);
+    CHECK(WIFEXITED(baseline_status));
+    unsigned release_calls = WEXITSTATUS(baseline_status);
+    CHECK(release_calls);
+    printf("reclamation: %u syscall failure positions\n", release_calls);
+    fflush(stdout);
+    for (unsigned fail = 1; fail <= release_calls; ++fail) {
+      pid_t child = fork();
+      CHECK(child >= 0);
+      if (!child) {
+        fail_at = calls + fail;
+        CHECK(retirement.reclaim(registry, owners, session) < 0);
+        fail_at = 0;
+        CHECK(!retirement.reclaim(registry, owners, session));
+        CHECK(retirement.removals()->state == RuntimeRetirement::Removal::Reclaimed);
+        CHECK(registry.snapshot()->images.size() == 1 && caller->elf.header());
+        _exit(0);
+      }
+      int status;
+      CHECK(waitpid(child, &status, 0) == child && status == 0);
+    }
+    // Fail the second image's reservation release after the first mapping
+    // and its private metadata have already been released.
+    fail_release_address = biases[1];
+    CHECK(retirement.reclaim(registry, owners, session) == -EIO);
+    CHECK(retirement.removals()->state == RuntimeRetirement::Removal::Quarantined);
+    CHECK(registry.snapshot()->images.size() == 1);
+    CHECK(!owner(biases[0], 1) && owner(biases[1], 1));
+    CHECK(load.collect_storage() == -EBUSY);
+    CHECK(removed[0]->ownership.admission() == ModuleOwnership::State::Reclaimed);
+    CHECK(!removed[1]->ownership.available_for_load());
+    fail_release_address = 0;
+    CHECK(!retirement.reclaim(registry, owners, session));
+    CHECK(retirement.removals()->state == RuntimeRetirement::Removal::Reclaimed);
+    CHECK(!owner(biases[0], 1) && !owner(biases[1], 1));
+    CHECK(removed[0]->path.empty() && removed[1]->dependencies.empty());
+    CHECK(!removed[0]->elf.header() && !removed[1]->elf.header());
+    CHECK(registry.snapshot()->images[0] == caller && caller->elf.header());
+    CHECK(!retirement.reclaim(registry, owners, session));
+  }
   printf("late transaction: %u syscall failure positions, TLS and metadata rejection, rollback and coherent commit passed\n", baseline);
   return 0;
 }

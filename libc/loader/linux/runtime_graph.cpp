@@ -292,6 +292,47 @@ bool RuntimeGraph::retain() {
   return true;
 }
 
+bool RuntimeGraph::owns_mapping(Address bias) const {
+  if (!retained)
+    return false;
+  for (Node *node = owned; node; node = node->owned_next)
+    if (!node->released && node->mapping.load_bias() == bias)
+      return true;
+  return false;
+}
+
+long RuntimeGraph::release_mapping(Address bias) {
+  if (!retained)
+    return -EINVAL;
+  for (Node *node = owned; node; node = node->owned_next) {
+    if (node->released)
+      continue;
+    // Store the bias before reset invalidates the mapped view, including on
+    // failure. pathname/identity and the node remain owned until collection.
+    if (node->mapping.load_bias() != bias)
+      continue;
+    long error = node->mapping.reset();
+    if (!error)
+      node->released = true;
+    return error;
+  }
+  return -ENOENT;
+}
+
+long RuntimeGraph::collect_storage() {
+  if (!retained)
+    return -EINVAL;
+  for (Node *node = owned; node; node = node->owned_next)
+    if (!node->released)
+      return -EBUSY;
+  // Do not traverse nodes after a partial arena reset.
+  owned = head = tail = nullptr;
+  base = nullptr;
+  requester = nullptr;
+  ready = false;
+  return arena.reset();
+}
+
 long RuntimeGraph::reset() {
   if (retained)
     return -EBUSY;

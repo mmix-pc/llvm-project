@@ -316,6 +316,7 @@ add_test(NAME loader-search COMMAND loader-search-test)
 set_tests_properties(loader-search PROPERTIES TIMEOUT 30)
 
 add_executable(loader-graph-test graph_test.cpp ../linux/graph.cpp
+  ../linux/runtime_retirement.cpp ../linux/runtime_reclamation.cpp
   ../linux/runtime_state.cpp ../linux/runtime_api.cpp ../linux/runtime_queries.cpp
   ../linux/runtime_initialization.cpp ../linux/locks.cpp
   ../linux/thread_tls.cpp ../linux/runtime_tls.cpp ../linux/dtv.cpp

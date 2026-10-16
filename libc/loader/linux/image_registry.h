@@ -29,6 +29,7 @@ public:
 };
 
 class ImageRegistry {
+  struct Storage;
 public:
   struct Image;
   struct Binding {
@@ -87,13 +88,16 @@ public:
       Aborting
     };
     Arena arena;
+    Arena descriptors;
+    Storage *storage = nullptr;
     State state = State::Empty;
     const ImageRegistry *owner = nullptr;
     const Snapshot *base = nullptr;
     Snapshot *candidate = nullptr;
 
   public:
-    explicit Transaction(size_t page_size) : arena(page_size) {}
+    explicit Transaction(size_t page_size)
+        : arena(page_size), descriptors(page_size) {}
     Transaction(const Transaction &) = delete;
     Transaction &operator=(const Transaction &) = delete;
     const Snapshot *view() const;
@@ -110,14 +114,23 @@ public:
   };
 
 private:
+  struct Storage {
+    Arena arena;
+    cpp::span<Image> records;
+    Storage *next = nullptr;
+    bool detached = false;
+    explicit Storage(size_t page) : arena(page) {}
+  };
+  size_t page;
   Arena resident;
+  Storage *batches = nullptr;
   RegistrySequence ids, generations;
   const Snapshot *current = nullptr;
   RetirementEvents *events;
 
 public:
   explicit ImageRegistry(size_t page_size, RetirementEvents *events = nullptr)
-      : resident(page_size), events(events) {}
+      : page(page_size), resident(page_size), events(events) {}
   ImageRegistry(const ImageRegistry &) = delete;
   ImageRegistry &operator=(const ImageRegistry &) = delete;
   // Caller serializes ALL access. Concurrent publication is not provided by
@@ -137,8 +150,15 @@ public:
   long publish(Transaction &);
   bool can_publish(const Transaction &) const;
   const Snapshot *snapshot() const { return current; }
-  // FIXME: Published descriptors and snapshots remain process-resident until
-  // module reclamation supplies reader leases and coordinated finalization.
+  // Writer-only synchronization after scope removal; copy before freeing a
+  // publication batch. Requires a subset of the current image set.
+  long adopt_removal(const Snapshot &);
+  // Only called after reader drain and mark_reclaimed for affected images.
+  // Stable image/identity controls remain, but paths, edges and ELF metadata
+  // storage are released when the last image in their batch is reclaimed.
+  long collect_reclaimed();
+  // Stable identity controls remain process-owned; payload collection requires
+  // coordinated finalization and drained reader domains.
 };
 
 } // namespace loader

@@ -282,6 +282,22 @@ extern "C" int main() {
         candidates.size() == 1 && candidates[0] == c_record);
   check(!scratch.reset());
   ImageRegistry::Image permanent{{}, {}, true};
+  {
+    ImageRegistry::Image ancestor{}, child{};
+    child.parent = &ancestor;
+    const ImageRegistry::Image *ancestry[] = {&ancestor, &child};
+    const ImageRegistry::Image *child_root[] = {&child};
+    ImageRegistry::Snapshot ancestry_view{1, ancestry};
+    check(!ancestry_view.reclaimable(scratch, child_root, candidates) &&
+          candidates.empty());
+    check(!scratch.reset());
+    const ImageRegistry::Image *removed_parent[] = {&ancestor};
+    ImageRegistry::Snapshot *replacement;
+    check(ancestry_view.without(scratch, removed_parent, replacement) == -EBUSY);
+    child.parent = &outsider;
+    check(ancestry_view.reclaimable(scratch, {}, candidates) == -EINVAL);
+    check(!scratch.reset());
+  }
   const ImageRegistry::Image *permanent_edges[] = {a_record};
   permanent.dependencies = permanent_edges;
   const ImageRegistry::Image *rooted[] = {

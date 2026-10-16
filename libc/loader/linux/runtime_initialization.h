@@ -52,12 +52,16 @@ public:
     bool attached = false, running = false;
     bool startup = false, preinitialized = false;
     long runner = 0;
+    Batch *next = nullptr;
+    size_t owned_records = 0;
+    bool finished = false, released = false;
 
   public:
     explicit Batch(size_t page_size) : arena(page_size) {}
     Batch(const Batch &) = delete;
     Batch &operator=(const Batch &) = delete;
-    // Attached plans, callback snapshots and records stay process-resident.
+    // Attached storage belongs to the coordinator until all owned records are
+    // reclaimed; abort only releases unpublished preparation.
     long abort();
   };
   using Invoker = void (*)(Address, int, char **, char **);
@@ -73,9 +77,11 @@ private:
     size_t fini_count = 0;
     Batch *batch = nullptr;
     Arena *ownership_arena = nullptr;
+    Batch *storage_owner = nullptr;
     long tid = 0;
   };
   Record *records = nullptr, *completed = nullptr;
+  Batch *batches = nullptr;
   uint64_t epoch = 0;
   bool stopping = false;
   Record *find(const ImageRegistry::Image *) const;
@@ -119,6 +125,9 @@ public:
   long invoke_finalizers(FinalizationPlan &, LoaderLocks::Session &,
                          Finalizer = nullptr);
   long complete_finalizers(FinalizationPlan &, LoaderLocks::Session &);
+  // After detached plans are reset and mappings released. Unlink tombstones
+  // before releasing shared callback/initializer storage; retry failed unmaps.
+  long collect_reclaimed(LoaderLocks::Session &);
   long retirement_candidates(
       const ImageRegistry::Snapshot &, Arena &scratch,
       cpp::span<const ImageRegistry::Image *const> roots,

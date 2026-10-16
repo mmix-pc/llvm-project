@@ -157,6 +157,7 @@ public:
     if (state != State::Retiring || total || permanent)
       return -EBUSY;
     state = State::Reclaimed;
+    slots = nullptr; // Inactive ticket storage can now be reclaimed.
     return 0;
   }
   bool is_permanent() const { return permanent || (signal_owners.load() & 2); }

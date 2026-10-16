@@ -55,6 +55,8 @@ long ImageRegistry::Snapshot::reclaimable(
     const Image *image = images[i];
     if (!image || index(image) != i)
       return -EINVAL;
+    if (image->parent && index(image->parent) == count)
+      return -EINVAL;
     for (const Image *dependency : image->dependencies)
       if (index(dependency) == count)
         return -EINVAL;
@@ -97,6 +99,8 @@ long ImageRegistry::Snapshot::reclaimable(
     mark(root);
   // Each image enters the queue once, regardless of cycles or duplicate edges.
   for (size_t i = 0; i < used; ++i) {
+    if (queue[i]->parent)
+      mark(queue[i]->parent); // Retained RPATH ancestry is live loader metadata.
     for (const Image *dependency : queue[i]->dependencies)
       mark(dependency);
     for (const Binding *edge = queue[i]->bindings; edge; edge = edge->next)
@@ -141,6 +145,8 @@ long ImageRegistry::Snapshot::without(Arena &arena,
   for (const Image *image : images) {
     if (excluded(image))
       continue;
+    if (image->parent && excluded(image->parent))
+      return -EBUSY;
     for (const Image *dependency : image->dependencies)
       if (excluded(dependency))
         return -EBUSY;
@@ -232,10 +238,14 @@ long ImageRegistry::Transaction::abort() {
   state = State::Aborting;
   candidate = nullptr;
   long error = arena.reset();
+  long descriptor_error = descriptors.reset();
+  if (!error)
+    error = descriptor_error;
   if (!error) {
     state = State::Empty;
     owner = nullptr;
     base = nullptr;
+    storage = nullptr;
   }
   return error;
 }
@@ -323,11 +333,17 @@ long ImageRegistry::prepare(Transaction &transaction,
       tls[i].tp_offset = 0;
     }
   }
-  error = transaction.arena.allocate(images.size() * sizeof(Image),
-                                     alignof(Image), storage);
+  error = transaction.descriptors.allocate(sizeof(Storage), alignof(Storage),
+                                           storage);
+  if (error)
+    return error;
+  transaction.storage = new (storage) Storage(page);
+  error = transaction.descriptors.allocate(images.size() * sizeof(Image),
+                                           alignof(Image), storage);
   if (error)
     return error;
   auto *records = static_cast<Image *>(storage);
+  transaction.storage->records = {records, images.size()};
   error = transaction.arena.allocate(
       (old_count + images.size()) * sizeof(Image *), alignof(Image *), storage);
   if (error)
@@ -404,7 +420,9 @@ long ImageRegistry::prepare(Transaction &transaction,
 bool ImageRegistry::can_publish(const Transaction &transaction) const {
   return transaction.owner == this &&
          transaction.state == Transaction::State::Protected &&
-         transaction.base == current && resident.can_adopt(transaction.arena);
+         transaction.base == current && transaction.storage &&
+         resident.can_adopt(transaction.descriptors) &&
+         transaction.storage->arena.can_adopt(transaction.arena);
 }
 
 long ImageRegistry::publish(Transaction &transaction) {
@@ -413,8 +431,12 @@ long ImageRegistry::publish(Transaction &transaction) {
     return -EINVAL;
   if (transaction.base != current)
     return -EAGAIN;
-  if (!resident.adopt(transaction.arena))
+  if (!can_publish(transaction))
     return -EINVAL;
+  (void)resident.adopt(transaction.descriptors);
+  (void)transaction.storage->arena.adopt(transaction.arena);
+  transaction.storage->next = batches;
+  batches = transaction.storage;
   if (!current) {
     uint64_t unused;
     (void)ids.reserve(transaction.candidate->images.size(), unused);
@@ -423,6 +445,84 @@ long ImageRegistry::publish(Transaction &transaction) {
   current = transaction.candidate;
   transaction.state = Transaction::State::Published;
   return 0;
+}
+
+long ImageRegistry::adopt_removal(const Snapshot &replacement) {
+  if (!current || replacement.images.empty())
+    return -EINVAL;
+  bool same = replacement.images.size() == current->images.size();
+  for (size_t i = 0; i < replacement.images.size(); ++i) {
+    const auto *image = replacement.images[i];
+    bool found = false;
+    for (const auto *old : current->images)
+      found |= old == image;
+    if (!found)
+      return -EINVAL;
+    for (size_t j = 0; j < i; ++j)
+      if (replacement.images[j] == image)
+        return -EINVAL;
+    same &= i < current->images.size() && current->images[i] == image;
+  }
+  if (same)
+    return 0;
+  for (const auto *old : current->images) {
+    bool present = false;
+    for (const auto *image : replacement.images)
+      present |= old == image;
+    if (!present && (old->startup || old->ownership.is_permanent() ||
+                     old->ownership.admission() == ModuleOwnership::State::Live))
+      return -EBUSY;
+  }
+  // Compact writer-only identity views outlive released metadata batches.
+  void *memory;
+  long error = resident.allocate(sizeof(Snapshot), alignof(Snapshot), memory);
+  if (error)
+    return error;
+  auto *next = new (memory) Snapshot{replacement.generation, {}};
+  if (replacement.images.size() > __SIZE_MAX__ / sizeof(Image *))
+    return -EOVERFLOW;
+  error = resident.allocate(replacement.images.size() * sizeof(Image *),
+                            alignof(Image *), memory);
+  if (error)
+    return error;
+  auto **entries = static_cast<const Image **>(memory);
+  for (size_t i = 0; i < replacement.images.size(); ++i)
+    entries[i] = replacement.images[i];
+  next->images = {entries, replacement.images.size()};
+  current = next;
+  return 0;
+}
+
+long ImageRegistry::collect_reclaimed() {
+  long error = 0;
+  for (auto *batch = batches; batch; batch = batch->next) {
+    if (!batch->detached) {
+      bool ready = true;
+      for (const auto &record : batch->records) {
+        ready &= record.ownership.admission() == ModuleOwnership::State::Reclaimed;
+        if (current)
+          for (const auto *image : current->images)
+            if (image == &record)
+              ready = false;
+      }
+      if (!ready)
+        continue;
+      for (auto &record : batch->records) {
+        record.elf.reset();
+        record.path = {};
+        record.parent = nullptr;
+        record.dependencies = {};
+        record.bindings = nullptr;
+        // Reclamation remains freestanding, without a libc memset dependency.
+        __builtin_memset_inline(&record.tls, 0, sizeof(record.tls));
+      }
+      batch->detached = true;
+    }
+    long result = batch->arena.reset();
+    if (!error)
+      error = result;
+  }
+  return error;
 }
 
 } // namespace loader

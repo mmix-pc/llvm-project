@@ -121,6 +121,8 @@ long RuntimeInitializers::attach(Batch &batch,
     const auto &object = batch.plan.order[i];
     auto *record = object.node->record;
     if (!find(record->image)) {
+      record->storage_owner = &batch;
+      ++batch.owned_records;
       record->ownership_arena = &batch.arena;
       record->fini = object.fini_count
                          ? batch.plan.callbacks + object.fini_first
@@ -132,6 +134,8 @@ long RuntimeInitializers::attach(Batch &batch,
   }
   ++epoch;
   batch.attached = true;
+  batch.next = batches;
+  batches = &batch;
   return 0;
 }
 
@@ -154,6 +158,7 @@ long RuntimeInitializers::adopt_startup(
     record->previous_completion = completed;
     completed = record;
   }
+  batch.finished = true;
   return 0;
 }
 
@@ -165,6 +170,8 @@ static void invoke_initializer(Address address, int argc, char **argv,
 long RuntimeInitializers::run(Batch &batch, LoaderLocks::Session &session,
                               const InitialStack &stack, Invoker invoke) {
   const long tid = session.callback_owner();
+  if (batch.released)
+    return -EBUSY;
   if (!tid || batch.owner != this || !batch.attached || !stack.valid ||
       stack.argc > __INT_MAX__)
     return -EINVAL;
@@ -222,6 +229,7 @@ long RuntimeInitializers::run(Batch &batch, LoaderLocks::Session &session,
     }
   }
   batch.running = false;
+  batch.finished = true;
   return stopping ? -ECANCELED : 0;
 }
 
@@ -499,6 +507,42 @@ long RuntimeInitializers::complete_finalizers(FinalizationPlan &plan,
     __builtin_trap();
   plan.state = FinalizationPlan::Done;
   return 0;
+}
+
+long RuntimeInitializers::collect_reclaimed(LoaderLocks::Session &session) {
+  if (!session.callback_owner())
+    return -EINVAL;
+  for (auto **link = &completed; *link;) {
+    auto *record = *link;
+    if (record->image->ownership.admission() == ModuleOwnership::State::Reclaimed)
+      *link = record->previous_completion;
+    else
+      link = &record->previous_completion;
+  }
+  for (auto **link = &records; *link;) {
+    auto *record = *link;
+    if (record->image->ownership.admission() != ModuleOwnership::State::Reclaimed) {
+      link = &record->next;
+      continue;
+    }
+    if (record->state != Record::Finalized || !record->storage_owner ||
+        !record->storage_owner->owned_records)
+      __builtin_trap();
+    --record->storage_owner->owned_records;
+    *link = record->next;
+  }
+  long error = 0;
+  for (auto *batch = batches; batch; batch = batch->next) {
+    if (batch->startup || !batch->finished || batch->running || batch->owned_records)
+      continue;
+    batch->released = true;
+    batch->registry = nullptr;
+    batch->nodes = nullptr;
+    long result = batch->arena.reset();
+    if (!error)
+      error = result;
+  }
+  return error;
 }
 
 } // namespace loader

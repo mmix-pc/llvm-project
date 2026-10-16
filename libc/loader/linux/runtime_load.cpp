@@ -257,5 +257,16 @@ long RuntimeLoad::abort() {
   return error;
 }
 
+long RuntimeLoad::collect_storage() {
+  if (!committed)
+    return -EINVAL;
+  long error = graph.collect_storage();
+  if (error)
+    return error;
+  ready = false;
+  base = nullptr;
+  return scratch.reset();
+}
+
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

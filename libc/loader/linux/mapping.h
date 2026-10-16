@@ -58,6 +58,8 @@ public:
   // Transfer an already identified file without reopening its pathname.
   MapResult open(OwnedFd &source);
   long reset();
+  // Identity only: survives reset failure, not a usable mapped image view.
+  Address load_bias() const { return mapped.load_bias(); }
   const ElfImage *image() const { return ready ? &mapped : nullptr; }
   const DynamicInfo *metadata() const { return ready ? &dynamic : nullptr; }
 };

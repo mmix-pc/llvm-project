@@ -73,6 +73,14 @@ class ElfImage {
 
 public:
   ElfImage() { __builtin_memset_inline(&ehdr, 0, sizeof(ehdr)); }
+  // Drop borrowed storage without clearing unused decoded header bytes.
+  void reset() {
+    file = {};
+    phdrs = {};
+    regions = {};
+    header_vaddr = table_vaddr = bias = 0;
+    mapped = admitted = tls_present = false;
+  }
   ElfImage(const ElfImage &other) { *this = other; }
   ElfImage &operator=(const ElfImage &other) {
     if (this == &other)
