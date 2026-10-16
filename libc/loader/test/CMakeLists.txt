@@ -37,6 +37,20 @@ target_link_libraries(loader-runtime-initialization-test PRIVATE Threads::Thread
 add_test(NAME loader-runtime-initialization COMMAND loader-runtime-initialization-test)
 set_tests_properties(loader-runtime-initialization PROPERTIES TIMEOUT 30)
 
+add_executable(loader-runtime-retirement-test runtime_retirement_test.cpp
+  ../linux/runtime_retirement.cpp ../linux/runtime_initialization.cpp
+  ../linux/runtime_queries.cpp ../linux/runtime_scopes.cpp ../linux/runtime_unwind.cpp
+  ../linux/locks.cpp ../linux/unwind_images.cpp ../linux/image_registry.cpp
+  ../linux/tls_layout.cpp ../linux/symbols.cpp ../linux/arena.cpp
+  ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-runtime-retirement-test PRIVATE ../..)
+target_compile_definitions(loader-runtime-retirement-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-runtime-retirement-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-runtime-retirement-test PRIVATE cxx_std_17)
+target_link_libraries(loader-runtime-retirement-test PRIVATE Threads::Threads)
+add_test(NAME loader-runtime-retirement COMMAND loader-runtime-retirement-test)
+set_tests_properties(loader-runtime-retirement PROPERTIES TIMEOUT 30)
+
 add_executable(loader-runtime-unwind-test runtime_unwind_test.cpp
   ../linux/runtime_unwind.cpp ../linux/runtime_scopes.cpp ../linux/unwind_images.cpp
   ../linux/image_registry.cpp ../linux/tls_layout.cpp ../linux/symbols.cpp

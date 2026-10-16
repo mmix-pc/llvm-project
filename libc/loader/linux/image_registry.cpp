@@ -40,7 +40,7 @@ ImageRegistry::Snapshot::find(uint64_t id, uint64_t module_generation) const {
 
 long ImageRegistry::Snapshot::reclaimable(
     Arena &scratch, cpp::span<const Image *const> roots,
-    cpp::span<const Image *const> &out) const {
+    cpp::span<const Image *const> &out, bool for_finalization) const {
   out = {};
   const size_t count = images.size();
   if (count > __SIZE_MAX__ / sizeof(Image *))
@@ -87,7 +87,11 @@ long ImageRegistry::Snapshot::reclaimable(
     }
   };
   for (const Image *image : images)
-    if (image->ownership.is_permanent() || image->ownership.owners())
+    if (image->ownership.is_permanent() ||
+        image->ownership.owners() >
+            (for_finalization ? image->ownership.owners(
+                                    ModuleOwnership::Kind::ProcessCallback)
+                              : 0))
       mark(image);
   for (const Image *root : roots)
     mark(root);
@@ -351,7 +355,7 @@ long ImageRegistry::prepare(Transaction &transaction,
                     (dynamic.value(DynamicTag::Flags1) & DF_1_NODELETE);
     new (records + i) Image{*images[i], tls[i], !current,
                            {tls[i].module_id, tls[i].generation,
-                            !current || nodelete}};
+                            !current || nodelete, ~uint64_t(0), events}};
     new (entries + old_count + i) const Image *(records + i);
   }
   transaction.candidate =

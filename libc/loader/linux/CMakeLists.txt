@@ -1,6 +1,14 @@
 add_subdirectory(mmix)
 
 add_object_library(
+  runtime_retirement
+  SRCS runtime_retirement.cpp
+  HDRS runtime_retirement.h
+  DEPENDS .runtime_initialization .runtime_queries .runtime_unwind
+  COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
+)
+
+add_object_library(
   runtime_state
   SRCS runtime_state.cpp
   HDRS runtime_state.h
@@ -122,7 +130,7 @@ add_object_library(
 add_object_library(
   image_registry
   SRCS image_registry.cpp
-  HDRS image_registry.h module_ownership.h
+  HDRS image_registry.h module_ownership.h retirement_events.h
   DEPENDS .arena .io .tls_layout .dynamic libc.hdr.errno_macros
     libc.hdr.func.free libc.src.__support.common libc.src.__support.CPP.atomic
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}

@@ -88,7 +88,8 @@ private:
 
 public:
   UnwindLeases<Snapshot> unwind_leases;
-  explicit RuntimeScopes(size_t page) : storage(page), unwind_leases(page) {}
+  explicit RuntimeScopes(size_t page, RetirementEvents *events = nullptr)
+      : storage(page, events), unwind_leases(page) {}
   RuntimeScopes(const RuntimeScopes &) = delete;
   RuntimeScopes &operator=(const RuntimeScopes &) = delete;
   // Writers hold mutation serialization and cancellation suppression. Inputs

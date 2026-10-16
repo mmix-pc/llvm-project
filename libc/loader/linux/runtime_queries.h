@@ -42,8 +42,10 @@ private:
   r_debug &debug;
 
 public:
-  explicit RuntimeQueries(Address page, r_debug *record = nullptr)
-      : snapshots(page), pending(page), debug(record ? *record : local_debug) {}
+  explicit RuntimeQueries(Address page, r_debug *record = nullptr,
+                          RetirementEvents *events = nullptr)
+      : snapshots(page, events), pending(page),
+        debug(record ? *record : local_debug) {}
   long prepare(const ImageRegistry::Snapshot &);
   void publish();
   long abort();

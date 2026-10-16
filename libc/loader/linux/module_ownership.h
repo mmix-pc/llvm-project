@@ -13,6 +13,7 @@
 #include "hdr/errno_macros.h"
 #include "hdr/stdint_proxy.h"
 #include "loader/linux/arena.h"
+#include "loader/linux/retirement_events.h"
 #include "src/__support/CPP/new.h"
 #include "src/__support/CPP/atomic.h"
 
@@ -46,6 +47,7 @@ private:
   State state = State::Live;
   bool permanent;
   bool finalization_started = false;
+  RetirementEvents *events;
   // Signal-side registration cannot allocate tickets or take the writer lock.
   // Bit 0 closes admission, bit 1 is a permanent signal-code pin, higher bits
   // count temporary registration leases. Retirement races use the same CAS.
@@ -55,9 +57,10 @@ public:
   // The bound limits both live owners and lifetime ticket issuance. Exhaustion
   // never reuses a ticket; inactive storage may be reused with a fresh ticket.
   ModuleOwnership(uint64_t image, uint64_t generation, bool permanent,
-                  uint64_t limit = ~uint64_t(0))
+                  uint64_t limit = ~uint64_t(0),
+                  RetirementEvents *events = nullptr)
       : image(image), generation(generation), limit(limit),
-        permanent(permanent) {}
+        permanent(permanent), events(events) {}
   ModuleOwnership(const ModuleOwnership &) = delete;
   ModuleOwnership &operator=(const ModuleOwnership &) = delete;
 
@@ -103,6 +106,8 @@ public:
         slot->active = false;
         --counts[index];
         --total;
+        if (events)
+          events->request();
         return 0;
       }
     }
@@ -142,6 +147,8 @@ public:
       signal_owners.fetch_or(2);
     if (signal_owners.fetch_sub(4) < 4)
       __builtin_trap();
+    if (events)
+      events->request();
   }
 
   // Only the coordinator may attest finalization and physical release. This

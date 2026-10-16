@@ -63,10 +63,13 @@ public:
     const Image *find(uint64_t id, uint64_t module_generation) const;
     // Caller holds mutation serialization. Explicit roots supplement permanent
     // roots and external ownership tickets. Edges are not reference-counted:
-    // unreachable cycles belong to the returned set together. Does not retire
+    // unreachable cycles belong to the returned set together. Finalization
+    // may ignore owner-local process callbacks, which it must drain itself;
+    // physical retirement always includes every ticket. Does not retire
     // or unmap; storage belongs to scratch and must not escape its lifetime.
     long reclaimable(Arena &scratch, cpp::span<const Image *const> roots,
-                     cpp::span<const Image *const> &out) const;
+                     cpp::span<const Image *const> &out,
+                     bool for_finalization = false) const;
     // Prepare an independent discovery view. Descriptor ownership and the
     // admission transition stay with the serialized publication coordinator.
     long without(Arena &, cpp::span<const Image *const> removed,
@@ -110,9 +113,11 @@ private:
   Arena resident;
   RegistrySequence ids, generations;
   const Snapshot *current = nullptr;
+  RetirementEvents *events;
 
 public:
-  explicit ImageRegistry(size_t page_size) : resident(page_size) {}
+  explicit ImageRegistry(size_t page_size, RetirementEvents *events = nullptr)
+      : resident(page_size), events(events) {}
   ImageRegistry(const ImageRegistry &) = delete;
   ImageRegistry &operator=(const ImageRegistry &) = delete;
   // Caller serializes ALL access. Concurrent publication is not provided by

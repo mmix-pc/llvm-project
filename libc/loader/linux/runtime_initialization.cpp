@@ -275,7 +275,8 @@ long RuntimeInitializers::FinalizationPlan::reset() {
 
 long RuntimeInitializers::collect_finalizers(
     const ImageRegistry::Snapshot &snapshot, FinalizationPlan &plan,
-    LoaderLocks::Session &session, bool process_exit) {
+    LoaderLocks::Session &session, bool process_exit,
+    cpp::span<const ImageRegistry::Image *const> external_roots) {
   if (!session.callback_owner() || plan.owner ||
       plan.state != FinalizationPlan::Empty)
     return -EINVAL;
@@ -285,9 +286,14 @@ long RuntimeInitializers::collect_finalizers(
   long error = 0;
   if (!process_exit) {
     const ImageRegistry::Image **roots = nullptr;
-    error = allocate(plan.arena, snapshot.images.size(), roots);
+    if (external_roots.size() > __SIZE_MAX__ - snapshot.images.size())
+      return -EOVERFLOW;
+    error = allocate(plan.arena, snapshot.images.size() + external_roots.size(),
+                     roots);
     size_t count = 0;
     if (!error) {
+      for (const auto *image : external_roots)
+        roots[count++] = image;
       for (auto *image : snapshot.images) {
         auto *record = find(image);
         // An unfinished initializer can still call its completed providers.
@@ -295,7 +301,7 @@ long RuntimeInitializers::collect_finalizers(
             record->state == Record::Initializing)
           roots[count++] = image;
       }
-      error = snapshot.reclaimable(plan.arena, {roots, count}, candidates);
+      error = snapshot.reclaimable(plan.arena, {roots, count}, candidates, true);
     }
   }
   auto pin = [&](const ImageRegistry::Image *image) -> long {
@@ -388,8 +394,35 @@ long RuntimeInitializers::finalization_candidates(
     return -EINVAL;
   if (plan.state != FinalizationPlan::Done)
     return -EBUSY;
-  // Completion released this plan's invocation pins. Never wait for those
-  // pins from inside a callback, nor reuse a pre-callback reachability result.
+  cpp::span<const ImageRegistry::Image *const> eligible;
+  long error = retirement_candidates(snapshot, scratch, roots, eligible, session);
+  if (error)
+    return error;
+  const ImageRegistry::Image **selected;
+  error = allocate(scratch, eligible.size(), selected);
+  if (error)
+    return error;
+  size_t count = 0;
+  for (const auto *image : eligible)
+    for (auto *item = plan.items; item; item = item->next)
+      if (item->record->image == image) {
+        selected[count++] = image;
+        break;
+      }
+  out = {selected, count};
+  return 0;
+}
+
+long RuntimeInitializers::retirement_candidates(
+    const ImageRegistry::Snapshot &snapshot, Arena &scratch,
+    cpp::span<const ImageRegistry::Image *const> roots,
+    cpp::span<const ImageRegistry::Image *const> &out,
+    LoaderLocks::Session &session) const {
+  out = {};
+  if (!session.callback_owner())
+    return -EINVAL;
+  // Completed plans released their invocation pins. Never wait for an active
+  // callback's pins, nor reuse a pre-callback reachability result.
   if (roots.size() > ~size_t(0) - snapshot.images.size())
     return -EOVERFLOW;
   const ImageRegistry::Image **current_roots;
@@ -416,12 +449,9 @@ long RuntimeInitializers::finalization_candidates(
     return error;
   size_t count = 0;
   for (const auto *image : eligible)
-    for (auto *item = plan.items; item; item = item->next)
-      if (item->record->image == image &&
-          item->record->state == Record::Finalized) {
-        selected[count++] = image;
-        break;
-      }
+    if (const auto *record = find(image);
+        record && record->state == Record::Finalized)
+      selected[count++] = image;
   out = {selected, count};
   return 0;
 }

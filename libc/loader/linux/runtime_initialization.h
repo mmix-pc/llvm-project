@@ -114,10 +114,16 @@ public:
   // Process exit includes permanent images; ordinary collection uses graph
   // reachability, so NODELETE and externally held dependency cycles stay live.
   long collect_finalizers(const ImageRegistry::Snapshot &, FinalizationPlan &,
-                          LoaderLocks::Session &, bool process_exit = false);
+                          LoaderLocks::Session &, bool process_exit = false,
+                          cpp::span<const ImageRegistry::Image *const> roots = {});
   long invoke_finalizers(FinalizationPlan &, LoaderLocks::Session &,
                          Finalizer = nullptr);
   long complete_finalizers(FinalizationPlan &, LoaderLocks::Session &);
+  long retirement_candidates(
+      const ImageRegistry::Snapshot &, Arena &scratch,
+      cpp::span<const ImageRegistry::Image *const> roots,
+      cpp::span<const ImageRegistry::Image *const> &out,
+      LoaderLocks::Session &) const;
   // Recompute against the CURRENT snapshot and external roots after callback
   // completion. The result is a writer-serialized borrow, not an unmap permit.
   long finalization_candidates(

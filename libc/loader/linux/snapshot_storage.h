@@ -11,6 +11,7 @@
 
 #include "hdr/errno_macros.h"
 #include "loader/linux/arena.h"
+#include "loader/linux/retirement_events.h"
 #include "src/__support/CPP/atomic.h"
 #include "src/__support/CPP/new.h"
 
@@ -20,8 +21,9 @@ namespace loader {
 // Writers serialize reserve/publish/collect. Readers enter before loading the
 // current pointer. Sequential consistency makes a reader either retain the old
 // batch or observe the replacement before the writer can recycle old storage.
-// No reader allocates, takes a loader lock or performs a syscall. Collection is
-// an explicit writer safe point, not work performed during unwind/cancellation.
+// Readers never allocate or take loader locks. An optional event sink may issue
+// a nonblocking wake, but collection remains an explicit writer safe point,
+// never work performed during unwind/cancellation.
 template <class T> class SnapshotStorage {
 public:
   struct Batch {
@@ -31,18 +33,26 @@ public:
     mutable cpp::Atomic<bool> pinned{false};
     cpp::Atomic<size_t> readers{0};
     bool reserved = false, dirty = false;
-    Batch(size_t page, Batch *next) : arena(page), next(next) {}
+    RetirementEvents *events;
+    Batch(size_t page, Batch *next, RetirementEvents *events)
+        : arena(page), next(next), events(events) {}
+    void release() {
+      if (readers.fetch_sub(1) == 1 && events)
+        events->request();
+    }
   };
 
 private:
   size_t page;
+  RetirementEvents *events;
   Arena controls;
   mutable cpp::Atomic<Batch *> batches{nullptr};
   mutable cpp::Atomic<Batch *> current{nullptr};
   mutable cpp::Atomic<size_t> readers{0};
 
 public:
-  explicit SnapshotStorage(size_t page) : page(page), controls(page) {}
+  explicit SnapshotStorage(size_t page, RetirementEvents *events = nullptr)
+      : page(page), events(events), controls(page) {}
   void retain() const {
     size_t count = readers.load();
     do {
@@ -67,10 +77,12 @@ public:
         } while (!batch->readers.compare_exchange_weak(count, count + 1));
       }
       storage.release();
+      if (storage.events)
+        storage.events->request();
     }
     ~Lease() {
       if (batch)
-        batch->readers.fetch_sub(1);
+        batch->release();
     }
     Lease(const Lease &) = delete;
     Lease &operator=(const Lease &) = delete;
@@ -80,7 +92,7 @@ public:
     Lease &operator=(Lease &&other) {
       if (this != &other) {
         if (batch)
-          batch->readers.fetch_sub(1);
+          batch->release();
         batch = other.batch;
         other.batch = nullptr;
       }
@@ -101,7 +113,7 @@ public:
     }
     static void release_detached(void *token) {
       if (token)
-        static_cast<Batch *>(token)->readers.fetch_sub(1);
+        static_cast<Batch *>(token)->release();
     }
     // The caller already owns a reference, so the batch cannot be recycled.
     static void retain_detached(void *token) {
@@ -162,7 +174,7 @@ public:
     long error = controls.allocate(sizeof(Batch), alignof(Batch), memory);
     if (error)
       return error;
-    out = new (memory) Batch(page, batches.load());
+    out = new (memory) Batch(page, batches.load(), events);
     out->reserved = true;
     batches.store(out);
     return 0;
