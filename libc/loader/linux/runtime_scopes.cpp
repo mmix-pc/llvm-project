@@ -150,6 +150,9 @@ long RuntimeScopes::Transaction::abort() {
     return -EBUSY;
   candidate = nullptr;
   long error = arena.reset();
+  long unwind_error = unwind_reservation.abort();
+  if (!error)
+    error = unwind_error;
   if (!error) {
     if (owner)
       owner->storage.cancel(batch);
@@ -471,6 +474,7 @@ bool RuntimeScopes::can_publish(const Transaction &transaction) const {
         image->ownership.admission() != ModuleOwnership::State::Live)
       return false;
   return storage.can_publish(transaction.batch, transaction.arena) &&
+         unwind_leases.can_publish(transaction.unwind_reservation) &&
          (!transaction.unwind_required || transaction.candidate->unwind) &&
          (!transaction.candidate->unwind ||
           transaction.candidate->unwind->registry ==
@@ -491,7 +495,8 @@ long RuntimeScopes::publish(Transaction &transaction) {
     if (image->ownership.is_permanent() || image->ownership.owners() ||
         image->ownership.admission() != ModuleOwnership::State::Live)
       return -EBUSY;
-  if (!storage.can_publish(transaction.batch, transaction.arena))
+  if (!storage.can_publish(transaction.batch, transaction.arena) ||
+      !unwind_leases.can_publish(transaction.unwind_reservation))
     return -EINVAL;
   for (size_t i = 0; i < transaction.retiring.size(); ++i) {
     if (transaction.retiring[i]->ownership.retire()) {
@@ -500,6 +505,7 @@ long RuntimeScopes::publish(Transaction &transaction) {
       return -EBUSY;
     }
   }
+  unwind_leases.publish(transaction.unwind_reservation);
   (void)storage.publish(transaction.batch, transaction.arena,
                         transaction.candidate);
   transaction.published = true;

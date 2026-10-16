@@ -87,11 +87,14 @@ long release_shared_thread_tls(loader::ThreadTLSAllocation &allocation) {
   return services.release_thread_tls(services.context, &allocation);
 }
 
-static long find_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
+static long describe_image(long (*query)(void *, uintptr_t,
+                                         loader::UnwindImageView *),
+                           uintptr_t key, MMIXUnwindImage *out) {
   if (!out)
     return EINVAL;
   loader::UnwindImageView view{};
-  long error = services.find_unwind_image(services.context, pc, &view);
+  *out = {};
+  long error = query(services.context, key, &view);
   if (!error)
     *out = {view.load_bias,
             view.phdr_address,
@@ -102,6 +105,18 @@ static long find_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
             view.range_count,
             view.token};
   return error;
+}
+static long find_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
+  return describe_image(services.find_unwind_image, pc, out);
+}
+static long acquire_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
+  return describe_image(services.acquire_unwind_image, pc, out);
+}
+static long retain_image(void *, uintptr_t token, MMIXUnwindImage *out) {
+  return describe_image(services.retain_unwind_image, token, out);
+}
+static long drop_image(void *, uintptr_t token) {
+  return services.drop_unwind_image(services.context, token);
 }
 static void release_image(void *, uintptr_t token) {
   services.release_unwind_image(services.context, token);
@@ -114,7 +129,9 @@ long adopt_shared_main(const loader::StartupProcessView *process,
       input->size != sizeof(services) || !input->context || !input->tls_set ||
       !input->prepare_thread_tls || !input->release_thread_tls ||
       !input->resolve_startup_tls || !input->find_unwind_image ||
-      !input->release_unwind_image || !input->finalize_startup ||
+      !input->release_unwind_image || !input->acquire_unwind_image ||
+      !input->retain_unwind_image || !input->drop_unwind_image ||
+      !input->finalize_startup ||
       !input->run_initializers || !input->images.context ||
       !input->images.retain || !input->images.release ||
       !input->images.retain_process || !input->signals.context ||
@@ -157,7 +174,8 @@ long adopt_shared_main(const loader::StartupProcessView *process,
       !adopt_loader_process_services(services.process))
     return EINVAL;
   MMIXStartupUnwindService unwind{sizeof(unwind), 1, &services, find_image,
-                                  release_image};
+                                  release_image, acquire_image, retain_image,
+                                  drop_image};
   if (!__libunwind_mmix_adopt_startup_images(&unwind))
     return EINVAL;
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS

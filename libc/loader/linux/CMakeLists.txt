@@ -94,7 +94,7 @@ add_object_library(
 add_object_library(
   runtime_scopes
   SRCS runtime_scopes.cpp
-  HDRS runtime_scopes.h snapshot_storage.h
+  HDRS runtime_scopes.h snapshot_storage.h unwind_leases.h
   DEPENDS .image_registry .symbols .arena .unwind_images libc.src.__support.CPP.atomic
     libc.hdr.func.free libc.src.__support.common libc.hdr.errno_macros
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}

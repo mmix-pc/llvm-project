@@ -65,6 +65,85 @@ struct Readers {
   RuntimeScopes &scopes;
   Atomic<unsigned> ready{0}, epoch{0}, done{0};
 };
+struct LeaseReader {
+  RuntimeScopes &scopes;
+  Atomic<unsigned> ready{0}, finish{0};
+};
+static void *hold_lease(void *opaque) {
+  auto &reader = *static_cast<LeaseReader *>(opaque);
+  lookup_only = true;
+  UnwindImageView original{}, copy{};
+  check(!acquire_runtime_unwind_image(&reader.scopes, 0x302000, &original));
+  check(!retain_runtime_unwind_image(&reader.scopes, original.token, &copy));
+  check(copy.token != original.token);
+  check(!drop_runtime_unwind_image(&reader.scopes, original.token));
+  reader.ready.fetch_add(1);
+  while (!reader.finish.load())
+    sched_yield();
+  check(copy.eh_frame_header == 0x300c00);
+  const auto *ranges = reinterpret_cast<const UnwindReadableRange *>(
+      copy.readable_ranges);
+  check(copy.range_count == 3 && ranges[0].address == 0x300000);
+  check(!drop_runtime_unwind_image(&reader.scopes, copy.token));
+  check(drop_runtime_unwind_image(&reader.scopes, copy.token) == EINVAL);
+  lookup_only = false;
+  return nullptr;
+}
+
+static void checked_leases() {
+  Input main(ImageRole::MainPIE, 0x100000);
+  Input late(ImageRole::SharedObject, 0x300000);
+  const ImageRegistry::Image *images[] = {&main.record, &late.record};
+  ImageRegistry::Snapshot initial{1, {images, 1}}, registry{2, images};
+  RuntimeScopes scopes(page);
+  RuntimeScopes::Transaction startup(page);
+  check(!scopes.prepare_startup(initial, startup));
+  check(!scopes.prepare_unwind(startup) && !scopes.publish(startup));
+  RuntimeScopes::Transaction open(page), close(page);
+  uint64_t handle;
+  check(!scopes.prepare_open(registry, &late.record, false, open, handle));
+  check(!scopes.prepare_unwind(open) && !scopes.publish(open));
+  check(!scopes.prepare_close(handle, close));
+  check(!scopes.prepare_unwind(close) && !scopes.publish(close));
+  UnwindImageView views[64]{}, copy{};
+  lookup_only = true;
+  for (auto &view : views)
+    check(!acquire_runtime_unwind_image(&scopes, 0x302000, &view));
+  check(acquire_runtime_unwind_image(&scopes, 0x302000, &copy) == EAGAIN);
+  check(!copy.token && scopes.active_readers() == 64);
+  check(retain_runtime_unwind_image(&scopes, views[0].token, &copy) == EAGAIN);
+  check(!copy.token && scopes.active_readers() == 64);
+  uintptr_t stale = views[0].token;
+  for (auto &view : views)
+    check(!drop_runtime_unwind_image(&scopes, view.token));
+  check(!scopes.active_readers());
+  check(!acquire_runtime_unwind_image(&scopes, 0x302000, &copy));
+  check(copy.token != stale);
+  check(drop_runtime_unwind_image(&scopes, stale) == EINVAL);
+  check(!drop_runtime_unwind_image(&scopes, copy.token));
+  check(retain_runtime_unwind_image(&scopes, stale, &copy) == EINVAL);
+  check(!copy.token);
+  lookup_only = false;
+
+  LeaseReader reader{scopes};
+  pthread_t workers[2];
+  for (auto &worker : workers)
+    check(!pthread_create(&worker, nullptr, hold_lease, &reader));
+  while (reader.ready.load() != 2)
+    sched_yield();
+  RuntimeScopes::Transaction retire(page);
+  const ImageRegistry::Image *removed[] = {&late.record};
+  check(!scopes.prepare_retire(removed, retire));
+  check(!scopes.prepare_unwind(retire) && !scopes.publish(retire));
+  check(acquire_runtime_unwind_image(&scopes, 0x302000, &copy) == ENOENT);
+  check(!copy.token && !scopes.readers_drained(&late.record));
+  check(scopes.collect_snapshots() == -EBUSY);
+  reader.finish.store(1);
+  for (auto &worker : workers)
+    check(!pthread_join(worker, nullptr));
+  check(scopes.readers_drained(&late.record));
+  check(!scopes.collect_snapshots());
+}
 static void *read(void *opaque) {
   auto &shared = *static_cast<Readers *>(opaque);
   lookup_only = true;
@@ -98,6 +177,7 @@ static void *read(void *opaque) {
 }
 
 extern "C" int main() {
+  checked_leases();
   Input main(ImageRole::MainPIE, 0x100000);
   Input late(ImageRole::SharedObject, 0x300000);
   Input missing(ImageRole::SharedObject, 0x500000, false);

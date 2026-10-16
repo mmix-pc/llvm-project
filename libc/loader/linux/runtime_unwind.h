@@ -18,6 +18,10 @@ namespace loader {
 // immutable snapshot, without allocation, locks or application callbacks.
 long find_runtime_unwind_image(void *, uintptr_t, UnwindImageView *);
 void release_runtime_unwind_image(void *, uintptr_t);
+// Independent checked owners. These never pin permanently or allocate.
+long acquire_runtime_unwind_image(void *, uintptr_t, UnwindImageView *);
+long retain_runtime_unwind_image(void *, uintptr_t, UnwindImageView *);
+long drop_runtime_unwind_image(void *, uintptr_t);
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL
 #endif

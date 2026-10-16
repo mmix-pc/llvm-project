@@ -103,6 +103,15 @@ public:
       if (token)
         static_cast<Batch *>(token)->readers.fetch_sub(1);
     }
+    // The caller already owns a reference, so the batch cannot be recycled.
+    static void retain_detached(void *token) {
+      auto *batch = static_cast<Batch *>(token);
+      size_t count = batch->readers.load();
+      do {
+        if (!count || count == __SIZE_MAX__)
+          __builtin_trap();
+      } while (!batch->readers.compare_exchange_weak(count, count + 1));
+    }
   };
 
   const T *snapshot() const {

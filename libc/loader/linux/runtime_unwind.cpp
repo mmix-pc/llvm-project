@@ -19,6 +19,11 @@ long RuntimeScopes::prepare_unwind(Transaction &transaction) {
     return -EINVAL;
   auto &next = *transaction.candidate;
   transaction.unwind_required = true;
+  long capacity_error = unwind_leases.prepare(transaction.unwind_reservation);
+  if (capacity_error) {
+    next.unwind = nullptr;
+    return -capacity_error;
+  }
   if (next.unwind && next.unwind->registry == next.registry)
     return 0; // Reopen, promotion and logical close retain the same witnesses.
   const auto &images = next.registry->images;
@@ -74,6 +79,39 @@ bool RuntimeScopes::owns_unwind_token(uintptr_t token) const {
   return storage.pinned_contains([&](const Snapshot &view) {
     return view.unwind && view.unwind->images.owns(token);
   });
+}
+
+long acquire_runtime_unwind_image(void *context, uintptr_t pc,
+                                 UnwindImageView *out) {
+  if (!out)
+    return EINVAL;
+  *out = {};
+  if (!context)
+    return EINVAL;
+  auto &scopes = *static_cast<RuntimeScopes *>(context);
+  auto lease = scopes.acquire();
+  const auto *snapshot = lease.get();
+  UnwindImageView view{};
+  long error = snapshot && snapshot->unwind
+                   ? snapshot->unwind->images.find(pc, view)
+                   : EINVAL;
+  return error ? error : scopes.unwind_leases.acquire(lease, view, *out);
+}
+
+long retain_runtime_unwind_image(void *context, uintptr_t token,
+                                UnwindImageView *out) {
+  if (!out)
+    return EINVAL;
+  *out = {};
+  return context ? static_cast<RuntimeScopes *>(context)->unwind_leases.retain(
+                       token, *out)
+                 : EINVAL;
+}
+
+long drop_runtime_unwind_image(void *context, uintptr_t token) {
+  return context ? static_cast<RuntimeScopes *>(context)->unwind_leases.release(
+                       token)
+                 : EINVAL;
 }
 
 void release_runtime_unwind_image(void *context, uintptr_t token) {

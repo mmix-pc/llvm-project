@@ -198,6 +198,11 @@ struct LoaderServices {
   long (*run_initializers)(void *, LoaderCancellation) = nullptr;
   LoaderImageAPI images{};
   LoaderSignalAPI signals{};
+  // Independent checked snapshot owners; resident queries above remain for
+  // cursors whose copy/destruction lifetime has not yet been integrated.
+  long (*acquire_unwind_image)(void *, uintptr_t, UnwindImageView *) = nullptr;
+  long (*retain_unwind_image)(void *, uintptr_t, UnwindImageView *) = nullptr;
+  long (*drop_unwind_image)(void *, uintptr_t) = nullptr;
 };
 
 struct LibcBootstrap {
@@ -208,7 +213,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 224);
+static_assert(sizeof(LoaderServices) == 248);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

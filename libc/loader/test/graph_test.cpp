@@ -1303,7 +1303,16 @@ extern "C" int main() {
         services.process.context);
   CHECK(services.prepare_thread_tls && services.release_thread_tls &&
         services.resolve_startup_tls && services.find_unwind_image &&
-        services.release_unwind_image);
+        services.release_unwind_image && services.acquire_unwind_image &&
+        services.retain_unwind_image && services.drop_unwind_image);
+  UnwindImageView invalid_view{};
+  CHECK(services.acquire_unwind_image(services.context, 1, &invalid_view) ==
+            ENOENT &&
+        !invalid_view.token);
+  CHECK(services.retain_unwind_image(services.context, 0, &invalid_view) ==
+            EINVAL &&
+        !invalid_view.token);
+  CHECK(services.drop_unwind_image(services.context, 0) == EINVAL);
   CHECK(services.run_initializers(services.context, hooks) == 0);
   CHECK(services.run_initializers(services.context, hooks) == 0);
   uint64_t handle = 0;

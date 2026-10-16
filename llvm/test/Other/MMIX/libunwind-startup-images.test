@@ -21,6 +21,8 @@ struct Image {
 };
 static Image images[2];
 static unsigned releases;
+static uintptr_t next_token = 16;
+static MMIXUnwindImage owners[128];
 static long find(void *, uintptr_t pc, MMIXUnwindImage *out) {
   for (auto &image : images)
     if (pc == reinterpret_cast<uintptr_t>(image.text)) {
@@ -32,6 +34,28 @@ static long find(void *, uintptr_t pc, MMIXUnwindImage *out) {
 static void release(void *, uintptr_t token) {
   if (token == 1 || token == 2)
     ++releases;
+}
+static long acquire(void *context, uintptr_t pc, MMIXUnwindImage *out) {
+  long error = find(context, pc, out);
+  if (!error) {
+    out->token = next_token++;
+    owners[out->token] = *out;
+  }
+  return error;
+}
+static long retain(void *, uintptr_t token, MMIXUnwindImage *out) {
+  if (token >= 128 || !owners[token].token)
+    return 22;
+  *out = owners[token];
+  out->token = next_token++;
+  owners[out->token] = *out;
+  return 0;
+}
+static long drop(void *, uintptr_t token) {
+  if (token >= 128 || !owners[token].token)
+    return 22;
+  owners[token] = {};
+  return 0;
 }
 int main() {
   for (unsigned i = 0; i < 2; ++i) {
@@ -67,7 +91,8 @@ int main() {
         as, image.elf, reinterpret_cast<uintptr_t>(image.text), info);
   };
   CHECK(!lookup(images[0])); // Never fall back to the main ELF without adoption.
-  MMIXStartupUnwindService input{sizeof(input), 1, images, find, release};
+  MMIXStartupUnwindService input{sizeof(input), 1, images, find, release,
+                                 acquire, retain, drop};
   CHECK(!__libunwind_mmix_adopt_startup_images(nullptr));
   input.process_resident = 0;
   CHECK(!__libunwind_mmix_adopt_startup_images(&input));
@@ -79,9 +104,36 @@ int main() {
   input.find = nullptr;
   CHECK(!__libunwind_mmix_adopt_startup_images(&input));
   input.find = savedFind;
+  input.retain = nullptr;
+  CHECK(!__libunwind_mmix_adopt_startup_images(&input));
+  input.retain = retain;
   CHECK(__libunwind_mmix_adopt_startup_images(&input));
   CHECK(!__libunwind_mmix_adopt_startup_images(&input));
   input = {}; // Adoption owns a copy; caller storage is not retained.
+  MMIXUnwindImage owned{}, ownedCopy{};
+  CHECK(__libunwind_mmix_acquire_image(
+      reinterpret_cast<uintptr_t>(images[0].text), &owned));
+  CHECK(__libunwind_mmix_retain_image(owned.token, &ownedCopy));
+  CHECK(owned.token != ownedCopy.token);
+  CHECK(__libunwind_mmix_drop_image(owned.token));
+  CHECK(!__libunwind_mmix_drop_image(owned.token));
+  CHECK(!__libunwind_mmix_retain_image(owned.token, &owned));
+  CHECK(!owned.token);
+  CHECK(ownedCopy.eh_frame_header == images[0].view.eh_frame_header);
+  CHECK(__libunwind_mmix_drop_image(ownedCopy.token));
+  images[0].view.phdr_count = UINT64_MAX;
+  uintptr_t invalid = next_token;
+  CHECK(!__libunwind_mmix_acquire_image(
+      reinterpret_cast<uintptr_t>(images[0].text), &owned));
+  CHECK(!owned.token && !owners[invalid].token);
+  images[0].view.phdr_count = 2;
+  auto savedRange = images[0].range;
+  images[0].range.size = 1;
+  invalid = next_token;
+  CHECK(!__libunwind_mmix_acquire_image(
+      reinterpret_cast<uintptr_t>(images[0].text), &owned));
+  CHECK(!owned.token && !owners[invalid].token);
+  images[0].range = savedRange;
   for (auto &image : images) {
     CHECK(lookup(image));
     CHECK(info.dso_base == reinterpret_cast<uintptr_t>(&image));

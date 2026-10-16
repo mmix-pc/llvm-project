@@ -167,6 +167,27 @@ void RuntimeState::services(LoaderServices &out, StartupUnwindImages *unwind) {
     else
       release_runtime_unwind_image(&state.scopes, token);
   };
+  out.acquire_unwind_image = [](void *p, uintptr_t pc, UnwindImageView *v) {
+    auto &state = *static_cast<RuntimeState *>(p);
+    long error = acquire_runtime_unwind_image(&state.scopes, pc, v);
+    if (error != ENOENT || !state.startup_unwind)
+      return error;
+    UnwindImageView view{};
+    error = find_unwind_image(state.startup_unwind, pc, &view);
+    if (error)
+      return error;
+    // The interpreter is permanent but uses the same checked token domain.
+    auto lease = state.scopes.acquire();
+    return state.scopes.unwind_leases.acquire(lease, view, *v);
+  };
+  out.retain_unwind_image = [](void *p, uintptr_t token, UnwindImageView *v) {
+    return retain_runtime_unwind_image(&static_cast<RuntimeState *>(p)->scopes,
+                                       token, v);
+  };
+  out.drop_unwind_image = [](void *p, uintptr_t token) {
+    return drop_runtime_unwind_image(&static_cast<RuntimeState *>(p)->scopes,
+                                     token);
+  };
   out.finalize_startup = [](void *p, LoaderCancellation hooks) {
     if (static_cast<RuntimeState *>(p)->api.finalize(hooks))
       fatal_startup();

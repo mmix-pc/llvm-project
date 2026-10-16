@@ -14,6 +14,7 @@
 #include "loader/linux/snapshot_storage.h"
 #include "loader/linux/symbols.h"
 #include "loader/linux/unwind_images.h"
+#include "loader/linux/unwind_leases.h"
 #include "src/__support/CPP/atomic.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -64,10 +65,11 @@ public:
     Snapshot *candidate = nullptr;
     bool active = false, published = false;
     bool unwind_required = false;
+    UnwindLeases<Snapshot>::Reservation unwind_reservation;
     cpp::span<const Image *const> retiring{};
 
   public:
-    explicit Transaction(size_t page) : arena(page) {}
+    explicit Transaction(size_t page) : arena(page), unwind_reservation(page) {}
     Transaction(const Transaction &) = delete;
     Transaction &operator=(const Transaction &) = delete;
     const Snapshot *view() const { return published ? nullptr : candidate; }
@@ -85,7 +87,8 @@ private:
   static long copy_scopes(Transaction &);
 
 public:
-  explicit RuntimeScopes(size_t page) : storage(page) {}
+  UnwindLeases<Snapshot> unwind_leases;
+  explicit RuntimeScopes(size_t page) : storage(page), unwind_leases(page) {}
   RuntimeScopes(const RuntimeScopes &) = delete;
   RuntimeScopes &operator=(const RuntimeScopes &) = delete;
   // Writers hold mutation serialization and cancellation suppression. Inputs
