@@ -27,12 +27,22 @@ function(check_unwind)
   get_target_property(sources unwind_shared_objects SOURCES)
   get_target_property(options unwind_shared LINK_OPTIONS)
   get_target_property(dependencies unwind_shared LINK_DEPENDS)
-  if(NOT sources MATCHES "/libunwind/src/mmix/StartupImages.cpp$" OR
-     NOT options STREQUAL "LINKER:--version-script=${dependencies}")
-    message(FATAL_ERROR "Wrong resident unwind service or export selection")
+  foreach(component StartupImages CursorLifetime)
+    if(NOT "${SOURCE}/libunwind/src/mmix/${component}.cpp" IN_LIST sources)
+      message(FATAL_ERROR "Missing unwind lifetime component: ${component}")
+    endif()
+  endforeach()
+  if(NOT options STREQUAL "LINKER:--version-script=${dependencies}")
+    message(FATAL_ERROR "Wrong unwind export selection")
   endif()
   file(READ "${dependencies}" exports)
-  if(NOT exports MATCHES "__libunwind_mmix_adopt_startup_images; local: \\*;")
+  foreach(symbol adopt_startup_images cursor_begin cursor_end cursor_finish set_managed_stop)
+    string(FIND "${exports}" "__libunwind_mmix_${symbol};" found)
+    if(found LESS 0)
+      message(FATAL_ERROR "Missing unwind lifetime export: ${symbol}")
+    endif()
+  endforeach()
+  if(NOT exports MATCHES "local: \\*;")
     message(FATAL_ERROR "Unwind service must be public with private internals")
   endif()
 endfunction()
@@ -58,15 +68,18 @@ set(LIBCXXABI_SOURCES cxa_exception.cpp cxa_guard.cpp private_typeinfo.cpp
 include(${SOURCE}/libcxxabi/src/mmix/Sources.cmake)
 foreach(source cxa_exception.cpp cxa_guard.cpp private_typeinfo.cpp
                cxa_exception_storage.cpp cxa_default_handlers.cpp
-               mmix/cxa_thread_atexit.cpp mmix/loader_callbacks.cpp)
+               mmix/cxa_thread_atexit.cpp mmix/loader_callbacks.cpp
+               mmix/ExceptionStorage.cpp)
   if(NOT source IN_LIST LIBCXXABI_SOURCES)
     message(FATAL_ERROR "Missing ABI component: ${source}")
   endif()
 endforeach()
 get_source_file_property(guard_definitions cxa_guard.cpp COMPILE_DEFINITIONS)
+get_source_file_property(exception_definitions cxa_exception.cpp COMPILE_DEFINITIONS)
 get_source_file_property(registration_options mmix/cxa_thread_atexit.cpp COMPILE_OPTIONS)
 if(cxa_thread_atexit.cpp IN_LIST LIBCXXABI_SOURCES OR
    NOT guard_definitions STREQUAL "_LIBCXXABI_USE_FUTEX" OR
+   NOT exception_definitions STREQUAL "_LIBCXXABI_MMIX_EXCEPTION_OWNERS" OR
    NOT registration_options STREQUAL "-fno-exceptions")
   message(FATAL_ERROR "Wrong shared ABI guard or TLS registration policy")
 endif()
@@ -120,6 +133,10 @@ def configure(error=None, option=None, value=None):
         assert result.returncode == 0, text
 
 configure()
+
+subprocess.run(["cmake", "-DSOURCE=" + str(source), "-S", str(root / "static"),
+                "-B", str(root / "static-build")], check=True)
+
 configure("requires the upstream shared targets", "OMIT_UNWIND_TARGETS", "ON")
 for option in ("LIBCXX_HAS_EXTERNAL_THREAD_API", "LIBCXXABI_HAS_EXTERNAL_THREAD_API",
                "LIBCXX_ENABLE_TIME_ZONE_DATABASE", "LIBCXX_ENABLE_UNICODE",
@@ -172,3 +189,22 @@ image.unlink()
 configure("requires LLVM libc")
 (headers / "errno.h").write_text("#define __LLVM_LIBC__ 1\n")
 configure()
+
+#--- static/CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(StaticAdmission NONE)
+foreach(threaded OFF ON)
+  set(CMAKE_SYSTEM_NAME Linux)
+  set(LIBCXXABI_ENABLE_THREADS ${threaded})
+  set(LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL ${threaded})
+  set(LIBCXXABI_ENABLE_SHARED OFF)
+  set(LIBCXXABI_MMIX_LINUX_TLS_DESTRUCTORS ${threaded})
+  set(MMIX_LINUX_THREADED_TLS_DESTRUCTORS_VALIDATED ${threaded})
+  set(LIBCXXABI_SOURCES cxa_exception.cpp cxa_thread_atexit.cpp)
+  include(${SOURCE}/libcxxabi/src/mmix/Sources.cmake)
+  foreach(component mmix/ExceptionStorage.cpp mmix/loader_callbacks.cpp)
+    if(component IN_LIST LIBCXXABI_SOURCES)
+      message(FATAL_ERROR "Static ABI acquired a loader dependency: ${component}")
+    endif()
+  endforeach()
+endforeach()

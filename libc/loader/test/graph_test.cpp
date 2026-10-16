@@ -1479,7 +1479,56 @@ extern "C" int main() {
   CHECK(graph.finalize_protections().error == 0);
   CHECK(state.publish() == 0);
   LoaderServices services{};
+  services.size = sizeof(services);
+  services.tls_set = graph.relocated_tls().modules();
   state.services(services);
+  CHECK(has_reclaiming_services(services));
+  auto incompatible = services;
+  incompatible.size -= sizeof(uint64_t);
+  CHECK(!has_reclaiming_services(incompatible));
+  incompatible = services;
+  incompatible.lifetime = LoaderLifetime::Unspecified;
+  CHECK(!has_reclaiming_services(incompatible));
+  incompatible.lifetime = static_cast<LoaderLifetime>(~uint64_t(0));
+  CHECK(!has_reclaiming_services(incompatible));
+  // Every endpoint is required before libc publishes any adopted services.
+#define CHECK_MISSING_SERVICE(member)                                           \
+  incompatible = services;                                                    \
+  incompatible.member = nullptr;                                              \
+  CHECK(!has_reclaiming_services(incompatible))
+  CHECK_MISSING_SERVICE(context);
+  CHECK_MISSING_SERVICE(tls_set);
+  CHECK_MISSING_SERVICE(prepare_thread_tls);
+  CHECK_MISSING_SERVICE(release_thread_tls);
+  CHECK_MISSING_SERVICE(resolve_startup_tls);
+  CHECK_MISSING_SERVICE(finalize_startup);
+  CHECK_MISSING_SERVICE(find_unwind_image);
+  CHECK_MISSING_SERVICE(release_unwind_image);
+  CHECK_MISSING_SERVICE(acquire_unwind_image);
+  CHECK_MISSING_SERVICE(retain_unwind_image);
+  CHECK_MISSING_SERVICE(drop_unwind_image);
+  CHECK_MISSING_SERVICE(lookup_unwind_lease);
+  CHECK_MISSING_SERVICE(pin_unwind_lease);
+  CHECK_MISSING_SERVICE(api.context);
+  CHECK_MISSING_SERVICE(api.open);
+  CHECK_MISSING_SERVICE(api.lookup);
+  CHECK_MISSING_SERVICE(api.close);
+  CHECK_MISSING_SERVICE(queries.context);
+  CHECK_MISSING_SERVICE(queries.address);
+  CHECK_MISSING_SERVICE(queries.info);
+  CHECK_MISSING_SERVICE(queries.iterate);
+  CHECK_MISSING_SERVICE(process.context);
+  CHECK_MISSING_SERVICE(process.prepare_fork);
+  CHECK_MISSING_SERVICE(process.finish_fork);
+  CHECK_MISSING_SERVICE(run_initializers);
+  CHECK_MISSING_SERVICE(images.context);
+  CHECK_MISSING_SERVICE(images.retain);
+  CHECK_MISSING_SERVICE(images.release);
+  CHECK_MISSING_SERVICE(images.retain_process);
+  CHECK_MISSING_SERVICE(signals.context);
+  CHECK_MISSING_SERVICE(signals.retain);
+  CHECK_MISSING_SERVICE(signals.finish);
+#undef CHECK_MISSING_SERVICE
   LoaderCancellation hooks{[](uint64_t *saved) -> long {
                              *saved = 0;
                              return 0;

@@ -145,17 +145,7 @@ long adopt_shared_main(const loader::StartupProcessView *process,
                        const loader::LoaderServices *input, void *state,
                        const loader::ThreadTLSAllocation *tls) {
   if (attempted || !process || !input || state != &shared_main || !tls ||
-      input->size != sizeof(services) || !input->context || !input->tls_set ||
-      !input->prepare_thread_tls || !input->release_thread_tls ||
-      !input->resolve_startup_tls || !input->find_unwind_image ||
-      !input->release_unwind_image || !input->acquire_unwind_image ||
-      !input->retain_unwind_image || !input->drop_unwind_image ||
-      !input->lookup_unwind_lease || !input->pin_unwind_lease ||
-      !input->finalize_startup ||
-      !input->run_initializers || !input->images.context ||
-      !input->images.retain || !input->images.release ||
-      !input->images.retain_process || !input->signals.context ||
-      !input->signals.retain || !input->signals.finish || !tls->tp ||
+      !loader::has_reclaiming_services(*input) || !tls->tp ||
       reinterpret_cast<uintptr_t>(__builtin_thread_pointer()) != tls->tp ||
       reinterpret_cast<const uintptr_t *>(tls->tp)[1] !=
           reinterpret_cast<uintptr_t>(state))

@@ -141,6 +141,7 @@ long RuntimeState::reset() {
 
 void RuntimeState::services(LoaderServices &out, StartupUnwindImages *unwind) {
   startup_unwind = unwind;
+  out.lifetime = LoaderLifetime::Reclaiming;
   out.context = this;
   out.prepare_thread_tls = [](void *p, void *state, ThreadTLSAllocation *a) {
     return prepare_runtime_thread_tls(&static_cast<RuntimeState *>(p)->tls,

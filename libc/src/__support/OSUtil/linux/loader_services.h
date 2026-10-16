@@ -179,6 +179,9 @@ inline bool valid_open_flags(unsigned flags) {
          !(flags & ~(OpenLazy | OpenNow | OpenNoLoad | OpenGlobal | OpenNoDelete));
 }
 
+// Private same-source composition contract, not a public ABI version.
+enum class LoaderLifetime : uint64_t { Unspecified, Reclaiming };
+
 struct LoaderServices {
   uint64_t size;
   void *context;
@@ -206,7 +209,23 @@ struct LoaderServices {
   long (*lookup_unwind_lease)(void *, uintptr_t, uintptr_t,
                               UnwindImageView *) = nullptr;
   long (*pin_unwind_lease)(void *, uintptr_t) = nullptr;
+  LoaderLifetime lifetime = LoaderLifetime::Unspecified;
 };
+
+inline bool has_reclaiming_services(const LoaderServices &s) {
+  // Check size before reading the new tail of an older provider descriptor.
+  return s.size == sizeof(s) && s.lifetime == LoaderLifetime::Reclaiming &&
+         s.context && s.tls_set && s.prepare_thread_tls && s.release_thread_tls &&
+         s.resolve_startup_tls && s.finalize_startup && s.find_unwind_image &&
+         s.release_unwind_image && s.acquire_unwind_image &&
+         s.retain_unwind_image && s.drop_unwind_image && s.lookup_unwind_lease &&
+         s.pin_unwind_lease && s.api.context && s.api.open && s.api.lookup &&
+         s.api.close && s.queries.context && s.queries.address && s.queries.info &&
+         s.queries.iterate && s.process.context && s.process.prepare_fork &&
+         s.process.finish_fork && s.run_initializers && s.images.context &&
+         s.images.retain && s.images.release && s.images.retain_process &&
+         s.signals.context && s.signals.retain && s.signals.finish;
+}
 
 struct LibcBootstrap {
   uint64_t size;
@@ -216,7 +235,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 264);
+static_assert(sizeof(LoaderServices) == 272);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader
