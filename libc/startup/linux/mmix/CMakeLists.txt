@@ -15,6 +15,8 @@ if(LIBC_MMIX_BUILD_SHARED_LIBC)
     COMMAND_EXPAND_LISTS VERBATIM)
   add_custom_target(mmix_dynamic_crt
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/Scrt1.o)
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/Scrt1.o" DESTINATION lib
+    COMPONENT mmix-dynamic-crt EXCLUDE_FROM_ALL)
   add_startup_object(
     shared_run
     SRC shared_run.cpp

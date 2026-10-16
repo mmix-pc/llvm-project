@@ -69,8 +69,9 @@ target_link_libraries(runtimes-libc-shared INTERFACE "${libc_image}" "${builtins
 foreach(project LIBCXX LIBCXXABI LIBUNWIND)
   set(${project}_BUILTINS_LIBRARY "${builtins}")
 endforeach()
-# This permits build-graph preparation only. Complete providers and installed
-# public C++ admission must be validated separately; no install is enabled.
+# Component installation is explicit; package qualification remains separate.
 set(MMIX_LINUX_SHARED_RUNTIME_VALIDATED TRUE)
 include("${CMAKE_CURRENT_LIST_DIR}/../../../../libunwind/src/mmix/Shared.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/SharedInstallation.cmake")
+cmake_language(DEFER CALL mmix_shared_installation)
 message(STATUS "MMIX shared C++: configuration only; packaging must audit PIC providers and dependency closure")

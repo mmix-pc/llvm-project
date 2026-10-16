@@ -113,6 +113,10 @@ endif()
 set(LIBCXX_BUILTINS_LIBRARY "${builtins}")
 set(LIBCXXABI_BUILTINS_LIBRARY "${builtins}")
 set(MMIX_LINUX_RESIDENT_RUNTIME_VALIDATED TRUE)
+include("${CMAKE_CURRENT_LIST_DIR}/SharedInstallation.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/SharedLibcLink.cmake")
+set(LIBCXX_MMIX_LINUX_SHARED_PROVIDER_DIR "" CACHE PATH
+  "Full shared ABI/unwind providers for the final libc link")
 
 function(mmix_resident_providers)
   target_sources(unwind_static_objects PRIVATE
@@ -142,21 +146,27 @@ function(mmix_resident_providers)
       "${builtins}" "${libc_image}" -o "${out}/libc++abi.so.1"
     DEPENDS cxxabi_static "${builtins}" "${libc_image}"
       "${out}/libunwind.so.1" "${out}/cleanup.map" VERBATIM)
-  include("${libc_build}/mmix-shared-libc/link-inputs.cmake")
-  if(NOT MMIX_SHARED_LIBC_BUILTINS STREQUAL builtins)
-    message(FATAL_ERROR "Resident libc and unwind require the same PIC builtins")
+  set(abi_provider "${out}/libc++abi.so.1")
+  set(unwind_provider "${out}/libunwind.so.1")
+  if(LIBCXX_MMIX_LINUX_SHARED_PROVIDER_DIR)
+    foreach(name libc++abi libunwind)
+      set(path "${LIBCXX_MMIX_LINUX_SHARED_PROVIDER_DIR}/${name}.so.1")
+      if(NOT IS_ABSOLUTE "${path}" OR NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+        message(FATAL_ERROR "Missing full shared provider: ${path}")
+      endif()
+    endforeach()
+    set(abi_provider "${LIBCXX_MMIX_LINUX_SHARED_PROVIDER_DIR}/libc++abi.so.1")
+    set(unwind_provider "${LIBCXX_MMIX_LINUX_SHARED_PROVIDER_DIR}/libunwind.so.1")
+  else()
+    mmix_install_shared_library("${abi_provider}" libc++abi mmix-resident-companions)
+    mmix_install_shared_library("${unwind_provider}" libunwind mmix-resident-companions)
   endif()
-  add_custom_command(OUTPUT "${out}/libc.so.1"
-    COMMAND ${CMAKE_LINKER} -m elf64mmix_linux -shared -soname libc.so.1
-      -z now -z relro --hash-style=both --eh-frame-hdr -z defs
-      --allow-shlib-undefined --version-script=${MMIX_SHARED_LIBC_EXPORTS}
-      --whole-archive "${MMIX_SHARED_LIBC_ARCHIVE}" --no-whole-archive
-      ${MMIX_SHARED_LIBC_OBJECTS} "${builtins}"
-      "${out}/libc++abi.so.1" "${out}/libunwind.so.1" -o "${out}/libc.so.1"
-    DEPENDS "${MMIX_SHARED_LIBC_ARCHIVE}" ${MMIX_SHARED_LIBC_OBJECTS}
-      "${builtins}" "${MMIX_SHARED_LIBC_EXPORTS}"
-      "${out}/libunwind.so.1" "${out}/libc++abi.so.1"
-    COMMAND_EXPAND_LISTS VERBATIM)
+  mmix_link_shared_libc("${out}/libc.so.1"
+    "${libc_build}/mmix-shared-libc/link-inputs.cmake" "${builtins}"
+    "${abi_provider}" "${unwind_provider}")
   add_custom_target(mmix_resident_runtime DEPENDS "${out}/libc.so.1")
+  mmix_install_shared_library("${out}/libc.so.1" libc mmix-shared-libc)
+  mmix_install_shared_profile(mmix-shared-libc-profile
+    mmix-linux-shared-pthread-c mmix-shared-libc)
 endfunction()
 cmake_language(DEFER CALL mmix_resident_providers)

@@ -1,6 +1,7 @@
 # Pthread C++ preparation; validated installation is opt-in. Use a fresh build.
-set(CMAKE_C_FLAGS "-ftls-model=local-exec -fno-lto" CACHE STRING "")
-set(CMAKE_CXX_FLAGS "-nostdinc++ -ftls-model=local-exec -fno-lto" CACHE STRING "")
+set(CMAKE_C_FLAGS "-static -ftls-model=local-exec -fno-lto" CACHE STRING "")
+set(CMAKE_CXX_FLAGS "-static -nostdinc++ -ftls-model=local-exec -fno-lto" CACHE STRING "")
+set(CMAKE_ASM_FLAGS "-static" CACHE STRING "")
 include("${CMAKE_CURRENT_LIST_DIR}/MMIXLinuxRuntimeBase.cmake")
 set(LIBCXX_MMIX_LINUX_THREADED_PREPARATION ON CACHE BOOL "Prepare static pthread C++ runtimes")
 set(LIBCXX_HAS_EXTERNAL_THREAD_API OFF CACHE BOOL "")

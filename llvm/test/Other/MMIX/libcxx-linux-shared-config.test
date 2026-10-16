@@ -21,7 +21,11 @@ include(${SOURCE}/libcxx/cmake/Modules/MMIX/SharedRuntime.cmake)
 # Stand-ins inspect the deferred target wiring without a host runtime build.
 if(NOT OMIT_UNWIND_TARGETS)
   add_custom_target(unwind_shared_objects)
-  add_custom_target(unwind_shared)
+  foreach(target unwind_shared cxx_shared cxxabi_shared)
+    add_library(${target} SHARED IMPORTED)
+    set_target_properties(${target} PROPERTIES
+      IMPORTED_LOCATION "${INPUT}/${target}.so")
+  endforeach()
 endif()
 function(check_unwind)
   get_target_property(sources unwind_shared_objects SOURCES)

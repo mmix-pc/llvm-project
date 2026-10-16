@@ -1,0 +1,67 @@
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %t %S/../../../../libcxx/cmake/Modules/MMIX
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(SharedInstall NONE)
+include(${MODULES}/SharedInstallation.cmake)
+foreach(pair "cxx_shared|libc++" "cxxabi_shared|libc++abi" "unwind_shared|libunwind")
+  string(REPLACE "|" ";" fields "${pair}")
+  list(GET fields 0 target)
+  list(GET fields 1 name)
+  add_library(${target} SHARED IMPORTED)
+  set_target_properties(${target} PROPERTIES IMPORTED_LOCATION "${INPUTS}/${name}.so.1")
+endforeach()
+mmix_shared_installation()
+mmix_install_shared_library("${INPUTS}/libc.so.1" libc mmix-shared-libc)
+mmix_install_shared_profile(mmix-shared-libc-profile
+  mmix-linux-shared-pthread-c mmix-shared-libc)
+
+#--- check.py
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+root, modules = map(lambda x: Path(x).resolve(), sys.argv[1:])
+inputs = root / "inputs"
+inputs.mkdir()
+for name in ("libc", "libc++", "libc++abi", "libunwind"):
+    (inputs / (name + ".so.1")).write_text("provider " + name)
+
+def run(*args, ok=True, env=None):
+    p = subprocess.run(list(map(str, args)), capture_output=True, text=True, env=env)
+    assert (p.returncode == 0) == ok, p.stdout + p.stderr
+    return p
+
+build = root / "build"
+run("cmake", "-S", root, "-B", build, "-G", "Ninja",
+    "-DMODULES=" + str(modules), "-DINPUTS=" + str(inputs))
+prefix = root / "prefix with spaces"
+run("cmake", "--install", build, "--prefix", prefix)
+assert not (prefix / "lib").exists(), "implicit installation must remain disabled"
+ownership = set()
+for component in ("mmix-shared-libc", "mmix-shared-cxx"):
+    run("cmake", "--install", build, "--prefix", prefix, "--component", component)
+    paths = set((build / ("install_manifest_" + component + ".txt")).read_text().splitlines())
+    assert not ownership & paths, "duplicate owner"
+    ownership |= paths
+assert len(ownership) == 10
+(prefix / "lib/libc.a").write_text("retained static archive")
+moved = root / "moved prefix"
+prefix.rename(moved)
+for name in ("libc", "libc++", "libc++abi", "libunwind"):
+    link = moved / "lib" / (name + ".so")
+    assert link.readlink() == Path(name + ".so.1")
+    assert link.read_text() == "provider " + name
+assert (moved / "lib/mmix-shared-cxx-profile").read_text() == "mmix-linux-shared-pthread-cxx\n"
+run("cmake", "--install", build, "--prefix", moved, "--component", "mmix-shared-cxx")
+assert (moved / "lib/libc.a").read_text() == "retained static archive"
+env = dict(os.environ, DESTDIR=str(root / "destdir"))
+run("cmake", "--install", build, "--prefix", "/usr", "--component", "mmix-shared-cxx", env=env)
+assert (root / "destdir/usr/lib/libc++.so").readlink() == Path("libc++.so.1")
+(inputs / "libunwind.so.1").unlink()
+p = run("cmake", "--install", build, "--prefix", root / "missing",
+        "--component", "mmix-shared-cxx", ok=False)
+assert "libunwind.so.1" in p.stderr
