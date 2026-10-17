@@ -38,6 +38,10 @@ public:
   }
 
   void test_inf_arg(FuncPtr func) {
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(zero, func(inf, inf), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(zero, func(neg_inf, neg_inf), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
+        zero, func(T(-1), FPBits::min_subnormal().get_val()), 0);
     EXPECT_FP_EQ(zero, func(neg_inf, inf));
     EXPECT_FP_EQ(inf, func(inf, zero));
     EXPECT_FP_EQ(zero, func(neg_zero, inf));

@@ -270,7 +270,17 @@ LIBC_INLINE T constexpr fdim(T x, T y) {
     return y;
   }
 
-  return (x > y ? x - y : T(0));
+  // Select safe operands before subtraction: speculating an unused x - y
+  // can raise exceptions, for example for equal infinities.
+  bool positive = x > y;
+  if (cpp::is_constant_evaluated())
+    return positive ? x - y : T(0);
+  // Keep non-strict FP optimization from folding the operand selection back
+  // into a selection of the subtraction's result.
+  volatile T left = positive ? x : T(0);
+  volatile T right = positive ? y : T(0);
+  T difference = left - right;
+  return positive ? difference : T(0);
 }
 
 // Avoid reusing `issignaling` macro.
