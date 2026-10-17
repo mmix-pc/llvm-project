@@ -7,7 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 extern "C" {
-__attribute__((visibility("hidden"))) int main(int, char **, char **);
+// Leave main's visibility to the application; -rdynamic may export it.
+int main(int, char **, char **);
 [[noreturn]] void __llvm_libc_mmix_dynamic_start(int (*)(int, char **, char **),
                                                  const void *);
 [[noreturn, gnu::visibility("hidden")]] void

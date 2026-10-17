@@ -18,6 +18,9 @@ for level in ("O0", "O2"):
         return subprocess.check_output([*args, str(obj)], text=True)
     undefined = set(output("llvm-nm", "--undefined-only", "--format=just-symbols").split())
     assert undefined == {"main", "__llvm_libc_mmix_dynamic_start"}, undefined
+    # Taking main's address must not force hidden visibility onto user code.
+    relocations = output("llvm-readobj", "--relocations")
+    assert "R_MMIX_GOT_PC64 main" in relocations, relocations
     defined = set(output("llvm-nm", "--defined-only", "--format=just-symbols").split())
     assert defined == {"_start", "__llvm_libc_mmix_dynamic_entry"}, defined
     disassembly = output("llvm-objdump", "-d", "--no-print-imm-hex")
