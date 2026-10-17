@@ -25,8 +25,8 @@ public:
 
   void testSpecialNumbers(LogbFunc func) {
     ASSERT_FP_EQ(aNaN, func(aNaN));
-    ASSERT_FP_EQ(inf, func(inf));
-    ASSERT_FP_EQ(inf, func(neg_inf));
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(inf, func(inf), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(inf, func(neg_inf), 0);
     ASSERT_FP_EQ(neg_inf, func(zero));
     ASSERT_FP_EQ(neg_inf, func(neg_zero));
   }

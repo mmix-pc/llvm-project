@@ -138,9 +138,8 @@ LIBC_INLINE constexpr T logb(T x) {
     if (bits.is_nan())
       return x;
 
-    raise_except_if_required(FE_DIVBYZERO);
-
     if (bits.is_zero()) {
+      raise_except_if_required(FE_DIVBYZERO);
       set_errno_if_required(ERANGE);
       return FPBits<T>::inf(Sign::NEG).get_val();
     }
