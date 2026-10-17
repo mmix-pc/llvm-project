@@ -14,6 +14,17 @@
 #include "test/UnitTest/Test.h"
 
 using LlvmLibcPowfTest = LIBC_NAMESPACE::testing::FPTest<float>;
+
+TEST_F(LlvmLibcPowfTest, ExactSubnormalPowers) {
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
+      aNaN, LIBC_NAMESPACE::powf(-0.5f, 0.5f), FE_INVALID);
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
+      0x1p-127f, LIBC_NAMESPACE::powf(0x1p127f, -1.0f), 0);
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
+      -0x1p-149f, LIBC_NAMESPACE::powf(-2.0f, -149.0f), 0);
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
+      0x1p-141f, LIBC_NAMESPACE::powf(0x1p94f, -1.5f), 0);
+}
 using LIBC_NAMESPACE::fputil::testing::ForceRoundingMode;
 using LIBC_NAMESPACE::fputil::testing::RoundingMode;
 
@@ -71,8 +82,7 @@ TEST_F(LlvmLibcPowfTest, SpecialNumbers) {
     EXPECT_FP_EQ(1.0f, LIBC_NAMESPACE::powf(zero, zero));
     EXPECT_FP_EQ(1.0f, LIBC_NAMESPACE::powf(zero, neg_zero));
     EXPECT_FP_EQ(0.0f, LIBC_NAMESPACE::powf(zero, inf));
-    EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::powf(zero, neg_inf),
-                                FE_DIVBYZERO);
+    EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::powf(zero, neg_inf), 0);
     EXPECT_FP_IS_NAN(LIBC_NAMESPACE::powf(zero, aNaN));
 
     // pow( -0.0f, exponent )
@@ -92,7 +102,7 @@ TEST_F(LlvmLibcPowfTest, SpecialNumbers) {
     EXPECT_FP_EQ(1.0f, LIBC_NAMESPACE::powf(neg_zero, neg_zero));
     EXPECT_FP_EQ(0.0f, LIBC_NAMESPACE::powf(neg_zero, inf));
     EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::powf(neg_zero, neg_inf),
-                                FE_DIVBYZERO);
+                                0);
     EXPECT_FP_IS_NAN(LIBC_NAMESPACE::powf(neg_zero, aNaN));
 
     // pow( 1.0f, exponent )

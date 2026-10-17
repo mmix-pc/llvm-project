@@ -701,12 +701,6 @@ LIBC_INLINE float powf(float x, float y) {
         // pow(+-1, +-Inf) = 1.0f
         return 1.0f;
       }
-      if (x == 0.0f && y_u == 0xff80'0000) {
-        // pow(+-0, -Inf) = +inf and raise FE_DIVBYZERO
-        fputil::set_errno_if_required(EDOM);
-        fputil::raise_except_if_required(FE_DIVBYZERO);
-        return FloatBits::inf().get_val();
-      }
       // pow (|x| < 1, -inf) = +inf
       // pow (|x| < 1, +inf) = 0.0f
       // pow (|x| > 1, -inf) = 0.0f
@@ -717,9 +711,8 @@ LIBC_INLINE float powf(float x, float y) {
     }
     default:
       // Speed up for common exponents
-      float r = fputil::sqrt<float>(x);
       switch (y_u) {
-      case 0x3f00'0000: // y = 0.5f
+      case 0x3f00'0000: { // y = 0.5f
         // pow(x, 1/2) = sqrt(x)
         if (LIBC_UNLIKELY(x == 0.0f || x_u == 0xff80'0000)) {
           // pow(-0, 1/2) = +0
@@ -727,12 +720,22 @@ LIBC_INLINE float powf(float x, float y) {
           // Make sure it is correct for FTZ/DAZ.
           return x * x;
         }
+        if (xbits.is_neg() && !xbits.is_nan()) {
+          fputil::set_errno_if_required(EDOM);
+          fputil::raise_except_if_required(FE_INVALID);
+          return FloatBits::quiet_nan().get_val();
+        }
+        float r = fputil::sqrt<float>(x);
         return (FloatBits(r).uintval() != 0x8000'0000) ? r : 0.0f;
+      }
       case 0x3f80'0000: // y = 1.0f
         return x;
-      case 0x4000'0000: // y = 2.0f
+      case 0x4000'0000: { // y = 2.0f
         // pow(x, 2) = x^2
-        return x * x;
+        // Keep a potentially overflowing square on its selected path.
+        volatile float input = x;
+        return input * input;
+      }
         // TODO: Enable special case speed-up for x^(-1/2) when rsqrt is ready.
         // case 0xbf00'0000:  // pow(x, -1/2) = rsqrt(x)
         //   return rsqrt(x);
@@ -835,7 +838,9 @@ LIBC_INLINE float powf(float x, float y) {
     // Normalize denormal inputs.
     if (x_abs < 0x0080'0000U) {
       ex -= 64;
-      x *= 0x1.0p64f;
+      // Do not scale normal inputs speculatively: they may overflow.
+      volatile float input = x;
+      x = input * 0x1.0p64f;
     }
 
     // x is finite and negative, and y is a finite integer.
@@ -873,6 +878,20 @@ LIBC_INLINE float powf(float x, float y) {
   double e_x = static_cast<double>(ex);
   // Use the highest 7 fractional bits of m_x as the index for look up tables.
   uint32_t x_mant = x_u & FloatBits::FRACTION_MASK;
+  // Ziv's perturbed bounds must not signal underflow for an exact power of
+  // two. The integer exponent times a float is exact in double precision.
+  if (x_mant == 0) {
+    double exponent = e_x * static_cast<double>(y);
+    if (exponent >= -149 && exponent <= 127 &&
+        exponent == static_cast<int>(exponent)) {
+      int e = static_cast<int>(exponent);
+      uint32_t bits = e >= -126 ? static_cast<uint32_t>(e + 127) << 23
+                                : uint32_t(1) << (e + 149);
+      FloatBits result(bits);
+      result.set_sign(sign ? Sign::NEG : Sign::POS);
+      return result.get_val();
+    }
+  }
   int idx_x = static_cast<int>(x_mant >> (FloatBits::FRACTION_LEN - 7));
   // Add the hidden bit to the mantissa.
   // 1 <= m_x < 2
