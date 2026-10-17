@@ -17,6 +17,8 @@
 using LlvmLibcLog1pfTest = LIBC_NAMESPACE::testing::FPTest<float>;
 
 TEST_F(LlvmLibcLog1pfTest, TinyResultExceptions) {
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(aNaN, LIBC_NAMESPACE::log1pf(aNaN),
+                                           0);
   using LIBC_NAMESPACE::fputil::testing::RoundingMode;
   const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
                                 RoundingMode::Downward,

@@ -95,15 +95,15 @@ LIBC_INLINE float log1pf(float x) {
     // |x| >= 1.
     if (LIBC_UNLIKELY(x_u >= 0x7f80'0000)) {
       // x is inf, nan, or x <= -1.
-      if (x == -1.0f) {
+      if (x_u == 0xbf80'0000U) {
         // x = -1
         fputil::set_errno_if_required(ERANGE);
         fputil::raise_except_if_required(FE_DIVBYZERO);
         return FPBits::inf(Sign::NEG).get_val();
       }
-      if (xbits.is_signaling_nan() || x < 1.0f) {
+      if (xbits.is_signaling_nan() || (xbits.is_neg() && !xbits.is_nan())) {
         // x is signaling NaNs or x < -1
-        if (x < 1.0f)
+        if (xbits.is_neg() && !xbits.is_nan())
           fputil::set_errno_if_required(EDOM);
         fputil::raise_except_if_required(FE_INVALID);
         return fputil::FPBits<float>::quiet_nan().get_val();
