@@ -150,6 +150,35 @@ public:
     mpfr_clear(bound);
   }
 
+  void allRoundingMPC(Func f, int (*op)(mpc_ptr, mpc_srcptr, mpc_rnd_t)) {
+    using LIBC_NAMESPACE::fputil::testing::ForceRoundingMode;
+    using LIBC_NAMESPACE::fputil::testing::RoundingMode;
+    const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                  RoundingMode::Downward,
+                                  RoundingMode::TowardZero};
+    const Pair values[] = {
+        {T(0.25), T(-0.5)}, {T(-0.25), T(0.5)}, {T(2), T(3)}, {T(-2), T(-3)}};
+    mpc_t input, output;
+    mpc_init2(input, 2048);
+    mpc_init2(output, 2048);
+    for (auto mode : modes) {
+      ForceRoundingMode rounding(mode);
+      ASSERT_TRUE(rounding.success);
+      for (Pair z : values) {
+        reference_input = z;
+        reference_binary = false;
+        mpc_set_d_d(input, double(z.real), double(z.imag), MPC_RNDNN);
+        op(output, input, MPC_RNDNN);
+        auto got = call(f, z.real, z.imag);
+        // Check error against the high-precision value, not correct rounding.
+        referenceComponent(got.real, mpc_realref(output), 8.0, "real");
+        referenceComponent(got.imag, mpc_imagref(output), 8.0, "imaginary");
+      }
+    }
+    mpc_clear(input);
+    mpc_clear(output);
+  }
+
   void inverseMPC(Func f, int (*op)(mpc_ptr, mpc_srcptr, mpc_rnd_t)) {
     const T tiny = Bits::min_subnormal().get_val();
     const T max = Bits::max_normal().get_val();
@@ -535,3 +564,24 @@ TEST_F(LlvmLibcComplexFloatTest, Trigonometric) {
   trigonometric(LIBC_NAMESPACE::csinf, LIBC_NAMESPACE::ccosf,
                 LIBC_NAMESPACE::ctanf);
 }
+
+#define CHECK_ROUNDING(suffix)                                                 \
+  allRoundingMPC(LIBC_NAMESPACE::cacos##suffix, mpc_acos);                     \
+  allRoundingMPC(LIBC_NAMESPACE::casin##suffix, mpc_asin);                     \
+  allRoundingMPC(LIBC_NAMESPACE::catan##suffix, mpc_atan);                     \
+  allRoundingMPC(LIBC_NAMESPACE::cacosh##suffix, mpc_acosh);                   \
+  allRoundingMPC(LIBC_NAMESPACE::casinh##suffix, mpc_asinh);                   \
+  allRoundingMPC(LIBC_NAMESPACE::catanh##suffix, mpc_atanh);                   \
+  allRoundingMPC(LIBC_NAMESPACE::ccos##suffix, mpc_cos);                       \
+  allRoundingMPC(LIBC_NAMESPACE::csin##suffix, mpc_sin);                       \
+  allRoundingMPC(LIBC_NAMESPACE::ctan##suffix, mpc_tan);                       \
+  allRoundingMPC(LIBC_NAMESPACE::ccosh##suffix, mpc_cosh);                     \
+  allRoundingMPC(LIBC_NAMESPACE::csinh##suffix, mpc_sinh);                     \
+  allRoundingMPC(LIBC_NAMESPACE::ctanh##suffix, mpc_tanh);                     \
+  allRoundingMPC(LIBC_NAMESPACE::cexp##suffix, mpc_exp);                       \
+  allRoundingMPC(LIBC_NAMESPACE::clog##suffix, mpc_log);                       \
+  allRoundingMPC(LIBC_NAMESPACE::csqrt##suffix, mpc_sqrt)
+
+TEST_F(LlvmLibcComplexDoubleTest, FiniteAllRoundingMPC) { CHECK_ROUNDING(); }
+TEST_F(LlvmLibcComplexFloatTest, FiniteAllRoundingMPC) { CHECK_ROUNDING(f); }
+#undef CHECK_ROUNDING
