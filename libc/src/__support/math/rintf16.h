@@ -28,7 +28,7 @@ LIBC_INLINE LIBC_CONSTEXPR float16 rintf16(float16 x) {
 
   return fputil::cast<float16>(__builtin_rintf(x));
 #else
-  return fputil::round_using_current_rounding_mode(x);
+  return fputil::round_using_current_rounding_mode_with_inexact(x);
 #endif
 }
 

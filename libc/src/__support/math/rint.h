@@ -20,7 +20,7 @@ LIBC_INLINE LIBC_CONSTEXPR double rint(double x) {
     !defined(LIBC_USE_CONSTEXPR)
   return __builtin_rint(x);
 #else
-  return fputil::round_using_current_rounding_mode(x);
+  return fputil::round_using_current_rounding_mode_with_inexact(x);
 #endif
 }
 

@@ -249,7 +249,9 @@ round_using_current_rounding_mode(T x) {
 #ifdef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
   return round_using_specific_rounding_mode(x, FP_INT_TONEAREST);
 #else  // !LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
-  int rounding_mode = quick_get_round();
+  // Arithmetic rounding-mode probes would spuriously raise FE_INEXACT,
+  // including for nearbyint, which must not raise that exception.
+  int rounding_mode = cpp::is_constant_evaluated() ? FE_TONEAREST : get_round();
 
   switch (rounding_mode) {
   case FE_DOWNWARD:
@@ -264,6 +266,15 @@ round_using_current_rounding_mode(T x) {
     __builtin_unreachable();
   }
 #endif // LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
+}
+
+template <typename T>
+LIBC_INLINE constexpr T round_using_current_rounding_mode_with_inexact(T x) {
+  T result = round_using_current_rounding_mode(x);
+  if (!cpp::is_constant_evaluated() && !FPBits<T>(x).is_inf_or_nan() &&
+      result != x)
+    raise_except_if_required(FE_INEXACT);
+  return result;
 }
 
 template <bool IsSigned, typename T>

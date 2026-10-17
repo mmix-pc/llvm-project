@@ -36,6 +36,12 @@ private:
 
 public:
   void testSpecialNumbers(RIntFunc func) {
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(inf, func(inf), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(zero, func(zero), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(T(1), func(T(1)), 0);
+    using LIBC_NAMESPACE::fputil::testing::RoundingMode;
+    EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(T(2), func(T(1.5)), FE_INEXACT,
+                                              RoundingMode::Nearest);
     ASSERT_FP_EQ_ALL_ROUNDING(inf, func(inf));
     ASSERT_FP_EQ_ALL_ROUNDING(neg_inf, func(neg_inf));
     ASSERT_FP_EQ_ALL_ROUNDING(nan, func(nan));

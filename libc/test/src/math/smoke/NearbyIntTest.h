@@ -25,6 +25,20 @@ class NearbyIntTestTemplate : public LIBC_NAMESPACE::testing::Test {
 public:
   typedef T (*NearbyIntFunc)(T);
 
+  void testExceptions(NearbyIntFunc func) {
+    using LIBC_NAMESPACE::fputil::testing::RoundingMode;
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(inf, func(inf), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(zero, func(zero), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(T(2), func(T(1.5)), 0,
+                                              RoundingMode::Nearest);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(T(1), func(T(1.5)), 0,
+                                              RoundingMode::Downward);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(T(2), func(T(1.5)), 0,
+                                              RoundingMode::Upward);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(T(1), func(T(1.5)), 0,
+                                              RoundingMode::TowardZero);
+  }
+
   void testNaN(NearbyIntFunc func) {
     EXPECT_FP_EQ_ALL_ROUNDING(func(aNaN), aNaN);
   }
@@ -79,6 +93,7 @@ public:
 
 #define LIST_NEARBYINT_TESTS(T, func)                                          \
   using LlvmLibcNearbyIntTest = NearbyIntTestTemplate<T>;                      \
+  TEST_F(LlvmLibcNearbyIntTest, Exceptions) { testExceptions(&func); }         \
   TEST_F(LlvmLibcNearbyIntTest, TestNaN) { testNaN(&func); }                   \
   TEST_F(LlvmLibcNearbyIntTest, TestInfinities) { testInfinities(&func); }     \
   TEST_F(LlvmLibcNearbyIntTest, TestZeroes) { testZeroes(&func); }             \

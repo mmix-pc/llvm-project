@@ -19,7 +19,7 @@ namespace math {
 using LIBC_NAMESPACE::fputil::Float128;
 
 LIBC_INLINE constexpr Float128 rintf128(Float128 x) {
-  return fputil::round_using_current_rounding_mode(x);
+  return fputil::round_using_current_rounding_mode_with_inexact(x);
 }
 
 } // namespace math

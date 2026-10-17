@@ -16,7 +16,7 @@ namespace LIBC_NAMESPACE_DECL {
 namespace math {
 
 LIBC_INLINE constexpr long double rintl(long double x) {
-  return fputil::round_using_current_rounding_mode(x);
+  return fputil::round_using_current_rounding_mode_with_inexact(x);
 }
 
 } // namespace math
