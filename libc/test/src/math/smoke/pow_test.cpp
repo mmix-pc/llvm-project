@@ -12,6 +12,27 @@
 #include "test/UnitTest/Test.h"
 
 using LlvmLibcPowTest = LIBC_NAMESPACE::testing::FPTest<double>;
+
+TEST_F(LlvmLibcPowTest, ExtremeExponentRange) {
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
+      min_denormal, LIBC_NAMESPACE::pow(min_denormal, 1.0), 0);
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
+      max_normal, LIBC_NAMESPACE::pow(max_normal, 1.0), 0);
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(aNaN, LIBC_NAMESPACE::pow(-0.5, 0.5),
+                                           FE_INVALID);
+  EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::pow(max_normal, max_normal),
+                              FE_OVERFLOW | FE_INEXACT);
+  EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::pow(min_denormal, -2.0),
+                              FE_OVERFLOW | FE_INEXACT);
+  if (math_errhandling & MATH_ERREXCEPT)
+    EXPECT_EQ(FE_OVERFLOW | FE_INEXACT,
+              LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+  EXPECT_FP_EQ_WITH_EXCEPTION(zero, LIBC_NAMESPACE::pow(max_normal, -2.0),
+                              FE_UNDERFLOW | FE_INEXACT);
+  if (math_errhandling & MATH_ERREXCEPT)
+    EXPECT_EQ(FE_UNDERFLOW | FE_INEXACT,
+              LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+}
 using LIBC_NAMESPACE::fputil::testing::ForceRoundingMode;
 using LIBC_NAMESPACE::fputil::testing::RoundingMode;
 
@@ -69,8 +90,7 @@ TEST_F(LlvmLibcPowTest, SpecialNumbers) {
     EXPECT_FP_EQ(1.0, LIBC_NAMESPACE::pow(zero, zero));
     EXPECT_FP_EQ(1.0, LIBC_NAMESPACE::pow(zero, neg_zero));
     EXPECT_FP_EQ(0.0, LIBC_NAMESPACE::pow(zero, inf));
-    EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::pow(zero, neg_inf),
-                                FE_DIVBYZERO);
+    EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::pow(zero, neg_inf), 0);
     EXPECT_FP_IS_NAN(LIBC_NAMESPACE::pow(zero, aNaN));
 
     // pow( -0.0, exponent )
@@ -89,8 +109,7 @@ TEST_F(LlvmLibcPowTest, SpecialNumbers) {
     EXPECT_FP_EQ(1.0, LIBC_NAMESPACE::pow(neg_zero, zero));
     EXPECT_FP_EQ(1.0, LIBC_NAMESPACE::pow(neg_zero, neg_zero));
     EXPECT_FP_EQ(0.0, LIBC_NAMESPACE::pow(neg_zero, inf));
-    EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::pow(neg_zero, neg_inf),
-                                FE_DIVBYZERO);
+    EXPECT_FP_EQ_WITH_EXCEPTION(inf, LIBC_NAMESPACE::pow(neg_zero, neg_inf), 0);
     EXPECT_FP_IS_NAN(LIBC_NAMESPACE::pow(neg_zero, aNaN));
 
     // pow( 1.0, exponent )

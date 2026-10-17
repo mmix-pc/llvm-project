@@ -252,14 +252,43 @@ LIBC_INLINE double pow(double x, double y) {
         // pow(-0, 1/2) = +0
         // pow(-inf, 1/2) = +inf
         // Make sure it works correctly for FTZ/DAZ.
-        return y_sign ? 1.0 / (x * x) : (x * x);
+        if (y_sign) {
+          volatile double input = x;
+          return 1.0 / (input * input);
+        }
+        return x * x;
       }
-      return y_sign ? (1.0 / fputil::sqrt<double>(x)) : fputil::sqrt<double>(x);
+      if (x_sign && !x_abs.is_nan()) {
+        fputil::set_errno_if_required(EDOM);
+        fputil::raise_except_if_required(FE_INVALID);
+        return FPBits::quiet_nan().get_val();
+      }
+      double root = fputil::sqrt<double>(x);
+      if (y_sign) {
+        volatile double divisor = root;
+        return 1.0 / divisor;
+      }
+      return root;
     }
     case 0x3ff0'0000'0000'0000: // y = +-1.0
-      return y_sign ? (1.0 / x) : x;
+      if (y_sign) {
+        // Do not speculate a reciprocal on the identity path.
+        volatile double divisor = x;
+        return 1.0 / divisor;
+      }
+      return x;
     case 0x4000'0000'0000'0000: // y = +-2.0;
-      return y_sign ? (1.0 / (x * x)) : (x * x);
+      // Squaring first can overflow or underflow even when the reciprocal
+      // needs the opposite range exception. Use range reduction in that case.
+      if (!y_sign || x_a == 0 || x_abs.is_inf_or_nan() ||
+          (x_a >= 0x2000'0000'0000'0000 && x_a < 0x5fe0'0000'0000'0000)) {
+        if (y_sign) {
+          volatile double input = x;
+          return 1.0 / (input * input);
+        }
+        return x * x;
+      }
+      break;
     }
 
     // |y| > |1075 / log2(1 - 2^-53)|.
@@ -284,12 +313,6 @@ LIBC_INLINE double pow(double x, double y) {
           return 1.0;
         }
 
-        if (x == 0.0 && y_sign) {
-          // pow(+-0, -Inf) = +inf and raise FE_DIVBYZERO
-          fputil::set_errno_if_required(EDOM);
-          fputil::raise_except_if_required(FE_DIVBYZERO);
-          return FPBits::inf().get_val();
-        }
         // pow (|x| < 1, -inf) = +inf
         // pow (|x| < 1, +inf) = 0.0
         // pow (|x| > 1, -inf) = 0.0
@@ -477,13 +500,17 @@ LIBC_INLINE double pow(double x, double y) {
     if (FPBits(y6_log2_x.hi).sign() == Sign::POS) {
       scale = 0x1.0p512;
       y6_log2_x.hi -= 512.0 * 64.0;
-      if (y6_log2_x.hi > 513.0 * 64.0)
+      if (y6_log2_x.hi > 513.0 * 64.0) {
         y6_log2_x.hi = 513.0 * 64.0;
+        y6_log2_x.lo = 0.0;
+      }
     } else {
       scale = 0x1.0p-512;
       y6_log2_x.hi += 512.0 * 64.0;
-      if (y6_log2_x.hi < (-1076.0 + 512.0) * 64.0)
+      if (y6_log2_x.hi < (-1076.0 + 512.0) * 64.0) {
         y6_log2_x.hi = -564.0 * 64.0;
+        y6_log2_x.lo = 0.0;
+      }
     }
   }
 
