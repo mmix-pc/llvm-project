@@ -3931,7 +3931,7 @@ endif()
 
 
 
-foreach(name sinh cosh tanh erf acosh asinh atanh)
+foreach(name sinh cosh tanh erf acosh asinh atanh erfc erfcf)
   add_fp_unittest(
     ${name}_test
     NEED_MPFR

@@ -5069,7 +5069,7 @@ add_entrypoint_object(
 
 
 
-foreach(name sinh cosh tanh erf acosh asinh atanh)
+foreach(name sinh cosh tanh erf acosh asinh atanh erfc erfcf)
   add_entrypoint_object(
     ${name}
     SRCS

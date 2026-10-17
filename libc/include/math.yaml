@@ -26,6 +26,18 @@ functions:
     return_type: double
     arguments:
       - type: double
+  - name: erfc
+    standards:
+      - stdc
+    return_type: double
+    arguments:
+      - type: double
+  - name: erfcf
+    standards:
+      - stdc
+    return_type: float
+    arguments:
+      - type: float
   - name: acos
     standards:
       - stdc

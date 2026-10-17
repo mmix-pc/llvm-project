@@ -3,7 +3,7 @@ add_dependencies(libc-math-unittests libc-math-smoke-tests)
 
 
 
-foreach(name sinh cosh tanh erf acosh asinh atanh)
+foreach(name sinh cosh tanh erf acosh asinh atanh erfc erfcf)
   add_fp_unittest(
     ${name}_test
     SUITE libc-math-smoke-tests

@@ -37,6 +37,32 @@ add_header_library(
 )
 
 add_header_library(
+  erfc
+  HDRS erfc.h
+  DEPENDS
+    .exp
+    libc.hdr.errno_macros
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.dyadic_float
+    libc.src.__support.FPUtil.except_value_utils
+    libc.src.__support.FPUtil.rounding_mode
+    libc.src.__support.macros.config
+)
+
+add_header_library(
+  erfcf
+  HDRS erfcf.h
+  DEPENDS
+    .erfc
+    libc.hdr.errno_macros
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.except_value_utils
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   hyperbolic_utils
   HDRS
     hyperbolic_utils.h
