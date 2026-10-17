@@ -44,6 +44,7 @@ template <> LIBC_INLINE float fma<float>(float x, float y, float z) {
   double z_d = static_cast<double>(z);
   double sum = prod + z_d;
   fputil::FPBits<double> bit_prod(prod), bitz(z_d), bit_sum(sum);
+  bool sum_inexact = false;
 
   if (!(bit_sum.is_inf_or_nan() || bit_sum.is_zero())) {
     // Since the sum is computed in double precision, rounding might happen
@@ -72,6 +73,7 @@ template <> LIBC_INLINE float fma<float>(float x, float y, float z) {
             ? ((bit_sum.get_val() - bit_prod.get_val()) - bitz.get_val())
             : ((bit_sum.get_val() - bitz.get_val()) - bit_prod.get_val()));
 
+    sum_inexact = !t.is_zero();
     // Update sticky bits if t != 0.0 and the least (52 - 23 - 1 = 28) bits are
     // zero.
     if (!t.is_zero() && ((bit_sum.get_mantissa() & 0xfff'ffffULL) == 0)) {
@@ -82,7 +84,14 @@ template <> LIBC_INLINE float fma<float>(float x, float y, float z) {
     }
   }
 
-  return static_cast<float>(bit_sum.get_val());
+  float result = static_cast<float>(bit_sum.get_val());
+  // A rounded double sum can already equal a float subnormal, so its final
+  // conversion alone does not necessarily signal the lost product bits.
+  if (FPBits<float>(result).get_biased_exponent() == 0 &&
+      (sum_inexact || static_cast<double>(result) != sum)) {
+    raise_except_if_required(FE_UNDERFLOW | FE_INEXACT);
+  }
+  return result;
 }
 
 namespace internal {
@@ -157,8 +166,15 @@ fma(InType x, InType y, InType z) {
     }
   }
 
-  if (LIBC_UNLIKELY(x == 0 || y == 0 || z == 0))
-    return cast<OutType>(x * y + z);
+  if (LIBC_UNLIKELY(x == 0 || y == 0)) {
+    volatile InType special_x = x;
+    return cast<OutType>(special_x * y + z);
+  }
+  // Adding +0 after a negative product underflows can lose the result's sign.
+  if (LIBC_UNLIKELY(z == 0)) {
+    volatile InType special_x = x;
+    return cast<OutType>(special_x * y);
+  }
 
   int x_exp = 0;
   int y_exp = 0;
@@ -173,18 +189,22 @@ fma(InType x, InType y, InType z) {
           Sign::POS, InFPBits::FRACTION_LEN + InFPBits::EXP_BIAS, IMPLICIT_MASK)
           .get_val();
 
-  // Normalize denormal inputs.
+  // Normalize denormal inputs. Keep these loads conditional: speculatively
+  // scaling a normal input can overflow even when the final FMA is finite.
   if (LIBC_UNLIKELY(InFPBits(x).is_subnormal())) {
     x_exp -= InFPBits::FRACTION_LEN;
-    x *= DENORMAL_SCALING;
+    volatile InType denormal = x;
+    x = denormal * DENORMAL_SCALING;
   }
   if (LIBC_UNLIKELY(InFPBits(y).is_subnormal())) {
     y_exp -= InFPBits::FRACTION_LEN;
-    y *= DENORMAL_SCALING;
+    volatile InType denormal = y;
+    y = denormal * DENORMAL_SCALING;
   }
   if (LIBC_UNLIKELY(InFPBits(z).is_subnormal())) {
     z_exp -= InFPBits::FRACTION_LEN;
-    z *= DENORMAL_SCALING;
+    volatile InType denormal = z;
+    z = denormal * DENORMAL_SCALING;
   }
 
   x_bits = InFPBits(x);
@@ -203,7 +223,8 @@ fma(InType x, InType y, InType z) {
                       y_exp != InFPBits::MAX_BIASED_EXPONENT &&
                       z_bits.is_inf()))
       return cast<OutType>(z);
-    return cast<OutType>(x * y + z);
+    volatile InType special_x = x;
+    return cast<OutType>(special_x * y + z);
   }
 
   // Extract mantissa and append hidden leading bits.
