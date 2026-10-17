@@ -36,15 +36,19 @@ public:
 
     y = T(1.0);
     x = inf;
-    EXPECT_FP_EQ(nan, func(x, y, &quotient));
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(nan, func(x, y, &quotient),
+                                             FE_INVALID);
     x = neg_inf;
-    EXPECT_FP_EQ(nan, func(x, y, &quotient));
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(nan, func(x, y, &quotient),
+                                             FE_INVALID);
 
     x = T(1.0);
     y = zero;
-    EXPECT_FP_EQ(nan, func(x, y, &quotient));
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(nan, func(x, y, &quotient),
+                                             FE_INVALID);
     y = neg_zero;
-    EXPECT_FP_EQ(nan, func(x, y, &quotient));
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(nan, func(x, y, &quotient),
+                                             FE_INVALID);
 
     y = nan;
     x = T(1.0);
