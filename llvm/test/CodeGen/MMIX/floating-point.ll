@@ -105,6 +105,11 @@ define i1 @ordered_equal_signed_zero(double %lhs, double %rhs) nounwind {
 
 ; CHECK-LABEL: ordered_greater:
 ; CHECK-NOT:   FCMPE
+; Quiet comparisons must sanitize both operands before FCMP, not just mask its
+; result after an unordered comparison has already raised invalid.
+; CHECK:       FUN [[UN:r[0-9]+]], r231, r232
+; CHECK-DAG:   CSNZ r231, [[UN]], 0
+; CHECK-DAG:   CSNZ r232, [[UN]], 0
 ; CHECK:       FCMP [[CMP:r[0-9]+]], r231, r232
 ; CHECK:       ZSP r231, [[CMP]], 1
 define i1 @ordered_greater(double %lhs, double %rhs) {

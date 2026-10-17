@@ -66,8 +66,10 @@ define i1 @equal_f32(float %lhs, float %rhs) {
 
 ; Ordered inclusive comparison retains the explicit unordered guard for NaNs.
 ; CHECK-LABEL: ordered_greater_equal_f32:
-; CHECK-DAG:   FUN
-; CHECK-DAG:   FCMP
+; CHECK:       FUN [[UN:r[0-9]+]], [[LHS:r[0-9]+]], [[RHS:r[0-9]+]]
+; CHECK-DAG:   CSNZ [[LHS]], [[UN]], 0
+; CHECK-DAG:   CSNZ [[RHS]], [[UN]], 0
+; CHECK:       FCMP {{r[0-9]+}}, [[LHS]], [[RHS]]
 define i1 @ordered_greater_equal_f32(float %lhs, float %rhs) {
   %result = fcmp oge float %lhs, %rhs
   ret i1 %result

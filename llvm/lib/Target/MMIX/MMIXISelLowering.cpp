@@ -1321,15 +1321,28 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
     SDValue Zero = DAG.getConstant(0, DL, ResultVT);
     SDValue One = DAG.getConstant(1, DL, ResultVT);
     auto FPCompare = [&](unsigned Opcode) {
+      if (Opcode == MMIXISD::FCMP && !Op->getFlags().hasNoNaNs()) {
+        SDValue Unordered =
+            DAG.getNode(MMIXISD::FUN, DL, ResultVT, LHS, RHS);
+        auto QuietOperand = [&](SDValue Value) {
+          SDValue Bits = DAG.getNode(ISD::BITCAST, DL, MVT::i64, Value);
+          Bits = DAG.getSelect(DL, MVT::i64, Unordered,
+                               DAG.getConstant(0, DL, MVT::i64), Bits);
+          return DAG.getNode(ISD::BITCAST, DL, MVT::f64, Bits);
+        };
+        return DAG.getNode(Opcode, DL, ResultVT, QuietOperand(LHS),
+                           QuietOperand(RHS));
+      }
       return DAG.getNode(Opcode, DL, ResultVT, LHS, RHS);
     };
     auto CompareZero = [&](SDValue Value, ISD::CondCode IntCC) {
       return DAG.getSetCC(DL, ResultVT, Value, Zero, IntCC);
     };
 
-    // FEQL and FUN are quiet even for signaling NaNs. FCMP provides ordering,
-    // but raises invalid for NaN operands; constrained comparisons therefore
-    // remain unsupported instead of silently changing exception behavior.
+    // FCMP raises invalid for any NaN. Replace unordered operands with zeros
+    // before comparing, preserving its unordered result without the exception.
+    // FEQL/FUN are quiet even for signaling NaNs; constrained comparisons still
+    // require separate exception handling and remain unsupported.
     switch (CC) {
     case ISD::SETFALSE:
     case ISD::SETFALSE2:
