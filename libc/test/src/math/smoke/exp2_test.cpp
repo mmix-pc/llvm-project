@@ -16,6 +16,31 @@
 
 using LlvmLibcExp2Test = LIBC_NAMESPACE::testing::FPTest<double>;
 
+TEST_F(LlvmLibcExp2Test, SubnormalExceptions) {
+  EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(min_denormal,
+                                           LIBC_NAMESPACE::exp2(-1074.0), 0);
+  EXPECT_FP_EQ_WITH_EXCEPTION(min_denormal, LIBC_NAMESPACE::exp2(-1074.5),
+                              FE_UNDERFLOW | FE_INEXACT);
+}
+
+TEST_F(LlvmLibcExp2Test, DirectedOverflowExceptions) {
+  using LIBC_NAMESPACE::fputil::testing::RoundingMode;
+  const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                RoundingMode::Downward,
+                                RoundingMode::TowardZero};
+  for (auto mode : modes) {
+    double expected =
+        (mode == RoundingMode::Downward || mode == RoundingMode::TowardZero)
+            ? max_normal
+            : inf;
+    EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(
+        expected, LIBC_NAMESPACE::exp2(1024), FE_OVERFLOW | FE_INEXACT, mode);
+    if (math_errhandling & MATH_ERREXCEPT)
+      EXPECT_EQ(FE_OVERFLOW | FE_INEXACT,
+                LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+  }
+}
+
 TEST_F(LlvmLibcExp2Test, SpecialNumbers) {
   EXPECT_FP_EQ_WITH_EXCEPTION(aNaN, LIBC_NAMESPACE::exp2(sNaN), FE_INVALID);
   EXPECT_MATH_ERRNO(0);

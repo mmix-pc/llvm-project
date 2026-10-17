@@ -16,6 +16,33 @@
 
 using LlvmLibcExpm1Test = LIBC_NAMESPACE::testing::FPTest<double>;
 
+TEST_F(LlvmLibcExpm1Test, FiniteNearOverflow) {
+  EXPECT_FP_EQ_WITH_EXCEPTION(0x1.fffffffffff2ap+1023,
+                              LIBC_NAMESPACE::expm1(0x1.62e42fefa39efp+9),
+                              FE_INEXACT);
+  if (math_errhandling & MATH_ERREXCEPT)
+    EXPECT_EQ(FE_INEXACT, LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+}
+
+TEST_F(LlvmLibcExpm1Test, DirectedOverflowExceptions) {
+  using LIBC_NAMESPACE::fputil::testing::RoundingMode;
+  const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                RoundingMode::Downward,
+                                RoundingMode::TowardZero};
+  for (auto mode : modes) {
+    double expected =
+        (mode == RoundingMode::Downward || mode == RoundingMode::TowardZero)
+            ? max_normal
+            : inf;
+    EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(
+        expected, LIBC_NAMESPACE::expm1(0x1.62e42fefa39fp+9),
+        FE_OVERFLOW | FE_INEXACT, mode);
+    if (math_errhandling & MATH_ERREXCEPT)
+      EXPECT_EQ(FE_OVERFLOW | FE_INEXACT,
+                LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+  }
+}
+
 TEST_F(LlvmLibcExpm1Test, TinyResultExceptions) {
   using LIBC_NAMESPACE::fputil::testing::RoundingMode;
   const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,

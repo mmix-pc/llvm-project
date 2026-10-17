@@ -256,14 +256,13 @@ LIBC_INLINE double set_exceptional(double x) {
   // x >= round(log(MAX_NORMAL), D, RU) = 0x1.62e42fefa39fp+9 or +inf/nan
   // x is finite
   if (x_u < 0x7ff0'0000'0000'0000ULL) {
+    fputil::set_errno_if_required(ERANGE);
+    fputil::raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
 #ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
     int rounding = fputil::quick_get_round();
     if (rounding == FE_DOWNWARD || rounding == FE_TOWARDZERO)
       return FPBits::max_normal().get_val();
 #endif
-
-    fputil::set_errno_if_required(ERANGE);
-    fputil::raise_except_if_required(FE_OVERFLOW);
   }
   // x is +inf or nan
   return x + FPBits::inf().get_val();
@@ -393,7 +392,9 @@ LIBC_INLINE double expm1(double x) {
 
   // -2^(-hi)
   double one_scaled =
-      FPBits::create_value(Sign::NEG, FPBits::EXP_BIAS - hi, 0).get_val();
+      hi >= FPBits::EXP_BIAS
+          ? (hi == FPBits::EXP_BIAS ? -0x1.0p-1023 : -0x1.0p-1024)
+          : FPBits::create_value(Sign::NEG, FPBits::EXP_BIAS - hi, 0).get_val();
 
   // 2^(mid1 + mid2) - 2^(-hi)
   DoubleDouble hi_part = x_is_neg ? fputil::exact_add(one_scaled, exp_mid.hi)

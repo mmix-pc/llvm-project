@@ -211,26 +211,25 @@ LIBC_INLINE double set_exceptional(double x) {
     if (xbits.is_nan())
       return x;
 
+    fputil::set_errno_if_required(ERANGE);
+    fputil::raise_except_if_required(FE_UNDERFLOW | FE_INEXACT);
 #ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
     if (fputil::quick_get_round() == FE_UPWARD)
       return FPBits::min_subnormal().get_val();
 #endif
-    fputil::set_errno_if_required(ERANGE);
-    fputil::raise_except_if_required(FE_UNDERFLOW);
     return 0.0;
   }
 
   // x >= round(log(MAX_NORMAL), D, RU) = 0x1.62e42fefa39fp+9 or +inf/nan
   // x is finite
   if (x_u < 0x7ff0'0000'0000'0000ULL) {
+    fputil::set_errno_if_required(ERANGE);
+    fputil::raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
 #ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
     int rounding = fputil::quick_get_round();
     if (rounding == FE_DOWNWARD || rounding == FE_TOWARDZERO)
       return FPBits::max_normal().get_val();
 #endif
-
-    fputil::set_errno_if_required(ERANGE);
-    fputil::raise_except_if_required(FE_OVERFLOW);
   }
   // x is +inf or nan
   return x + FPBits::inf().get_val();
@@ -390,11 +389,18 @@ LIBC_INLINE double exp(double x) {
 
   double lo = fputil::multiply_add(p, mid_lo, exp_mid.lo);
 
+  // Bitwise rescaling does not signal the final inexact subnormal result.
+  auto finish_denorm = [](double result) {
+    if (FPBits(result).get_biased_exponent() == 0)
+      fputil::raise_except_if_required(FE_UNDERFLOW | FE_INEXACT);
+    return result;
+  };
+
 #ifdef LIBC_MATH_HAS_SKIP_ACCURATE_PASS
   if (LIBC_UNLIKELY(denorm)) {
-    return ziv_test_denorm</*SKIP_ZIV_TEST=*/true>(hi, exp_mid.hi, lo,
-                                                   EXP_ERR_D)
-        .value();
+    return finish_denorm(
+        ziv_test_denorm</*SKIP_ZIV_TEST=*/true>(hi, exp_mid.hi, lo, EXP_ERR_D)
+            .value());
   } else {
     // to multiply by 2^hi, a fast way is to simply add hi to the exponent
     // field.
@@ -407,7 +413,7 @@ LIBC_INLINE double exp(double x) {
   if (LIBC_UNLIKELY(denorm)) {
     if (auto r = ziv_test_denorm(hi, exp_mid.hi, lo, EXP_ERR_D);
         LIBC_LIKELY(r.has_value()))
-      return r.value();
+      return finish_denorm(r.value());
   } else {
     double upper = exp_mid.hi + (lo + EXP_ERR_D);
     double lower = exp_mid.hi + (lo - EXP_ERR_D);
@@ -427,7 +433,7 @@ LIBC_INLINE double exp(double x) {
   if (LIBC_UNLIKELY(denorm)) {
     if (auto r = ziv_test_denorm(hi, r_dd.hi, r_dd.lo, EXP_ERR_DD);
         LIBC_LIKELY(r.has_value()))
-      return r.value();
+      return finish_denorm(r.value());
   } else {
     double upper_dd = r_dd.hi + (r_dd.lo + EXP_ERR_DD);
     double lower_dd = r_dd.hi + (r_dd.lo - EXP_ERR_DD);
@@ -443,7 +449,7 @@ LIBC_INLINE double exp(double x) {
   // Use 128-bit precision
   DFloat128 r_f128 = exp_f128(x, kd, idx1, idx2);
 
-  return static_cast<double>(r_f128);
+  return finish_denorm(static_cast<double>(r_f128));
 #endif // LIBC_MATH_HAS_SKIP_ACCURATE_PASS
 }
 
