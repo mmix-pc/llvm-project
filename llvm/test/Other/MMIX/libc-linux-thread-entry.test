@@ -59,7 +59,7 @@ def body(disasm, name):
 headers = root / "headers"
 run(sys.executable, libc / "utils/hdrgen/main.py", "-o", headers / "sys/syscall.h",
     libc / "include/sys/syscall.yaml")
-common = ["clang", "--target=mmix-unknown-linux", "-ffreestanding", "-fno-builtin",
+common = ["clang", "--target=mmix-unknown-linux", "-static", "-ffreestanding", "-fno-builtin",
           "-fno-exceptions", "-fno-stack-protector", "-DLIBC_FULL_BUILD",
           "-DLIBC_NAMESPACE=entry_test", "-I", libc, "-I", headers]
 source = libc / "src/__support/threads/linux/mmix/thread_entry.S"

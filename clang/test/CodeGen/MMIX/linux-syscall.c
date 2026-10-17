@@ -1,9 +1,9 @@
 // REQUIRES: mmix-registered-target
 // RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -O0 -emit-llvm -o - %s | FileCheck %s --check-prefix=IR
 // RUN: %clang_cc1 -triple mmix-unknown-linux -mrelocation-model static -O2 -emit-llvm -o - %s | FileCheck %s --check-prefix=IR
-// RUN: %clang --target=mmix-unknown-linux -O0 -S -o %t.O0.s %s
+// RUN: %clang --target=mmix-unknown-linux -static -O0 -S -o %t.O0.s %s
 // RUN: FileCheck %s --check-prefix=ASM < %t.O0.s
-// RUN: %clang --target=mmix-unknown-linux -O2 -S -o %t.O2.s %s
+// RUN: %clang --target=mmix-unknown-linux -static -O2 -S -o %t.O2.s %s
 // RUN: FileCheck %s --check-prefix=ASM < %t.O2.s
 // RUN: %clang --target=mmix-unknown-linux -c %S/../../../../libc/src/__support/OSUtil/linux/mmix/syscall.S -o %t.o
 // RUN: not %clang --target=mmix-unknown-unknown -c %S/../../../../libc/src/__support/OSUtil/linux/mmix/syscall.S -o %t.bad.o 2>&1 | FileCheck %s --check-prefix=OS

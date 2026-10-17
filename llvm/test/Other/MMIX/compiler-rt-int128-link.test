@@ -32,7 +32,7 @@ foreach(triple mmix-unknown-linux mmix-unknown-unknown)
     file(MAKE_DIRECTORY ${output})
     set(objects)
     foreach(source IN LISTS mmix_SOURCES)
-      run(${CLANG} --target=${triple} -ffreestanding -fno-builtin
+      run(${CLANG} --target=${triple} -static -ffreestanding -fno-builtin
           -fno-stack-protector -ffp-contract=off -O${level}
           -c ${builtins}/${source} -o ${source}.o)
       list(APPEND objects ${source}.o)
@@ -42,7 +42,7 @@ foreach(triple mmix-unknown-linux mmix-unknown-unknown)
     run(${AR} rcD libclang_rt.builtins.a ${objects})
     run(${PYTHON} ${inputs}/check-int128-builtins.py ${READOBJ}
         ${output}/libclang_rt.builtins.a)
-    run(${CLANG} --target=${triple} -ffreestanding -fno-stack-protector
+    run(${CLANG} --target=${triple} -static -ffreestanding -fno-stack-protector
         -O${level} -c ${inputs}/int128-call.c -o caller.o)
     run(${LLD} -static -e _start caller.o libclang_rt.builtins.a -o linked.elf)
     execute_process(COMMAND ${NM} --undefined-only ${output}/linked.elf
@@ -53,7 +53,7 @@ foreach(triple mmix-unknown-linux mmix-unknown-unknown)
     file(MAKE_DIRECTORY ${output}/invalid)
     configure_file(${output}/libclang_rt.builtins.a
                    ${output}/invalid/libclang_rt.builtins.a COPYONLY)
-    run(${CLANG} --target=${triple} -ffreestanding -fno-builtin -O0
+    run(${CLANG} --target=${triple} -static -ffreestanding -fno-builtin -O0
         -c ${inputs}/int128-recursive.c -o invalid/multi3.c.o)
     run(${AR} rD invalid/libclang_rt.builtins.a invalid/multi3.c.o)
     execute_process(COMMAND ${PYTHON} ${inputs}/check-int128-builtins.py

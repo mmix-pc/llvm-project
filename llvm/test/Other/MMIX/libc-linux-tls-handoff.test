@@ -33,7 +33,7 @@ import sys
 libc, root = map(pathlib.Path, sys.argv[1:3])
 args = root / "args"
 subprocess.run([sys.executable, str(args / "run.py"), str(libc), str(args)], check=True)
-common = ["clang", "--target=mmix-unknown-linux", "-ffreestanding", "-fno-builtin",
+common = ["clang", "--target=mmix-unknown-linux", "-static", "-ffreestanding", "-fno-builtin",
           "-fno-exceptions", "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=startup_test",
           "-I", str(libc), "-I", str(args / "headers"),
           "-DSYS_exit=93", "-DSYS_exit_group=94"]
