@@ -22,6 +22,7 @@
 #include "src/__support/FPUtil/rounding_mode.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/math/cos.h"
+#include "src/__support/math/gamma_recurrence.h"
 #include "src/__support/math/gamma_util.h"
 #include "src/__support/math/log.h"
 #include "src/__support/math/sin.h"
@@ -29,6 +30,41 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace math {
 namespace gamma_double_internal {
+
+// Avoid cancellation in the reflection formula near zeros of log|Gamma(x)|.
+// Retain the recurrence's guard bits through log rather than first rounding
+// Gamma(x) to binary64. Normalize to [3/4, 3/2), where |z| <= 1/5 in
+// log(m) = 2 * atanh(z), z = (m - 1) / (m + 1).
+LIBC_INLINE double log_gamma_recurrence(double x, int &sign) {
+  GammaWide value = gamma_recurrence(x);
+  sign = value.sign == Sign::NEG ? -1 : 1;
+  value.sign = Sign::POS;
+  int exponent = value.get_unbiased_exponent();
+  value.exponent -= exponent;
+  if (value.mantissa >= GammaWide(1.5).mantissa) {
+    --value.exponent;
+    ++exponent;
+  }
+  GammaWide one(1.0);
+  GammaWide z = fputil::quick_mul(
+      fputil::quick_sub(value, one),
+      fputil::approx_reciprocal(fputil::quick_add(value, one)));
+  GammaWide z2 = fputil::quick_mul(z, z);
+  GammaWide term = z;
+  GammaWide sum = z;
+  // The omitted tail is below 2^-185; arithmetic is evaluated at 128 bits.
+  for (int n = 1; n < 40; ++n) {
+    term = fputil::quick_mul(term, z2);
+    GammaWide reciprocal =
+        fputil::approx_reciprocal(GammaWide(static_cast<double>(2 * n + 1)));
+    sum = fputil::quick_add(sum, fputil::quick_mul(term, reciprocal));
+  }
+  ++sum.exponent;
+  sum = fputil::quick_add(
+      sum, fputil::quick_mul(GammaWide(static_cast<double>(exponent)),
+                            log_internal::LOG_2));
+  return sum.template generic_as<double, true>();
+}
 
 // fdlibm's three primary-interval approximations, recurrence to [2,3],
 // and Stirling correction. This is not a correctly-rounded algorithm.
@@ -264,6 +300,8 @@ LIBC_INLINE double lgamma_r(double x, int *signp) {
     return -math::log(a);
   }
   if (bits.is_neg()) {
+    if (a <= 200.0)
+      return log_gamma_recurrence(x, *signp);
     double s = reflection_sine(x, *signp);
     return math::log(0x1.921fb54442d18p+1 / (a * s)) - positive_log_gamma(a);
   }

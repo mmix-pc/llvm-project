@@ -11,7 +11,7 @@ add_header_library(
   lgamma
   HDRS lgamma.h
   DEPENDS
-    .log .sin .cos .gamma_util
+    .log .sin .cos .gamma_util .gamma_recurrence
     libc.hdr.errno_macros
     libc.src.__support.FPUtil.fenv_impl
     libc.src.__support.FPUtil.fp_bits
@@ -28,9 +28,14 @@ add_header_library(
     libc.src.__support.macros.config
 )
 add_header_library(
+  gamma_recurrence
+  HDRS gamma_recurrence.h
+  DEPENDS .tgamma_constants libc.src.__support.FPUtil.nearest_integer_operations
+)
+add_header_library(
   tgamma
   HDRS tgamma.h
-  DEPENDS .lgamma .tgamma_constants libc.src.__support.FPUtil.dyadic_float
+  DEPENDS .lgamma .gamma_recurrence libc.src.__support.FPUtil.dyadic_float
 )
 add_header_library(tgammaf HDRS tgammaf.h DEPENDS .tgamma)
 

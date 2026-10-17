@@ -137,3 +137,36 @@ TEST_F(LlvmLibcGammaAccuracyTest, LargeLogGammaAndNegativeZeros) {
   for (double x : inputs)
     check(x, true, false);
 }
+
+TEST_F(LlvmLibcGammaAccuracyTest, NegativeLogGammaRounding) {
+  const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                               RoundingMode::Downward,
+                               RoundingMode::TowardZero};
+  const mpfr_rnd_t mpfr_modes[] = {MPFR_RNDN, MPFR_RNDU, MPFR_RNDD, MPFR_RNDZ};
+  mpfr_t input, reference;
+  mpfr_inits2(256, input, reference, (mpfr_ptr)0);
+  auto check_rounded = [&](double x) {
+    mpfr_set_d(input, x, MPFR_RNDN);
+    int sign;
+    mpfr_lgamma(reference, &sign, input, MPFR_RNDN);
+    for (unsigned i = 0; i < 4; ++i) {
+      ForceRoundingMode rounding(modes[i]);
+      if (!rounding.success)
+        continue;
+      double expected = mpfr_get_d(reference, mpfr_modes[i]);
+      EXPECT_FP_EQ(expected, LIBC_NAMESPACE::lgamma(x));
+    }
+  };
+  check_rounded(-2.5);
+  for (int i = 0; i < 800; ++i)
+    check_rounded(-0.125 - static_cast<double>(i) * 0.25);
+  // Neighbors of roots exercise loss of relative precision in reflection.
+  const double roots[] = {-2.4570247382208006, -2.7476826467274127,
+                          -3.14358088834998, -3.955294284858598};
+  for (double x : roots) {
+    using Bits = LIBC_NAMESPACE::fputil::FPBits<double>;
+    for (int offset = -2; offset <= 2; ++offset)
+      check_rounded(Bits(Bits(x).uintval() + offset).get_val());
+  }
+  mpfr_clears(input, reference, (mpfr_ptr)0);
+}
