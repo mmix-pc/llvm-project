@@ -29,15 +29,30 @@ foreach(name feclearexcept fetestexcept fegetexceptflag fesetexceptflag
     message(FATAL_ERROR "missing fenv provider ${name}")
   endif()
 endforeach()
-foreach(name acos asin atan atan2 cos cosh erf exp ldexp log log1p log2 log2f logb
-             lround pow round sin sinh sqrt tan tanh log10)
-  if(NOT "libc.src.math.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
-    message(FATAL_ERROR "missing math provider ${name}")
+foreach(name acos asin atan atan2 cos sin tan acosh asinh atanh cosh sinh tanh
+    exp exp2 expm1 frexp ilogb ldexp log log10 log1p log2 logb modf scalbn scalbln
+    cbrt fabs hypot pow sqrt erf erfc lgamma tgamma ceil floor nearbyint rint
+    lrint llrint round lround llround trunc fmod remainder remquo copysign nan
+    nextafter nexttoward fdim fmax fmin fma)
+  foreach(suffix "" f l)
+    if(NOT "libc.src.math.${name}${suffix}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+      message(FATAL_ERROR "missing math provider ${name}${suffix}")
+    endif()
+  endforeach()
+endforeach()
+foreach(name cacos casin catan ccos csin ctan cacosh casinh catanh ccosh csinh
+    ctanh cexp clog cabs cpow csqrt carg cimag conj cproj creal)
+  foreach(suffix "" f l)
+    if(NOT "libc.src.complex.${name}${suffix}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+      message(FATAL_ERROR "missing complex provider ${name}${suffix}")
+    endif()
+  endforeach()
+endforeach()
+foreach(header math complex fenv)
+  if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
+    message(FATAL_ERROR "missing ${header} declarations")
   endif()
 endforeach()
-if(NOT libc.include.fenv IN_LIST TARGET_PUBLIC_HEADERS)
-  message(FATAL_ERROR "missing fenv declarations")
-endif()
 
 #--- fenv.cpp
 #include "src/__support/FPUtil/mmix/FEnvImpl.h"

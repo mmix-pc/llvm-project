@@ -69,7 +69,8 @@ if(LIBC_MMIX_BUILD_CORE)
     libc.include.math)
 endif()
 if(LIBC_MMIX_BUILD_MATH)
-  list(APPEND TARGET_PUBLIC_HEADERS libc.include.math libc.include.fenv)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.math libc.include.complex
+    libc.include.fenv)
 endif()
 
 if(LIBC_MMIX_BUILD_DESCRIPTORS)
