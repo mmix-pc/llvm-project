@@ -51,6 +51,59 @@ TEST_F(LlvmLibcAtan2Test, SpecialNumbers) {
   EXPECT_FP_EQ_ALL_ROUNDING(-0.0, LIBC_NAMESPACE::atan2(-1.0, inf));
 }
 
+TEST_F(LlvmLibcAtan2Test, TinyQuotients) {
+  using LIBC_NAMESPACE::fputil::testing::RoundingMode;
+  const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                RoundingMode::Downward,
+                                RoundingMode::TowardZero};
+  const double signs[] = {1.0, -1.0};
+  for (auto mode : modes) {
+    for (double sign : signs) {
+      double input = sign * 0x1p-1022;
+      double expected = sign * 0.0;
+      if ((mode == RoundingMode::Upward && sign > 0) ||
+          (mode == RoundingMode::Downward && sign < 0))
+        expected = sign * 0x1p-1074;
+      EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(
+          expected, LIBC_NAMESPACE::atan2(input, 0x1.fffffffffffffp1023),
+          FE_INEXACT | FE_UNDERFLOW, mode);
+      FPBits half_normal(sign * 0x1p-1023);
+      if (mode == RoundingMode::TowardZero ||
+          (mode == RoundingMode::Upward && sign < 0) ||
+          (mode == RoundingMode::Downward && sign > 0))
+        half_normal = FPBits(half_normal.uintval() - 1);
+      EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(
+          half_normal.get_val(), LIBC_NAMESPACE::atan2(sign, 0x1p1023),
+          FE_INEXACT | FE_UNDERFLOW, mode);
+    }
+  }
+}
+
+TEST_F(LlvmLibcAtan2Test, DiscardedQuotientDoesNotUnderflow) {
+  using namespace LIBC_NAMESPACE::fputil;
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  if (!(math_errhandling & MATH_ERREXCEPT))
+    return;
+  const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                RoundingMode::Downward,
+                                RoundingMode::TowardZero};
+  const double signs[] = {1.0, -1.0};
+  for (auto mode : modes) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    for (double sign : signs) {
+      clear_except(FE_ALL_EXCEPT);
+      raise_except(FE_DIVBYZERO);
+      LIBC_NAMESPACE::atan2(sign * 0x1.fffffffffffffp1023, 0x1p-1022);
+      EXPECT_EQ(FE_DIVBYZERO | FE_INEXACT, test_except(FE_ALL_EXCEPT));
+      clear_except(FE_ALL_EXCEPT);
+      LIBC_NAMESPACE::atan2(sign * 0x1p-1022, -0x1.fffffffffffffp1023);
+      EXPECT_EQ(FE_INEXACT, test_except(FE_ALL_EXCEPT));
+    }
+  }
+}
+
 #ifdef LIBC_TEST_FTZ_DAZ
 
 using namespace LIBC_NAMESPACE::testing;

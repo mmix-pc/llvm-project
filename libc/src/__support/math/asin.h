@@ -42,33 +42,22 @@ LIBC_INLINE double asin(double x) {
       //                             = x^2 / 6
       //                             < 2^-54
       //                             < epsilon(1)/2.
-      // So the correctly rounded values of asin(x) are:
-      //   = x + sign(x)*eps(x) if rounding mode = FE_TOWARDZERO,
-      //                        or (rounding mode = FE_UPWARD and x is
-      //                        negative),
-      //   = x otherwise.
-      // To simplify the rounding decision and make it more efficient, we use
-      //   fma(x, 2^-54, x) instead.
-      // Note: to use the formula x + 2^-54*x to decide the correct rounding, we
-      // do need fma(x, 2^-54, x) to prevent underflow caused by 2^-54*x when
-      // |x| < 2^-1022. For targets without FMA instructions, when x is close to
-      // denormal range, we normalize x,
-#if defined(LIBC_MATH_HAS_SKIP_ACCURATE_PASS)
-      return x;
-#elif defined(LIBC_TARGET_CPU_HAS_FMA_DOUBLE)
-      return fputil::multiply_add(x, 0x1.0p-54, x);
-#else
-      if (xbits.abs().uintval() == 0)
+      // asin(x) is just beyond x away from zero. Round using the encoding
+      // instead of an intermediate product that can spuriously underflow.
+      if (x == 0.0)
         return x;
-      // Get sign(x) * min_normal.
-      FPBits eps_bits = FPBits::min_normal();
-      eps_bits.set_sign(xbits.sign());
-      double eps = eps_bits.get_val();
-      double normalize_const = (x_exp == 0) ? eps : 0.0;
-      double scaled_normal =
-          fputil::multiply_add(x + normalize_const, 0x1.0p54, eps);
-      return fputil::multiply_add(scaled_normal, 0x1.0p-54, -normalize_const);
-#endif // LIBC_MATH_HAS_SKIP_ACCURATE_PASS
+      int rounding = fputil::quick_get_round();
+      if ((rounding == FE_UPWARD && !xbits.is_neg()) ||
+          (rounding == FE_DOWNWARD && xbits.is_neg()))
+        xbits = FPBits(xbits.uintval() + 1);
+      int excepts = FE_INEXACT;
+      if (xbits.get_biased_exponent() == 0) {
+        excepts |= FE_UNDERFLOW;
+        fputil::set_errno_if_required(ERANGE);
+      }
+      fputil::raise_except_if_required(excepts);
+      // Preserve the target's flush-to-zero behavior for subnormal results.
+      return (xbits.get_val() * 0x1p54) * 0x1p-54;
     }
 
 #ifdef LIBC_MATH_HAS_SKIP_ACCURATE_PASS

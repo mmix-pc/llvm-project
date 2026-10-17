@@ -143,34 +143,37 @@ LIBC_INLINE double atan2(double y, double x) {
       DoubleDouble r = EXCEPTS[y_except][x_except][x_sign];
       return fputil::multiply_add(IS_NEG[y_sign], r.hi, IS_NEG[y_sign] * r.lo);
     }
-    bool scale_up = min_exp < 128U;
-    bool scale_down = max_exp > 0x7ffU - 128U;
-    // At least one input is denormal, multiply both numerator and denominator
-    // by some large enough power of 2 to normalize denormal inputs.
-    if (scale_up) {
-      num *= 0x1.0p64;
-      if (!scale_down)
-        den *= 0x1.0p64;
-    } else if (scale_down) {
-      den *= 0x1.0p-64;
-      if (!scale_up)
-        num *= 0x1.0p-64;
-    }
-
-    min_abs = FPBits(num).uintval();
-    max_abs = FPBits(den).uintval();
-    min_exp = static_cast<unsigned>(min_abs >> FPBits::FRACTION_LEN);
-    max_exp = static_cast<unsigned>(max_abs >> FPBits::FRACTION_LEN);
   }
 
   double final_sign = IS_NEG[(x_sign != y_sign) != recip];
   DoubleDouble const_term = CONST_ADJ[x_sign][y_sign][recip];
   unsigned exp_diff = max_exp - min_exp;
+  // A subnormal's encoded exponent does not describe its leading bit.
+  if (min_exp == 0)
+    exp_diff = static_cast<unsigned>(DFloat128(den).get_unbiased_exponent() -
+                                     DFloat128(num).get_unbiased_exponent());
   // We have the following bound for normalized n and d:
   //   2^(-exp_diff - 1) < n/d < 2^(-exp_diff + 1).
   if (LIBC_UNLIKELY(exp_diff > 54)) {
+    if (!x_sign && !recip)
+      return atan_small_ratio(num, den, FPBits(y).sign());
+    // Below 2^-64 the correction cannot change the rounding of pi or pi/2.
+    // Do not evaluate a discarded quotient that could raise underflow.
+    // Select the operand first: without strict fenv support a compiler may
+    // speculate a division whose result is subsequently discarded.
+    double correction = (exp_diff > 64 ? 0.0 : num) / den;
     return fputil::multiply_add(final_sign, const_term.hi,
-                                final_sign * (const_term.lo + num / den));
+                                final_sign * (const_term.lo + correction));
+  }
+
+  // The exponents are now close enough to scale both operands without
+  // overflow or underflow. Always preserve their ratio.
+  if (min_exp < 128U) {
+    num *= 0x1.0p64;
+    den *= 0x1.0p64;
+  } else if (max_exp > 0x7ffU - 128U) {
+    num *= 0x1.0p-64;
+    den *= 0x1.0p-64;
   }
 
   double k = fputil::nearest_integer(64.0 * num / den);

@@ -12,6 +12,35 @@
 
 using LlvmLibcAtanTest = LIBC_NAMESPACE::testing::FPTest<double>;
 
+TEST_F(LlvmLibcAtanTest, TinyRoundingAndExceptions) {
+  using LIBC_NAMESPACE::fputil::testing::RoundingMode;
+  const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                RoundingMode::Downward,
+                                RoundingMode::TowardZero};
+  const double inputs[] = {0x1p-1074, 0x1p-1023, 0x0.fffffffffffffp-1022,
+                           0x1p-1022, 0x1p-1000, 0x1p-27};
+  const double signs[] = {1.0, -1.0};
+  for (auto mode : modes) {
+    for (double x : inputs) {
+      for (double sign : signs) {
+        double input = sign * x;
+        FPBits expected(input);
+        if (mode == RoundingMode::TowardZero ||
+            (mode == RoundingMode::Upward && sign < 0) ||
+            (mode == RoundingMode::Downward && sign > 0))
+          expected = FPBits(expected.uintval() - 1);
+        int flags = FE_INEXACT;
+        if (expected.get_biased_exponent() == 0)
+          flags |= FE_UNDERFLOW;
+        EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_MODE(
+            expected.get_val(), LIBC_NAMESPACE::atan(input), flags, mode);
+        if (math_errhandling & MATH_ERREXCEPT)
+          EXPECT_EQ(flags, LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+      }
+    }
+  }
+}
+
 TEST_F(LlvmLibcAtanTest, SpecialNumbers) {
   EXPECT_FP_EQ_WITH_EXCEPTION(aNaN, LIBC_NAMESPACE::atan(sNaN), FE_INVALID);
   EXPECT_MATH_ERRNO(0);

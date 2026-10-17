@@ -14,6 +14,19 @@
 
 using LlvmLibcAtan2fTest = LIBC_NAMESPACE::testing::FPTest<float>;
 
+TEST_F(LlvmLibcAtan2fTest, ExactTinyQuotientIsInexactAngle) {
+  EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_NEAREST(
+      0x1p-127f, LIBC_NAMESPACE::atan2f(0x1p-127f, 1.0f),
+      FE_INEXACT | FE_UNDERFLOW);
+  EXPECT_FP_EQ_WITH_EXCEPTION_ROUNDING_NEAREST(
+      -0x1p-127f, LIBC_NAMESPACE::atan2f(-1.0f, 0x1p127f),
+      FE_INEXACT | FE_UNDERFLOW);
+  EXPECT_FP_EQ_ALL_ROUNDING(0x1p-149f, 0x1p-149f, 0.0f, 0.0f,
+                            LIBC_NAMESPACE::atan2f(0x1p-149f, 1.0f));
+  EXPECT_FP_EQ_ALL_ROUNDING(-0x1p-149f, -0.0f, -0x1p-149f, -0.0f,
+                            LIBC_NAMESPACE::atan2f(-0x1p-149f, 1.0f));
+}
+
 TEST_F(LlvmLibcAtan2fTest, SpecialNumbers) {
   constexpr float PI = 0x1.921fb6p+1f;
   constexpr float PI_OVER_2 = 0x1.921fb6p+0f;

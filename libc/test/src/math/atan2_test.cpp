@@ -11,11 +11,62 @@
 #include "test/UnitTest/FPMatcher.h"
 #include "test/UnitTest/Test.h"
 #include "utils/MPFRWrapper/MPFRUtils.h"
+#include "utils/MPFRWrapper/mpfr_inc.h"
 
 using LlvmLibcAtan2Test = LIBC_NAMESPACE::testing::FPTest<double>;
 using LIBC_NAMESPACE::testing::tlog;
 
 namespace mpfr = LIBC_NAMESPACE::testing::mpfr;
+
+TEST_F(LlvmLibcAtan2Test, ExtremeRatios) {
+  const mpfr::BinaryInput<double> inputs[] = {
+      {0x1p-1074, 0x1.fffffffffffffp1023},
+      {0x1p-1022, 0x1.fffffffffffffp1023},
+      {0x1.fffffffffffffp1023, 0x1p-1022},
+      {0x1p-1023, 1.0},
+      {0x1p-1022, 1.0},
+      {0x1p-1074, 0x1p-1074},
+      {0x1p-1074, 0x1p-970},
+      {0x1p-970, 0x1p-1074},
+      {0x1.fffffffffffffp1023, 0x1.fffffffffffffp1023},
+      {0x1.fffffffffffffp-55, 1.0},
+      {0x1p-55, 0x1.0000000000001p0},
+      {0x1.fffffffffffffp-65, 1.0},
+      {0x1p-65, 0x1.0000000000001p0},
+      {0x1.23456789abcdep-1000, 0x1.abcdef0123456p20},
+  };
+  const double signs[] = {1.0, -1.0};
+  struct Mode {
+    mpfr::RoundingMode hardware;
+    mpfr_rnd_t reference;
+  };
+  const Mode modes[] = {{mpfr::RoundingMode::Nearest, MPFR_RNDN},
+                        {mpfr::RoundingMode::Upward, MPFR_RNDU},
+                        {mpfr::RoundingMode::Downward, MPFR_RNDD},
+                        {mpfr::RoundingMode::TowardZero, MPFR_RNDZ}};
+  mpfr_t y, x, reference;
+  // Preserve atan(q)-q even for q near 2^-2098. A low-precision oracle
+  // would round it to q and give the wrong directed-rounding expectation.
+  mpfr_inits2(4608, y, x, reference, (mpfr_ptr)0);
+  for (const auto &input : inputs) {
+    for (double sy : signs) {
+      for (double sx : signs) {
+        double yd = sy * input.x, xd = sx * input.y;
+        mpfr_set_d(y, yd, MPFR_RNDN);
+        mpfr_set_d(x, xd, MPFR_RNDN);
+        mpfr_atan2(reference, y, x, MPFR_RNDN);
+        for (const auto &mode : modes) {
+          mpfr::ForceRoundingMode rounding(mode.hardware);
+          if (!rounding.success)
+            continue;
+          EXPECT_FP_EQ(mpfr_get_d(reference, mode.reference),
+                       LIBC_NAMESPACE::atan2(yd, xd));
+        }
+      }
+    }
+  }
+  mpfr_clears(y, x, reference, (mpfr_ptr)0);
+}
 
 TEST_F(LlvmLibcAtan2Test, TrickyInputs) {
   mpfr::BinaryInput<double> inputs[] = {

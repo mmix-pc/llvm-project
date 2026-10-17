@@ -302,6 +302,8 @@ LIBC_INLINE float atan2f(float y, float x) {
   }
 
   bool recip = x_abs < y_abs;
+  if (!x_sign && !recip && num_d < den_d * 0x1p-30)
+    return atan_small_ratio(num_f, den_f, FPBits(y).sign());
   double final_sign = IS_NEG[(x_sign != y_sign) != recip];
   fputil::DoubleDouble const_term = CONST_ADJ[x_sign][y_sign][recip];
   double q_d = num_d / den_d;

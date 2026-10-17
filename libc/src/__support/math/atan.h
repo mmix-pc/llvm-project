@@ -73,14 +73,23 @@ LIBC_INLINE double atan(double x) {
   // |x| < 1.
   if (x_exp < 0) {
     if (LIBC_UNLIKELY(x_exp < -26)) {
-#ifdef LIBC_MATH_HAS_SKIP_ACCURATE_PASS
-      return x;
-#else
       if (x == 0.0)
         return x;
-      // |x| < 2^-26
-      return fputil::multiply_add(-0x1.0p-54, x, x);
-#endif // LIBC_MATH_HAS_SKIP_ACCURATE_PASS
+      // atan(x) is just inside x toward zero. Keep the original sign even
+      // when directed rounding reduces the least subnormal to zero.
+      int rounding = fputil::quick_get_round();
+      if (rounding == FE_TOWARDZERO || (rounding == FE_UPWARD && x_sign) ||
+          (rounding == FE_DOWNWARD && !x_sign))
+        --x_abs;
+      FPBits result(x_abs);
+      result.set_sign(FPBits(x).sign());
+      int excepts = FE_INEXACT;
+      if (result.get_biased_exponent() == 0) {
+        excepts |= FE_UNDERFLOW;
+        fputil::set_errno_if_required(ERANGE);
+      }
+      fputil::raise_except_if_required(excepts);
+      return result.get_val();
     }
 
     double x_d = xbits.get_val();
