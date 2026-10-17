@@ -21,6 +21,200 @@ types:
 enums: []
 objects: []
 functions:
+  - name: cacos
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: cacosf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: casin
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: casinf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: catan
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: catanf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: ccos
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: ccosf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: csin
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: csinf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: ctan
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: ctanf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: cacosh
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: cacoshf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: casinh
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: casinhf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: catanh
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: catanhf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: ccosh
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: ccoshf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: csinh
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: csinhf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: ctanh
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: ctanhf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: cexp
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: cexpf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: clog
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: clogf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+  - name: cpow
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+      - type: _Complex double
+  - name: cpowf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
+      - type: _Complex float
+  - name: csqrt
+    standards:
+      - stdc
+    return_type: _Complex double
+    arguments:
+      - type: _Complex double
+  - name: csqrtf
+    standards:
+      - stdc
+    return_type: _Complex float
+    arguments:
+      - type: _Complex float
   - name: cabs
     standards:
       - stdc

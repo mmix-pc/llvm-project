@@ -1,5 +1,23 @@
 add_custom_target(libc-complex-unittests)
 
+set(transcendental_test_deps
+  libc.src.__support.CPP.bit
+  libc.src.__support.FPUtil.fp_bits
+  libc.src.__support.complex_type)
+foreach(name csqrt csqrtf clog clogf cexp cexpf csin csinf ccos ccosf
+    ctan ctanf csinh csinhf ccosh ccoshf ctanh ctanhf
+    casin casinf cacos cacosf catan catanf casinh casinhf cacosh cacoshf
+    catanh catanhf cpow cpowf)
+  list(APPEND transcendental_test_deps libc.src.complex.${name})
+endforeach()
+add_fp_unittest(
+  transcendental_test
+  NEED_MPC
+  SUITE libc-complex-unittests
+  SRCS transcendental_test.cpp
+  DEPENDS ${transcendental_test_deps}
+)
+
 add_fp_unittest(
   cabs_test
   NEED_MPC

@@ -13,6 +13,7 @@ function(add_complex_entrypoint_object name)
   endif()
 endfunction()
 
+
 add_complex_entrypoint_object(creal)
 add_complex_entrypoint_object(crealf)
 add_complex_entrypoint_object(creall)
@@ -41,3 +42,10 @@ add_complex_entrypoint_object(cabs)
 add_complex_entrypoint_object(cabsf)
 add_complex_entrypoint_object(carg)
 add_complex_entrypoint_object(cargf)
+
+foreach(name csqrt csqrtf clog clogf cexp cexpf csin csinf ccos ccosf
+    ctan ctanf csinh csinhf ccosh ccoshf ctanh ctanhf
+    casin casinf cacos cacosf catan catanf casinh casinhf cacosh cacoshf
+    catanh catanhf cpow cpowf)
+  add_complex_entrypoint_object(${name})
+endforeach()

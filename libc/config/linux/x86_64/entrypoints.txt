@@ -1622,6 +1622,12 @@ if(LLVM_LIBC_FULL_BUILD)
 endif()
 
 if(LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
+  foreach(name csqrt csqrtf clog clogf cexp cexpf csin csinf ccos ccosf
+      ctan ctanf csinh csinhf ccosh ccoshf ctanh ctanhf
+      casin casinf cacos cacosf catan catanf casinh casinhf cacosh cacoshf
+      catanh catanhf cpow cpowf)
+    list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.complex.${name})
+  endforeach()
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.math.acosh
     libc.src.math.lgamma

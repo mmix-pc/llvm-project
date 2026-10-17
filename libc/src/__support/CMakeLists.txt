@@ -513,3 +513,51 @@ endif()
 if(LLVM_LIBC_FULL_BUILD)
   add_subdirectory(regex)
 endif()
+add_header_library(
+  complex_transcendental
+  HDRS complex_transcendental.h
+  DEPENDS
+    libc.src.__support.CPP.bit
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.complex_type
+    libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+    libc.src.math.atan2
+    libc.src.math.copysign
+    libc.src.math.cos
+    libc.src.math.cosh
+    libc.src.math.exp
+    libc.src.math.fma
+    libc.src.math.frexp
+    libc.src.math.hypot
+    libc.src.math.ldexp
+    libc.src.math.log
+    libc.src.math.log1p
+    libc.src.math.sin
+    libc.src.math.sinh
+    libc.src.math.sqrt
+    libc.src.math.tan
+    libc.src.math.tanh
+)
+
+add_header_library(
+  complex_inverse
+  HDRS complex_inverse.h
+  DEPENDS
+    libc.src.__support.complex_transcendental
+    libc.src.math.acos
+    libc.src.math.asin
+    libc.src.math.atan
+    libc.src.math.atanh
+)
+
+add_header_library(
+  complex_power
+  HDRS complex_power.h
+  DEPENDS
+    libc.src.__support.complex_transcendental
+    libc.src.__support.FPUtil.dyadic_float
+    libc.src.__support.math.sincos_integer_utils
+    libc.src.math.pow
+    libc.src.math.remainder
+)

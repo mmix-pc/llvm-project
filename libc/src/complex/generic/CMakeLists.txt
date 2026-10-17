@@ -278,3 +278,32 @@ add_entrypoint_object(
     libc.src.__support.macros.properties.types
     libc.src.__support.macros.properties.complex_types
 )
+
+foreach(name csqrt csqrtf clog clogf cexp cexpf csin csinf ccos ccosf
+    ctan ctanf csinh csinhf ccosh ccoshf ctanh ctanhf)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ../${name}.h
+    DEPENDS libc.src.__support.common libc.src.__support.complex_transcendental
+  )
+endforeach()
+
+foreach(name casin casinf cacos cacosf catan catanf
+    casinh casinhf cacosh cacoshf catanh catanhf)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ../${name}.h
+    DEPENDS libc.src.__support.common libc.src.__support.complex_inverse
+  )
+endforeach()
+
+foreach(name cpow cpowf)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ../${name}.h
+    DEPENDS libc.src.__support.common libc.src.__support.complex_power
+  )
+endforeach()
