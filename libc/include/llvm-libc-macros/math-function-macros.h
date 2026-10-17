@@ -58,4 +58,11 @@
 #define isnormal(x) __builtin_isnormal(x)
 #define issubnormal(x) (fpclassify(x) == FP_SUBNORMAL)
 
+#define isgreater(x, y) __builtin_isgreater(x, y)
+#define isgreaterequal(x, y) __builtin_isgreaterequal(x, y)
+#define isless(x, y) __builtin_isless(x, y)
+#define islessequal(x, y) __builtin_islessequal(x, y)
+#define islessgreater(x, y) __builtin_islessgreater(x, y)
+#define isunordered(x, y) __builtin_isunordered(x, y)
+
 #endif // LLVM_LIBC_MACROS_MATH_FUNCTION_MACROS_H

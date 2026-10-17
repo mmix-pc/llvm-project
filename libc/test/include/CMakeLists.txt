@@ -515,6 +515,15 @@ add_libc_test(
 )
 
 add_libc_test(
+  math_comparison_c_test
+  C_TEST
+  SUITE libc_include_tests
+  SRCS math_comparison_test.c
+  COMPILE_OPTIONS -Wall -Werror
+  DEPENDS libc.include.llvm-libc-macros.math_function_macros
+)
+
+add_libc_test(
   isfinite_c_test
   C_TEST
   SUITE
