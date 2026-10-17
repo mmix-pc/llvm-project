@@ -2,6 +2,14 @@ add_custom_target(libc-math-smoke-tests)
 add_dependencies(libc-math-unittests libc-math-smoke-tests)
 
 
+foreach(name lgamma tgamma tgammaf)
+  add_fp_unittest(
+    ${name}_test
+    SUITE libc-math-smoke-tests
+    SRCS ${name}_test.cpp
+    DEPENDS libc.src.math.${name} libc.src.math.lgamma_r libc.hdr.errno_macros
+  )
+endforeach()
 
 foreach(name sinh cosh tanh erf acosh asinh atanh erfc erfcf)
   add_fp_unittest(

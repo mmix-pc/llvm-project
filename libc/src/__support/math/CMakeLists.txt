@@ -1,4 +1,31 @@
 add_header_library(
+  lgamma
+  HDRS lgamma.h
+  DEPENDS
+    .log .sin .cos .gamma_util
+    libc.hdr.errno_macros
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.nearest_integer_operations
+    libc.src.__support.FPUtil.rounding_mode
+    libc.src.__support.macros.config
+)
+add_header_library(
+  tgamma_constants
+  HDRS tgamma_constants.h
+  DEPENDS
+    libc.src.__support.FPUtil.dyadic_float
+    libc.src.__support.integer_literals
+    libc.src.__support.macros.config
+)
+add_header_library(
+  tgamma
+  HDRS tgamma.h
+  DEPENDS .lgamma .tgamma_constants libc.src.__support.FPUtil.dyadic_float
+)
+add_header_library(tgammaf HDRS tgammaf.h DEPENDS .tgamma)
+
+add_header_library(
   acosh
   HDRS acosh.h
   DEPENDS

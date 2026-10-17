@@ -3929,7 +3929,22 @@ if(NOT LLVM_LIBC_FULL_BUILD)
   add_subdirectory(performance_testing)
 endif()
 
+add_fp_unittest(
+  tgamma_recurrence_test
+  NEED_MPFR
+  SUITE libc-math-unittests
+  SRCS tgamma_recurrence_test.cpp
+  DEPENDS libc.src.math.tgamma libc.src.math.tgammaf libc.hdr.errno_macros
+)
 
+add_fp_unittest(
+  gamma_accuracy_test
+  NEED_MPFR
+  SUITE libc-math-unittests
+  SRCS gamma_accuracy_test.cpp
+  DEPENDS libc.src.math.lgamma libc.src.math.lgamma_r
+    libc.src.math.tgamma libc.src.math.tgammaf
+)
 
 foreach(name sinh cosh tanh erf acosh asinh atanh erfc erfcf)
   add_fp_unittest(

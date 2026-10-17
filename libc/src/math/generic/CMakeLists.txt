@@ -5068,6 +5068,18 @@ add_entrypoint_object(
 )
 
 
+foreach(name lgamma lgamma_r tgamma tgammaf)
+  set(support ${name})
+  if(name STREQUAL "lgamma_r")
+    set(support lgamma)
+  endif()
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ../${name}.h
+    DEPENDS libc.src.__support.math.${support}
+  )
+endforeach()
 
 foreach(name sinh cosh tanh erf acosh asinh atanh erfc erfcf)
   add_entrypoint_object(

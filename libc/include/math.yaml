@@ -38,6 +38,18 @@ functions:
     return_type: float
     arguments:
       - type: float
+  - name: tgamma
+    standards:
+      - stdc
+    return_type: double
+    arguments:
+      - type: double
+  - name: tgammaf
+    standards:
+      - stdc
+    return_type: float
+    arguments:
+      - type: float
   - name: acos
     standards:
       - stdc

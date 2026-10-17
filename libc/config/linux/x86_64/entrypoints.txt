@@ -1624,6 +1624,10 @@ endif()
 if(LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.math.acosh
+    libc.src.math.lgamma
+    libc.src.math.lgamma_r
+    libc.src.math.tgamma
+    libc.src.math.tgammaf
     libc.src.math.asinh
     libc.src.math.atanh
     libc.src.math.erfc
