@@ -10,4 +10,8 @@
 
 #include "src/math/sqrtf.h"
 
+// Check the public error contract separately from internal square-root kernels.
+
 LIST_SQRT_TESTS(float, LIBC_NAMESPACE::sqrtf);
+
+TEST_F(LlvmLibcSqrtTest, Errors) { test_errors(&LIBC_NAMESPACE::sqrtf); }

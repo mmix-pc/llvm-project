@@ -24,6 +24,24 @@ class SqrtTest : public LIBC_NAMESPACE::testing::FEnvSafeTest {
 public:
   typedef OutType (*SqrtFunc)(InType);
 
+  void test_errors(SqrtFunc func) {
+    const InType negative_inputs[] = {InType(-1), in.neg_inf};
+    for (InType x : negative_inputs) {
+      libc_errno = 0;
+      EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(aNaN, func(x), FE_INVALID);
+      EXPECT_MATH_ERRNO(EDOM);
+    }
+    libc_errno = 0;
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(aNaN, func(in.aNaN), 0);
+    EXPECT_MATH_ERRNO(0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(aNaN, func(in.sNaN), FE_INVALID);
+    EXPECT_MATH_ERRNO(0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(zero, func(in.zero), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(neg_zero, func(in.neg_zero), 0);
+    EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(inf, func(in.inf), 0);
+    EXPECT_MATH_ERRNO(0);
+  }
+
   void test_special_numbers(SqrtFunc func) {
     ASSERT_FP_EQ(aNaN, func(in.aNaN));
     ASSERT_FP_EQ(inf, func(in.inf));

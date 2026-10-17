@@ -5550,6 +5550,10 @@ add_header_library(
   HDRS
     sqrt.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fenv_macros
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
     libc.src.__support.FPUtil.sqrt
 )
 
@@ -5569,6 +5573,10 @@ add_header_library(
   HDRS
     sqrtf.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fenv_macros
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
     libc.src.__support.FPUtil.sqrt
 )
 
@@ -5613,6 +5621,10 @@ add_header_library(
   HDRS
     sqrtl.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fenv_macros
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
     libc.src.__support.FPUtil.sqrt
     libc.src.__support.macros.config
 )
