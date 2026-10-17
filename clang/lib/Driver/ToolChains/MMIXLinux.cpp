@@ -227,6 +227,8 @@ public:
     Args.ClaimAllArgs(options::OPT_g_Group);
     Args.ClaimAllArgs(options::OPT_emit_llvm);
     Args.ClaimAllArgs(options::OPT_w);
+    if (Args.hasArg(options::OPT_rdynamic))
+      CmdArgs.push_back("--export-dynamic");
     Args.addAllArgs(CmdArgs, {options::OPT_L, options::OPT_s, options::OPT_t,
                               options::OPT_u_Group, options::OPT_e});
     TC.AddFilePathLibArgs(Args, CmdArgs);
@@ -341,7 +343,7 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
       Reject(A);
   }
   for (const Arg *A : Args.filtered(
-           options::OPT_dynamic, options::OPT_rdynamic, options::OPT_static_pie,
+           options::OPT_dynamic, options::OPT_static_pie,
            options::OPT_gcc_toolchain, options::OPT_gcc_install_dir_EQ,
            options::OPT_gcc_triple_EQ))
     Reject(A);
