@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/FPUtil/bfloat16.h"
+#include "src/__support/FPUtil/generic/FMA.h"
 #include "test/UnitTest/FPMatcher.h"
 #include "test/UnitTest/Test.h"
 #include "utils/MPFRWrapper/MPCommon.h"
@@ -24,6 +25,19 @@ static constexpr uint16_t NEG_START = 0x8000U;
 static constexpr uint16_t NEG_STOP = 0xff80U;
 
 using MPFRNumber = LIBC_NAMESPACE::testing::mpfr::MPFRNumber;
+
+TEST_F(LlvmLibcBfloat16ConversionTest, ArithmeticBarriers) {
+  using LIBC_NAMESPACE::fputil::fdim;
+  auto fma = [](BFloat16 x, BFloat16 y, BFloat16 z) {
+    return LIBC_NAMESPACE::fputil::generic::fma<BFloat16>(x, y, z);
+  };
+  EXPECT_FP_EQ(zero, fdim(inf, inf));
+  EXPECT_FP_EQ(BFloat16(1.0f), fdim(BFloat16(2.0f), BFloat16(1.0f)));
+  EXPECT_FP_EQ(BFloat16(3.0f), fma(zero, BFloat16(2.0f), BFloat16(3.0f)));
+  EXPECT_FP_EQ(BFloat16(6.0f),
+               fma(BFloat16(2.0f), BFloat16(3.0f), zero));
+  EXPECT_FP_EQ(min_denormal, fma(min_denormal, BFloat16(1.0f), zero));
+}
 
 TEST_F(LlvmLibcBfloat16ConversionTest, ToFloatPositiveRange) {
   for (uint16_t bits = POS_START; bits <= POS_STOP; bits++) {

@@ -166,14 +166,18 @@ fma(InType x, InType y, InType z) {
     }
   }
 
+  // Use a native volatile value for emulated BFloat16, then restore the
+  // original arithmetic type so its intermediate rounding is unchanged.
+  using BarrierType =
+      cpp::conditional_t<get_fp_type<InType>() == FPType::BFloat16, float, InType>;
   if (LIBC_UNLIKELY(x == 0 || y == 0)) {
-    volatile InType special_x = x;
-    return cast<OutType>(special_x * y + z);
+    volatile BarrierType special_x = static_cast<BarrierType>(x);
+    return cast<OutType>(static_cast<InType>(special_x) * y + z);
   }
   // Adding +0 after a negative product underflows can lose the result's sign.
   if (LIBC_UNLIKELY(z == 0)) {
-    volatile InType special_x = x;
-    return cast<OutType>(special_x * y);
+    volatile BarrierType special_x = static_cast<BarrierType>(x);
+    return cast<OutType>(static_cast<InType>(special_x) * y);
   }
 
   int x_exp = 0;
@@ -193,18 +197,18 @@ fma(InType x, InType y, InType z) {
   // scaling a normal input can overflow even when the final FMA is finite.
   if (LIBC_UNLIKELY(InFPBits(x).is_subnormal())) {
     x_exp -= InFPBits::FRACTION_LEN;
-    volatile InType denormal = x;
-    x = denormal * DENORMAL_SCALING;
+    volatile BarrierType denormal = static_cast<BarrierType>(x);
+    x = static_cast<InType>(denormal) * DENORMAL_SCALING;
   }
   if (LIBC_UNLIKELY(InFPBits(y).is_subnormal())) {
     y_exp -= InFPBits::FRACTION_LEN;
-    volatile InType denormal = y;
-    y = denormal * DENORMAL_SCALING;
+    volatile BarrierType denormal = static_cast<BarrierType>(y);
+    y = static_cast<InType>(denormal) * DENORMAL_SCALING;
   }
   if (LIBC_UNLIKELY(InFPBits(z).is_subnormal())) {
     z_exp -= InFPBits::FRACTION_LEN;
-    volatile InType denormal = z;
-    z = denormal * DENORMAL_SCALING;
+    volatile BarrierType denormal = static_cast<BarrierType>(z);
+    z = static_cast<InType>(denormal) * DENORMAL_SCALING;
   }
 
   x_bits = InFPBits(x);
@@ -223,8 +227,8 @@ fma(InType x, InType y, InType z) {
                       y_exp != InFPBits::MAX_BIASED_EXPONENT &&
                       z_bits.is_inf()))
       return cast<OutType>(z);
-    volatile InType special_x = x;
-    return cast<OutType>(special_x * y + z);
+    volatile BarrierType special_x = static_cast<BarrierType>(x);
+    return cast<OutType>(static_cast<InType>(special_x) * y + z);
   }
 
   // Extract mantissa and append hidden leading bits.

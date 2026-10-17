@@ -277,9 +277,12 @@ LIBC_INLINE T constexpr fdim(T x, T y) {
     return positive ? x - y : T(0);
   // Keep non-strict FP optimization from folding the operand selection back
   // into a selection of the subtraction's result.
-  volatile T left = positive ? x : T(0);
-  volatile T right = positive ? y : T(0);
-  T difference = left - right;
+  // The emulated BFloat16 class has no volatile-qualified arithmetic.
+  using BarrierType = cpp::conditional_t<get_fp_type<T>() == FPType::BFloat16,
+                                        float, T>;
+  volatile BarrierType left = static_cast<BarrierType>(positive ? x : T(0));
+  volatile BarrierType right = static_cast<BarrierType>(positive ? y : T(0));
+  T difference = static_cast<T>(left) - static_cast<T>(right);
   return positive ? difference : T(0);
 }
 

@@ -79,6 +79,7 @@ add_fp_unittest(
     bfloat16_test.cpp
   DEPENDS
     libc.src.__support.FPUtil.bfloat16
+    libc.src.__support.FPUtil.generic.fma
 )
 
 add_fp_unittest(
