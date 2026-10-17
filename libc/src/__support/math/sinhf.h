@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_MATH_SINHF_H
 #define LLVM_LIBC_SRC___SUPPORT_MATH_SINHF_H
 
+#include "tiny_result.h"
+
 #include "sinhfcoshf_utils.h"
 #include "src/__support/FPUtil/FEnvImpl.h"
 #include "src/__support/FPUtil/FPBits.h"
@@ -43,8 +45,7 @@ LIBC_INLINE float sinhf(float x) {
 
       // |x| <= 2^-26
       if (LIBC_UNLIKELY(x_abs <= 0x3280'0000U)) {
-        return static_cast<float>(
-            LIBC_UNLIKELY(x_abs == 0) ? x : (x + 0.25 * x * x * x));
+        return round_tiny_result(x, !xbits.is_neg());
       }
 
       double xdbl = x;

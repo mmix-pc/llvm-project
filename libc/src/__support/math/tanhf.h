@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_MATH_TANHF_H
 #define LLVM_LIBC_SRC___SUPPORT_MATH_TANHF_H
 
+#include "tiny_result.h"
+
 #include "exp10f_utils.h"
 #include "src/__support/FPUtil/FPBits.h"
 #include "src/__support/FPUtil/PolyEval.h"
@@ -36,10 +38,7 @@ LIBC_INLINE float tanhf(float x) {
     if (x_abs <= 0x3da0'0000U) {
       // |x| <= 0.078125
       if (LIBC_UNLIKELY(x_abs <= 0x3280'0000U)) {
-        // |x| <= 2^-26
-        return (x_abs != 0)
-                   ? static_cast<float>(x - 0x1.5555555555555p-2 * x * x * x)
-                   : x;
+        return round_tiny_result(x, xbits.is_neg());
       }
 
       const double TAYLOR[] = {-0x1.5555555555555p-2, 0x1.1111111111111p-3,

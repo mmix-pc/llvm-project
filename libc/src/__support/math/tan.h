@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_MATH_TAN_H
 #define LLVM_LIBC_SRC___SUPPORT_MATH_TAN_H
 
+#include "tiny_result.h"
+
 #include "hdr/errno_macros.h"
 #include "range_reduction_double_common.h"
 #include "src/__support/FPUtil/FEnvImpl.h"
@@ -142,24 +144,7 @@ LIBC_INLINE double tan(double x) {
     if (LIBC_UNLIKELY(x_e < FPBits::EXP_BIAS - 7)) {
       // |x| < 2^-27, |tan(x) - x| < ulp(x)/2.
       if (LIBC_UNLIKELY(x_e < FPBits::EXP_BIAS - 27)) {
-        // Signed zeros.
-        if (LIBC_UNLIKELY(x == 0.0))
-          return x + x; // Make sure it works with FTZ/DAZ.
-
-#ifdef LIBC_TARGET_CPU_HAS_FMA_DOUBLE
-        return fputil::multiply_add(x, 0x1.0p-54, x);
-#else
-        if (LIBC_UNLIKELY(x_e < 4)) {
-          // TODO: UB for rounding nearest
-#ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
-          int rounding_mode = fputil::quick_get_round();
-          if ((xbits.sign() == Sign::POS && rounding_mode == FE_UPWARD) ||
-              (xbits.sign() == Sign::NEG && rounding_mode == FE_DOWNWARD))
-            return FPBits(xbits.uintval() + 1).get_val();
-#endif // !LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
-        }
-        return fputil::multiply_add(x, 0x1.0p-54, x);
-#endif // LIBC_TARGET_CPU_HAS_FMA_DOUBLE
+        return round_tiny_result(x, !xbits.is_neg());
       }
       // No range reduction needed.
       k = 0;

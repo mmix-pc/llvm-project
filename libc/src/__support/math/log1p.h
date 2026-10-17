@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_MATH_LOG1P_H
 #define LLVM_LIBC_SRC___SUPPORT_MATH_LOG1P_H
 
+#include "tiny_result.h"
+
 #include "common_constants.h"
 #include "src/__support/FPUtil/FEnvImpl.h"
 #include "src/__support/FPUtil/FPBits.h"
@@ -939,23 +941,7 @@ LIBC_INLINE double log1p(double x) {
       //   log(1 + x) = nextafter(x, -inf) for FE_DOWNWARD, or
       //                                       FE_TOWARDZERO and x > 0,
       //              = x                  otherwise.
-      if (x + x == 0.0)
-        return x + x; // Handle FTZ/DAZ correctly.
-
-      volatile float tp = 1.0f;
-      volatile float tn = -1.0f;
-      bool rdp = (tp - 0x1p-25f != tp);
-      bool rdn = (tn - 0x1p-24f != tn);
-
-      if (x > 0 && rdp) {
-        return FPBits_t(x_u - 1).get_val();
-      }
-
-      if (x < 0 && rdn) {
-        return FPBits_t(x_u + 1).get_val();
-      }
-
-      return x;
+      return round_tiny_result(x, false);
     }
     x_dd = fputil::exact_add(1.0, x);
   }

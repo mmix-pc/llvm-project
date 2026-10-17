@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_MATH_LOG1PF_H
 #define LLVM_LIBC_SRC___SUPPORT_MATH_LOG1PF_H
 
+#include "tiny_result.h"
+
 #include "src/__support/FPUtil/FEnvImpl.h"
 #include "src/__support/FPUtil/FMA.h"
 #include "src/__support/FPUtil/FPBits.h"
@@ -42,6 +44,8 @@ LIBC_INLINE float log1pf(float x) {
   FPBits xbits(x);
   uint32_t x_u = xbits.uintval();
   uint32_t x_a = x_u & 0x7fff'ffffU;
+  if (x_a <= 0x3280'0000U)
+    return round_tiny_result(x, false);
   double xd = static_cast<double>(x);
 
   if (x_a <= 0x3c80'0000U) {

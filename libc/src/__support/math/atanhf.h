@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_MATH_ATANHF_H
 #define LLVM_LIBC_SRC___SUPPORT_MATH_ATANHF_H
 
+#include "tiny_result.h"
+
 #include "acoshf_utils.h"
 #include "src/__support/FPUtil/FEnvImpl.h"
 #include "src/__support/FPUtil/FPBits.h"
@@ -52,9 +54,7 @@ LIBC_INLINE float atanhf(float x) {
   if (LIBC_UNLIKELY(x_abs <= 0x3dcc'0000U)) {
     // |x| <= 2^-26
     if (LIBC_UNLIKELY(x_abs <= 0x3280'0000U)) {
-      return static_cast<float>(LIBC_UNLIKELY(x_abs == 0)
-                                    ? x
-                                    : (x + 0x1.5555555555555p-2 * x * x * x));
+      return round_tiny_result(x, !xbits.is_neg());
     }
 
     double xdbl = x;

@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_MATH_EXPM1_H
 #define LLVM_LIBC_SRC___SUPPORT_MATH_EXPM1_H
 
+#include "tiny_result.h"
+
 #include "common_constants.h" // Lookup tables EXP_M1 and EXP_M2.
 #include "exp_constants.h"
 #include "src/__support/CPP/bit.h"
@@ -233,18 +235,7 @@ LIBC_INLINE double set_exceptional(double x) {
 
   // |x| <= 2^-53.
   if (x_abs <= 0x3ca0'0000'0000'0000ULL) {
-    // expm1(x) ~ x.
-
-    if (LIBC_UNLIKELY(x_abs <= 0x0370'0000'0000'0000ULL)) {
-      if (LIBC_UNLIKELY(x_abs == 0))
-        return x;
-      // |x| <= 2^-968, need to scale up a bit before rounding, then scale it
-      // back down.
-      return 0x1.0p-200 * fputil::multiply_add(x, 0x1.0p+200, 0x1.0p-1022);
-    }
-
-    // 2^-968 < |x| <= 2^-53.
-    return fputil::round_result_slightly_up(x);
+    return round_tiny_result(x, true);
   }
 
   // x < log(2^-54) || x >= 0x1.6232bdd7abcd3p+9 or inf/nan.

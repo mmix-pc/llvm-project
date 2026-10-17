@@ -1,4 +1,13 @@
 add_header_library(
+  tiny_result
+  HDRS tiny_result.h
+  DEPENDS
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   lgamma
   HDRS lgamma.h
   DEPENDS
@@ -506,6 +515,7 @@ add_header_library(
   HDRS
     atanhf.h
   DEPENDS
+    .tiny_result
     .acoshf_utils
     libc.src.__support.FPUtil.fp_bits
     libc.src.__support.FPUtil.fenv_impl
@@ -4464,6 +4474,7 @@ add_header_library(
   HDRS
     expm1.h
   DEPENDS
+    .tiny_result
     .common_constants
     .exp_constants
     libc.src.__support.CPP.bit
@@ -5233,6 +5244,7 @@ add_header_library(
   HDRS
     log1p.h
   DEPENDS
+    .tiny_result
     .common_constants
     libc.src.__support.FPUtil.double_double
     libc.src.__support.FPUtil.dyadic_float
@@ -5249,6 +5261,7 @@ add_header_library(
   HDRS
     log1pf.h
   DEPENDS
+    .tiny_result
     .acoshf_utils
     libc.src.__support.FPUtil.except_value_utils
     libc.src.__support.FPUtil.fenv_impl
@@ -5455,6 +5468,7 @@ add_header_library(
   HDRS
     sin.h
   DEPENDS
+    .tiny_result
     libc.hdr.errno_macros
     libc.src.errno.errno
     libc.src.__support.FPUtil.double_double
@@ -5505,6 +5519,7 @@ add_header_library(
   HDRS
     sinhf.h
   DEPENDS
+    .tiny_result
     .sinhfcoshf_utils
     libc.src.__support.FPUtil.fenv_impl
     libc.src.__support.FPUtil.fp_bits
@@ -5607,6 +5622,7 @@ add_header_library(
   HDRS
     tan.h
   DEPENDS
+    .tiny_result
     .range_reduction_double
     libc.hdr.errno_macros
     libc.src.__support.FPUtil.double_double
@@ -5672,6 +5688,7 @@ add_header_library(
   HDRS
     tanhf.h
   DEPENDS
+    .tiny_result
     .exp10f_utils
     libc.src.__support.FPUtil.fp_bits
     libc.src.__support.FPUtil.polyeval
