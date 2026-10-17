@@ -1,7 +1,9 @@
 add_custom_target(libc-math-smoke-tests)
 add_dependencies(libc-math-unittests libc-math-smoke-tests)
 
-foreach(name sinh cosh tanh erf)
+
+
+foreach(name sinh cosh tanh erf acosh asinh atanh)
   add_fp_unittest(
     ${name}_test
     SUITE libc-math-smoke-tests

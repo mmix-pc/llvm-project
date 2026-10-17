@@ -5067,7 +5067,9 @@ add_entrypoint_object(
     libc.src.__support.math.bf16subf128
 )
 
-foreach(name sinh cosh tanh erf)
+
+
+foreach(name sinh cosh tanh erf acosh asinh atanh)
   add_entrypoint_object(
     ${name}
     SRCS

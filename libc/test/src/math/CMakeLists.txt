@@ -3929,7 +3929,9 @@ if(NOT LLVM_LIBC_FULL_BUILD)
   add_subdirectory(performance_testing)
 endif()
 
-foreach(name sinh cosh tanh erf)
+
+
+foreach(name sinh cosh tanh erf acosh asinh atanh)
   add_fp_unittest(
     ${name}_test
     NEED_MPFR

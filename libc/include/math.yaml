@@ -8,6 +8,24 @@ types:
 enums: []
 objects: []
 functions:
+  - name: acosh
+    standards:
+      - stdc
+    return_type: double
+    arguments:
+      - type: double
+  - name: asinh
+    standards:
+      - stdc
+    return_type: double
+    arguments:
+      - type: double
+  - name: atanh
+    standards:
+      - stdc
+    return_type: double
+    arguments:
+      - type: double
   - name: acos
     standards:
       - stdc

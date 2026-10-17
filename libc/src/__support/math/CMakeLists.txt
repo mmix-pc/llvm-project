@@ -1,4 +1,42 @@
 add_header_library(
+  acosh
+  HDRS acosh.h
+  DEPENDS
+    .log
+    .log1p
+    libc.hdr.errno_macros
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.double_double
+    libc.src.__support.FPUtil.sqrt
+    libc.src.__support.macros.config
+)
+
+add_header_library(
+  asinh
+  HDRS asinh.h
+  DEPENDS
+    .hyperbolic_utils
+    .log
+    .log1p
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.sqrt
+    libc.src.__support.macros.config
+)
+
+add_header_library(
+  atanh
+  HDRS atanh.h
+  DEPENDS
+    .hyperbolic_utils
+    .log1p
+    libc.hdr.errno_macros
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   hyperbolic_utils
   HDRS
     hyperbolic_utils.h

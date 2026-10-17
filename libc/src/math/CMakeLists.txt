@@ -40,6 +40,7 @@ function(add_math_entrypoint_object name)
   )
 endfunction()
 
+
 add_math_entrypoint_object(acos)
 add_math_entrypoint_object(acosbf16)
 add_math_entrypoint_object(acosf)
