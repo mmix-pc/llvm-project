@@ -621,6 +621,16 @@ void MMIX::validateInputRelocations(InputSectionBase &sec) const {
     if (rela.r_offset < contents.size())
       loc += rela.r_offset;
     (void)getRelExpr(type, sym, loc);
+    if (isLinux() && type == R_MMIX_64 && sym.isTls()) {
+      // DWARF TLS address operations consume a module-relative TLS offset.
+      // Ordinary runtime pointers to TLS still require a TLS access model.
+      if ((sec.flags & SHF_ALLOC) || !isDebugSection(sec))
+        Err(ctx) << &sec << ": R_MMIX_64 against TLS symbol " << &sym
+                 << " requires a non-allocated debug section";
+      else if (rela.r_offset > contents.size() ||
+               contents.size() - rela.r_offset < 8)
+        Err(ctx) << &sec << ": R_MMIX_64 requires a complete 8-byte debug field";
+    }
     if (isLinux() &&
         (type == R_MMIX_GOT_PC64 || type == R_MMIX_GOTTPREL_PC64 ||
          type == R_MMIX_TLSGD_PC64 || type == R_MMIX_TLSLD_PC64 ||
@@ -1231,6 +1241,10 @@ RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
   }
 
   if (s.isTls()) {
+    // Input validation restricts this to non-allocated DWARF. getVA returns
+    // the TLS module offset, not a process address, even for preemptible TLS.
+    if (isLinux() && type == R_MMIX_64)
+      return R_ABS;
     Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
              << " against TLS symbol " << &s << " is unsupported";
     return R_NONE;

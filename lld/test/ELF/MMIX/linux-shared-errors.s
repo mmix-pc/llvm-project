@@ -35,7 +35,7 @@
 # ENTRY: entry is not in a loaded executable section
 # VERSION: does not support symbol versions
 # READONLY: relocation R_MMIX_64 cannot be used against
-# TLS: relocation R_MMIX_64 against TLS symbol tls is unsupported
+# TLS: R_MMIX_64 against TLS symbol tls requires a non-allocated debug section
 # DUPLICATE: overlapping MMIX Linux dynamic relocation targets
 # ALIGN: MMIX dynamic relocation target is not 8-byte aligned
 # BOUNDS: extends past the end of the section
