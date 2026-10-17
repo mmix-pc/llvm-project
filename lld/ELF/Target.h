@@ -225,6 +225,10 @@ protected:
   uint64_t defaultImageBase = 0x10000;
 };
 
+// Additional dynamic-section requirements, queried before TargetInfo exists.
+bool targetNeedsDynamicSections(const Ctx &);
+bool needsMMIXDynamicSections(const Ctx &);
+
 void setAArch64TargetInfo(Ctx &);
 void setAMDGPUTargetInfo(Ctx &);
 void setARMTargetInfo(Ctx &);

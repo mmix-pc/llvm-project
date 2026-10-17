@@ -405,6 +405,13 @@ private:
 };
 } // namespace
 
+bool elf::needsMMIXDynamicSections(const Ctx &ctx) {
+  // The Linux interpreter consumes dynamic metadata even without DT_NEEDED.
+  // This is queried before TargetInfo construction and symbol export/LTO.
+  return ctx.arg.emulation == "elf64mmix_linux" && !ctx.arg.relocatable &&
+         !ctx.arg.dynamicLinker.empty();
+}
+
 MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
   symbolicRel = R_MMIX_64;
   if (isLinux()) {

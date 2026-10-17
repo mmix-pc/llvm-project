@@ -50,6 +50,15 @@ const ELFSyncStream &elf::operator<<(const ELFSyncStream &s, RelType type) {
   return s;
 }
 
+bool elf::targetNeedsDynamicSections(const Ctx &ctx) {
+  switch (ctx.arg.emachine) {
+  case EM_MMIX:
+    return needsMMIXDynamicSections(ctx);
+  default:
+    return false;
+  }
+}
+
 void elf::setTarget(Ctx &ctx) {
   switch (ctx.arg.emachine) {
   case EM_386:
