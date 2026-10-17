@@ -17,6 +17,7 @@ endif()
 set(LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES ON)
 include(${SOURCE}/libc/config/linux/mmix/CxxRuntimeDependencies.cmake)
 foreach(provider retained libc.src.assert.__assert_fail libc.src.stdio.snprintf
+                 libc.src.stdio.vsnprintf libc.src.stdio.sprintf libc.src.stdio.vsprintf
                  libc.src.stdio.vfprintf libc.src.pthread.pthread_getunique_np
                  libc.src.pthread.pthread_getthreadid_np libc.src.sched.sched_yield
                  libc.src.time.nanosleep libc.src.time.clock_gettime

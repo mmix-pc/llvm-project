@@ -13,6 +13,8 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.stdlib.lldiv
   libc.src.stdio.snprintf
   libc.src.stdio.vsnprintf
+  libc.src.stdio.sprintf
+  libc.src.stdio.vsprintf
   libc.src.stdio.vfprintf
   libc.src.stdio.remove
   libc.src.string.strcmp
