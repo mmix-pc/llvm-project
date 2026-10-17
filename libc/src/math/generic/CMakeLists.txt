@@ -5067,6 +5067,21 @@ add_entrypoint_object(
     libc.src.__support.math.bf16subf128
 )
 
+# These wrappers require binary64 long double; each source checks the format.
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  foreach(name acos asin atan cos sin tan acosh asinh atanh cosh sinh tanh
+      exp exp2 expm1 log log10 log1p log2 cbrt hypot pow erf erfc lgamma tgamma fma)
+    add_entrypoint_object(
+      ${name}l
+      SRCS ${name}l.cpp
+      HDRS ../${name}l.h
+      DEPENDS
+        libc.src.__support.common
+        libc.src.__support.macros.properties.types
+        libc.src.math.${name}
+    )
+  endforeach()
+endif()
 
 foreach(name lgamma lgamma_r tgamma tgammaf)
   set(support ${name})

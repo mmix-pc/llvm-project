@@ -278,6 +278,22 @@ add_entrypoint_object(
     libc.src.__support.macros.properties.types
     libc.src.__support.macros.properties.complex_types
 )
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  foreach(name cabs carg cacos casin catan ccos csin ctan cacosh casinh
+      catanh ccosh csinh ctanh cexp clog cpow csqrt)
+    add_entrypoint_object(
+      ${name}l
+      SRCS ${name}l.cpp
+      HDRS ../${name}l.h
+      DEPENDS
+        libc.src.__support.common
+        libc.src.__support.macros.properties.types
+        libc.src.__support.CPP.bit
+        libc.src.__support.complex_type
+        libc.src.complex.${name}
+    )
+  endforeach()
+endif()
 
 foreach(name csqrt csqrtf clog clogf cexp cexpf csin csinf ccos ccosf
     ctan ctanf csinh csinhf ccosh ccoshf ctanh ctanhf)

@@ -13,6 +13,12 @@ function(add_complex_entrypoint_object name)
   endif()
 endfunction()
 
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  foreach(name cabs carg cacos casin catan ccos csin ctan cacosh casinh
+      catanh ccosh csinh ctanh cexp clog cpow csqrt)
+    add_complex_entrypoint_object(${name}l)
+  endforeach()
+endif()
 
 add_complex_entrypoint_object(creal)
 add_complex_entrypoint_object(crealf)

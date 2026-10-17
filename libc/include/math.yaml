@@ -8,24 +8,164 @@ types:
 enums: []
 objects: []
 functions:
+  - name: acosl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: asinl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: atanl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: cosl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: sinl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: tanl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
   - name: acosh
     standards:
       - stdc
     return_type: double
     arguments:
       - type: double
+  - name: acoshl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
   - name: asinh
     standards:
       - stdc
     return_type: double
     arguments:
       - type: double
+  - name: asinhl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
   - name: atanh
     standards:
       - stdc
     return_type: double
     arguments:
       - type: double
+  - name: atanhl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: coshl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: sinhl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: tanhl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: expl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: exp2l
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: expm1l
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: logl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: log10l
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: log1pl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: log2l
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: cbrtl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: hypotl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+      - type: long double
+  - name: powl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+      - type: long double
+  - name: erfl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
   - name: erfc
     standards:
       - stdc
@@ -38,6 +178,12 @@ functions:
     return_type: float
     arguments:
       - type: float
+  - name: erfcl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
   - name: tgamma
     standards:
       - stdc
@@ -50,6 +196,20 @@ functions:
     return_type: float
     arguments:
       - type: float
+  - name: tgammal
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+  - name: fmal
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: long double
+      - type: long double
+      - type: long double
   - name: acos
     standards:
       - stdc

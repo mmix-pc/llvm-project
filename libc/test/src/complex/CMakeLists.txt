@@ -270,3 +270,21 @@ add_fp_unittest(
   DEPENDS
     libc.src.complex.cimagf128
 )
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(binary64_wrapper_deps
+    libc.src.__support.macros.properties.types
+    libc.src.__support.libc_errno
+    libc.src.__support.FPUtil.fenv_impl
+    libc.src.__support.CPP.bit
+    libc.src.__support.complex_type)
+  foreach(name cabs carg cacos casin catan ccos csin ctan cacosh casinh
+      catanh ccosh csinh ctanh cexp clog cpow csqrt)
+    list(APPEND binary64_wrapper_deps libc.src.complex.${name} libc.src.complex.${name}l)
+  endforeach()
+  add_fp_unittest(
+    binary64_long_double_test
+    SUITE libc-complex-unittests
+    SRCS binary64_long_double_test.cpp
+    DEPENDS ${binary64_wrapper_deps}
+  )
+endif()

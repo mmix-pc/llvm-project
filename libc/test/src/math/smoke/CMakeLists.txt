@@ -1,6 +1,22 @@
 add_custom_target(libc-math-smoke-tests)
 add_dependencies(libc-math-unittests libc-math-smoke-tests)
 
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(binary64_wrapper_deps
+    libc.src.__support.macros.properties.types
+    libc.src.__support.libc_errno
+    libc.src.__support.FPUtil.fenv_impl)
+  foreach(name acos asin atan cos sin tan acosh asinh atanh cosh sinh tanh
+      exp exp2 expm1 log log10 log1p log2 cbrt hypot pow erf erfc lgamma tgamma fma)
+    list(APPEND binary64_wrapper_deps libc.src.math.${name} libc.src.math.${name}l)
+  endforeach()
+  add_fp_unittest(
+    binary64_long_double_test
+    SUITE libc-math-smoke-tests
+    SRCS binary64_long_double_test.cpp
+    DEPENDS ${binary64_wrapper_deps}
+  )
+endif()
 
 foreach(name lgamma tgamma tgammaf)
   add_fp_unittest(

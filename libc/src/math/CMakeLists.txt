@@ -40,6 +40,12 @@ function(add_math_entrypoint_object name)
   )
 endfunction()
 
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  foreach(name acos asin atan cos sin tan acosh asinh atanh cosh sinh tanh
+      exp exp2 expm1 log log10 log1p log2 cbrt hypot pow erf erfc lgamma tgamma fma)
+    add_math_entrypoint_object(${name}l)
+  endforeach()
+endif()
 
 add_math_entrypoint_object(acos)
 add_math_entrypoint_object(acosbf16)

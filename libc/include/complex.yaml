@@ -33,6 +33,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: cacosl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: casin
     standards:
       - stdc
@@ -45,6 +51,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: casinl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: catan
     standards:
       - stdc
@@ -57,6 +69,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: catanl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: ccos
     standards:
       - stdc
@@ -69,6 +87,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: ccosl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: csin
     standards:
       - stdc
@@ -81,6 +105,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: csinl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: ctan
     standards:
       - stdc
@@ -93,6 +123,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: ctanl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: cacosh
     standards:
       - stdc
@@ -105,6 +141,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: cacoshl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: casinh
     standards:
       - stdc
@@ -117,6 +159,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: casinhl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: catanh
     standards:
       - stdc
@@ -129,6 +177,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: catanhl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: ccosh
     standards:
       - stdc
@@ -141,6 +195,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: ccoshl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: csinh
     standards:
       - stdc
@@ -153,6 +213,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: csinhl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: ctanh
     standards:
       - stdc
@@ -165,6 +231,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: ctanhl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: cexp
     standards:
       - stdc
@@ -177,6 +249,12 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: cexpl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
   - name: clog
     standards:
       - stdc
@@ -189,6 +267,18 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: clogl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
+  - name: cabsl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: _Complex long double
   - name: cpow
     standards:
       - stdc
@@ -203,6 +293,13 @@ functions:
     arguments:
       - type: _Complex float
       - type: _Complex float
+  - name: cpowl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
+      - type: _Complex long double
   - name: csqrt
     standards:
       - stdc
@@ -215,6 +312,18 @@ functions:
     return_type: _Complex float
     arguments:
       - type: _Complex float
+  - name: csqrtl
+    standards:
+      - stdc
+    return_type: _Complex long double
+    arguments:
+      - type: _Complex long double
+  - name: cargl
+    standards:
+      - stdc
+    return_type: long double
+    arguments:
+      - type: _Complex long double
   - name: cabs
     standards:
       - stdc
