@@ -47,6 +47,34 @@ extern "C" int main() {
                               bias, page, image) == ElfError::None);
   CHECK(DynamicInfo::open(image, info) == DynamicError::None);
 
+  // Check all orders, duplicates, adjacency and partial overlaps against an
+  // independent byte-occupancy oracle. A lower destination must not reset the
+  // high-water mark or hide a collision with a nonadjacent relocation.
+  const unsigned destinations[] = {0, 1, 7, 8, 9, 16, 24};
+  for (unsigned a : destinations) {
+    for (unsigned b : destinations) {
+      for (unsigned c : destinations) {
+        DynamicFixture input;
+        input.set(DT_RELASZ, 72);
+        const unsigned offsets[] = {a, b, c};
+        bool occupied[32] = {};
+        bool collision = false;
+        for (unsigned i = 0; i < 3; ++i) {
+          input.put(0xb00 + i * 24, 8, 0x4800 + offsets[i]);
+          input.put(0xb08 + i * 24, 8, 41);
+          for (unsigned byte = offsets[i]; byte < offsets[i] + 8; ++byte) {
+            collision |= occupied[byte];
+            occupied[byte] = true;
+          }
+        }
+        CHECK(ElfImage::open_file(input.view(), ImageRole::SharedObject, bias,
+                                 page, image) == ElfError::None);
+        CHECK(DynamicInfo::open(image, info) ==
+              (collision ? DynamicError::Relocation : DynamicError::None));
+      }
+    }
+  }
+
   MappedRegion partial[] = {{0, {f.bytes, 0xc00}},
                             {0x4000, {f.bytes + 0x4000, 0x1000}}};
   CHECK(ElfImage::open_mapped({partial, 2}, 0, 64, ImageRole::SharedObject,

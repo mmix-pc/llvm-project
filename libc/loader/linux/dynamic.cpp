@@ -471,6 +471,7 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
   if ((!any_rela && has(DynamicTag::Relacount)) ||
       val(DynamicTag::Relacount) > relas.size() / 24)
     return DynamicError::Relocation;
+  Address highest_destination = 0;
   for (Address i = 0; i < relas.size() / 24; ++i) {
     DynamicRelocation r;
     Address ignored;
@@ -506,12 +507,19 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
         overlaps(r.offset, val(DynamicTag::GnuHash), gnu.size()) ||
         overlaps(r.offset, val(DynamicTag::Rela), relas.size()))
       return DynamicError::Relocation;
-    for (Address j = 0; j < i; ++j) {
-      DynamicRelocation previous;
-      if (!read_relocation(j, previous) ||
-          overlaps(r.offset, previous.offset, 8))
-        return DynamicError::Relocation;
+    // Destinations beyond the highest previous octa cannot overlap. Keep the
+    // full check for unordered input; ELF does not require sorted destinations.
+    if (i && (r.offset < highest_destination ||
+              r.offset - highest_destination < 8)) {
+      for (Address j = 0; j < i; ++j) {
+        DynamicRelocation previous;
+        if (!read_relocation(j, previous) ||
+            overlaps(r.offset, previous.offset, 8))
+          return DynamicError::Relocation;
+      }
     }
+    if (!i || r.offset > highest_destination)
+      highest_destination = r.offset;
   }
   const DynamicTag addresses[] = {DynamicTag::InitArray, DynamicTag::FiniArray,
                                   DynamicTag::PreinitArray};
