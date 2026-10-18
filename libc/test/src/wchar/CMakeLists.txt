@@ -649,7 +649,9 @@ add_libc_test(
     libc.src.stdio.ferror
     libc.src.stdio.fopen
     libc.src.stdio.fseek
+    libc.src.stdio.ftell
     libc.src.stdio.fwrite
+    libc.src.stdio.setvbuf
     libc.src.wchar.fgetwc
     libc.src.wchar.fwide
     libc.src.wchar.ungetwc

@@ -18,7 +18,9 @@
 #include "src/stdio/ferror.h"
 #include "src/stdio/fopen.h"
 #include "src/stdio/fseek.h"
+#include "src/stdio/ftell.h"
 #include "src/stdio/fwrite.h"
+#include "src/stdio/setvbuf.h"
 #include "src/wchar/fgetwc.h"
 #include "src/wchar/fwide.h"
 #include "src/wchar/ungetwc.h"
@@ -26,6 +28,37 @@
 #include "test/UnitTest/Test.h"
 
 using LlvmLibcUngetwcTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
+
+TEST_F(LlvmLibcUngetwcTest, MultibyteBufferBoundaryAndPosition) {
+  auto filename = libc_make_test_file_path("ungetwc_boundary.test");
+  constexpr char content[] = "123\xe2\x82\xac!";
+  auto *file = LIBC_NAMESPACE::fopen(filename, "w");
+  ASSERT_FALSE(file == nullptr);
+  ASSERT_EQ(LIBC_NAMESPACE::fwrite(content, 1, sizeof(content) - 1, file),
+            sizeof(content) - 1);
+  ASSERT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+
+  const size_t sizes[] = {1, 4};
+  for (size_t size : sizes) {
+    file = LIBC_NAMESPACE::fopen(filename, "r");
+    ASSERT_FALSE(file == nullptr);
+    char buffer[4];
+    ASSERT_EQ(LIBC_NAMESPACE::setvbuf(file, buffer, _IOFBF, size), 0);
+    for (wint_t wc = '1'; wc <= '3'; ++wc)
+      ASSERT_EQ(LIBC_NAMESPACE::fgetwc(file), wc);
+    ASSERT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(0x20ac));
+    ASSERT_EQ(LIBC_NAMESPACE::ungetwc(0x20ac, file), wint_t(0x20ac));
+    EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 3L);
+    ASSERT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(0x20ac));
+    EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 6L);
+    ASSERT_EQ(LIBC_NAMESPACE::ungetwc(0x20ac, file), wint_t(0x20ac));
+    ASSERT_EQ(LIBC_NAMESPACE::fseek(file, 0, SEEK_CUR), 0);
+    EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 3L);
+    ASSERT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(0x20ac));
+    ASSERT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t('!'));
+    ASSERT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+  }
+}
 
 TEST_F(LlvmLibcUngetwcTest, PushBackAndRead) {
   auto FILENAME = libc_make_test_file_path("ungetwc_push.test");

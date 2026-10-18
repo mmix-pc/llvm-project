@@ -407,13 +407,14 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
     // More data could have been read out from the platform file than was
     // required. So, we have to adjust the offset we pass to platform seek
     // function. Note that read_limit >= pos is always true.
-    offset -= (read_limit - pos);
+    offset -= (read_limit - pos) + wide_pushback_bytes;
   }
   auto result = platform_seek(this, offset, whence);
   if (!result.has_value())
     return Error(result.error());
 
   pos = read_limit = 0;
+  wide_pushback_bytes = 0;
   prev_op = FileOp::SEEK;
   // Reset the eof flag as a seek might move the file position to some place
   // readable.
@@ -437,7 +438,7 @@ ErrorOr<off_t> File::tell_unlocked() {
     return Error(result.error());
   off_t platform_offset = result.value();
   if (prev_op == FileOp::READ)
-    return platform_offset - (read_limit - pos);
+    return platform_offset - (read_limit - pos) - wide_pushback_bytes;
   if (prev_op == FileOp::WRITE)
     return platform_offset + pos;
   return platform_offset;
@@ -638,6 +639,12 @@ FileIOResult File::read_unlocked(wchar_t *ws, size_t len) {
 
   size_t read_count = 0;
   for (size_t i = 0; i < len; ++i) {
+    if (wide_pushback_bytes != 0) {
+      ws[i] = wide_pushback;
+      wide_pushback_bytes = 0;
+      ++read_count;
+      continue;
+    }
     internal::CharacterConverter cr(&mbstate);
     while (!cr.isFull()) {
       uint8_t byte;
@@ -685,31 +692,19 @@ ErrorOr<wint_t> File::ungetwc_unlocked(wint_t wc) {
     break;
   }
 
+  if (wide_pushback_bytes != 0)
+    return WEOF;
+
   char mb_buf[4];
-  auto result = internal::wcrtomb(mb_buf, static_cast<wchar_t>(wc), &mbstate);
+  internal::mbstate state;
+  auto result = internal::wcrtomb(mb_buf, static_cast<wchar_t>(wc), &state);
   if (!result.has_value())
     return Error(result.error());
 
-  size_t n = result.value();
-
-  if (read_limit == 0) {
-    if (n > bufsize)
-      return WEOF;
-
-    for (size_t i = 0; i < n; ++i)
-      buf[i] = static_cast<uint8_t>(mb_buf[i]);
-
-    read_limit = n;
-    pos = 0;
-  } else {
-    if (pos < n)
-      return WEOF;
-    pos -= n;
-    for (size_t i = 0; i < n; ++i)
-      buf[pos + i] = static_cast<uint8_t>(mb_buf[i]);
-  }
+  wide_pushback = static_cast<wchar_t>(wc);
+  wide_pushback_bytes = result.value();
+  prev_op = FileOp::READ;
   eof = false;
-  err = false;
   return wc;
 }
 

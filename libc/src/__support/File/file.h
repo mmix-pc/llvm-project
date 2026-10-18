@@ -152,6 +152,9 @@ private:
 
   Orientation orientation;
   internal::mbstate mbstate;
+  // Wide pushback must survive byte-buffer refills, including partial UTF-8.
+  wchar_t wide_pushback = 0;
+  size_t wide_pushback_bytes = 0;
 
 protected:
   constexpr bool write_allowed() const {
@@ -174,6 +177,7 @@ protected:
     err = false;
     orientation = Orientation::UNORIENTED;
     mbstate = internal::mbstate();
+    wide_pushback_bytes = 0;
     adjust_buf();
   }
 
