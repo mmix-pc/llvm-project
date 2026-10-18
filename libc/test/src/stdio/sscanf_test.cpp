@@ -14,6 +14,69 @@
 #include "test/UnitTest/FPMatcher.h"
 #include "test/UnitTest/Test.h"
 
+TEST(LlvmLibcSScanfTest, InputFailureAndCompletedConversions) {
+  int value = 17;
+  float number = 17;
+  char text[9] = {};
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("", "%d", &value), EOF);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf(" \t", "%f", &number), EOF);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("", "a"), EOF);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("", " "), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("x", "%d", &value), 0);
+  EXPECT_EQ(value, 17);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("", "%s", text), EOF);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("", "%[a]", text), EOF);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("abc", "%8c", text), EOF);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("abcdefghijk", "%8c%8c", text, text), 1);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("42", "%*d%d", &value), 0);
+  int count = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("", "%n%d", &count, &value), 0);
+  EXPECT_EQ(count, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("42", "%*d%n", &count), 0);
+  EXPECT_EQ(count, 2);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("%", "%%"), 0);
+}
+
+TEST(LlvmLibcSScanfTest, FloatingLookahead) {
+  float value = 0;
+  char next = 0;
+  int count = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("inf!", "%f%n%c", &value, &count, &next),
+            2);
+  EXPECT_EQ(count, 3);
+  EXPECT_EQ(next, '!');
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("nan!", "%f%n%c", &value, &count, &next),
+            2);
+  EXPECT_EQ(count, 3);
+  EXPECT_EQ(next, '!');
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("1e2", "%1f%n%c", &value, &count, &next),
+            2);
+  EXPECT_EQ(count, 1);
+  EXPECT_EQ(next, 'e');
+}
+
+TEST(LlvmLibcSScanfTest, PointerLookaheadAndSuppression) {
+  char next = 0;
+  int count = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("(nullptr)!", "%*p%n%c", &count, &next),
+            1);
+  EXPECT_EQ(count, 9);
+  EXPECT_EQ(next, '!');
+  void *pointer = nullptr;
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("", "%p", &pointer), EOF);
+}
+
+TEST(LlvmLibcSScanfTest, LiteralPercentDoesNotConsumeArguments) {
+  int first = -1;
+  int second = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("%%", "%%%%"), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("%12%34%", "%%%d%%%d%%", &first,
+                                  &second),
+            2);
+  EXPECT_EQ(first, 12);
+  EXPECT_EQ(second, 34);
+}
+
 TEST(LlvmLibcSScanfTest, SimpleStringConv) {
   int ret_val;
   char buffer[10];
@@ -410,7 +473,7 @@ TEST(LlvmLibcSScanfTest, FloatConvComplexParsing) {
   EXPECT_FP_EQ(result, 0x1.0e3p0f);
 
   ret_val = LIBC_NAMESPACE::sscanf("", "%a", &result);
-  EXPECT_EQ(ret_val, 0);
+  EXPECT_EQ(ret_val, EOF);
 
   ret_val = LIBC_NAMESPACE::sscanf("+", "%a", &result);
   EXPECT_EQ(ret_val, 0);

@@ -92,8 +92,9 @@ public:
 
       section.conv_name = str[cur_pos];
 
-      // If NO_WRITE is not set, then read the next arg as the output pointer.
-      if ((section.flags & FormatFlags::NO_WRITE) == 0) {
+      // Literal percent and suppressed conversions have no output argument.
+      if ((section.flags & FormatFlags::NO_WRITE) == 0 &&
+          section.conv_name != '%' && section.conv_name != '\0') {
         // Since all outputs are pointers, there's no need to distinguish when
         // reading from va_args. They're all the same size and stored the same.
         section.output_ptr = GET_ARG_VAL_SIMPLEST(void *, conv_index);

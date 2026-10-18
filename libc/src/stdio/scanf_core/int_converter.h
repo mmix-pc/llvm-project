@@ -92,11 +92,13 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
     base = 10;
   }
 
-  char cur_char = reader->getc();
+  int cur_char = reader->getc();
+  if (cur_char < 0)
+    return FILE_READ_ERROR;
 
   char result_sign = '+';
   if (cur_char == '+' || cur_char == '-') {
-    result_sign = cur_char;
+    result_sign = static_cast<char>(cur_char);
     if (max_width > 1) {
       --max_width;
       cur_char = reader->getc();
@@ -125,7 +127,7 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
         return READ_OK;
       }
 
-      if (internal::tolower(cur_char) == 'x') {
+      if (cur_char >= 0 && internal::tolower(static_cast<char>(cur_char)) == 'x') {
         // This is a valid hex prefix.
 
         is_number = false;
@@ -153,7 +155,7 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
         }
       }
     } else if (base == 0) {
-      if (internal::isdigit(cur_char)) {
+      if (cur_char >= 0 && internal::isdigit(static_cast<char>(cur_char))) {
         // If the first character is a different number, then it's 10.
         base = 10;
       } else {
@@ -178,18 +180,19 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
 
   const uintmax_t max_div_by_base = MAX / base;
 
-  if (internal::isalnum(cur_char) &&
-      internal::b36_char_to_int(cur_char) < base) {
+  if (cur_char >= 0 && internal::isalnum(static_cast<char>(cur_char)) &&
+      internal::b36_char_to_int(static_cast<char>(cur_char)) < base) {
     is_number = true;
   }
 
   bool has_overflow = false;
   size_t i = 0;
-  for (; i < max_width && internal::isalnum(cur_char) &&
-         internal::b36_char_to_int(cur_char) < base;
+  for (; i < max_width && cur_char >= 0 &&
+         internal::isalnum(static_cast<char>(cur_char)) &&
+         internal::b36_char_to_int(static_cast<char>(cur_char)) < base;
        ++i, cur_char = reader->getc()) {
 
-    uintmax_t cur_digit = internal::b36_char_to_int(cur_char);
+    uintmax_t cur_digit = internal::b36_char_to_int(static_cast<char>(cur_char));
 
     if (result == MAX) {
       has_overflow = true;

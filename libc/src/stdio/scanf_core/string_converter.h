@@ -42,24 +42,37 @@ int convert_string(Reader<T> *reader, const FormatSection &to_conv) {
 
   char *output = reinterpret_cast<char *>(to_conv.output_ptr);
 
-  char cur_char = reader->getc();
+  int cur_char = reader->getc();
+  if (cur_char < 0)
+    return FILE_READ_ERROR;
   size_t i = 0;
-  for (; i < max_width && cur_char != '\0'; ++i) {
+  for (; i < max_width && cur_char >= 0; ++i) {
     // If this is %s and we've hit a space, or if this is %[] and we've found
     // something not in the scanset.
-    if ((to_conv.conv_name == 's' && internal::isspace(cur_char)) ||
-        (to_conv.conv_name == '[' && !to_conv.scan_set.test(cur_char))) {
+    if ((to_conv.conv_name == 's' &&
+         internal::isspace(static_cast<char>(cur_char))) ||
+        (to_conv.conv_name == '[' &&
+         !to_conv.scan_set.test(static_cast<size_t>(cur_char)))) {
       break;
     }
     // if the NO_WRITE flag is not set, write to the output.
     if ((to_conv.flags & NO_WRITE) == 0)
-      output[i] = cur_char;
+      output[i] = static_cast<char>(cur_char);
+    if (i + 1 == max_width) {
+      if (to_conv.conv_name != 'c' && (to_conv.flags & NO_WRITE) == 0)
+        output[i + 1] = '\0';
+      return READ_OK;
+    }
     cur_char = reader->getc();
   }
 
-  // We always read one more character than will be used, so we have to put the
-  // last one back.
+  // A nonmatching byte belongs to the next directive; EOF is not pushed back.
   reader->ungetc(cur_char);
+
+  if (to_conv.conv_name == 'c' && i < max_width)
+    return FILE_READ_ERROR;
+  if (i == 0)
+    return MATCHING_FAILURE;
 
   // If this is %s or %[]
   if (to_conv.conv_name != 'c' && (to_conv.flags & NO_WRITE) == 0) {
@@ -70,8 +83,6 @@ int convert_string(Reader<T> *reader, const FormatSection &to_conv) {
     output[i] = '\0';
   }
 
-  if (i == 0)
-    return MATCHING_FAILURE;
   return READ_OK;
 }
 

@@ -20,19 +20,23 @@ namespace scanf_core {
 
 class StringReader : public Reader<StringReader> {
   const char *buffer;
-  [[maybe_unused]] size_t buff_len;
+  size_t buff_len;
   size_t buff_cur = 0;
 
 public:
   LIBC_INLINE StringReader(const char *buffer, size_t buff_len)
       : buffer(buffer), buff_len(buff_len) {}
 
-  LIBC_INLINE char getc() {
-    char output = buffer[buff_cur];
+  LIBC_INLINE int getc() {
+    if (buff_cur >= buff_len || buffer[buff_cur] == '\0')
+      return -1;
+    unsigned char output = buffer[buff_cur];
     ++buff_cur;
     return output;
   }
-  LIBC_INLINE void ungetc(int) {
+  LIBC_INLINE void ungetc(int c) {
+    if (c < 0)
+      return;
     if (buff_cur > 0) {
       // While technically c should be written back to the buffer, in scanf we
       // always write the character that was already there. Additionally, the

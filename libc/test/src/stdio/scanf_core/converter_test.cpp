@@ -13,8 +13,45 @@
 
 #include "test/UnitTest/Test.h"
 
+TEST(LlvmLibcScanfConverterTest, StringWidthDoesNotReadAhead) {
+  class CountingReader
+      : public LIBC_NAMESPACE::scanf_core::Reader<CountingReader> {
+  public:
+    int reads = 0;
+    int pushes = 0;
+    int getc() {
+      ++reads;
+      return 'A';
+    }
+    void ungetc(int) { ++pushes; }
+  };
+
+  constexpr char conversions[] = {'c', 's', '['};
+  constexpr bool suppression[] = {false, true};
+  for (char conversion : conversions) {
+    for (bool suppress : suppression) {
+      CountingReader reader;
+      char output[2] = {'?', '?'};
+      LIBC_NAMESPACE::scanf_core::FormatSection section;
+      section.conv_name = conversion;
+      section.max_width = 1;
+      section.output_ptr = output;
+      section.scan_set.set('A');
+      if (suppress)
+        section.flags = LIBC_NAMESPACE::scanf_core::NO_WRITE;
+      EXPECT_EQ(LIBC_NAMESPACE::scanf_core::convert_string(&reader, section),
+                static_cast<int>(LIBC_NAMESPACE::scanf_core::READ_OK));
+      EXPECT_EQ(reader.reads, 1);
+      EXPECT_EQ(reader.pushes, 0);
+      EXPECT_EQ(reader.chars_read(), size_t(1));
+      EXPECT_EQ(output[0], suppress ? '?' : 'A');
+      EXPECT_EQ(output[1], suppress || conversion == 'c' ? '?' : '\0');
+    }
+  }
+}
+
 TEST(LlvmLibcScanfConverterTest, RawMatchBasic) {
-  const char *str = "abcdef";
+  const char str[] = "abcdef";
   LIBC_NAMESPACE::scanf_core::StringReader reader(str, sizeof(str));
 
   // Reading "abc" should succeed.
@@ -44,12 +81,12 @@ TEST(LlvmLibcScanfConverterTest, RawMatchBasic) {
 
   // Reading "efgh" should fail but advance to the end.
   ASSERT_EQ(LIBC_NAMESPACE::scanf_core::raw_match(&reader, "efgh"),
-            static_cast<int>(LIBC_NAMESPACE::scanf_core::MATCHING_FAILURE));
+            static_cast<int>(LIBC_NAMESPACE::scanf_core::FILE_READ_ERROR));
   ASSERT_EQ(reader.chars_read(), size_t(6));
 }
 
 TEST(LlvmLibcScanfConverterTest, RawMatchSpaces) {
-  const char *str = " a \t\n b   cd";
+  const char str[] = " a \t\n b   cd";
   LIBC_NAMESPACE::scanf_core::StringReader reader(str, sizeof(str));
 
   // Reading "a" should fail and not advance.
@@ -94,7 +131,7 @@ TEST(LlvmLibcScanfConverterTest, RawMatchSpaces) {
 }
 
 TEST(LlvmLibcScanfConverterTest, StringConvSimple) {
-  const char *str = "abcDEF123 654LKJihg";
+  const char str[] = "abcDEF123 654LKJihg";
   char result[20];
   LIBC_NAMESPACE::scanf_core::StringReader reader(str, sizeof(str));
 
@@ -116,7 +153,7 @@ TEST(LlvmLibcScanfConverterTest, StringConvSimple) {
 }
 
 TEST(LlvmLibcScanfConverterTest, StringConvNoWrite) {
-  const char *str = "abcDEF123 654LKJihg";
+  const char str[] = "abcDEF123 654LKJihg";
   LIBC_NAMESPACE::scanf_core::StringReader reader(str, sizeof(str));
 
   LIBC_NAMESPACE::scanf_core::FormatSection conv;
@@ -135,7 +172,7 @@ TEST(LlvmLibcScanfConverterTest, StringConvNoWrite) {
 }
 
 TEST(LlvmLibcScanfConverterTest, StringConvWidth) {
-  const char *str = "abcDEF123 654LKJihg";
+  const char str[] = "abcDEF123 654LKJihg";
   char result[6];
   LIBC_NAMESPACE::scanf_core::StringReader reader(str, sizeof(str));
 
@@ -168,7 +205,7 @@ TEST(LlvmLibcScanfConverterTest, StringConvWidth) {
 }
 
 TEST(LlvmLibcScanfConverterTest, CharsConv) {
-  const char *str = "abcDEF123 654LKJihg MNOpqr&*(";
+  const char str[] = "abcDEF123 654LKJihg MNOpqr&*(";
   char result[20];
   LIBC_NAMESPACE::scanf_core::StringReader reader(str, sizeof(str));
 
@@ -213,16 +250,16 @@ TEST(LlvmLibcScanfConverterTest, CharsConv) {
   ASSERT_EQ(reader.chars_read(), size_t(27));
   ASSERT_EQ(result_view, LIBC_NAMESPACE::cpp::string_view(" MNOpqr&", 8));
 
-  //%c will stop on a null byte though.
+  // The string terminator ends input before the required width is reached.
   ASSERT_EQ(LIBC_NAMESPACE::scanf_core::convert(&reader, conv),
-            static_cast<int>(LIBC_NAMESPACE::scanf_core::READ_OK));
+            static_cast<int>(LIBC_NAMESPACE::scanf_core::FILE_READ_ERROR));
   ASSERT_EQ(reader.chars_read(), size_t(29));
   ASSERT_EQ(LIBC_NAMESPACE::cpp::string_view(result, 2),
             LIBC_NAMESPACE::cpp::string_view("*(", 2));
 }
 
 TEST(LlvmLibcScanfConverterTest, ScansetConv) {
-  const char *str = "abcDEF[123] 654LKJihg";
+  const char str[] = "abcDEF[123] 654LKJihg";
   char result[20];
   LIBC_NAMESPACE::scanf_core::StringReader reader(str, sizeof(str));
 

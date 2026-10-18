@@ -25,17 +25,20 @@ int convert_pointer(Reader<T> *reader, const FormatSection &to_conv) {
   static const char nullptr_string[] = "(nullptr)";
 
   // Check if it's exactly the nullptr string, if so then it's a nullptr.
-  char cur_char = reader->getc();
+  int cur_char = reader->getc();
   size_t i = 0;
-  for (; i < (sizeof(nullptr_string) - 1) &&
-         internal::tolower(cur_char) == nullptr_string[i];
+  for (; i < (sizeof(nullptr_string) - 1) && cur_char >= 0 &&
+         internal::tolower(static_cast<char>(cur_char)) == nullptr_string[i];
        ++i) {
     cur_char = reader->getc();
   }
   if (i == (sizeof(nullptr_string) - 1)) {
-    *reinterpret_cast<void **>(to_conv.output_ptr) = nullptr;
+    reader->ungetc(cur_char);
+    if ((to_conv.flags & NO_WRITE) == 0)
+      *reinterpret_cast<void **>(to_conv.output_ptr) = nullptr;
     return READ_OK;
   } else if (i > 0) {
+    reader->ungetc(cur_char);
     return MATCHING_FAILURE;
   }
 

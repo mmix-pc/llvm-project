@@ -86,19 +86,19 @@ int convert(Reader<T> *reader, const FormatSection &to_conv) {
 // the reader.
 template <typename T>
 int raw_match(Reader<T> *reader, cpp::string_view raw_string) {
-  char cur_char = reader->getc();
+  int cur_char = reader->getc();
   int ret_val = READ_OK;
   for (size_t i = 0; i < raw_string.size(); ++i) {
     // Any space character matches any number of space characters.
     if (internal::isspace(raw_string[i])) {
-      while (internal::isspace(cur_char)) {
+      while (cur_char >= 0 && internal::isspace(static_cast<char>(cur_char))) {
         cur_char = reader->getc();
       }
     } else {
-      if (raw_string[i] == cur_char) {
+      if (static_cast<unsigned char>(raw_string[i]) == cur_char) {
         cur_char = reader->getc();
       } else {
-        ret_val = MATCHING_FAILURE;
+        ret_val = cur_char < 0 ? FILE_READ_ERROR : MATCHING_FAILURE;
         break;
       }
     }

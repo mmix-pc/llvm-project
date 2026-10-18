@@ -88,6 +88,20 @@ TEST(LlvmLibcScanfParserTest, EvalSimple) {
   ASSERT_SFORMAT_EQ(expected2, format_arr[2]);
 }
 
+TEST(LlvmLibcScanfParserTest, LiteralPercentPreservesArguments) {
+  LIBC_NAMESPACE::scanf_core::FormatSection sections[5];
+  int first = 0;
+  int second = 0;
+  evaluate(sections, "%%%d%%%d%%", &first, &second);
+  for (int i = 0; i < 5; i += 2) {
+    EXPECT_TRUE(sections[i].has_conv);
+    EXPECT_EQ(sections[i].conv_name, '%');
+    EXPECT_EQ(sections[i].output_ptr, nullptr);
+  }
+  EXPECT_EQ(sections[1].output_ptr, static_cast<void *>(&first));
+  EXPECT_EQ(sections[3].output_ptr, static_cast<void *>(&second));
+}
+
 TEST(LlvmLibcScanfParserTest, EvalOneArg) {
   LIBC_NAMESPACE::scanf_core::FormatSection format_arr[10];
   const char *str = "%d";

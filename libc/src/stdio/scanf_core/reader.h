@@ -22,16 +22,19 @@ template <typename Derived> class Reader {
 
 public:
   // This returns the next character from the input and advances it by one
-  // character. When it hits the end of the string or file it returns '\0' to
-  // signal to stop parsing.
-  LIBC_INLINE char getc() {
-    ++cur_chars_read;
-    return static_cast<Derived *>(this)->getc();
+  // character. A negative result denotes end of input, distinct from any byte.
+  LIBC_INLINE int getc() {
+    int c = static_cast<Derived *>(this)->getc();
+    if (c >= 0)
+      ++cur_chars_read;
+    return c;
   }
 
   // This moves the input back by one character, placing c into the buffer if
   // this is a file reader, else c is ignored.
   LIBC_INLINE void ungetc(int c) {
+    if (c < 0)
+      return;
     --cur_chars_read;
     static_cast<Derived *>(this)->ungetc(c);
   }

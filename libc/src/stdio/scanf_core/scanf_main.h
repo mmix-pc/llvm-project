@@ -27,14 +27,17 @@ int scanf_main(Reader<T> *reader, const char *__restrict str,
   Parser<internal::ArgList> parser(str, args);
   int ret_val = READ_OK;
   int conversions = 0;
+  bool completed_conversion = false;
   for (FormatSection cur_section = parser.get_next_section();
        !cur_section.raw_string.empty() && ret_val == READ_OK;
        cur_section = parser.get_next_section()) {
     if (cur_section.has_conv) {
       ret_val = convert(reader, cur_section);
-      // Neither %n nor an assignment-suppressed conversion increments the
-      // number of assignments.
-      if (cur_section.conv_name != 'n' &&
+      if (ret_val == READ_OK)
+        completed_conversion = true;
+      // Completion and assignment are distinct: %n, %% and suppressed
+      // conversions do not increment the number of assignments.
+      if (cur_section.conv_name != 'n' && cur_section.conv_name != '%' &&
           (cur_section.flags & FormatFlags::NO_WRITE) == 0)
         conversions += ret_val == READ_OK ? 1 : 0;
     } else {
@@ -42,7 +45,7 @@ int scanf_main(Reader<T> *reader, const char *__restrict str,
     }
   }
 
-  return conversions;
+  return ret_val == FILE_READ_ERROR && !completed_conversion ? -1 : conversions;
 }
 
 } // namespace scanf_core

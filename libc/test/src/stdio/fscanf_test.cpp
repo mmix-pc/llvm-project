@@ -35,6 +35,76 @@ using ::fwrite;
 #endif // LIBC_COPT_STDIO_USE_SYSTEM_FILE
 } // namespace scanf_test
 
+TEST(LlvmLibcFScanfTest, FailedFloatPreservesLookahead) {
+  auto path = libc_make_test_file_path("scanf_float_lookahead.test");
+  ::FILE *file = scanf_test::fopen(path, "w");
+  ASSERT_NE(file, nullptr);
+  constexpr char input[] = "0x1p 12";
+  ASSERT_EQ(scanf_test::fwrite(input, 1, sizeof(input) - 1, file),
+            sizeof(input) - 1);
+  ASSERT_EQ(scanf_test::fclose(file), 0);
+  file = scanf_test::fopen(path, "r");
+  ASSERT_NE(file, nullptr);
+  double value = -1;
+  int count = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%lf%n", &value, &count), 0);
+  EXPECT_EQ(count, -1);
+  EXPECT_EQ(scanf_test::feof(file), 0);
+  char next = 0;
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%c", &next), 1);
+  EXPECT_EQ(next, ' ');
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%*d%n", &count), 0);
+  EXPECT_EQ(count, 2);
+  EXPECT_NE(scanf_test::feof(file), 0);
+  EXPECT_EQ(scanf_test::fclose(file), 0);
+}
+
+TEST(LlvmLibcFScanfTest, EmbeddedNullAndHighBytes) {
+  auto path = libc_make_test_file_path("scanf_binary.test");
+  ::FILE *file = scanf_test::fopen(path, "w");
+  ASSERT_NE(file, nullptr);
+  constexpr char input[] = {'A', '\0', static_cast<char>(0xff), 'B'};
+  ASSERT_EQ(scanf_test::fwrite(input, 1, sizeof(input), file), sizeof(input));
+  ASSERT_EQ(scanf_test::fclose(file), 0);
+  file = scanf_test::fopen(path, "r");
+  ASSERT_NE(file, nullptr);
+  char output[4] = {};
+  int count = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%4c%n", output, &count), 1);
+  EXPECT_EQ(count, 4);
+  for (size_t i = 0; i < sizeof(input); ++i)
+    EXPECT_EQ(output[i], input[i]);
+  // A complete fixed-width conversion must not probe beyond its input item.
+  EXPECT_EQ(scanf_test::feof(file), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%c", output), EOF);
+  EXPECT_EQ(scanf_test::fclose(file), 0);
+}
+
+TEST(LlvmLibcFScanfTest, StringWidthDoesNotProbeEof) {
+  auto path = libc_make_test_file_path("scanf_string_width.test");
+  ::FILE *file = scanf_test::fopen(path, "w");
+  ASSERT_NE(file, nullptr);
+  ASSERT_EQ(scanf_test::fwrite("A", 1, 1, file), size_t(1));
+  ASSERT_EQ(scanf_test::fclose(file), 0);
+  const char *formats[] = {"%1s%n", "%1[A]%n", "%*1s%n", "%*1[A]%n"};
+  for (size_t i = 0; i < 4; ++i) {
+    file = scanf_test::fopen(path, "r");
+    ASSERT_NE(file, nullptr);
+    char output[2] = {'?', '?'};
+    int count = -1;
+    if (i < 2) {
+      EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, formats[i], output, &count), 1);
+      EXPECT_STREQ(output, "A");
+    } else {
+      EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, formats[i], &count), 0);
+    }
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(scanf_test::feof(file), 0);
+    EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%c", output), EOF);
+    EXPECT_EQ(scanf_test::fclose(file), 0);
+  }
+}
+
 TEST(LlvmLibcFScanfTest, WriteToFile) {
   const char *FILENAME = "fscanf_output.test";
   auto FILE_PATH = libc_make_test_file_path(FILENAME);
@@ -82,7 +152,8 @@ TEST(LlvmLibcFScanfTest, WriteToFile) {
   // The format string starts with a space to handle the fact that the %s leaves
   // a trailing \n and %c doesn't strip leading whitespace.
   read = LIBC_NAMESPACE::fscanf(file, " %50c", data);
-  ASSERT_EQ(read, 1);
+  // %c requires the full field width, not merely a nonempty prefix.
+  ASSERT_EQ(read, EOF);
   ASSERT_EQ(
       LIBC_NAMESPACE::cpp::string_view(numbers_and_more),
       LIBC_NAMESPACE::cpp::string_view(data, sizeof(numbers_and_more) - 1));

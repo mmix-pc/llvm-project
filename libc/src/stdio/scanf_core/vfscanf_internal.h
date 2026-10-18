@@ -87,25 +87,16 @@ namespace scanf_core {
 
 class StreamReader : public Reader<StreamReader> {
   ::FILE *stream;
-  bool eof = false;
 
 public:
   LIBC_INLINE StreamReader(::FILE *stream) : stream(stream) {}
 
-  LIBC_INLINE char getc() {
-    int c = internal::getc(stream);
-    if (c == EOF) {
-      eof = true;
-      return '\0';
-    }
-    return static_cast<char>(c);
-  }
+  LIBC_INLINE int getc() { return internal::getc(stream); }
   LIBC_INLINE void ungetc(int c) {
     // Don't ungetc the EOF to prevent clearing EOF indicator on stream.
-    if (!eof)
+    if (c != EOF)
       internal::ungetc(c, stream);
   }
-  LIBC_INLINE bool reached_eof() const { return eof; }
 };
 
 LIBC_INLINE int vfscanf_internal(::FILE *__restrict stream,
@@ -114,10 +105,7 @@ LIBC_INLINE int vfscanf_internal(::FILE *__restrict stream,
   internal::flockfile(stream);
   cpp::scope_exit unlock([&] { internal::funlockfile(stream); });
   scanf_core::StreamReader reader(stream);
-  int retval = scanf_core::scanf_main(&reader, format, args);
-  if (retval == 0 && reader.reached_eof())
-    retval = EOF;
-  return retval;
+  return scanf_core::scanf_main(&reader, format, args);
 }
 } // namespace scanf_core
 } // namespace LIBC_NAMESPACE_DECL
