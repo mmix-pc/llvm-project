@@ -30,7 +30,7 @@ for values, error in (
     ({"LIBC_CONF_ERRNO_MODE": "LIBC_ERRNO_MODE_SHARED"}, "THREAD_LOCAL errno"),
     ({"LIBC_MMIX_ENABLE_STATIC_TLS": "OFF"}, "requires static TLS"),
     ({"LIBC_COMPILE_OPTIONS_DEFAULT": "-ftls-model=local-exec"}, "native local-exec"),
-    ({"LIBC_MMIX_BUILD_ACCOUNT_MANAGEMENT": "ON"}, "does not support"),
+    ({"LIBC_MMIX_BUILD_SIGNAL_RUNTIME": "ON"}, "does not support"),
     ({"LIBC_MMIX_INSTALL_RUNTIME": "ON"}, "not an installed"),
 ):
     cases.append((values, error))
@@ -66,6 +66,11 @@ foreach(exports TARGET_LIBC_ENTRYPOINTS TARGET_LLVMLIBC_ENTRYPOINTS
   foreach(name sigaction sigaltstack sigemptyset sigaddset)
     if(NOT "libc.src.signal.${name}" IN_LIST ${exports})
       message(FATAL_ERROR "Missing public signal provider ${name} in ${exports}")
+    endif()
+  endforeach()
+  foreach(operation init destroy addopen adddup2 addclose)
+    if(NOT "libc.src.spawn.posix_spawn_file_actions_${operation}" IN_LIST ${exports})
+      message(FATAL_ERROR "Missing public spawn action ${operation} in ${exports}")
     endif()
   endforeach()
 endforeach()

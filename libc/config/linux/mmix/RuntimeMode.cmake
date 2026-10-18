@@ -75,6 +75,7 @@ option(LIBC_MMIX_BUILD_CXX_RUNTIME_DEPENDENCIES
   "Add libc dependencies for native threaded C++ runtime preparation" OFF)
 option(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC
   "Compose the single-thread Linux libc and C runtime" OFF)
+include(${CMAKE_CURRENT_LIST_DIR}/UnixComponents.cmake)
 if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
   # Preserve the existing C runtime targets, manifests and installation inputs.
   set(LIBC_MMIX_BUILD_C_RUNTIME ON)
@@ -230,6 +231,10 @@ function(mmix_check_runtime_mode)
     # preparation archive. Full public libc/pthread composition is separate.
     get_cmake_property(variables VARIABLES)
     foreach(variable IN LISTS variables)
+      string(REGEX REPLACE "^LIBC_MMIX_BUILD_" "" component "${variable}")
+      if(LIBC_MMIX_BUILD_THREADED_LIBC AND component IN_LIST MMIX_UNIX_COMPONENTS)
+        continue()
+      endif()
       # Nonlocal transfers use per-call storage and the calling thread's kernel
       # register-stack service; they do not introduce shared libc state.
       if(variable STREQUAL "LIBC_MMIX_BUILD_SHARED_LIBC" OR
@@ -258,6 +263,9 @@ function(mmix_check_runtime_mode)
     endif()
     foreach(component FORK VFORK SPAWN ACCOUNT_MANAGEMENT SIGNAL_RUNTIME
                       COMMAND_ENVIRONMENT_RUNTIME)
+      if(component STREQUAL "ACCOUNT_MANAGEMENT" AND LIBC_MMIX_BUILD_THREADED_LIBC)
+        continue()
+      endif()
       if(LIBC_MMIX_BUILD_${component})
         message(FATAL_ERROR "MMIX static TLS does not yet support ${component}")
       endif()

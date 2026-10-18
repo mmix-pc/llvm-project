@@ -68,7 +68,7 @@ selection = root / "core.txt"
 run("cmake", "-DLIBC_SOURCE=" + str(libc), "-DOUTPUT=" + str(selection),
     "-P", root / "selection.cmake")
 entries = selection.read_text().splitlines()
-assert len(entries) == len(set(entries)) == 67, entries
+assert len(entries) == len(set(entries)) == 69, entries
 # Keep the original memory providers, including compiler-emitted memmove in
 # generic qsort's fixed-size swap. Do not replace it with a test helper.
 entries += ["string/" + name for name in ("memcpy", "memmove", "memset", "memcmp", "strlen")]

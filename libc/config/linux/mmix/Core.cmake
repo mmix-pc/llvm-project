@@ -14,6 +14,8 @@ set(MMIX_CORE_ENTRYPOINTS
   libc.src.string.strchr
   libc.src.string.strcmp
   libc.src.string.strcpy
+  libc.src.string.strlcpy
+  libc.src.string.strlcat
   libc.src.string.strcspn
   libc.src.string.strdup
   libc.src.string.strncat

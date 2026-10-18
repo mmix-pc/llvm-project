@@ -3,9 +3,10 @@ option(LIBC_MMIX_BUILD_ACCOUNT_MANAGEMENT
 if(NOT LIBC_MMIX_BUILD_ACCOUNT_MANAGEMENT)
   return()
 endif()
-# FIXME: Credential-changing syscalls need process-wide coordination once
-# pthread support is admitted; direct syscalls currently qualify one thread only.
-if(NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE")
+# Credential-changing providers serialize with creation and reject updates
+# after another thread has been created; they do not broadcast credentials.
+if(NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE" AND
+   NOT LIBC_MMIX_BUILD_THREADED_LIBC)
   message(FATAL_ERROR "MMIX account management requires single-thread configuration")
 endif()
 if(NOT LIBC_MMIX_BUILD_ACCOUNT_LOOKUP)

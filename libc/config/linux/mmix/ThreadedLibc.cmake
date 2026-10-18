@@ -12,7 +12,7 @@ mmix_check_runtime_mode()
 # internal archive's fixed-guard fallback must not enter this composition.
 list(REMOVE_ITEM TARGET_LIBC_ENTRYPOINTS libc.src.compiler.__stack_chk_fail)
 
-# Select individual reviewed providers, not whole optional component families.
+# Supplement the optional Unix families with required pthread providers.
 # Fork and credential wrappers retain pre-creation-only runtime admission.
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.unistd.fork
@@ -41,6 +41,10 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.signal.sigaddset
 )
 list(REMOVE_DUPLICATES TARGET_LIBC_ENTRYPOINTS)
+foreach(operation init destroy addopen adddup2 addclose)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.spawn.posix_spawn_file_actions_${operation})
+endforeach()
 if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION)
   foreach(operation cancel setcancelstate setcanceltype testcancel)
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_${operation})

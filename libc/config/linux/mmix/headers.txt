@@ -31,7 +31,8 @@ if(LIBC_MMIX_ENABLE_UNIX_HEADERS)
     libc.include.sys_param libc.include.pwd libc.include.grp libc.include.syslog
     libc.include.regex libc.include.sys_statfs libc.include.sys_mount
     libc.include.sys_utsname libc.include.fnmatch libc.include.alloca
-    libc.include.arpa_inet libc.include.netinet_in
+    libc.include.arpa_inet libc.include.netinet_in libc.include.netinet_tcp
+    libc.include.sys_select libc.include.sys_uio
     libc.include.mmix_paths libc.include.getopt libc.include.mntent
     libc.include.sys_reboot libc.include.sys_times libc.include.sys_sysinfo
     libc.include.sched libc.include.malloc libc.include.sys_prctl)

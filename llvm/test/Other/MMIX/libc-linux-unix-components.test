@@ -1,0 +1,54 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, out = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+(out / "CMakeLists.txt").write_text('''
+cmake_minimum_required(VERSION 3.20)
+project(UnixProviders NONE)
+include("${LIBC_SOURCE}/config/linux/mmix/RuntimeMode.cmake")
+if(LIBC_MMIX_BUILD_THREADED_LIBC)
+  foreach(component IN LISTS MMIX_UNIX_COMPONENTS)
+    if(NOT LIBC_MMIX_BUILD_${component})
+      message(FATAL_ERROR "Missing Unix family ${component}")
+    endif()
+  endforeach()
+  foreach(family Core Signals Descriptors Process TextExtensions)
+    include("${LIBC_SOURCE}/config/linux/mmix/${family}.cmake")
+  endforeach()
+  foreach(provider string.strncat string.strspn string.strcspn string.strpbrk
+                   string.strlcpy string.strlcat signal.raise unistd.dup
+                   sys.wait.waitpid sys.resource.getrlimit sys.resource.setrlimit)
+    if(NOT "libc.src.${provider}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+      message(FATAL_ERROR "Missing provider ${provider}")
+    endif()
+  endforeach()
+  include("${LIBC_SOURCE}/config/linux/mmix/headers.txt")
+  foreach(header sys_wait sys_resource regex fnmatch pwd grp sys_socket termios)
+    if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
+      message(FATAL_ERROR "Missing header ${header}")
+    endif()
+  endforeach()
+else()
+  foreach(component IN LISTS MMIX_UNIX_COMPONENTS)
+    if(LIBC_MMIX_BUILD_${component})
+      message(FATAL_ERROR "Unix family leaked into internal configuration")
+    endif()
+  endforeach()
+endif()
+foreach(component FORK VFORK SPAWN SIGNAL_RUNTIME
+                  COMMAND_ENVIRONMENT_RUNTIME C_RUNTIME)
+  if(LIBC_MMIX_BUILD_${component})
+    message(FATAL_ERROR "SINGLE aggregate enabled: ${component}")
+  endif()
+endforeach()
+''')
+for threaded in ("ON", "OFF"):
+    subprocess.run(["cmake", "-S", str(out), "-B", str(out / threaded),
+                    f"-DLIBC_SOURCE={libc}",
+                    f"-DLIBC_MMIX_BUILD_THREADED_LIBC={threaded}"], check=True)
