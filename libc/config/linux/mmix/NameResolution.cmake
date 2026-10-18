@@ -12,6 +12,9 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.arpa.inet.inet_ntop
   libc.src.arpa.inet.inet_pton
   libc.src.arpa.inet.htons
+  libc.src.arpa.inet.htonl
+  libc.src.arpa.inet.ntohs
+  libc.src.arpa.inet.ntohl
   libc.src.netdb.getaddrinfo
   libc.src.netdb.freeaddrinfo
   libc.src.netdb.getnameinfo)
