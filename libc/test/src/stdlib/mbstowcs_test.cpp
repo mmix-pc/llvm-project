@@ -15,6 +15,16 @@
 
 using LlvmLibcMBSToWCSTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
+TEST_F(LlvmLibcMBSToWCSTest, IndependentCallsAfterInvalidSequence) {
+  wchar_t output[3] = {};
+  EXPECT_EQ(LIBC_NAMESPACE::mbstowcs(output, "\xe2\x82!", 3),
+            static_cast<size_t>(-1));
+  ASSERT_ERRNO_EQ(EILSEQ);
+  EXPECT_EQ(LIBC_NAMESPACE::mbstowcs(output, "A", 3), static_cast<size_t>(1));
+  EXPECT_EQ(output[0], L'A');
+  EXPECT_EQ(output[1], L'\0');
+}
+
 TEST_F(LlvmLibcMBSToWCSTest, OneByteOneChar) {
   const char *ch = "A";
   const char *original = ch;

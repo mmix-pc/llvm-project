@@ -12,6 +12,15 @@
 
 using LlvmLibcWcstombs = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
+TEST_F(LlvmLibcWcstombs, IndependentCallsAfterShortDestination) {
+  char output[5] = {};
+  const wchar_t euro[] = {0x20ac, 0};
+  EXPECT_EQ(LIBC_NAMESPACE::wcstombs(output, euro, 2), static_cast<size_t>(0));
+  EXPECT_EQ(LIBC_NAMESPACE::wcstombs(output, L"A", 5), static_cast<size_t>(1));
+  EXPECT_EQ(output[0], 'A');
+  EXPECT_EQ(output[1], '\0');
+}
+
 // these tests are fairly simple as this function just calls into the internal
 // wcsnrtombs which is more thoroughly tested
 
