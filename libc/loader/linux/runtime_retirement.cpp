@@ -150,6 +150,7 @@ long RuntimeRetirement::drain(LoaderLocks::Session &session,
   }
   long error = 0;
   while (!error) {
+    bool process_exit = false;
     {
       LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
       if (guard.error())
@@ -158,17 +159,32 @@ long RuntimeRetirement::drain(LoaderLocks::Session &session,
         active = false;
         return 0;
       }
-      error = closing.abort();
+      process_exit = exiting;
+      if (!process_exit) {
+        error = closing.abort();
+        if (!error)
+          error = plan.reset();
+        if (!error)
+          error = scratch.reset();
+        cpp::span<const Image *const> external;
+        if (!error)
+          error = roots(external);
+        if (!error)
+          error = initializers.collect_finalizers(
+              *scopes.snapshot()->registry, plan, session, false, external);
+      }
+    }
+    if (process_exit) {
+      error = initializers.finalize_process_exit(session, invoke);
+      LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+      if (guard.error())
+        __builtin_trap();
+      active = false;
       if (!error)
-        error = plan.reset();
-      if (!error)
-        error = scratch.reset();
-      cpp::span<const Image *const> external;
-      if (!error)
-        error = roots(external);
-      if (!error)
-        error = initializers.collect_finalizers(
-            *scopes.snapshot()->registry, plan, session, exiting, external);
+        events.take();
+      else
+        events.request();
+      return error;
     }
     if (!error)
       error = initializers.invoke_finalizers(plan, session, invoke);
@@ -178,9 +194,9 @@ long RuntimeRetirement::drain(LoaderLocks::Session &session,
         __builtin_trap();
       if (!error)
         error = initializers.complete_finalizers(plan, session);
-      if (!error)
+      if (!error && !exiting)
         error = prepare_removal(session);
-      if (!error)
+      if (!error && !exiting)
         error = advance_readers();
       if (error) {
         active = false;

@@ -261,6 +261,46 @@ long RuntimeInitializers::finalize(LoaderLocks::Session &session,
   return 0;
 }
 
+long RuntimeInitializers::finalize_process_exit(LoaderLocks::Session &session,
+                                              Finalizer invoke) {
+  if (!session.unlocked_callback_owner())
+    return -EINVAL;
+  {
+    LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+    if (guard.error())
+      return guard.error();
+    if (stopping)
+      return 0;
+    stopping = true;
+    for (auto *record = completed; record;
+         record = record->previous_completion) {
+      if (record->state != Record::Complete)
+        continue;
+      record->image->ownership.begin_finalization();
+      record->state = Record::Finalizing;
+    }
+  }
+  if (!invoke)
+    invoke = session.finalizer_barrier() ? session.finalizer_barrier()
+                                        : invoke_finalizer;
+  // The retirement coordinator disables reclamation during process exit.
+  // No temporary plan or ownership allocation may make exit fail on ENOMEM.
+  for (auto *record = completed; record;
+       record = record->previous_completion) {
+    if (record->state != Record::Finalizing)
+      continue;
+    for (size_t j = record->fini_count; j; --j) {
+      LoaderLocks::Session::Callback callback(session, true);
+      invoke(record->fini[j - 1]);
+    }
+    LoaderLocks::Guard guard(session, LoaderLocks::Kind::Mutation);
+    if (guard.error())
+      __builtin_trap();
+    record->state = Record::Finalized;
+  }
+  return 0;
+}
+
 long RuntimeInitializers::FinalizationPlan::release_pins() {
   while (pins) {
     long error = pins->image->ownership.release(pins->token);

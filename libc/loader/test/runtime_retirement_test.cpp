@@ -25,6 +25,7 @@ static thread_local bool pending_cancellation;
 static unsigned cancellation_deliveries;
 static void restore_cancellation();
 static bool fail_mapping;
+static unsigned failed_mappings;
 static void check(bool value, int line = __builtin_LINE()) {
   if (!value) {
     std::fprintf(stderr, "retirement check at %d\n", line);
@@ -33,8 +34,10 @@ static void check(bool value, int line = __builtin_LINE()) {
 }
 namespace LIBC_NAMESPACE::loader {
 long raw_syscall(long n, long a, long b, long c, long d, long e, long f) {
-  if (fail_mapping && n == SYS_mmap)
+  if (fail_mapping && n == SYS_mmap) {
+    ++failed_mappings;
     return -ENOMEM;
+  }
   long result = ::syscall(n, a, b, c, d, e, f);
   return result == -1 ? -errno : result;
 }
@@ -311,5 +314,47 @@ extern "C" int main() {
       &exiting));
   check(!pthread_join(owner, nullptr));
   check(exiting.callbacks == 4 && !exiting.events.requested());
+
+  RetirementFixture exhausted;
+  fixture = &exhausted;
+  close_handles(exhausted);
+  {
+    LoaderLocks::Session session(exhausted.locks, hooks);
+    LoaderLocks::Guard guard(session, Kind::Mutation);
+    check(!exhausted.retirement.request_exit(session));
+  }
+  unsigned before = failed_mappings;
+  fail_mapping = true;
+  check(!exhausted.drain() && exhausted.callbacks == 4);
+  check(!exhausted.drain() && exhausted.callbacks == 4);
+  check(failed_mappings == before && !exhausted.retirement.removals());
+  check(!exhausted.main.record.ownership.available_for_load());
+  check(!exhausted.late.record.ownership.available_for_load());
+  fail_mapping = false;
+
+  RetirementFixture held;
+  fixture = &held;
+  {
+    LoaderLocks::Session session(held.locks, hooks);
+    {
+      LoaderLocks::Guard guard(session, Kind::Mutation);
+      check(!held.retirement.request_exit(session));
+    }
+    const unsigned before = failed_mappings;
+    fail_mapping = true;
+    check(!held.retirement.drain(session, [](Address pc) {
+      auto &f = *fixture;
+      // Reverse completion and reverse per-image fini-array order survive
+      // exhaustion, including open handles and runtime ownership roots.
+      const Address expected[] = {0x302010, 0x302004, 0x102010, 0x102004};
+      check(f.callbacks < 4 && pc == expected[f.callbacks++]);
+      LoaderLocks::Session nested(f.locks, hooks);
+      check(!f.retirement.drain(nested));
+    }));
+    check(held.callbacks == 4 && failed_mappings == before);
+    check(held.scopes.snapshot()->handles.size() == 2);
+    check(!held.retirement.removals());
+    fail_mapping = false;
+  }
   return 0;
 }

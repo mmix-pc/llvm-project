@@ -154,6 +154,8 @@ public:
   long run(Batch &, LoaderLocks::Session &, const InitialStack &,
            Invoker = nullptr);
   long finalize(LoaderLocks::Session &, Finalizer = nullptr);
+  // Process exit keeps images mapped and uses the existing completion chain.
+  long finalize_process_exit(LoaderLocks::Session &, Finalizer = nullptr);
 };
 
 } // namespace loader
