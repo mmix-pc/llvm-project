@@ -15,7 +15,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(const wchar_t *, wcsrchr, (const wchar_t *s, wchar_t c)) {
+LLVM_LIBC_FUNCTION(wchar_t *, wcsrchr, (const wchar_t *s, wchar_t c)) {
   LIBC_CRASH_ON_NULLPTR(s);
 
   const wchar_t *last_occurrence = nullptr;
@@ -23,7 +23,7 @@ LLVM_LIBC_FUNCTION(const wchar_t *, wcsrchr, (const wchar_t *s, wchar_t c)) {
     if (*s == c)
       last_occurrence = s;
     if (*s == L'\0')
-      return last_occurrence;
+      return const_cast<wchar_t *>(last_occurrence);
     ++s;
   }
 }

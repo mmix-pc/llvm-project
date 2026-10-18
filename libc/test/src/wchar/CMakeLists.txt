@@ -788,3 +788,15 @@ add_libc_test(
     libc.src.wchar.swprintf
     libc.test.UnitTest.ErrnoCheckingTest
 )
+
+add_libc_test(
+  search_signatures_test
+  SUITE libc_wchar_unittests
+  SRCS search_signatures_test.cpp
+  DEPENDS
+    libc.src.wchar.wcschr
+    libc.src.wchar.wcspbrk
+    libc.src.wchar.wcsrchr
+    libc.src.wchar.wcsstr
+    libc.src.wchar.wmemchr
+)

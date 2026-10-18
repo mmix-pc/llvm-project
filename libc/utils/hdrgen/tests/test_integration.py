@@ -52,6 +52,16 @@ class TestHeaderGenIntegration(unittest.TestCase):
 
         self.compare_files(output_file, expected_output_file)
 
+    def test_c_wide_search_signatures(self):
+        output_file = self.output_dir / "wide_search.h"
+        names = ["wcschr", "wcspbrk", "wcsrchr", "wcsstr", "wmemchr"]
+        self.run_script(self.source_dir.parents[2] / "include/wchar.yaml",
+                        output_file, names)
+        content = output_file.read_text()
+        for name in names:
+            self.assertIn("wchar_t *" + name + "(", content)
+            self.assertNotIn("const wchar_t *" + name + "(", content)
+
     def test_exception_specifications(self):
         output_file = self.output_dir / "noexcept.h"
         self.run_script(self.source_dir / "input/noexcept.yaml", output_file)
