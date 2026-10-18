@@ -8,7 +8,7 @@
 
 #include "src/__support/CPP/string_view.h"
 #include "src/locale/locale.h"
-#include "src/stdlib/getenv.h"
+#include "src/stdlib/environ_internal.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -49,11 +49,11 @@ bool resolve_locale(int mask, const char *name, __locale_t &result) {
         continue;
       const char *selected = name;
       if (input.empty()) {
-        selected = LIBC_NAMESPACE::getenv("LC_ALL");
+        selected = EnvironmentManager::get_instance().get("LC_ALL");
         if (!selected || !*selected)
-          selected = LIBC_NAMESPACE::getenv(category_names[i]);
+          selected = EnvironmentManager::get_instance().get(category_names[i]);
         if (!selected || !*selected)
-          selected = LIBC_NAMESPACE::getenv("LANG");
+          selected = EnvironmentManager::get_instance().get("LANG");
         if (!selected || !*selected)
           selected = "C";
       }

@@ -38,7 +38,7 @@ add_object_library(
   DEPENDS
     .locale
     libc.src.__support.CPP.string_view
-    libc.src.stdlib.getenv
+    libc.src.stdlib.environ_internal
 )
 
 add_entrypoint_object(
