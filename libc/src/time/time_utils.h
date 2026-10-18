@@ -93,7 +93,7 @@ LIBC_INLINE constexpr bool is_leap_year(const int64_t year) {
   return (year & (is_mul_25 ? 15 : 3)) == 0;
 }
 
-LIBC_INLINE constexpr int get_days_in_year(const int year) {
+LIBC_INLINE constexpr int get_days_in_year(const int64_t year) {
   return is_leap_year(year) ? time_constants::DAYS_PER_LEAP_YEAR
                             : time_constants::DAYS_PER_NON_LEAP_YEAR;
 }
@@ -170,8 +170,8 @@ public:
   // returns the year, counting from 1900
   LIBC_INLINE constexpr int get_year_raw() const { return timeptr->tm_year; }
   // returns the year, counting from 0
-  LIBC_INLINE constexpr int get_year() const {
-    return timeptr->tm_year + time_constants::TIME_YEAR_BASE;
+  LIBC_INLINE constexpr int64_t get_year() const {
+    return int64_t(timeptr->tm_year) + time_constants::TIME_YEAR_BASE;
   }
 
   LIBC_INLINE constexpr int is_leap_year() const {
@@ -258,8 +258,8 @@ public:
     return ceil_weeks_since_start + WEEK_STARTS_IN_PREV_YEAR;
   }
 
-  LIBC_INLINE constexpr int get_iso_year() const {
-    const int BASE_YEAR = get_year();
+  LIBC_INLINE constexpr int64_t get_iso_year() const {
+    const int64_t BASE_YEAR = get_year();
     // The ISO year is the same as a standard year for all dates after the start
     // of the first week and before the last week. Since the first ISO week of a
     // year starts on the 4th, anything after that is in this year.

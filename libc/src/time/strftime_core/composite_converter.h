@@ -36,9 +36,9 @@ get_specific_int_format(const tm *timeptr, const FormatSection &base_to_conv,
   // (not %s).
   IntFormatSection result = get_int_format(new_conv, timeptr).value();
 
-  // If the user set the padding, but it's below the width of the trailing
+  // If the user set the padding, but it does not exceed the trailing
   // conversions, then there should be no padding.
-  if (base_to_conv.min_width > 0 && NEW_MIN_WIDTH < 0)
+  if (base_to_conv.min_width > 0 && TRAILING_CONV_LEN > 0 && NEW_MIN_WIDTH <= 0)
     result.pad_to_len = 0;
 
   return result;
@@ -76,8 +76,12 @@ LIBC_INLINE int convert_date_iso(printf_core::Writer<write_mode> *writer,
   // their valid ranges.
   constexpr int TRAILING_CONV_LEN = 1 + 2 + 1 + 2; // sizeof("-01-02")
 
+  // POSIX defines an unadorned %F as %+4Y-%m-%d.
+  FormatSection year_format = to_conv;
+  if (to_conv.flags == 0 && to_conv.min_width == 0)
+    year_format.flags = FormatFlags::FORCE_SIGN;
   IntFormatSection year_conv =
-      get_specific_int_format(timeptr, to_conv, 'Y', TRAILING_CONV_LEN);
+      get_specific_int_format(timeptr, year_format, 'Y', TRAILING_CONV_LEN);
   IntFormatSection mon_conv = get_specific_int_format(timeptr, to_conv, 'm');
   IntFormatSection mday_conv = get_specific_int_format(timeptr, to_conv, 'd');
 

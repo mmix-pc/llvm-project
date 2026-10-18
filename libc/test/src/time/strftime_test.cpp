@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "hdr/limits_macros.h"
 #include "hdr/types/struct_tm.h"
 #include "src/__support/CPP/array.h"
 #include "src/__support/integer_to_string.h"
@@ -1334,6 +1335,45 @@ TEST(LlvmLibcStrftimeTest, YearOfCentury) {
 
   written = LIBC_NAMESPACE::strftime(buffer, sizeof(buffer), "%05y", &time);
   EXPECT_STREQ_LEN(written, buffer, "00045");
+}
+
+TEST(LlvmLibcStrftimeTest, YearBeyondIntRange) {
+  tm time{};
+  time.tm_year = INT_MAX;
+  time.tm_mon = 0;
+  time.tm_mday = 5;
+  time.tm_yday = 4;
+  char buffer[100];
+  size_t written = LIBC_NAMESPACE::strftime(
+      buffer, sizeof(buffer), "%Y %y %C %G %g", &time);
+  EXPECT_STREQ_LEN(written, buffer, "2147485547 47 21474855 2147485547 47");
+  written = LIBC_NAMESPACE::strftime(buffer, sizeof(buffer), "%011Y", &time);
+  EXPECT_STREQ_LEN(written, buffer, "02147485547");
+  written = LIBC_NAMESPACE::strftime(buffer, sizeof(buffer), "%+12Y", &time);
+  EXPECT_STREQ_LEN(written, buffer, "+02147485547");
+}
+
+TEST(LlvmLibcStrftimeTest, CompositeWidthWithoutYearPadding) {
+  tm time{};
+  time.tm_year = -1900;
+  time.tm_mon = 1;
+  time.tm_mday = 23;
+  char buffer[100];
+  size_t written = LIBC_NAMESPACE::strftime(buffer, sizeof(buffer), "%06F", &time);
+  EXPECT_STREQ_LEN(written, buffer, "0-02-23");
+  written = LIBC_NAMESPACE::strftime(buffer, sizeof(buffer), "%07F", &time);
+  EXPECT_STREQ_LEN(written, buffer, "0-02-23");
+}
+
+TEST(LlvmLibcStrftimeTest, ExpandedISOYear) {
+  tm time{};
+  time.tm_year = 10009 - 1900;
+  time.tm_mday = 2;
+  char buffer[100];
+  size_t written = LIBC_NAMESPACE::strftime(buffer, sizeof(buffer), "%F", &time);
+  EXPECT_STREQ_LEN(written, buffer, "+10009-01-02");
+  written = LIBC_NAMESPACE::strftime(buffer, sizeof(buffer), "%011F", &time);
+  EXPECT_STREQ_LEN(written, buffer, "10009-01-02");
 }
 
 TEST(LlvmLibcStrftimeTest, FullYearTests) {
