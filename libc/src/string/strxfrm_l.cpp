@@ -15,7 +15,8 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-// TODO: Add support for locales.
+// Only C locale objects can currently be constructed.
+// TODO: Add locale-dependent transformation when other locales are supported.
 LLVM_LIBC_FUNCTION(size_t, strxfrm_l,
                    (char *__restrict dest, const char *__restrict src, size_t n,
                     locale_t)) {

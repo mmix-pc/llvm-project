@@ -14,14 +14,15 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-// TODO: Add support for locales.
+// Only C locale objects can currently be constructed.
+// TODO: Add locale-dependent collation when other locales are supported.
 LLVM_LIBC_FUNCTION(int, strcoll_l,
                    (const char *left, const char *right, locale_t)) {
   LIBC_CRASH_ON_NULLPTR(left);
   LIBC_CRASH_ON_NULLPTR(right);
   for (; *left && *left == *right; ++left, ++right)
     ;
-  return static_cast<int>(*left) - static_cast<int>(*right);
+  return static_cast<unsigned char>(*left) - static_cast<unsigned char>(*right);
 }
 
 } // namespace LIBC_NAMESPACE_DECL

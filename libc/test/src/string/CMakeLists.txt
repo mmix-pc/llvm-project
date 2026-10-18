@@ -130,6 +130,19 @@ add_libc_test(
 )
 
 add_libc_test(
+  locale_collation_test
+  SUITE libc-string-tests
+  SRCS locale_collation_test.cpp
+  DEPENDS
+    libc.hdr.locale_macros
+    libc.src.locale.newlocale
+    libc.src.locale.freelocale
+    libc.src.string.strcmp
+    libc.src.string.strcoll_l
+    libc.src.string.strxfrm_l
+)
+
+add_libc_test(
   strcoll_test
   SUITE
     libc-string-tests
