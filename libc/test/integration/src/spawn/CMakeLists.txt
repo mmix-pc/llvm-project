@@ -1,6 +1,37 @@
 add_custom_target(spawn-integration-tests)
 add_dependencies(libc-integration-tests spawn-integration-tests)
 
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+   LIBC_MMIX_BUILD_COORDINATED_FORK)
+  add_integration_test(
+    mmix_coordinated_spawn_test
+    SUITE spawn-integration-tests
+    SRCS mmix_coordinated_spawn_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.include.pthread
+      libc.include.signal
+      libc.include.spawn
+      libc.include.sys_syscall
+      libc.include.sys_wait
+      libc.src.__support.CPP.atomic
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.threads.linux.mmix.fork_runtime
+      libc.src.pthread.pthread_atfork
+      libc.src.pthread.pthread_create
+      libc.src.pthread.pthread_join
+      libc.src.signal.sigaction
+      libc.src.signal.sigaddset
+      libc.src.signal.sigemptyset
+      libc.src.signal.sigismember
+      libc.src.signal.sigprocmask
+      libc.src.spawn.posix_spawn
+      libc.src.spawn.posix_spawnp
+      libc.src.sys.wait.waitpid
+      libc.src.unistd.environ
+  )
+endif()
+
 add_integration_test(
   posix_spawnp_test
   SUITE spawn-integration-tests

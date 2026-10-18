@@ -9,6 +9,8 @@ add_header_library(
 )
 
 set(spawn_source posix_spawn.cpp)
+set(spawn_options)
+set(spawn_extra_headers)
 set(spawn_signal_deps libc.src.signal.linux.signal_utils)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(spawn_source mmix/posix_spawn.cpp)
@@ -17,6 +19,13 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     libc.hdr.errno_macros
     libc.src.signal.linux.mmix.rt_sigaction
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask)
+  if(LIBC_MMIX_BUILD_COORDINATED_FORK)
+    list(APPEND spawn_source mmix/coordinated_spawn.cpp)
+    list(APPEND spawn_extra_headers mmix/coordinated_spawn.h)
+    list(APPEND spawn_signal_deps
+      libc.src.__support.threads.linux.mmix.fork_runtime)
+    set(spawn_options -DLIBC_MMIX_SPAWN_COORDINATED -fno-lto)
+  endif()
 endif()
 add_entrypoint_object(
   posix_spawn
@@ -24,6 +33,7 @@ add_entrypoint_object(
     ${spawn_source}
   HDRS
     ../posix_spawn.h
+    ${spawn_extra_headers}
   DEPENDS
     libc.hdr.types.mode_t
     libc.hdr.fcntl_macros
@@ -37,6 +47,7 @@ add_entrypoint_object(
     libc.src.spawn.file_actions
     .spawn
     ${spawn_signal_deps}
+  COMPILE_OPTIONS ${spawn_options}
 )
 
 add_entrypoint_object(

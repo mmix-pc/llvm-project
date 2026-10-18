@@ -13,7 +13,11 @@
 #include "src/__support/OSUtil/linux/syscall_wrappers/dup2.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/rt_sigprocmask.h"
+#ifdef LIBC_MMIX_SPAWN_COORDINATED
+#include "coordinated_spawn.h"
+#else
 #include "src/__support/threads/linux/mmix/process_operation.h"
+#endif
 #include "src/signal/linux/mmix/rt_sigaction.h"
 #include "src/spawn/file_actions.h"
 #include "src/spawn/linux/spawn.h"
@@ -93,14 +97,16 @@ namespace {
 
 } // namespace
 
-// FIXME: Reuse shared spawn policy after MMIX restorer selection and pthread
-// coordination are supported. Only the null-attribute caller profile is ready.
+// Attribute support is independent of process coordination. Only the existing
+// null-attribute caller profile is supported by either creation path.
 int spawn(pid_t *pid, const char *const *paths,
           const posix_spawn_file_actions_t *actions,
           const posix_spawnattr_t *attr, char *const *argv, char *const *envp) {
+#ifndef LIBC_MMIX_SPAWN_COORDINATED
   mmix::ProcessOperation operation;
   if (operation.error())
     return operation.error();
+#endif
   if (attr)
     return ENOTSUP;
   sigset_t full{{-1UL}}, saved{};
@@ -110,7 +116,11 @@ int spawn(pid_t *pid, const char *const *paths,
 
   // No at-fork callbacks: this child only performs raw setup, exec or exit.
   // The kernel copies the software and register stacks; both return normally.
+#ifdef LIBC_MMIX_SPAWN_COORDINATED
+  long result = mmix::coordinated_spawn_clone();
+#else
   long result = syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+#endif
   if (result == 0)
     child_process(paths, actions, saved, argv, envp);
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
