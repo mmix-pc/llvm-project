@@ -34,6 +34,8 @@ set(MMIX_WIDE_ENTRYPOINTS
   libc.src.wchar.wcstoll
   libc.src.wchar.wcstoul
   libc.src.wchar.wcstoull
+  libc.src.inttypes.wcstoimax
+  libc.src.inttypes.wcstoumax
   libc.src.wchar.wmemchr
   libc.src.wchar.wmemcmp
   libc.src.wchar.wmemcpy

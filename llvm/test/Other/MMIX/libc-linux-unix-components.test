@@ -18,12 +18,13 @@ if(LIBC_MMIX_BUILD_THREADED_LIBC)
       message(FATAL_ERROR "Missing Unix family ${component}")
     endif()
   endforeach()
-  foreach(family Core Signals Descriptors Process TextExtensions)
+  foreach(family Core Signals Descriptors Process TextExtensions Time Stdio Wide)
     include("${LIBC_SOURCE}/config/linux/mmix/${family}.cmake")
   endforeach()
   foreach(provider string.strncat string.strspn string.strcspn string.strpbrk
                    string.strlcpy string.strlcat signal.raise unistd.dup
-                   sys.wait.waitpid sys.resource.getrlimit sys.resource.setrlimit)
+                   sys.wait.waitpid sys.resource.getrlimit sys.resource.setrlimit
+                   time.clock stdio.getchar inttypes.wcstoimax inttypes.wcstoumax)
     if(NOT "libc.src.${provider}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
       message(FATAL_ERROR "Missing provider ${provider}")
     endif()
