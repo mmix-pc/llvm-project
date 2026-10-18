@@ -674,12 +674,30 @@ add_libc_test(
     tmpfile_test.cpp
   DEPENDS
     libc.src.stdio.tmpfile
+    libc.src.stdio.fclose
     libc.src.stdio.fflush
     libc.src.stdio.fread
     libc.src.stdio.fseek
     libc.src.stdio.ftell
     libc.src.stdio.fwrite
 )
+
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    tmpfile_failure_test
+    SUITE libc_stdio_unittests
+    FULL_BUILD_ONLY
+    SRCS tmpfile_failure_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.hdr.stdio_macros
+      libc.src.__support.File.platform_file
+      libc.src.__support.OSUtil.linux.syscall_wrappers.open
+      libc.src.__support.OSUtil.linux.syscall_wrappers.close
+      libc.src.__support.libc_errno
+  )
+endif()
 
 # Create an output directory for any temporary test files.
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/testdata)

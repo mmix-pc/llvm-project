@@ -43,4 +43,7 @@ TEST(LlvmLibcTmpfileTest, CreationAndInvariants) {
   char buff[TEST_STR_SIZE * 2];
   size_t nbytes_read = LIBC_NAMESPACE::fread(buff, 1, TEST_STR_SIZE, file);
   EXPECT_EQ(nbytes_read, TEST_STR_SIZE);
+  for (size_t i = 0; i < nbytes_read; ++i)
+    EXPECT_EQ(buff[i], TEST_STR[i]);
+  EXPECT_EQ(LIBC_NAMESPACE::fclose(file), 0);
 }

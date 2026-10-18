@@ -14,6 +14,7 @@
 #include "hdr/fcntl_macros.h"
 #include "hdr/types/FILE.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 
 #include "src/__support/File/linux/file.h"
 #include "src/__support/common.h"
@@ -32,6 +33,8 @@ LLVM_LIBC_FUNCTION(::FILE *, tmpfile, (void)) {
   }
   auto file = LIBC_NAMESPACE::create_file_from_fd(fd.value(), "w+b");
   if (!file.has_value()) {
+    // Ownership transfers only after the stream has been constructed.
+    (void)linux_syscalls::close(fd.value());
     libc_errno = file.error();
     return nullptr;
   }
