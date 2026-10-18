@@ -3,6 +3,24 @@ add_dependencies(check-libc libc_include_tests-build)
 
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
+    sys_stat_classification_c_test
+    C_TEST
+    FULL_BUILD_ONLY
+    SUITE libc_include_tests
+    SRCS sys_stat_classification_test.c
+    HDRS sys_stat_classification_test.h
+    DEPENDS libc.include.sys_stat
+  )
+  add_libc_test(
+    sys_stat_classification_cpp_test
+    FULL_BUILD_ONLY
+    SUITE libc_include_tests
+    SRCS sys_stat_classification_test.cpp
+    HDRS sys_stat_classification_test.h
+    DEPENDS libc.include.sys_stat
+  )
+
+  add_libc_test(
     socket_length_test
     SUITE libc_include_tests
     SRCS socket_length_test.cpp

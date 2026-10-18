@@ -35,6 +35,13 @@
 #define S_ISFIFO(m)     (((m) & S_IFMT) == S_IFIFO)
 #define S_ISSOCK(m)     (((m) & S_IFMT) == S_IFSOCK)
 
+// Linux has no distinct stat file types for these objects. Check the stat
+// argument and evaluate it once without claiming the facilities are supported.
+#define S_TYPEISMQ(buf)  ((void)((buf)->st_mode), 0)
+#define S_TYPEISSEM(buf) ((void)((buf)->st_mode), 0)
+#define S_TYPEISSHM(buf) ((void)((buf)->st_mode), 0)
+#define S_TYPEISTMO(buf) ((void)((buf)->st_mode), 0)
+
 #define S_IRWXU 00700
 #define S_IRUSR 00400
 #define S_IWUSR 00200
