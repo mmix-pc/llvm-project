@@ -573,6 +573,20 @@ add_header_library(
 )
 
 add_header_library(
+  mknodat
+  HDRS mknodat.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.types.dev_t
+    libc.hdr.types.mode_t
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.error_or
+    libc.src.__support.macros.config
+    libc.src.__support.macros.attributes
+    libc.include.sys_syscall
+)
+
+add_header_library(
   mkdirat
   HDRS
     mkdirat.h

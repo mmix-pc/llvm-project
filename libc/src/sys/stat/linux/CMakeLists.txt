@@ -142,6 +142,18 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  mknodat
+  SRCS mknodat.cpp
+  HDRS ../mknodat.h
+  DEPENDS
+    libc.hdr.types.mode_t
+    libc.hdr.types.dev_t
+    libc.src.__support.common
+    libc.src.__support.OSUtil.linux.syscall_wrappers.mknodat
+    libc.src.__support.libc_errno
+)
+
+add_entrypoint_object(
   mknod
   SRCS
     mknod.cpp
@@ -153,6 +165,6 @@ add_entrypoint_object(
     libc.hdr.types.mode_t
     libc.hdr.types.dev_t
     libc.hdr.fcntl_macros
-    libc.src.__support.OSUtil.osutil
+    libc.src.__support.OSUtil.linux.syscall_wrappers.mknodat
     libc.src.__support.libc_errno
 )

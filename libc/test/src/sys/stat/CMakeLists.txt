@@ -90,6 +90,25 @@ add_libc_test(
 )
 
 add_libc_test(
+  mknodat_test
+  SUITE libc_sys_stat_unittests
+  SRCS mknodat_test.cpp
+  DEPENDS
+    libc.hdr.fcntl_macros
+    libc.hdr.sys_stat_macros
+    libc.src.__support.OSUtil.linux.syscall_wrappers.mknodat
+    libc.src.fcntl.open
+    libc.src.sys.stat.fstatat
+    libc.src.sys.stat.mknod
+    libc.src.sys.stat.mknodat
+    libc.src.unistd.close
+    libc.src.unistd.getcwd
+    libc.src.unistd.unlink
+    libc.test.UnitTest.ErrnoCheckingTest
+    libc.test.UnitTest.ErrnoSetterMatcher
+)
+
+add_libc_test(
   mkdirat_test
   SUITE
     libc_sys_stat_unittests

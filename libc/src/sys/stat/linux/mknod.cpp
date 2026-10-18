@@ -8,7 +8,7 @@
 
 #include "src/sys/stat/mknod.h"
 #include "hdr/fcntl_macros.h"
-#include "src/__support/OSUtil/syscall.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/mknodat.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include <sys/syscall.h>
@@ -16,22 +16,24 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, mknod, (const char *path, mode_t mode, dev_t dev)) {
-  // Linux transports device numbers in a 32-bit syscall argument.
-  if (static_cast<unsigned int>(dev) != dev) {
-    libc_errno = EINVAL;
+#if defined(SYS_mknodat)
+  auto result = linux_syscalls::mknodat(AT_FDCWD, path, mode, dev);
+  if (!result) {
+    libc_errno = result.error();
     return -1;
   }
-#if defined(SYS_mknodat)
-  int ret = syscall_impl<int>(SYS_mknodat, AT_FDCWD, path, mode,
-                              static_cast<unsigned int>(dev));
 #else
-  int ret =
-      syscall_impl<int>(SYS_mknod, path, mode, static_cast<unsigned int>(dev));
-#endif
+  auto encoded = linux_syscalls::encode_device(dev);
+  if (!encoded) {
+    libc_errno = encoded.error();
+    return -1;
+  }
+  int ret = syscall_impl<int>(SYS_mknod, path, mode, *encoded);
   if (ret < 0) {
     libc_errno = -ret;
     return -1;
   }
+#endif
   return 0;
 }
 
