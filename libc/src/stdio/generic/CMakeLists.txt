@@ -10,6 +10,20 @@ function(add_generic_entrypoint_object name)
   endif()
 endfunction()
 
+foreach(name fgetpos fsetpos)
+  add_generic_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ../${name}.h
+    DEPENDS
+      libc.hdr.types.fpos_t
+      libc.hdr.types.FILE
+      libc.src.__support.File.file
+      libc.src.__support.File.platform_file
+      libc.src.__support.libc_errno
+  )
+endforeach()
+
 add_generic_entrypoint_object(
   clearerr
   SRCS

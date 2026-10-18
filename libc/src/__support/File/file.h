@@ -221,6 +221,13 @@ public:
 
   ErrorOr<off_t> tell();
 
+  struct Position {
+    off_t offset;
+    internal::mbstate state;
+  };
+  ErrorOr<Position> get_position();
+  ErrorOr<int> set_position(const Position &position);
+
   // If buffer has data written to it, flush it out. Does nothing if the
   // buffer is currently being used as a read buffer.
   int flush() {
@@ -364,6 +371,8 @@ public:
 
 private:
   FileIOResult write_unlocked_impl(const void *data, size_t len);
+  ErrorOr<int> seek_unlocked(off_t offset, int whence);
+  ErrorOr<off_t> tell_unlocked();
   FileIOResult read_unlocked_impl(void *data, size_t len);
 
   FileIOResult write_unlocked_lbf(const uint8_t *data, size_t len);

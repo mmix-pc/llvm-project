@@ -395,6 +395,10 @@ int File::ungetc_unlocked(int c) {
 
 ErrorOr<int> File::seek(off_t offset, int whence) {
   FileLock lock(this);
+  return seek_unlocked(offset, whence);
+}
+
+ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
   if (prev_op == FileOp::WRITE && pos > 0) {
     int error = flush_unlocked();
     if (error)
@@ -423,6 +427,10 @@ ErrorOr<int> File::seek(off_t offset, int whence) {
 
 ErrorOr<off_t> File::tell() {
   FileLock lock(this);
+  return tell_unlocked();
+}
+
+ErrorOr<off_t> File::tell_unlocked() {
   auto seek_target = eof ? SEEK_END : SEEK_CUR;
   auto result = platform_seek(this, 0, seek_target);
   if (!result.has_value() || result.value() < 0)
@@ -433,6 +441,22 @@ ErrorOr<off_t> File::tell() {
   if (prev_op == FileOp::WRITE)
     return platform_offset + pos;
   return platform_offset;
+}
+
+ErrorOr<File::Position> File::get_position() {
+  FileLock lock(this);
+  auto offset = tell_unlocked();
+  if (!offset.has_value())
+    return Error(offset.error());
+  return Position{offset.value(), mbstate};
+}
+
+ErrorOr<int> File::set_position(const Position &position) {
+  FileLock lock(this);
+  auto result = seek_unlocked(position.offset, SEEK_SET);
+  if (result.has_value())
+    mbstate = position.state;
+  return result;
 }
 
 int File::flush_unlocked() {

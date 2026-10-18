@@ -26,6 +26,27 @@ if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPI
 endif()
 
 add_libc_test(
+  fpos_test
+  SUITE libc_stdio_unittests
+  FULL_BUILD_ONLY
+  SRCS fpos_test.cpp
+  DEPENDS
+    libc.src.stdio.fopen
+    libc.src.stdio.fclose
+    libc.src.stdio.fdopen
+    libc.src.stdio.fgetpos
+    libc.src.stdio.fsetpos
+    libc.src.stdio.fseek
+    libc.src.stdio.feof
+    libc.src.wchar.fputwc
+    libc.src.wchar.fgetwc
+    libc.src.wchar.ungetwc
+    libc.src.__support.File.file
+    libc.src.unistd.pipe
+    libc.src.unistd.close
+)
+
+add_libc_test(
   freopen_test
   SUITE
     libc_stdio_unittests

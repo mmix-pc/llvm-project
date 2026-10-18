@@ -1437,6 +1437,8 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.stdio.fread
     libc.src.stdio.fread_unlocked
     libc.src.stdio.fseek
+    libc.src.stdio.fgetpos
+    libc.src.stdio.fsetpos
     libc.src.stdio.fseeko
     libc.src.stdio.ftell
     libc.src.stdio.ftello
