@@ -42,18 +42,20 @@ add_entrypoint_object(
     libc.src.__support.str_to_integer
 )
 
-add_entrypoint_object(
-  quick_exit
-  SRCS
-    quick_exit.cpp
-  HDRS
-    quick_exit.h
-  DEPENDS
-    libc.src.__support.OSUtil.osutil
-    .exit_handler
-    .at_quick_exit
-    .atexit
-)
+if(NOT (LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX))
+  add_entrypoint_object(
+    quick_exit
+    SRCS
+      quick_exit.cpp
+    HDRS
+      quick_exit.h
+    DEPENDS
+      libc.src.__support.OSUtil.osutil
+      .exit_handler
+      .at_quick_exit
+      .atexit
+  )
+endif()
 
 add_entrypoint_object(
   getenv
@@ -785,6 +787,9 @@ endif()
 
 set(atexit_source atexit.cpp)
 set(atexit_deps .exit_handler)
+set(at_quick_exit_source at_quick_exit.cpp)
+set(at_quick_exit_deps .exit_handler .atexit)
+set(at_quick_exit_options "")
 if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
   include(linux/mmix/AtExit.cmake)
 endif()
@@ -801,13 +806,16 @@ add_entrypoint_object(
 add_entrypoint_object(
   at_quick_exit
   SRCS
-    at_quick_exit.cpp
+    ${at_quick_exit_source}
   HDRS
     at_quick_exit.h
   DEPENDS
-    .exit_handler
-    .atexit
+    ${at_quick_exit_deps}
+  COMPILE_OPTIONS ${at_quick_exit_options}
 )
+if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  add_entrypoint_object(quick_exit ALIAS DEPENDS .at_quick_exit)
+endif()
 
 list(APPEND exit_deps
   libc.src.__support.OSUtil.osutil

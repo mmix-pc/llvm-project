@@ -621,3 +621,20 @@ if((LIBC_TARGET_OS_IS_BAREMETAL OR LIBC_TARGET_OS_IS_GPU) AND
       libc.src.stdlib.free
   )
 endif()
+if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_X86_64)
+  add_libc_test(
+    mmix_quick_exit_test
+    SUITE libc-stdlib-tests
+    FULL_BUILD_ONLY
+    SRCS mmix_quick_exit_test.cpp
+    DEPENDS
+      libc.src.stdlib.atexit libc.src.stdlib._Exit
+      libc.src.stdlib.malloc libc.src.stdlib.free
+      libc.src.__support.CPP.new libc.src.__support.CPP.mutex
+      libc.src.__support.threads.mutex
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.OSUtil.linux.loader_services
+      libc.src.stdio.fdopen libc.src.stdio.fwrite libc.src.stdio.setvbuf
+      libc.src.unistd.pipe libc.src.unistd.close libc.src.unistd.read
+  )
+endif()

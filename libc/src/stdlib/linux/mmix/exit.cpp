@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/stdlib/exit.h"
+#include "process_exit.h"
 #include "src/__support/OSUtil/exit.h"
 #include "src/__support/common.h"
 #include "src/__support/threads/linux/mmix/main_thread.h"
@@ -30,7 +31,7 @@ static LIBC_CONSTINIT LIBC_THREAD_LOCAL bool owns_process_cleanup = false;
 static mmix::LifecycleWord process_exit_wait;
 #endif
 
-[[noreturn]] void exit_process(int status) {
+void begin_process_exit(int status) {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   uint64_t blocked = UINT64_MAX, previous;
   if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
@@ -60,6 +61,10 @@ static mmix::LifecycleWord process_exit_wait;
                    reinterpret_cast<long>(&previous), 0, sizeof(previous)) != 0)
     __builtin_trap();
 #endif
+}
+
+[[noreturn]] void exit_process(int status) {
+  begin_process_exit(status);
   cleanup_current_thread();
   __cxa_finalize(nullptr);
 #ifdef LIBC_MMIX_CONCURRENT_STDIO

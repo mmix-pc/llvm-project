@@ -24,6 +24,7 @@ if(LIBC_MMIX_BUILD_THREADED_LIBC)
   foreach(provider string.strncat string.strspn string.strcspn string.strpbrk
                    string.strlcpy string.strlcat signal.raise unistd.dup
                    sys.wait.waitpid sys.resource.getrlimit sys.resource.setrlimit
+                   stdlib.at_quick_exit stdlib.quick_exit
                    time.clock wchar.wcsftime stdio.getchar stdio.tmpfile stdio.tmpnam
                    inttypes.wcstoimax inttypes.wcstoumax
                    stdlib.mblen stdlib.mbstowcs stdlib.wcstombs stdlib.wctomb

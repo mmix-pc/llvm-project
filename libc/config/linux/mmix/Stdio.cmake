@@ -5,6 +5,8 @@ endif()
 
 set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdlib.atexit
+  libc.src.stdlib.at_quick_exit
+  libc.src.stdlib.quick_exit
   libc.src.stdlib.exit
   libc.src.stdio.stdin
   libc.src.stdio.stdout
