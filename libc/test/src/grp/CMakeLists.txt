@@ -26,6 +26,7 @@ if(LIBC_TARGET_OS STREQUAL "linux")
       ${LIBC_SOURCE_DIR}/src/grp/getgrnam_r.cpp
     DEPENDS
       libc.src.grp.lookup
+      libc.src.grp.supplementary_groups
       libc.src.__support.common
       libc.src.__support.error_or
       libc.hdr.func.free

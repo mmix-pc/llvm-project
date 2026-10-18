@@ -158,7 +158,7 @@ TEST(LlvmLibcGroupManagementTest, GrowthAndAllocationFailure) {
 }
 
 TEST(LlvmLibcGroupManagementTest, KernelLimitAndInvalidGroup) {
-  LIBC_NAMESPACE::GroupList groups;
+  LIBC_NAMESPACE::internal::SupplementaryGroups groups;
   groups.data =
       static_cast<gid_t *>(::realloc(nullptr, NGROUPS_MAX * sizeof(gid_t)));
   ASSERT_TRUE(groups.data != nullptr);

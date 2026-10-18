@@ -40,6 +40,13 @@ add_entrypoint_object(
   DEPENDS .lookup libc.hdr.func.free libc.src.__support.common
 )
 
+add_header_library(
+  supplementary_groups
+  HDRS supplementary_groups.h
+  DEPENDS .lookup libc.hdr.func.free libc.hdr.func.realloc
+    libc.src.__support.libc_errno
+)
+
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${LIBC_TARGET_OS})
 endif()

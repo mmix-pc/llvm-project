@@ -3,9 +3,7 @@ add_entrypoint_object(
   SRCS initgroups.cpp
   HDRS ../initgroups.h
   DEPENDS
-    libc.src.grp.lookup
-    libc.hdr.func.free
-    libc.hdr.func.realloc
+    libc.src.grp.supplementary_groups
     libc.include.sys_syscall
     libc.src.__support.OSUtil.linux.syscall_wrappers.setgroups
     libc.src.__support.common
