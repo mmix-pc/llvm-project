@@ -30,7 +30,7 @@ LLVM_LIBC_FUNCTION(int, putchar, (int c)) {
     // The stream should be in an error state in this case.
     return EOF;
   }
-  return 0;
+  return uc;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

@@ -490,7 +490,11 @@ add_libc_test(
   SRCS
     fputc_test.cpp
   DEPENDS
+    libc.src.stdio.fclose
+    libc.src.stdio.ferror
+    libc.src.stdio.fopen
     libc.src.stdio.fputc
+    libc.src.stdio.fread
     libc.src.stdio.putchar
     libc.src.stdio.stdout
     libc.src.stdio.stderr
@@ -517,6 +521,7 @@ add_libc_test(
   SRCS
     putc_test.cpp
   DEPENDS
+    libc.hdr.stdio_macros
     libc.src.stdio.putc
     libc.src.stdio.fclose
     libc.src.stdio.ferror
