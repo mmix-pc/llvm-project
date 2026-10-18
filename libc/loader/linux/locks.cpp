@@ -53,12 +53,16 @@ LoaderLocks::Session::Session(LoaderLocks &owner, LoaderCancellation hooks)
   if (failure)
     return;
   suppressed = true;
+  if (locks.sessions.fetch_add(1, cpp::MemoryOrder::ACQ_REL) == ~uint64_t(0))
+    __builtin_trap();
   tid = raw_syscall(SYS_gettid);
   if (tid <= 0)
     failure = tid < 0 ? tid : -EINVAL;
 }
 
-long LoaderLocks::prepare_fork() {
+long LoaderLocks::prepare_fork(bool *quiescent) {
+  if (quiescent)
+    *quiescent = false;
   if (fork_child)
     return -ENOTSUP;
   long tid = raw_syscall(SYS_gettid);
@@ -71,10 +75,14 @@ long LoaderLocks::prepare_fork() {
     return error;
   mutation_depth = 1;
   mutation_owner.store(tid, cpp::MemoryOrder::RELEASE);
+  // Detached finalizers and callbacks may retain a session without a guard.
+  fork_quiescent = sessions.load(cpp::MemoryOrder::ACQUIRE) == 0;
+  if (quiescent)
+    *quiescent = fork_quiescent;
   return 0;
 }
 
-void LoaderLocks::finish_fork(bool child) {
+void LoaderLocks::finish_fork(bool child, bool resume) {
   if (!mutation_owner.load(cpp::MemoryOrder::RELAXED) || mutation_depth != 1)
     __builtin_trap();
   if (!child &&
@@ -83,10 +91,11 @@ void LoaderLocks::finish_fork(bool child) {
   mutation_depth = 0;
   mutation_owner.store(0, cpp::MemoryOrder::RELEASE);
   if (child) {
-    // The child is exec/_exit-only. Freeze copied retirement plans, tickets
-    // and reader counts; never wait for vanished owners or finalize for them.
-    // Clearing those counts could free code still used by the survivor.
-    fork_child = true;
+    if (resume && (!fork_quiescent || sessions.load() != 0))
+      __builtin_trap();
+    // Without a quiescent single-thread snapshot, retain the exec/_exit-only
+    // boundary. Never clear copied tickets or readers to manufacture safety.
+    fork_child = !resume;
     // The copied wait queues name vanished threads. Do not wake/unlock them.
     arena.reset_after_fork();
     registry.reset_after_fork();
@@ -99,8 +108,12 @@ void LoaderLocks::finish_fork(bool child) {
 LoaderLocks::Session::~Session() noexcept(false) {
   if (top)
     __builtin_trap();
-  if (suppressed && cancellation.leave(saved))
-    __builtin_trap();
+  if (suppressed) {
+    if (!locks.sessions.fetch_sub(1, cpp::MemoryOrder::ACQ_REL))
+      __builtin_trap();
+    if (cancellation.leave(saved))
+      __builtin_trap();
+  }
 }
 
 LoaderLocks::Guard::Guard(Session &scope, Kind requested)

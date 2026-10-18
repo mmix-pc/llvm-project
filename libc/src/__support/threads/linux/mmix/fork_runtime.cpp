@@ -75,7 +75,7 @@ ForkOperation::ForkOperation() {
 
 int ForkOperation::prepare_runtime() {
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  if (int error = prepare_loader_fork())
+  if (int error = prepare_loader_fork(&resume_loader))
     return error;
   loader_locked = true;
 #endif
@@ -105,7 +105,11 @@ int ForkOperation::prepare_runtime() {
 }
 
 int ForkOperation::freeze_registry() {
-  registry = thread_registry.freeze_for_fork(*caller, 1);
+  bool single_thread = false;
+  registry = thread_registry.freeze_for_fork(*caller, 1, &single_thread);
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  resume_loader &= single_thread;
+#endif
   return registry ? 0 : EAGAIN;
 }
 
@@ -158,7 +162,7 @@ void ForkOperation::restore_runtime(bool child) {
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (loader_locked) {
-    finish_loader_fork(child);
+    finish_loader_fork(child, resume_loader);
     loader_locked = false;
   }
 #endif

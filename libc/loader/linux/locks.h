@@ -29,14 +29,17 @@ class LoaderLocks {
   Mutex mutation, registry, arena;
   cpp::Atomic<long> mutation_owner{0};
   uint64_t mutation_depth = 0; // Accessed only by the owning thread.
+  cpp::Atomic<uint64_t> sessions{0};
+  bool fork_quiescent = false; // Protected by the fork mutation guard.
   // Only the surviving child writes this, before callbacks/signals resume.
   bool fork_child = false;
 
 public:
   // The libc fork owner already masks signals and suppresses cancellation.
   // Acquire after user prepare callbacks and before any pthread registry lock.
-  long prepare_fork();
-  void finish_fork(bool child);
+  long prepare_fork(bool *quiescent = nullptr);
+  // Resume only when libc proves that no other thread has ever existed.
+  void finish_fork(bool child, bool resume = false);
   enum class Kind { None, Mutation, Registry, Arena };
   class Guard;
   class Session {

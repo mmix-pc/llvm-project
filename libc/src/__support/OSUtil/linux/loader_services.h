@@ -135,8 +135,10 @@ enum LoaderInfoRequest { InfoLinkMap = 2, InfoTLSModid = 9, InfoTLSData = 10 };
 
 struct LoaderProcessAPI {
   void *context;
-  long (*prepare_fork)(void *);
-  void (*finish_fork)(void *, bool child);
+  // Quiescence alone is insufficient: libc must also prove a single-thread
+  // snapshot before asking the child to resume loader finalization.
+  long (*prepare_fork)(void *, bool *quiescent);
+  void (*finish_fork)(void *, bool child, bool resume);
 };
 
 // Same-source ownership service. Tokens are single-owner and never reused.

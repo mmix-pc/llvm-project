@@ -17,8 +17,8 @@ namespace mmix {
 bool adopt_loading_services(const loader::LoaderAPI &);
 bool adopt_query_services(const loader::LoaderQueryAPI &);
 bool adopt_loader_process_services(const loader::LoaderProcessAPI &);
-int prepare_loader_fork();
-void finish_loader_fork(bool child);
+int prepare_loader_fork(bool *quiescent = nullptr);
+void finish_loader_fork(bool child, bool resume = false);
 int loader_address(const void *, void *);
 int loader_info(void *, int, void *);
 int loader_iterate(int (*)(void *, void *), void *);

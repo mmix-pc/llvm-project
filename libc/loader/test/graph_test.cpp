@@ -1561,8 +1561,8 @@ extern "C" int main() {
   CHECK(runtime_debug_record()->r_map == map &&
         runtime_debug_record()->r_ldbase == 0x123000);
   CHECK(!services.api.close(services.api.context, handle, hooks));
-  CHECK(!services.process.prepare_fork(services.process.context));
-  services.process.finish_fork(services.process.context, false);
+  CHECK(!services.process.prepare_fork(services.process.context, nullptr));
+  services.process.finish_fork(services.process.context, false, false);
   services.finalize_startup(services.context, hooks);
   services.finalize_startup(services.context, hooks);
   puts("resident startup service composition passed");

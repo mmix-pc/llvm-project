@@ -24,15 +24,17 @@ bool adopt_loader_process_services(const loader::LoaderProcessAPI &input) {
   return true;
 }
 
-int prepare_loader_fork() {
+int prepare_loader_fork(bool *quiescent) {
+  if (quiescent)
+    *quiescent = false;
   // Before adoption the startup-only profile has no mutable late-load state.
   return process.prepare_fork
-             ? static_cast<int>(process.prepare_fork(process.context))
+             ? static_cast<int>(process.prepare_fork(process.context, quiescent))
              : 0;
 }
-void finish_loader_fork(bool child) {
+void finish_loader_fork(bool child, bool resume) {
   if (process.finish_fork)
-    process.finish_fork(process.context, child);
+    process.finish_fork(process.context, child, resume);
 }
 struct ErrorState {
   char text[96];

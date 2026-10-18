@@ -533,11 +533,11 @@ long RuntimeAPI::iterate(int (*callback)(void *, void *), void *argument,
 
 LoaderProcessAPI RuntimeAPI::process_services() {
   return {this,
-          [](void *p) {
-            return -static_cast<RuntimeAPI *>(p)->locks.prepare_fork();
+          [](void *p, bool *quiescent) {
+            return -static_cast<RuntimeAPI *>(p)->locks.prepare_fork(quiescent);
           },
-          [](void *p, bool child) {
-            static_cast<RuntimeAPI *>(p)->locks.finish_fork(child);
+          [](void *p, bool child, bool resume) {
+            static_cast<RuntimeAPI *>(p)->locks.finish_fork(child, resume);
           }};
 }
 

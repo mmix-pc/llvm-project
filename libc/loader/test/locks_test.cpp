@@ -226,6 +226,28 @@ extern "C" int main() {
   check(!enter(&saved) && !locks.prepare_fork());
   locks.finish_fork(false); // Parent failure path has the same release.
   check(!leave(saved));
+  bool quiescent = true;
+  {
+    // A detached callback still owns a session even without a mutation guard.
+    LoaderLocks::Session scope(locks, hooks);
+    check(!scope.error() && !locks.prepare_fork(&quiescent));
+    check(!quiescent);
+    locks.finish_fork(false);
+  }
+  check(!enter(&saved) && !locks.prepare_fork(&quiescent) && quiescent);
+  child = fork();
+  check(child >= 0);
+  locks.finish_fork(child == 0, true);
+  {
+    LoaderLocks::Session scope(locks, hooks);
+    LoaderLocks::Guard guard(scope, Kind::Mutation);
+    check(!scope.error() && !guard.error());
+  }
+  check(!leave(saved));
+  if (!child)
+    _exit(0);
+  check(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+        !WEXITSTATUS(status));
   Arena storage(4096);
   pthread_t threads[4];
   for (auto &thread : threads)

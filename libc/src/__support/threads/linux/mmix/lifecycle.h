@@ -162,7 +162,8 @@ class ThreadRegistry {
 public:
   constexpr ThreadRegistry() = default;
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
-  bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0);
+  bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0,
+                       bool *single_thread = nullptr);
   void release_after_fork();
   void restore_fork_child(ThreadControl &survivor);
   // Snapshot under ThreadRegistryLock; wait only after releasing it. Callers

@@ -55,7 +55,8 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
 
   pid_t parent_tid = attributes->tid;
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  if (int error = mmix::prepare_loader_fork()) {
+  bool resume_loader = false;
+  if (int error = mmix::prepare_loader_fork(&resume_loader)) {
     if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
       internal::exit(127);
     invoke_parent_callbacks(callback_count);
@@ -83,7 +84,8 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
 
   // Publish valid identity before handlers or callbacks can observe the child.
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  mmix::finish_loader_fork(result == 0);
+  // ProcessOperation excludes peers and all previous thread creation.
+  mmix::finish_loader_fork(result == 0, resume_loader);
 #endif
   // A created child must never be disguised as a failed fork in the parent.
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))

@@ -18,6 +18,7 @@ class ForkOperation {
   bool priority = false, streams = false, allocator = false, registry = false;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   bool loader_locked = false;
+  bool resume_loader = false;
 #endif
   int error_code = 0;
   File *standard[3]{};
