@@ -88,6 +88,10 @@ LIBC_INLINE int CharacterConverter::push(char8_t utf8_byte) {
   uint8_t num_ones = static_cast<uint8_t>(cpp::countl_one(utf8_byte));
   // Checking the first byte if first push
   if (isEmpty()) {
+    if ((utf8_byte >= 0x80 && utf8_byte < 0xc2) || utf8_byte > 0xf4) {
+      clear();
+      return EILSEQ;
+    }
     // UTF-8 char has 1 byte total
     if (num_ones == 0) {
       state->total_bytes = 1;
@@ -115,6 +119,18 @@ LIBC_INLINE int CharacterConverter::push(char8_t utf8_byte) {
   // Any subsequent push
   // Adding 6 more bits so need to left shift
   if (num_ones == 1 && !isFull()) {
+    // Reject overlong encodings, surrogates and values above U+10FFFF as
+    // soon as the second byte makes the sequence invalid.
+    if (state->bytes_stored == 1 &&
+        ((state->total_bytes == 3 &&
+          ((state->partial == 0 && utf8_byte < 0xa0) ||
+           (state->partial == 0xd && utf8_byte >= 0xa0))) ||
+         (state->total_bytes == 4 &&
+          ((state->partial == 0 && utf8_byte < 0x90) ||
+           (state->partial == 4 && utf8_byte >= 0x90))))) {
+      clear();
+      return EILSEQ;
+    }
     char32_t byte = utf8_byte & MASK_ENCODED_BITS;
     state->partial = state->partial << ENCODED_BITS_PER_UTF8;
     state->partial |= byte;
@@ -131,6 +147,11 @@ LIBC_INLINE int CharacterConverter::push(char32_t utf32) {
   // we can't be partially through a conversion when pushing a utf32 value
   if (!isEmpty())
     return -1;
+
+  if ((utf32 >= 0xd800 && utf32 <= 0xdfff) || utf32 > 0x10ffff) {
+    clear();
+    return EILSEQ;
+  }
 
   state->partial = utf32;
 

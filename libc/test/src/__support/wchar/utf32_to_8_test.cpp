@@ -13,6 +13,31 @@
 
 #include "test/UnitTest/Test.h"
 
+TEST(LlvmLibcCharacterConverterUTF32ValidationTest, ScalarBoundaries) {
+  const char32_t invalid[] = {0xd800, 0xdfff, 0x110000, 0xffffffff};
+  for (char32_t value : invalid) {
+    LIBC_NAMESPACE::internal::mbstate state{};
+    LIBC_NAMESPACE::internal::CharacterConverter converter(&state);
+    EXPECT_EQ(converter.push(value), EILSEQ);
+    EXPECT_TRUE(converter.isEmpty());
+  }
+  const char32_t valid[] = {0, 0x7f, 0x80, 0x7ff, 0x800,
+                           0xd7ff, 0xe000, 0xffff, 0x10000, 0x10ffff};
+  for (char32_t value : valid) {
+    LIBC_NAMESPACE::internal::mbstate from{}, to{};
+    LIBC_NAMESPACE::internal::CharacterConverter encoder(&from), decoder(&to);
+    ASSERT_EQ(encoder.push(value), 0);
+    while (!encoder.isEmpty()) {
+      auto byte = encoder.pop_utf8();
+      ASSERT_TRUE(byte.has_value());
+      ASSERT_EQ(decoder.push(byte.value()), 0);
+    }
+    auto result = decoder.pop_utf32();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(static_cast<unsigned>(result.value()), static_cast<unsigned>(value));
+  }
+}
+
 #if defined(LIBC_TYPES_WCHAR_T_IS_UTF32)
 using TestCharTypesUTF32 = LIBC_NAMESPACE::testing::TypeList<char32_t, wchar_t>;
 #else

@@ -13,6 +13,25 @@
 #include "src/__support/wchar/mbstate.h"
 #include "test/UnitTest/Test.h"
 
+TEST(LlvmLibcCharacterConverterUTF8ValidationTest, RejectInvalidScalarPrefixes) {
+  const unsigned char invalid[][2] = {
+      {0xc0, 0x80}, {0xc1, 0xbf}, {0xe0, 0x80}, {0xed, 0xa0},
+      {0xf0, 0x80}, {0xf4, 0x90}, {0xf5, 0x80}, {0xff, 0x80}};
+  for (const auto &bytes : invalid) {
+    LIBC_NAMESPACE::internal::mbstate state{};
+    LIBC_NAMESPACE::internal::CharacterConverter converter(&state);
+    int error = converter.push(static_cast<char8_t>(bytes[0]));
+    if (!error)
+      error = converter.push(static_cast<char8_t>(bytes[1]));
+    EXPECT_EQ(error, EILSEQ);
+    EXPECT_TRUE(converter.isEmpty());
+    EXPECT_EQ(converter.push(static_cast<char8_t>('A')), 0);
+    auto value = converter.pop_utf32();
+    ASSERT_TRUE(value.has_value());
+    EXPECT_EQ(static_cast<unsigned>(value.value()), unsigned('A'));
+  }
+}
+
 #if defined(LIBC_TYPES_WCHAR_T_IS_UTF32)
 using TestCharTypesUTF32 = LIBC_NAMESPACE::testing::TypeList<char32_t, wchar_t>;
 #else
