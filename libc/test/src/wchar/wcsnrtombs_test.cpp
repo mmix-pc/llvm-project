@@ -12,6 +12,7 @@
 #include "src/wchar/wcsnrtombs.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcWcsnrtombs = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
@@ -19,6 +20,7 @@ using LlvmLibcWcsnrtombs = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 // wcsnrtombs which is more thoroughly tested
 
 TEST_F(LlvmLibcWcsnrtombs, AllMultibyteLengths) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
 
@@ -48,6 +50,7 @@ TEST_F(LlvmLibcWcsnrtombs, AllMultibyteLengths) {
 }
 
 TEST_F(LlvmLibcWcsnrtombs, DestLimit) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
 
@@ -88,6 +91,7 @@ TEST_F(LlvmLibcWcsnrtombs, DestLimit) {
 }
 
 TEST(LlvmLibcWcsnrtombs, SrcLimit) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
 
@@ -132,6 +136,7 @@ TEST(LlvmLibcWcsnrtombs, SrcLimit) {
 }
 
 TEST_F(LlvmLibcWcsnrtombs, ErrnoTest) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
 
@@ -154,6 +159,7 @@ TEST_F(LlvmLibcWcsnrtombs, ErrnoTest) {
 }
 
 TEST_F(LlvmLibcWcsnrtombs, NullState) {
+  LocaleGuard locale;
   // this test is the same as DestLimit except it uses a nullptr mbstate*
 
   /// clown emoji, sigma symbol, y with diaeresis, letter A

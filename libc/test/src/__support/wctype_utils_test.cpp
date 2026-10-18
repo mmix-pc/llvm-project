@@ -10,6 +10,7 @@
 #include "src/__support/macros/config.h"
 #include "src/__support/wctype/wctype_classification_utils.h"
 #include "src/__support/wctype/wctype_conversion_utils.h"
+#include "src/locale/encoding.h"
 #include "test/UnitTest/Test.h"
 namespace {
 
@@ -20,6 +21,15 @@ namespace ascii_mode {
 #undef LLVM_LIBC_SRC___SUPPORT_WCTYPE_UTILS_H
 
 namespace LIBC_NAMESPACE_DECL {
+using ::LIBC_NAMESPACE::lookup_properties;
+using ::LIBC_NAMESPACE::PropertyFlag;
+namespace wctype_internal {
+using ::LIBC_NAMESPACE::wctype_internal::tolower;
+using ::LIBC_NAMESPACE::wctype_internal::toupper;
+} // namespace wctype_internal
+namespace internal {
+inline bool locale_is_utf8() { return false; }
+} // namespace internal
 namespace cpp = ::LIBC_NAMESPACE::cpp;
 } // namespace LIBC_NAMESPACE_DECL
 #include "src/__support/wctype_utils.h"
@@ -33,6 +43,9 @@ namespace utf8_mode {
 namespace LIBC_NAMESPACE_DECL {
 using ::LIBC_NAMESPACE::lookup_properties;
 using ::LIBC_NAMESPACE::PropertyFlag;
+namespace internal {
+inline bool locale_is_utf8() { return true; }
+} // namespace internal
 namespace wctype_internal {
 using ::LIBC_NAMESPACE::wctype_internal::tolower;
 using ::LIBC_NAMESPACE::wctype_internal::toupper;

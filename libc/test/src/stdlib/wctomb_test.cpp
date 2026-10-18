@@ -11,10 +11,12 @@
 #include "src/stdlib/wctomb.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcWCToMBTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST(LlvmLibcWCToMBTest, OneByte) {
+  LocaleGuard locale;
   wchar_t wc = L'U';
   char mb[4];
   int cnt = LIBC_NAMESPACE::wctomb(mb, wc);
@@ -23,6 +25,7 @@ TEST(LlvmLibcWCToMBTest, OneByte) {
 }
 
 TEST(LlvmLibcWCToMBTest, TwoByte) {
+  LocaleGuard locale;
   // testing utf32: 0xff -> utf8: 0xc3 0xbf
   wchar_t wc = 0xff;
   char mb[4];
@@ -33,6 +36,7 @@ TEST(LlvmLibcWCToMBTest, TwoByte) {
 }
 
 TEST(LlvmLibcWCToMBTest, ThreeByte) {
+  LocaleGuard locale;
   // testing utf32: 0xac15 -> utf8: 0xea 0xb0 0x95
   wchar_t wc = 0xac15;
   char mb[4];
@@ -44,6 +48,7 @@ TEST(LlvmLibcWCToMBTest, ThreeByte) {
 }
 
 TEST(LlvmLibcWCToMBTest, FourByte) {
+  LocaleGuard locale;
   // testing utf32: 0x1f921 -> utf8: 0xf0 0x9f 0xa4 0xa1
   wchar_t wc = 0x1f921;
   char mb[4];
@@ -56,6 +61,7 @@ TEST(LlvmLibcWCToMBTest, FourByte) {
 }
 
 TEST(LlvmLibcWCToMBTest, NullString) {
+  LocaleGuard locale;
   wchar_t wc = L'A';
 
   int cnt = LIBC_NAMESPACE::wctomb(nullptr, wc);
@@ -65,6 +71,7 @@ TEST(LlvmLibcWCToMBTest, NullString) {
 }
 
 TEST(LlvmLibcWCToMBTest, InvalidWchar) {
+  LocaleGuard locale;
   wchar_t wc = 0x12ffff;
   char mb[4];
   int cnt = LIBC_NAMESPACE::wctomb(mb, wc);

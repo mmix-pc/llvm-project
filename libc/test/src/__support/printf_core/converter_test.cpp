@@ -11,6 +11,7 @@
 #include "src/__support/printf_core/writer.h"
 
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 class LlvmLibcPrintfConverterTest : public LIBC_NAMESPACE::testing::Test {
 protected:
@@ -25,6 +26,7 @@ protected:
 };
 
 TEST_F(LlvmLibcPrintfConverterTest, SimpleRawConversion) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection raw_section;
   raw_section.has_conv = false;
   raw_section.raw_string = "abc";
@@ -38,6 +40,7 @@ TEST_F(LlvmLibcPrintfConverterTest, SimpleRawConversion) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, PercentConversion) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection simple_conv;
   simple_conv.has_conv = true;
   simple_conv.raw_string = "%%";
@@ -52,6 +55,7 @@ TEST_F(LlvmLibcPrintfConverterTest, PercentConversion) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, CharConversionSimple) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection simple_conv;
   simple_conv.has_conv = true;
   // If has_conv is true, the raw string is ignored. They are not being parsed
@@ -70,6 +74,7 @@ TEST_F(LlvmLibcPrintfConverterTest, CharConversionSimple) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, CharConversionRightJustified) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection right_justified_conv;
   right_justified_conv.has_conv = true;
   right_justified_conv.raw_string = "%4c";
@@ -85,6 +90,7 @@ TEST_F(LlvmLibcPrintfConverterTest, CharConversionRightJustified) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, CharConversionLeftJustified) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection left_justified_conv;
   left_justified_conv.has_conv = true;
   left_justified_conv.raw_string = "%-4c";
@@ -102,6 +108,7 @@ TEST_F(LlvmLibcPrintfConverterTest, CharConversionLeftJustified) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, StringConversionSimple) {
+  LocaleGuard locale;
 
   LIBC_NAMESPACE::printf_core::FormatSection simple_conv;
   simple_conv.has_conv = true;
@@ -118,6 +125,7 @@ TEST_F(LlvmLibcPrintfConverterTest, StringConversionSimple) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, StringConversionPrecisionHigh) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection high_precision_conv;
   high_precision_conv.has_conv = true;
   high_precision_conv.raw_string = "%.4s";
@@ -133,6 +141,7 @@ TEST_F(LlvmLibcPrintfConverterTest, StringConversionPrecisionHigh) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, StringConversionPrecisionLow) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection low_precision_conv;
   low_precision_conv.has_conv = true;
   low_precision_conv.raw_string = "%.2s";
@@ -148,6 +157,7 @@ TEST_F(LlvmLibcPrintfConverterTest, StringConversionPrecisionLow) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, StringConversionRightJustified) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection right_justified_conv;
   right_justified_conv.has_conv = true;
   right_justified_conv.raw_string = "%4s";
@@ -163,6 +173,7 @@ TEST_F(LlvmLibcPrintfConverterTest, StringConversionRightJustified) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, StringConversionLeftJustified) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection left_justified_conv;
   left_justified_conv.has_conv = true;
   left_justified_conv.raw_string = "%-4s";
@@ -180,6 +191,7 @@ TEST_F(LlvmLibcPrintfConverterTest, StringConversionLeftJustified) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, IntConversionSimple) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection section;
   section.has_conv = true;
   section.raw_string = "%d";
@@ -194,6 +206,7 @@ TEST_F(LlvmLibcPrintfConverterTest, IntConversionSimple) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, HexConversion) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection section;
   section.has_conv = true;
   section.raw_string = "%#018x";
@@ -211,6 +224,7 @@ TEST_F(LlvmLibcPrintfConverterTest, HexConversion) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, BinaryConversion) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::printf_core::FormatSection section;
   section.has_conv = true;
   section.raw_string = "%b";
@@ -225,6 +239,7 @@ TEST_F(LlvmLibcPrintfConverterTest, BinaryConversion) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, PointerConversion) {
+  LocaleGuard locale;
 
   LIBC_NAMESPACE::printf_core::FormatSection section;
   section.has_conv = true;
@@ -239,6 +254,7 @@ TEST_F(LlvmLibcPrintfConverterTest, PointerConversion) {
 }
 
 TEST_F(LlvmLibcPrintfConverterTest, OctConversion) {
+  LocaleGuard locale;
 
   LIBC_NAMESPACE::printf_core::FormatSection section;
   section.has_conv = true;

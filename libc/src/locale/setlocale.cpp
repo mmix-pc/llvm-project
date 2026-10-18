@@ -7,25 +7,30 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/locale/setlocale.h"
+#include "hdr/errno_macros.h"
 #include "hdr/locale_macros.h"
-#include "src/__support/CPP/string_view.h"
 #include "src/__support/common.h"
+#include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
+#include "src/locale/locale.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(char *, setlocale, (int category, const char *locale_name)) {
-  if (category > LC_ALL)
+  if (category < 0 || category > LC_ALL) {
+    libc_errno = EINVAL;
     return nullptr;
-
-  if (locale_name != nullptr) {
-    cpp::string_view name(locale_name);
-    if (!name.empty() && name != "C")
-      return nullptr;
   }
-
-  static char locale_str[] = "C";
-  return locale_str;
+  auto result = internal::global_locale_snapshot();
+  if (locale_name) {
+    int mask = category == LC_ALL ? internal::LOCALE_MASK : 1 << category;
+    if (!internal::resolve_locale(mask, locale_name, result)) {
+      libc_errno = ENOENT;
+      return nullptr;
+    }
+    internal::publish_global_locale(result);
+  }
+  return internal::locale_name(result, category);
 }
 
 } // namespace LIBC_NAMESPACE_DECL

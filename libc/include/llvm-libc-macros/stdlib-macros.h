@@ -24,8 +24,14 @@
 #define EXIT_FAILURE 1
 
 #ifndef MB_CUR_MAX
-// We only support the "C" locale right now, so this is a constant byte.
-#define MB_CUR_MAX ((size_t)1)
+#if defined(__cplusplus) && __cplusplus >= 201103L
+extern "C" size_t __ctype_get_mb_cur_max(void) noexcept;
+#elif defined(__cplusplus)
+extern "C" size_t __ctype_get_mb_cur_max(void) throw();
+#else
+size_t __ctype_get_mb_cur_max(void);
+#endif
+#define MB_CUR_MAX (__ctype_get_mb_cur_max())
 #endif // MB_CUR_MAX
 
 #define RAND_MAX 2147483647

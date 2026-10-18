@@ -13,6 +13,7 @@ add_libc_test(
   FULL_BUILD_ONLY
   SRCS wide_scan_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.wchar.swscanf
     libc.src.wchar.vswscanf
     libc.src.wchar.fwscanf
@@ -103,6 +104,7 @@ add_libc_test(
   SRCS
     mbrtowc_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.hdr.errno_macros
     libc.src.__support.wchar.mbstate
     libc.src.string.memset
@@ -120,6 +122,7 @@ add_libc_test(
   SRCS
     mbsrtowcs_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.hdr.errno_macros
     libc.src.__support.wchar.mbstate
     libc.src.string.memset
@@ -136,6 +139,7 @@ add_libc_test(
   SRCS
     mbrlen_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.hdr.errno_macros
     libc.src.__support.wchar.mbstate
     libc.src.string.memset
@@ -152,6 +156,7 @@ add_libc_test(
   SRCS
     mbsnrtowcs_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.hdr.errno_macros
     libc.src.__support.wchar.mbstate
     libc.src.string.memset
@@ -192,6 +197,7 @@ add_libc_test(
   SRCS
     wcrtomb_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.hdr.errno_macros
     libc.src.wchar.wcrtomb
     libc.src.string.memset
@@ -208,6 +214,7 @@ add_libc_test(
   SRCS
     wcsrtombs_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.wchar.wcsrtombs
     libc.test.UnitTest.ErrnoCheckingTest
     libc.hdr.types.wchar_t
@@ -222,6 +229,7 @@ add_libc_test(
   SRCS
     wcsnrtombs_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.wchar.wcsnrtombs
     libc.test.UnitTest.ErrnoCheckingTest
     libc.hdr.types.wchar_t
@@ -778,6 +786,7 @@ add_libc_test(
   SRCS
     swprintf_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.hdr.types.wint_t
     libc.hdr.limits_macros
     libc.src.__support.CPP.string_view

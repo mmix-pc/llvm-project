@@ -21,7 +21,7 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(size_t, mbsnrtowcs,
                    (wchar_t *__restrict dst, const char **__restrict src,
                     size_t nmc, size_t len, mbstate_t *__restrict ps)) {
-  static internal::mbstate internal_mbstate;
+  static LIBC_THREAD_LOCAL internal::mbstate internal_mbstate;
   // If destination is null, ignore len
   len = dst == nullptr ? SIZE_MAX : len;
   auto ret = internal::mbsnrtowcs(

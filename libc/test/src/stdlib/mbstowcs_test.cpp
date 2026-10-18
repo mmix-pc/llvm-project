@@ -12,10 +12,12 @@
 #include "src/stdlib/mbstowcs.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcMBSToWCSTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST_F(LlvmLibcMBSToWCSTest, IndependentCallsAfterInvalidSequence) {
+  LocaleGuard locale;
   wchar_t output[3] = {};
   EXPECT_EQ(LIBC_NAMESPACE::mbstowcs(output, "\xe2\x82!", 3),
             static_cast<size_t>(-1));
@@ -26,6 +28,7 @@ TEST_F(LlvmLibcMBSToWCSTest, IndependentCallsAfterInvalidSequence) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, OneByteOneChar) {
+  LocaleGuard locale;
   const char *ch = "A";
   const char *original = ch;
   wchar_t dest[2];
@@ -46,6 +49,7 @@ TEST_F(LlvmLibcMBSToWCSTest, OneByteOneChar) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, FourByteOneChar) {
+  LocaleGuard locale;
   const char *src = "\xf0\x9f\x98\xb9"; // laughing cat emoji 😹
   const char *original = src;
   wchar_t dest[2];
@@ -60,6 +64,7 @@ TEST_F(LlvmLibcMBSToWCSTest, FourByteOneChar) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, MultiByteTwoCharacters) {
+  LocaleGuard locale;
   // Two laughing cat emojis "😹😹"
   const char *src = "\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9";
   const char *original = src;
@@ -76,6 +81,7 @@ TEST_F(LlvmLibcMBSToWCSTest, MultiByteTwoCharacters) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, MixedNumberOfBytes) {
+  LocaleGuard locale;
   // 'A', sigma symbol 'Σ', recycling symbol '♻', laughing cat emoji '😹'
   const char *src = "A\xce\xa3\xe2\x99\xbb\xf0\x9f\x98\xb9";
   const char *original = src;
@@ -94,6 +100,7 @@ TEST_F(LlvmLibcMBSToWCSTest, MixedNumberOfBytes) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, ReadLessThanStringLength) {
+  LocaleGuard locale;
   // Four laughing cat emojis "😹😹😹😹"
   const char *src =
       "\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9";
@@ -113,6 +120,7 @@ TEST_F(LlvmLibcMBSToWCSTest, ReadLessThanStringLength) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, InvalidFirstByte) {
+  LocaleGuard locale;
   // 0x80 is invalid first byte of mb character
   const char *src =
       "\x80\x9f\x98\xb9\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9";
@@ -124,6 +132,7 @@ TEST_F(LlvmLibcMBSToWCSTest, InvalidFirstByte) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, InvalidMiddleByte) {
+  LocaleGuard locale;
   // The 7th byte is invalid for a 4 byte character
   const char *src =
       "\xf0\x9f\x98\xb9\xf0\x9f\xf0\xb9\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9";
@@ -138,6 +147,7 @@ TEST_F(LlvmLibcMBSToWCSTest, InvalidMiddleByte) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, NullDestination) {
+  LocaleGuard locale;
   // Four laughing cat emojis "😹😹😹😹"
   const char *src =
       "\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9";
@@ -151,6 +161,7 @@ TEST_F(LlvmLibcMBSToWCSTest, NullDestination) {
 }
 
 TEST_F(LlvmLibcMBSToWCSTest, ErrnoChecks) {
+  LocaleGuard locale;
   // Two laughing cat emojis and invalid 3rd mb char (3rd byte of it)
   const char *src =
       "\xf0\x9f\x98\xb9\xf0\x9f\x98\xb9\xf0\x9f\xf0\xb9\xf0\x9f\x98\xb9";
@@ -174,6 +185,7 @@ TEST_F(LlvmLibcMBSToWCSTest, ErrnoChecks) {
 
 #if defined(LIBC_ADD_NULL_CHECKS)
 TEST(LlvmLibcMBSToWCSTest, NullptrCrash) {
+  LocaleGuard locale;
   // Passing in a nullptr should crash the program.
   EXPECT_DEATH([] { LIBC_NAMESPACE::mbstowcs(nullptr, nullptr, 1); },
                WITH_SIGNAL(-1));

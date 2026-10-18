@@ -67,6 +67,12 @@ function(add_fp_unittest name)
   )
 endfunction()
 
+add_header_library(
+  locale_guard
+  HDRS locale/LocaleGuard.h
+  DEPENDS libc.src.locale.encoding
+)
+
 add_subdirectory(__support)
 add_subdirectory(arpa)
 add_subdirectory(complex)

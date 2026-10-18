@@ -24,7 +24,7 @@ LLVM_LIBC_FUNCTION(size_t, wcsrtombs,
                    (char *__restrict s, const wchar_t **__restrict pwcs,
                     size_t n, mbstate_t *__restrict ps)) {
   LIBC_CRASH_ON_NULLPTR(pwcs);
-  static internal::mbstate internal_mbstate;
+  static LIBC_THREAD_LOCAL internal::mbstate internal_mbstate;
   auto result = internal::wcsnrtombs(
       s, pwcs, SIZE_MAX, n,
       ps == nullptr ? &internal_mbstate

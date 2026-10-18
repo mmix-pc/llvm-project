@@ -66,6 +66,7 @@ add_libc_test(
   SRCS
     wide_converter_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.__support.printf_core.wide_printf_main
     libc.src.stdio.snprintf
     libc.src.__support.printf_core.parser
@@ -80,6 +81,7 @@ add_libc_test(
   SRCS
     converter_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.__support.printf_core.converter
     libc.src.__support.printf_core.writer
     libc.src.__support.printf_core.core_structs

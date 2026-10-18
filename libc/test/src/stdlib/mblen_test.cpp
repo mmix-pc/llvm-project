@@ -15,10 +15,12 @@
 #include "src/stdlib/mblen.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcMBLenTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST_F(LlvmLibcMBLenTest, OneByte) {
+  LocaleGuard locale;
   const char *ch = "A";
   int n = LIBC_NAMESPACE::mblen(ch, 1);
   ASSERT_ERRNO_SUCCESS();
@@ -31,6 +33,7 @@ TEST_F(LlvmLibcMBLenTest, OneByte) {
 }
 
 TEST_F(LlvmLibcMBLenTest, TwoByte) {
+  LocaleGuard locale;
   const char ch[2] = {static_cast<char>(0xC2),
                       static_cast<char>(0x8E)}; //  car symbol
   int n = LIBC_NAMESPACE::mblen(ch, 4);
@@ -49,6 +52,7 @@ TEST_F(LlvmLibcMBLenTest, TwoByte) {
 }
 
 TEST_F(LlvmLibcMBLenTest, ThreeByte) {
+  LocaleGuard locale;
   const char ch[3] = {static_cast<char>(0xE2), static_cast<char>(0x88),
                       static_cast<char>(0x91)}; // ∑ sigma symbol
   int n = LIBC_NAMESPACE::mblen(ch, 3);
@@ -62,6 +66,7 @@ TEST_F(LlvmLibcMBLenTest, ThreeByte) {
 }
 
 TEST_F(LlvmLibcMBLenTest, FourByte) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0xF0), static_cast<char>(0x9F),
                       static_cast<char>(0xA4),
                       static_cast<char>(0xA1)}; // 🤡 clown emoji
@@ -76,6 +81,7 @@ TEST_F(LlvmLibcMBLenTest, FourByte) {
 }
 
 TEST_F(LlvmLibcMBLenTest, InvalidByte) {
+  LocaleGuard locale;
   const char ch[1] = {static_cast<char>(0x80)};
   int n = LIBC_NAMESPACE::mblen(ch, 1);
   ASSERT_EQ(n, -1);
@@ -83,6 +89,7 @@ TEST_F(LlvmLibcMBLenTest, InvalidByte) {
 }
 
 TEST_F(LlvmLibcMBLenTest, InvalidMultiByte) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0x80), static_cast<char>(0x00),
                       static_cast<char>(0x80),
                       static_cast<char>(0x00)}; // invalid sequence of bytes
@@ -98,6 +105,7 @@ TEST_F(LlvmLibcMBLenTest, InvalidMultiByte) {
 }
 
 TEST_F(LlvmLibcMBLenTest, NullString) {
+  LocaleGuard locale;
   // reading on nullptr should return 0
   int n = LIBC_NAMESPACE::mblen(nullptr, 2);
   ASSERT_EQ(n, 0);

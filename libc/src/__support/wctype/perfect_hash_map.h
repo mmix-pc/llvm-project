@@ -182,7 +182,7 @@ public:
       "V must be a byte slice or byte vector");
 
   LIBC_INLINE constexpr PtrHash(uint64_t seed_, PilotsTypeV pilots_, F remap_)
-      : seed(seed_), pilots(pilots_), remap(remap_) {}
+      : seed(seed_), stored_pilots(pilots_), remap(remap_) {}
 
   LIBC_INLINE constexpr PtrHash() = default;
   LIBC_INLINE constexpr PtrHash(const PtrHash &) = default;
@@ -203,7 +203,7 @@ public:
   LIBC_INLINE constexpr size_t index_no_remap(Key key) const {
     auto hx = this->hash_key(key);
     auto b = this->bucket(hx);
-    auto pilot = this->pilots[b];
+    auto pilot = this->stored_pilots[b];
     return this->slot(hx, pilot);
   }
 
@@ -255,8 +255,8 @@ public:
                   : !this->remap_free_slots(taken);
     }
 
-    this->pilots = pilots;
-    return {{this->seed, this->pilots, this->remap}};
+    this->stored_pilots = pilots;
+    return {{this->seed, this->stored_pilots, this->remap}};
   }
 
   LIBC_INLINE constexpr bool
@@ -573,8 +573,8 @@ public:
           pilots[b] = static_cast<uint8_t>(p);
           for (auto &item :
                hashes.subspan(starts[b], starts[b + 1] - starts[b])) {
-            auto p = this->slot_in_part_hp(item, hp);
-            slots[p] = b;
+            auto slot_index = this->slot_in_part_hp(item, hp);
+            slots[slot_index] = b;
           }
           continue;
         }
@@ -589,8 +589,8 @@ public:
           size_t collision_score = 0;
           for (auto &item :
                hashes.subspan(starts[b], starts[b + 1] - starts[b])) {
-            auto p = this->slot_in_part_hp(item, hp);
-            const auto s = slots[p];
+            auto slot_index = this->slot_in_part_hp(item, hp);
+            const auto s = slots[slot_index];
             size_t new_score = 0;
             if (s == BUCKET_IDX_NONE) {
               continue;
@@ -638,10 +638,11 @@ public:
             heap.push({bucket_len(b2), b2});
             evictions++;
 
-            auto hp = this->hash_pilot(static_cast<uint64_t>(pilots[b2]));
-            for (auto &item :
+            auto evicted_hash =
+                this->hash_pilot(static_cast<uint64_t>(pilots[b2]));
+            for (auto &evicted_item :
                  hashes.subspan(starts[b2], starts[b2 + 1] - starts[b2])) {
-              auto p2 = this->slot_in_part_hp(item, hp);
+              auto p2 = this->slot_in_part_hp(evicted_item, evicted_hash);
               slots[p2] = BUCKET_IDX_NONE;
               taken[p2] = false;
             }
@@ -700,8 +701,8 @@ public:
       size_t hx = bucket[i];
       const auto slot = this->slot_in_part_hp(hx, hp);
       if (taken[slot]) {
-        for (auto hx : bucket.subspan(0, i)) {
-          taken[this->slot_in_part_hp(hx, hp)] = false;
+        for (auto previous_hash : bucket.subspan(0, i)) {
+          taken[this->slot_in_part_hp(previous_hash, hp)] = false;
         }
         return false;
       }
@@ -799,7 +800,7 @@ public:
 
 private:
   uint64_t seed;
-  PilotsTypeV pilots;
+  PilotsTypeV stored_pilots;
   F remap;
 };
 
@@ -822,18 +823,18 @@ public:
     wint_t key{};
     wint_t value{};
     LIBC_INLINE constexpr Entry() = default;
-    LIBC_INLINE constexpr Entry(wint_t key, wint_t value)
-        : key(key), value(value) {}
+    LIBC_INLINE constexpr Entry(wint_t entry_key, wint_t entry_value)
+        : key(entry_key), value(entry_value) {}
   };
 
   LIBC_INLINE constexpr PerfectHashMap(
       const cpp::array<cpp::array<wint_t, 2>, Capacity> &pairs,
-      ptrhash::PtrHash<Capacity> &&hasher)
-      : hasher(hasher) {
+      ptrhash::PtrHash<Capacity> &&map_hasher)
+      : hasher(map_hasher) {
     for (const auto &pair : pairs) {
       const auto &key = pair[0];
       const auto &value = pair[1];
-      const auto idx = hasher.index(key);
+      const auto idx = map_hasher.index(key);
       LIBC_ASSERT(idx < Capacity && "Index out of bounds");
       this->entries[idx] = Entry{key, value};
     }

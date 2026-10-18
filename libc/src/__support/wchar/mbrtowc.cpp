@@ -21,11 +21,14 @@ namespace internal {
 
 ErrorOr<size_t> mbrtowc(wchar_t *__restrict pwc, const char *__restrict src_ptr,
                         size_t max_src_bytes, mbstate *__restrict ps) {
-  CharacterConverter char_conv(ps);
+  LocaleCharacterConverter char_conv(ps);
   if (!char_conv.isValidState())
     return Error(EINVAL);
-  if (src_ptr == nullptr)
-    return 0;
+  if (src_ptr == nullptr) {
+    src_ptr = "";
+    max_src_bytes = 1;
+    pwc = nullptr;
+  }
   size_t i = 0;
   // Reading in bytes until we have a complete wc or error
   for (; i < max_src_bytes && !char_conv.isFull(); ++i) {

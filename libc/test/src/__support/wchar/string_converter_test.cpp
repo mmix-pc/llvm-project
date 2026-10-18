@@ -14,6 +14,7 @@
 #include "src/__support/wchar/mbstate.h"
 #include "src/__support/wchar/string_converter.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 #if defined(LIBC_TYPES_WCHAR_T_IS_UTF32)
 using TestCharTypesUTF32 = LIBC_NAMESPACE::testing::TypeList<char32_t, wchar_t>;
@@ -22,6 +23,7 @@ using TestCharTypesUTF32 = LIBC_NAMESPACE::testing::TypeList<char32_t>;
 #endif
 
 TYPED_TEST(LlvmLibcStringConverterTest, UTF8To32, TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   // first 4 bytes are clown emoji (🤡)
@@ -65,6 +67,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, UTF8To32, TestCharTypesUTF32) {
 }
 
 TYPED_TEST(LlvmLibcStringConverterTest, UTF32To8, TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   // clown emoji, sigma symbol, y with diaeresis, letter A
@@ -143,6 +146,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, UTF32To8, TestCharTypesUTF32) {
 
 TYPED_TEST(LlvmLibcStringConverterTest, UTF32To8PartialRead,
            TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   const CharType32 src[] = {
@@ -180,6 +184,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, UTF32To8PartialRead,
 
 TYPED_TEST(LlvmLibcStringConverterTest, UTF8To32PartialRead,
            TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   // first 4 bytes are clown emoji, then next 3 are sigma symbol
@@ -201,6 +206,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, UTF8To32PartialRead,
 
 TYPED_TEST(LlvmLibcStringConverterTest, UTF32To8ErrorHandling,
            TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   const CharType32 src[] = {
@@ -238,6 +244,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, UTF32To8ErrorHandling,
 
 TYPED_TEST(LlvmLibcStringConverterTest, UTF8To32ErrorHandling,
            TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   // first 4 bytes are clown emoji (🤡)
@@ -260,6 +267,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, UTF8To32ErrorHandling,
 
 TYPED_TEST(LlvmLibcStringConverterTest, InvalidCharacterOutsideBounds,
            TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   // if an invalid character exists in the source string but we don't have space
@@ -319,6 +327,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, InvalidCharacterOutsideBounds,
 
 TYPED_TEST(LlvmLibcStringConverterTest, MultipleStringConverters32To8,
            TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   /*
@@ -370,6 +379,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, MultipleStringConverters32To8,
 
 TYPED_TEST(LlvmLibcStringConverterTest, MultipleStringConverters8To32,
            TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   const char *src = "\xF0\x9F\xA4\xA1"; // clown emoji
@@ -399,6 +409,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, MultipleStringConverters8To32,
 }
 
 TYPED_TEST(LlvmLibcStringConverterTest, DestLimitUTF8To32, TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   const char *src = "\xF0\x9F\xA4\xA1\xF0\x9F\xA4\xA1"; // 2 clown emojis
@@ -415,6 +426,7 @@ TYPED_TEST(LlvmLibcStringConverterTest, DestLimitUTF8To32, TestCharTypesUTF32) {
 }
 
 TYPED_TEST(LlvmLibcStringConverterTest, DestLimitUTF32To8, TestCharTypesUTF32) {
+  LocaleGuard locale;
   using CharType32 = ParamType;
 
   const CharType32 src[] = {static_cast<CharType32>(0x1f921),

@@ -15,9 +15,10 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(locale_t, uselocale, (locale_t newloc)) {
-  if (!newloc)
-    return locale;
-  return locale = newloc;
+  locale_t previous = internal::thread_locale;
+  if (newloc)
+    internal::thread_locale = newloc;
+  return previous;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

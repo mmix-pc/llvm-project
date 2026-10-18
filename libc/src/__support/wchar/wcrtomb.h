@@ -25,12 +25,13 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
 LIBC_INLINE ErrorOr<size_t> wcrtomb(char *__restrict dest_ptr, wchar_t wc,
-                                    mbstate *__restrict ps) {
+                                    mbstate *__restrict ps,
+                                    bool use_utf8 = locale_is_utf8()) {
   LIBC_CRASH_ON_NULLPTR(dest_ptr);
   LIBC_CRASH_ON_NULLPTR(ps);
   static_assert(sizeof(wchar_t) == 4);
 
-  CharacterConverter cr(ps);
+  CharacterConverter cr(ps, use_utf8);
 
   if (!cr.isValidState())
     return Error(EINVAL);
@@ -41,10 +42,10 @@ LIBC_INLINE ErrorOr<size_t> wcrtomb(char *__restrict dest_ptr, wchar_t wc,
 
   size_t count = 0;
   while (!cr.isEmpty()) {
-    auto utf8 = cr.pop_utf8(); // can never fail as long as the push succeeded
-    LIBC_ASSERT(utf8.has_value());
+    auto byte = cr.pop_utf8(); // Cannot fail after a successful push.
+    LIBC_ASSERT(byte.has_value());
 
-    *dest_ptr = utf8.value();
+    *dest_ptr = byte.value();
     dest_ptr++;
     count++;
   }

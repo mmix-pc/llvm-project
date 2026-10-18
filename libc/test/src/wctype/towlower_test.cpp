@@ -15,8 +15,10 @@
 #include "src/__support/wctype_utils.h"
 #include "src/wctype/towlower.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 TEST(LlvmLibcTowLower, SimpleTest) {
+  LocaleGuard locale(LIBC_CONF_WCTYPE_MODE == LIBC_WCTYPE_MODE_UTF8);
   // ASCII Conversions
   EXPECT_EQ(LIBC_NAMESPACE::towlower(L'A'), static_cast<wint_t>(L'a'));
   EXPECT_EQ(LIBC_NAMESPACE::towlower(L'Z'), static_cast<wint_t>(L'z'));
@@ -45,6 +47,7 @@ TEST(LlvmLibcTowLower, SimpleTest) {
 
 #if LIBC_CONF_WCTYPE_MODE == LIBC_WCTYPE_MODE_UTF8
 TEST(LlvmLibcTowLower, NonAsciiTestUtf8) {
+  LocaleGuard locale(LIBC_CONF_WCTYPE_MODE == LIBC_WCTYPE_MODE_UTF8);
   // Greek conversions
   EXPECT_EQ(LIBC_NAMESPACE::towlower(L'Α'), static_cast<wint_t>(L'α')); // alpha
   EXPECT_EQ(LIBC_NAMESPACE::towlower(L'Ω'), static_cast<wint_t>(L'ω')); // omega
@@ -67,6 +70,7 @@ TEST(LlvmLibcTowLower, NonAsciiTestUtf8) {
 
 #if LIBC_CONF_WCTYPE_MODE == LIBC_WCTYPE_MODE_ASCII
 TEST(LlvmLibcTowLower, NonAsciiTestAscii) {
+  LocaleGuard locale(LIBC_CONF_WCTYPE_MODE == LIBC_WCTYPE_MODE_UTF8);
   // Non-ASCII uppercase characters must return unchanged under ASCII-only mode
   EXPECT_EQ(LIBC_NAMESPACE::towlower(L'Α'), static_cast<wint_t>(L'Α'));
   EXPECT_EQ(LIBC_NAMESPACE::towlower(L'Ω'), static_cast<wint_t>(L'Ω'));

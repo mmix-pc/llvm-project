@@ -13,10 +13,12 @@
 #include "src/uchar/mbrtoc32.h"
 #include "src/wchar/mbsinit.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 namespace ll = LIBC_NAMESPACE;
 
 TEST(LlvmLibcUcharTest, ScalarRoundTripAndFragmentation) {
+  LocaleGuard locale;
   const char32_t values[] = {0,      0x7f,   0x80,   0x7ff,   0x800,
                              0xd7ff, 0xe000, 0xffff, 0x10000, 0x10ffff};
   for (char32_t value : values) {
@@ -50,6 +52,7 @@ TEST(LlvmLibcUcharTest, ScalarRoundTripAndFragmentation) {
 }
 
 TEST(LlvmLibcUcharTest, Surrogates) {
+  LocaleGuard locale;
   const char32_t scalars[] = {0x10000, 0x1f600, 0x10ffff};
   for (char32_t scalar : scalars) {
     char16_t high = static_cast<char16_t>(0xd800 + ((scalar - 0x10000) >> 10));
@@ -76,6 +79,7 @@ TEST(LlvmLibcUcharTest, Surrogates) {
 }
 
 TEST(LlvmLibcUcharTest, InvalidSequences) {
+  LocaleGuard locale;
   const char *invalid[] = {
       "\x80",         "\xc0\x80",         "\xed\xa0\x80", "\xf4\x90\x80\x80",
       "\xe0\x80\x80", "\xf0\x80\x80\x80", "\xff"};
@@ -105,6 +109,7 @@ TEST(LlvmLibcUcharTest, InvalidSequences) {
 }
 
 TEST(LlvmLibcUcharTest, NullArgumentsAndImplicitStates) {
+  LocaleGuard locale;
   mbstate_t state = {};
   char32_t out = 123;
   EXPECT_EQ(ll::mbrtoc32(nullptr, "A", 1, &state), size_t(1));
@@ -136,6 +141,7 @@ TEST(LlvmLibcUcharTest, NullArgumentsAndImplicitStates) {
 }
 
 TEST(LlvmLibcUcharTest, IndependentAndCopiedStates) {
+  LocaleGuard locale;
   mbstate_t first = {}, second = {};
   char32_t out = 123;
   libc_errno = EDOM;

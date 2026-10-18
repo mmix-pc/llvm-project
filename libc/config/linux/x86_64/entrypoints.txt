@@ -1583,6 +1583,9 @@ if(LLVM_LIBC_FULL_BUILD)
     # locale.h entrypoints
     libc.src.locale.localeconv
     libc.src.locale.duplocale
+    libc.src.locale.__ctype_get_mb_cur_max
+    libc.src.langinfo.nl_langinfo
+    libc.src.langinfo.nl_langinfo_l
     libc.src.locale.freelocale
     libc.src.locale.localeconv
     libc.src.locale.newlocale

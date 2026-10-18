@@ -10,11 +10,13 @@
 #include "src/wctype/iswalpha.h"
 
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 // Simple tests, already properly tested in
 // libc/test/src/__support/wctype_utils_test.cpp and
 // libc/test/src/__support/wctype/wctype_classification_utils_test.cpp
 TEST(LlvmLibciswalpha, SimpleTest) {
+  LocaleGuard locale(LIBC_CONF_WCTYPE_MODE == LIBC_WCTYPE_MODE_UTF8);
   EXPECT_NE(LIBC_NAMESPACE::iswalpha('a'), 0);
   EXPECT_NE(LIBC_NAMESPACE::iswalpha('B'), 0);
 

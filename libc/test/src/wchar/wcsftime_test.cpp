@@ -9,6 +9,7 @@
 #include "src/time/strftime.h"
 #include "src/wchar/wcsftime.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 static tm date() {
   tm t{};
@@ -25,6 +26,7 @@ static tm date() {
 }
 
 TEST(LlvmLibcWcsftimeTest, LiteralsAndComposite) {
+  LocaleGuard locale;
   tm t = date();
   wchar_t buffer[80];
   constexpr wchar_t expected[] = L"\u65e5\u671f 2024-02-29 13:05:07 \U0001f600";
@@ -36,6 +38,7 @@ TEST(LlvmLibcWcsftimeTest, LiteralsAndComposite) {
 }
 
 TEST(LlvmLibcWcsftimeTest, StandardConversionsMatchSharedEngine) {
+  LocaleGuard locale;
   tm t = date();
   constexpr char specs[] = "aAbBcCdDeFgGhHIjmMnprRStTuUVwWxXyYzZ%";
   for (char spec : specs) {
@@ -53,6 +56,7 @@ TEST(LlvmLibcWcsftimeTest, StandardConversionsMatchSharedEngine) {
 }
 
 TEST(LlvmLibcWcsftimeTest, LocaleModifiers) {
+  LocaleGuard locale;
   tm t = date();
   for (char modifier : "EO") {
     if (!modifier)
@@ -73,6 +77,7 @@ TEST(LlvmLibcWcsftimeTest, LocaleModifiers) {
 }
 
 TEST(LlvmLibcWcsftimeTest, BufferBounds) {
+  LocaleGuard locale;
   tm t = date();
   constexpr wchar_t format[] = L"\u20ac%Y";
   wchar_t output[8];
@@ -90,6 +95,7 @@ TEST(LlvmLibcWcsftimeTest, BufferBounds) {
 }
 
 TEST(LlvmLibcWcsftimeTest, EmptyOutputAndUnknownZone) {
+  LocaleGuard locale;
   tm t = date();
   wchar_t output[2] = {L'!', L'!'};
   EXPECT_EQ(LIBC_NAMESPACE::wcsftime(output, 1, L"", &t), size_t(0));
@@ -101,6 +107,7 @@ TEST(LlvmLibcWcsftimeTest, EmptyOutputAndUnknownZone) {
 }
 
 TEST(LlvmLibcWcsftimeTest, IsoYearBoundary) {
+  LocaleGuard locale;
   tm t{};
   t.tm_year = 121;
   t.tm_mday = 1;
@@ -114,6 +121,7 @@ TEST(LlvmLibcWcsftimeTest, IsoYearBoundary) {
 
 #if defined(__linux__)
 TEST(LlvmLibcWcsftimeTest, MultibyteZone) {
+  LocaleGuard locale;
   tm t = date();
   t.tm_zone = "\xe2\x82\xac";
   wchar_t output[3] = {L'!', L'!', L'!'};

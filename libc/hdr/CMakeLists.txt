@@ -29,6 +29,12 @@ function(add_proxy_header_library target_name)
 endfunction()
 
 add_proxy_header_library(
+  langinfo_macros
+  HDRS langinfo_macros.h
+  FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.langinfo_macros
+)
+
+add_proxy_header_library(
   math_macros
   HDRS
     math_macros.h

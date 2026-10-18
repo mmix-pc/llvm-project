@@ -21,6 +21,7 @@
 #include "src/__support/macros/properties/types.h"
 #include "src/__support/math_extras.h"
 #include "src/__support/wchar/mbstate.h"
+#include "src/locale/encoding.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -28,6 +29,7 @@ namespace internal {
 class CharacterConverter {
 private:
   mbstate *state;
+  bool utf8;
 
   // This is for utf-8 bytes other than the first byte
   static constexpr size_t ENCODED_BITS_PER_UTF8 = 6;
@@ -43,8 +45,9 @@ private:
   static constexpr int MAX_UTF8_LENGTH = 4;
 
 public:
-  explicit LIBC_INLINE CharacterConverter(mbstate *state_ptr)
-      : state(state_ptr) {}
+  explicit LIBC_INLINE CharacterConverter(mbstate *state_ptr,
+                                          bool use_utf8 = true)
+      : state(state_ptr), utf8(use_utf8) {}
 
   LIBC_INLINE void clear() {
     state->partial = 0;
@@ -85,6 +88,10 @@ LIBC_INLINE bool CharacterConverter::isValidState() {
 }
 
 LIBC_INLINE int CharacterConverter::push(char8_t utf8_byte) {
+  if (!utf8 && (utf8_byte > 0x7f || !isEmpty())) {
+    clear();
+    return EILSEQ;
+  }
   uint8_t num_ones = static_cast<uint8_t>(cpp::countl_one(utf8_byte));
   // Checking the first byte if first push
   if (isEmpty()) {
@@ -144,6 +151,10 @@ LIBC_INLINE int CharacterConverter::push(char8_t utf8_byte) {
 }
 
 LIBC_INLINE int CharacterConverter::push(char32_t utf32) {
+  if (!utf8 && utf32 > 0x7f) {
+    clear();
+    return EILSEQ;
+  }
   // we can't be partially through a conversion when pushing a utf32 value
   if (!isEmpty())
     return -1;
@@ -251,6 +262,14 @@ template <> LIBC_INLINE size_t CharacterConverter::sizeAs<wchar_t>() {
 }
 
 #endif // LIBC_TYPES_WCHAR_T_IS_UTF32
+
+// Public multibyte operations use the current LC_CTYPE. Keep the underlying
+// UTF-8 codec usable independently (including for its state-machine tests).
+class LocaleCharacterConverter : public CharacterConverter {
+public:
+  explicit LIBC_INLINE LocaleCharacterConverter(mbstate *state_ptr)
+      : CharacterConverter(state_ptr, locale_is_utf8()) {}
+};
 
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

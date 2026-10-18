@@ -4,6 +4,7 @@ add_libc_test(
   SUITE libc_uchar_unittests
   SRCS conversion_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.uchar.c16rtomb
     libc.src.uchar.c32rtomb
     libc.src.uchar.mbrtoc16

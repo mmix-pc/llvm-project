@@ -14,10 +14,12 @@
 #include "src/wchar/wcrtomb.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcWCRToMBTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST_F(LlvmLibcWCRToMBTest, OneByte) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
   wchar_t wc = L'U';
@@ -29,6 +31,7 @@ TEST_F(LlvmLibcWCRToMBTest, OneByte) {
 }
 
 TEST_F(LlvmLibcWCRToMBTest, TwoByte) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
   // testing utf32: 0xff -> utf8: 0xc3 0xbf
@@ -42,6 +45,7 @@ TEST_F(LlvmLibcWCRToMBTest, TwoByte) {
 }
 
 TEST_F(LlvmLibcWCRToMBTest, ThreeByte) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
   // testing utf32: 0xac15 -> utf8: 0xea 0xb0 0x95
@@ -56,6 +60,7 @@ TEST_F(LlvmLibcWCRToMBTest, ThreeByte) {
 }
 
 TEST_F(LlvmLibcWCRToMBTest, FourByte) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
   // testing utf32: 0x1f921 -> utf8: 0xf0 0x9f 0xa4 0xa1
@@ -71,6 +76,7 @@ TEST_F(LlvmLibcWCRToMBTest, FourByte) {
 }
 
 TEST_F(LlvmLibcWCRToMBTest, NullString) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
   wchar_t wc = L'A';
@@ -86,6 +92,7 @@ TEST_F(LlvmLibcWCRToMBTest, NullString) {
 }
 
 TEST_F(LlvmLibcWCRToMBTest, NullState) {
+  LocaleGuard locale;
   wchar_t wc = L'A';
   char mb[4];
   size_t cnt = LIBC_NAMESPACE::wcrtomb(mb, wc, nullptr);
@@ -94,6 +101,7 @@ TEST_F(LlvmLibcWCRToMBTest, NullState) {
 }
 
 TEST_F(LlvmLibcWCRToMBTest, InvalidWchar) {
+  LocaleGuard locale;
   mbstate_t state;
   LIBC_NAMESPACE::memset(&state, 0, sizeof(mbstate_t));
   wchar_t wc = 0x12ffff;
@@ -104,6 +112,7 @@ TEST_F(LlvmLibcWCRToMBTest, InvalidWchar) {
 }
 
 TEST_F(LlvmLibcWCRToMBTest, InvalidMBState) {
+  LocaleGuard locale;
   mbstate_t *state;
   LIBC_NAMESPACE::internal::mbstate inv;
   inv.total_bytes = 6;

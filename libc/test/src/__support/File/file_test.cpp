@@ -14,6 +14,7 @@
 #include "src/__support/error_or.h"
 #include "test/UnitTest/MemoryMatcher.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using ModeFlags = LIBC_NAMESPACE::File::ModeFlags;
 using MemoryView = LIBC_NAMESPACE::testing::MemoryView;
@@ -115,6 +116,7 @@ StringFile *new_string_file(char *buffer, size_t buflen, int bufmode,
 }
 
 TEST(LlvmLibcFileTest, WriteOnly) {
+  LocaleGuard locale;
   const char data[] = "hello, file";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(data) * 3 / 2;
   char file_buffer[FILE_BUFFER_SIZE];
@@ -153,6 +155,7 @@ TEST(LlvmLibcFileTest, WriteOnly) {
 }
 
 TEST(LlvmLibcFileTest, RecursiveStreamLock) {
+  LocaleGuard locale;
   char buffer[32];
   auto *f = new_string_file(buffer, sizeof(buffer), _IOFBF, false, "w");
   f->lock();
@@ -164,6 +167,7 @@ TEST(LlvmLibcFileTest, RecursiveStreamLock) {
 }
 
 TEST(LlvmLibcFileTest, WriteLineBuffered) {
+  LocaleGuard locale;
   const char data[] = "hello\n file";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(data) * 3 / 2;
 
@@ -224,6 +228,7 @@ TEST(LlvmLibcFileTest, WriteLineBuffered) {
 }
 
 TEST(LlvmLibcFileTest, WriteUnbuffered) {
+  LocaleGuard locale;
   const char data[] = "written immediately";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(data) + 1;
   char file_buffer[FILE_BUFFER_SIZE];
@@ -239,6 +244,7 @@ TEST(LlvmLibcFileTest, WriteUnbuffered) {
 }
 
 TEST(LlvmLibcFileTest, ReadOnly) {
+  LocaleGuard locale;
   const char initial_content[] = "1234567890987654321";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(initial_content);
   char file_buffer[FILE_BUFFER_SIZE];
@@ -292,6 +298,7 @@ TEST(LlvmLibcFileTest, ReadOnly) {
 }
 
 TEST(LlvmLibcFileTest, ReadSeekCurAndRead) {
+  LocaleGuard locale;
   const char initial_content[] = "1234567890987654321";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(initial_content);
   char file_buffer[FILE_BUFFER_SIZE];
@@ -314,6 +321,7 @@ TEST(LlvmLibcFileTest, ReadSeekCurAndRead) {
 }
 
 TEST(LlvmLibcFileTest, AppendOnly) {
+  LocaleGuard locale;
   const char initial_content[] = "1234567890987654321";
   const char write_data[] = "append";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(write_data) * 3 / 2;
@@ -344,6 +352,7 @@ TEST(LlvmLibcFileTest, AppendOnly) {
 }
 
 TEST(LlvmLibcFileTest, WriteUpdate) {
+  LocaleGuard locale;
   const char data[] = "hello, file";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(data) * 3 / 2;
   char file_buffer[FILE_BUFFER_SIZE];
@@ -364,6 +373,7 @@ TEST(LlvmLibcFileTest, WriteUpdate) {
 }
 
 TEST(LlvmLibcFileTest, ReadUpdate) {
+  LocaleGuard locale;
   const char initial_content[] = "1234567890987654321";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(initial_content);
   char file_buffer[FILE_BUFFER_SIZE];
@@ -397,6 +407,7 @@ TEST(LlvmLibcFileTest, ReadUpdate) {
 }
 
 TEST(LlvmLibcFileTest, AppendUpdate) {
+  LocaleGuard locale;
   const char initial_content[] = "1234567890987654321";
   const char data[] = "hello, file";
   constexpr size_t FILE_BUFFER_SIZE = sizeof(data) * 3 / 2;
@@ -439,6 +450,7 @@ TEST(LlvmLibcFileTest, AppendUpdate) {
 }
 
 TEST(LlvmLibcFileTest, SmallBuffer) {
+  LocaleGuard locale;
   const char WRITE_DATA[] = "small buffer";
   constexpr size_t WRITE_SIZE = sizeof(WRITE_DATA);
   constexpr size_t FILE_BUFFER_SIZE = sizeof(WRITE_DATA) / 2 - 1;
@@ -456,6 +468,7 @@ TEST(LlvmLibcFileTest, SmallBuffer) {
 }
 
 TEST(LlvmLibcFileTest, ZeroLengthBuffer) {
+  LocaleGuard locale;
   const char WRITE_DATA[] = "small buffer";
   constexpr size_t WRITE_SIZE = sizeof(WRITE_DATA);
   StringFile *f_fbf = new_string_file(nullptr, 0, _IOFBF, true, "w");
@@ -480,6 +493,7 @@ TEST(LlvmLibcFileTest, ZeroLengthBuffer) {
 }
 
 TEST(LlvmLibcFileTest, WriteNothing) {
+  LocaleGuard locale;
   const char WRITE_DATA[] = "";
   constexpr size_t WRITE_SIZE = 0;
   constexpr size_t FILE_BUFFER_SIZE = 5;
@@ -507,6 +521,7 @@ TEST(LlvmLibcFileTest, WriteNothing) {
 }
 
 TEST(LlvmLibcFileTest, WriteSplit) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 8;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -526,6 +541,7 @@ TEST(LlvmLibcFileTest, WriteSplit) {
 }
 
 TEST(LlvmLibcFileTest, WideCharOrientation) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 512;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -541,6 +557,7 @@ TEST(LlvmLibcFileTest, WideCharOrientation) {
 }
 
 TEST(LlvmLibcFileTest, ByteCharOrientation) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 512;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -556,6 +573,7 @@ TEST(LlvmLibcFileTest, ByteCharOrientation) {
 }
 
 TEST(LlvmLibcFileTest, Ungetwc) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 512;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -583,6 +601,7 @@ TEST(LlvmLibcFileTest, Ungetwc) {
 }
 
 TEST(LlvmLibcFileTest, WideStringIO) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 100;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -613,6 +632,7 @@ TEST(LlvmLibcFileTest, WideStringIO) {
 }
 
 TEST(LlvmLibcFileTest, TrySetOrientation) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 100;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -638,6 +658,7 @@ TEST(LlvmLibcFileTest, TrySetOrientation) {
 }
 
 TEST(LlvmLibcFileTest, UngetwcMultiByte) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 512;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -665,6 +686,7 @@ TEST(LlvmLibcFileTest, UngetwcMultiByte) {
 }
 
 TEST(LlvmLibcFileTest, UngetwcUnbufferedMultiByte) {
+  LocaleGuard locale;
   StringFile *f = new_string_file(nullptr, 0, _IONBF, true, "w+");
   ASSERT_FALSE(f == nullptr);
 
@@ -689,6 +711,7 @@ TEST(LlvmLibcFileTest, UngetwcUnbufferedMultiByte) {
 }
 
 TEST(LlvmLibcFileTest, WideStringIO_Multibyte) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 100;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -718,7 +741,45 @@ TEST(LlvmLibcFileTest, WideStringIO_Multibyte) {
   ASSERT_EQ(f->close(), 0);
 }
 
+#ifdef LIBC_FULL_BUILD
+TEST(LlvmLibcFileTest, WideOrientationRetainsEncoding) {
+  LocaleGuard utf8;
+  char buffer[32];
+  StringFile *f = new_string_file(buffer, sizeof(buffer), _IOFBF, false, "w+");
+  ASSERT_NE(f, nullptr);
+  f->try_set_orientation(File::Orientation::WIDE);
+  {
+    LocaleGuard c(false);
+    const wchar_t text[] = {0xe9};
+    auto written = f->write(text, 1);
+    EXPECT_FALSE(written.has_error());
+    EXPECT_EQ(written.value, size_t(1));
+    ASSERT_EQ(f->flush(), 0);
+    ASSERT_EQ(f->seek(0, SEEK_SET).value(), 0);
+    wchar_t wc;
+    auto read = f->read(&wc, 1);
+    EXPECT_FALSE(read.has_error());
+    EXPECT_EQ(read.value, size_t(1));
+    EXPECT_EQ(wc, wchar_t(0xe9));
+  }
+  EXPECT_EQ(f->close(), 0);
+
+  f = new_string_file(buffer, sizeof(buffer), _IOFBF, false, "w+");
+  ASSERT_NE(f, nullptr);
+  {
+    LocaleGuard c(false);
+    f->try_set_orientation(File::Orientation::WIDE);
+  }
+  const wchar_t text[] = {0xe9};
+  auto written = f->write(text, 1);
+  EXPECT_TRUE(written.has_error());
+  EXPECT_EQ(written.error, EILSEQ);
+  EXPECT_EQ(f->close(), 0);
+}
+#endif
+
 TEST(LlvmLibcFileTest, SeekResetsMbstate) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 100;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -744,6 +805,7 @@ TEST(LlvmLibcFileTest, SeekResetsMbstate) {
 }
 
 TEST(LlvmLibcFileTest, ReadWideNotStopAtNewline) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 100;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -772,6 +834,7 @@ TEST(LlvmLibcFileTest, ReadWideNotStopAtNewline) {
 }
 
 TEST(LlvmLibcFileTest, UngetwcWEOF) {
+  LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 100;
   char file_buffer[FILE_BUFFER_SIZE];
   StringFile *f =
@@ -857,6 +920,7 @@ public:
 // writes on pipes, sockets, and FIFOs, so a 3-byte character could have
 // only 2 bytes accepted by the kernel.
 TEST(LlvmLibcFileTest, PartialWideCharWriteDetected) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::AllocChecker ac;
   // Unbuffered so writes go directly to platform_write, limited to 2 bytes.
   ShortWriteFile *f = new (ac) ShortWriteFile(
@@ -880,6 +944,7 @@ TEST(LlvmLibcFileTest, PartialWideCharWriteDetected) {
 }
 
 TEST(LlvmLibcFileTest, ShortFlushDoesNotReplayCommittedPrefix) {
+  LocaleGuard locale;
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 2);
@@ -894,6 +959,7 @@ TEST(LlvmLibcFileTest, ShortFlushDoesNotReplayCommittedPrefix) {
 }
 
 TEST(LlvmLibcFileTest, ShortSeekPreservesOnlyUnconsumedData) {
+  LocaleGuard locale;
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 2);
@@ -909,6 +975,7 @@ TEST(LlvmLibcFileTest, ShortSeekPreservesOnlyUnconsumedData) {
 }
 
 TEST(LlvmLibcFileTest, ShortCloseRemainsPublishedUntilRetry) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::AllocChecker ac;
   char buffer[8];
   auto *file = new (ac) ShortWriteFile(buffer, sizeof(buffer), _IOFBF, false,
@@ -927,6 +994,7 @@ TEST(LlvmLibcFileTest, ShortCloseRemainsPublishedUntilRetry) {
 }
 
 TEST(LlvmLibcFileTest, ShortBufferedWriteRetainsOldDataWithoutAcceptingNewData) {
+  LocaleGuard locale;
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 4);
@@ -942,6 +1010,7 @@ TEST(LlvmLibcFileTest, ShortBufferedWriteRetainsOldDataWithoutAcceptingNewData) 
 }
 
 TEST(LlvmLibcFileTest, ShortPreflushRetainsOldDataWithoutWritingNewData) {
+  LocaleGuard locale;
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 4);
@@ -958,6 +1027,7 @@ TEST(LlvmLibcFileTest, ShortPreflushRetainsOldDataWithoutWritingNewData) {
 }
 
 TEST(LlvmLibcFileTest, ZeroProgressFlushDoesNotReportSuccess) {
+  LocaleGuard locale;
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 0);
@@ -971,6 +1041,7 @@ TEST(LlvmLibcFileTest, ZeroProgressFlushDoesNotReportSuccess) {
 }
 
 TEST(LlvmLibcFileTest, FileLockRAII) {
+  LocaleGuard locale;
   StringFile *f = new_string_file(nullptr, 0, _IONBF, false, "w+");
   ASSERT_FALSE(f == nullptr);
 

@@ -14,8 +14,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-// Only C locale objects can currently be constructed.
-// TODO: Add locale-dependent collation when other locales are supported.
+// Both built-in locales use C collation (unsigned byte order).
 LLVM_LIBC_FUNCTION(int, strcoll_l,
                    (const char *left, const char *right, locale_t)) {
   LIBC_CRASH_ON_NULLPTR(left);

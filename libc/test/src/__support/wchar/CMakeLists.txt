@@ -7,6 +7,7 @@ add_libc_test(
   SRCS
     string_converter_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.__support.macros.properties.types
     libc.src.__support.wchar.string_converter
     libc.src.__support.wchar.mbstate
@@ -48,6 +49,7 @@ add_libc_test(
   SRCS
     wcsnrtombs_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.__support.wchar.string_converter
     libc.src.__support.wchar.character_converter
     libc.src.__support.wchar.mbstate

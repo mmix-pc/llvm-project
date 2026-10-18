@@ -10,8 +10,10 @@
 #include "src/wctype/iswprint.h"
 
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 TEST(LlvmLibciswprint, SimpleTest) {
+  LocaleGuard locale(LIBC_CONF_WCTYPE_MODE == LIBC_WCTYPE_MODE_UTF8);
   for (int ch = -255; ch < 255; ++ch) {
     if (' ' <= ch && ch <= '~') {
       EXPECT_NE(LIBC_NAMESPACE::iswprint(ch), 0);

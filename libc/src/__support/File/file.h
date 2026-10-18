@@ -20,6 +20,7 @@
 #include "src/__support/macros/properties/architectures.h"
 #include "src/__support/threads/mutex.h"
 #include "src/__support/wchar/mbstate.h"
+#include "src/locale/encoding.h"
 
 #include <stddef.h>
 
@@ -156,6 +157,7 @@ private:
   wchar_t wide_pushback = 0;
   size_t wide_pushback_bytes = 0;
 
+  bool wide_utf8;
 protected:
   constexpr bool write_allowed() const {
     return mode & (static_cast<ModeFlags>(OpenMode::WRITE) |
@@ -181,6 +183,7 @@ protected:
     adjust_buf();
   }
 
+    wide_utf8 = false;
 public:
   // We want this constructor to be constexpr so that global file objects
   // like stdout do not require invocation of the constructor which can
@@ -198,8 +201,8 @@ public:
         ungetc_buf{}, buf(buffer), bufsize(buffer_size), bufmode(buffer_mode),
         own_buf(owned), mode(modeflags), pos(0), prev_op(FileOp::NONE),
         read_limit(0), eof(false), err(false),
-        orientation(Orientation::UNORIENTED), mbstate(), prev(nullptr),
-        next(nullptr) {
+        orientation(Orientation::UNORIENTED), wide_utf8(false), mbstate(),
+        prev(nullptr), next(nullptr) {
     adjust_buf();
   }
 
@@ -359,7 +362,7 @@ public:
   }
 
   Orientation try_set_orientation_unlocked(Orientation o) {
-    if (orientation == Orientation::UNORIENTED)
+    if (orientation == Orientation::UNORIENTED) {
       orientation = o;
     return orientation;
   }
@@ -375,6 +378,9 @@ public:
 
 private:
   FileIOResult write_unlocked_impl(const void *data, size_t len);
+      if (o == Orientation::WIDE)
+        wide_utf8 = internal::locale_is_utf8();
+    }
   ErrorOr<int> seek_unlocked(off_t offset, int whence);
   ErrorOr<off_t> tell_unlocked();
   FileIOResult read_unlocked_impl(void *data, size_t len);

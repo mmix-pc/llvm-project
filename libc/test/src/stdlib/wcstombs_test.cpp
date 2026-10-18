@@ -9,10 +9,12 @@
 #include "src/stdlib/wcstombs.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcWcstombs = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST_F(LlvmLibcWcstombs, IndependentCallsAfterShortDestination) {
+  LocaleGuard locale;
   char output[5] = {};
   const wchar_t euro[] = {0x20ac, 0};
   EXPECT_EQ(LIBC_NAMESPACE::wcstombs(output, euro, 2), static_cast<size_t>(0));
@@ -25,6 +27,7 @@ TEST_F(LlvmLibcWcstombs, IndependentCallsAfterShortDestination) {
 // wcsnrtombs which is more thoroughly tested
 
 TEST_F(LlvmLibcWcstombs, AllMultibyteLengths) {
+  LocaleGuard locale;
   /// clown emoji, sigma symbol, y with diaeresis, letter A
   const wchar_t src[] = {static_cast<wchar_t>(0x1f921),
                          static_cast<wchar_t>(0x2211),
@@ -48,6 +51,7 @@ TEST_F(LlvmLibcWcstombs, AllMultibyteLengths) {
 }
 
 TEST_F(LlvmLibcWcstombs, DestLimit) {
+  LocaleGuard locale;
   /// clown emoji, sigma symbol, y with diaeresis, letter A
   const wchar_t src[] = {static_cast<wchar_t>(0x1f921),
                          static_cast<wchar_t>(0x2211),
@@ -79,6 +83,7 @@ TEST_F(LlvmLibcWcstombs, DestLimit) {
 }
 
 TEST_F(LlvmLibcWcstombs, ErrnoTest) {
+  LocaleGuard locale;
   const wchar_t src[] = {static_cast<wchar_t>(0x1f921),
                          static_cast<wchar_t>(0x2211),
                          static_cast<wchar_t>(0x12ffff), // invalid widechar

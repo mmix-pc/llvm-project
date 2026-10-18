@@ -411,6 +411,16 @@ foreach(removed_entrypoint IN LISTS TARGET_LLVMLIBC_REMOVED_ENTRYPOINTS)
   list(REMOVE_ITEM TARGET_LIBMVEC_ENTRYPOINTS ${removed_entrypoint})
 endforeach()
 
+# MB_CUR_MAX in the public stdlib header requires this provider even when no
+# public locale-management entrypoints are selected. Keep it in every full
+# libc archive independently of architecture-specific entrypoint lists.
+if(LLVM_LIBC_FULL_BUILD)
+  list(APPEND TARGET_LLVMLIBC_ENTRYPOINTS libc.src.locale.__ctype_get_mb_cur_max)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.locale.__ctype_get_mb_cur_max)
+  list(REMOVE_DUPLICATES TARGET_LLVMLIBC_ENTRYPOINTS)
+  list(REMOVE_DUPLICATES TARGET_LIBC_ENTRYPOINTS)
+endif()
+
 set(TARGET_ENTRYPOINT_NAME_LIST "")
 foreach(entrypoint IN LISTS TARGET_LLVMLIBC_ENTRYPOINTS)
   string(FIND ${entrypoint} "." last_dot_loc REVERSE)

@@ -51,8 +51,10 @@ private:
 
 public:
   LIBC_INLINE StringConverter(const T *s, mbstate *ps, size_t dstlen,
-                              size_t srclen = SIZE_MAX)
-      : cr(ps), src(s), src_len(srclen), src_idx(0), num_to_write(dstlen) {}
+                              size_t srclen = SIZE_MAX,
+                              bool use_utf8 = locale_is_utf8())
+      : cr(ps, use_utf8), src(s), src_len(srclen), src_idx(0),
+        num_to_write(dstlen) {}
 
   template <typename CharType> LIBC_INLINE ErrorOr<CharType> pop() {
     if (num_to_write == 0)

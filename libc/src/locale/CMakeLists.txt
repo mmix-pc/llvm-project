@@ -1,3 +1,24 @@
+set(encoding_deps)
+if(LLVM_LIBC_FULL_BUILD)
+  list(APPEND encoding_deps .locale)
+endif()
+add_header_library(
+  encoding
+  HDRS encoding.h
+  DEPENDS ${encoding_deps} libc.src.__support.macros.config
+)
+
+if(NOT LLVM_LIBC_FULL_BUILD)
+  return()
+endif()
+
+add_entrypoint_object(
+  __ctype_get_mb_cur_max
+  SRCS mb_cur_max.cpp
+  HDRS mb_cur_max.h
+  DEPENDS .encoding libc.hdr.types.size_t
+)
+
 add_object_library(
   locale
   SRCS
@@ -6,6 +27,18 @@ add_object_library(
     locale.h
   DEPENDS
     libc.hdr.types.locale_t
+    libc.hdr.locale_macros
+    libc.src.__support.CPP.atomic
+)
+
+add_object_library(
+  locale_name
+  SRCS
+    locale_name.cpp
+  DEPENDS
+    .locale
+    libc.src.__support.CPP.string_view
+    libc.src.stdlib.getenv
 )
 
 add_entrypoint_object(
@@ -30,6 +63,10 @@ add_entrypoint_object(
     libc.hdr.locale_macros
     libc.hdr.types.locale_t
     .locale
+    .locale_name
+    libc.hdr.errno_macros
+    libc.hdr.func.malloc
+    libc.src.__support.libc_errno
 )
 
 add_entrypoint_object(
@@ -40,6 +77,10 @@ add_entrypoint_object(
     duplocale.h
   DEPENDS
     libc.hdr.types.locale_t
+    .locale
+    libc.hdr.errno_macros
+    libc.hdr.func.malloc
+    libc.src.__support.libc_errno
 )
 
 add_entrypoint_object(
@@ -51,6 +92,9 @@ add_entrypoint_object(
   DEPENDS
     libc.hdr.locale_macros
     libc.hdr.types.locale_t
+    .locale_name
+    libc.hdr.errno_macros
+    libc.src.__support.libc_errno
 )
 
 add_entrypoint_object(
@@ -72,4 +116,5 @@ add_entrypoint_object(
     freelocale.h
   DEPENDS
     libc.hdr.types.locale_t
+    libc.hdr.func.free
 )

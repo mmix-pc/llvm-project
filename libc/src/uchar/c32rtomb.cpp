@@ -12,7 +12,7 @@
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(size_t, c32rtomb,
                    (char *__restrict s, char32_t c, mbstate_t *__restrict ps)) {
-  static internal::mbstate implicit_state;
+  static LIBC_THREAD_LOCAL internal::mbstate implicit_state;
   auto *state =
       ps ? reinterpret_cast<internal::mbstate *>(ps) : &implicit_state;
   return internal::encode(s, c, state);

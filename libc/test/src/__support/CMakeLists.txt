@@ -327,6 +327,7 @@ add_libc_test(
   DEPENDS
     libc.src.__support.wctype_utils
     libc.src.__support.wctype.wctype_classification_utils
+    libc.src.__support.wctype.wctype_conversion_utils
     libc.src.__support.macros.properties.os
 )
 

@@ -5,6 +5,15 @@ add_custom_target(stdlib-integration-tests)
 add_dependencies(libc-integration-tests stdlib-integration-tests)
 
 add_integration_test(
+  mb_cur_max_test
+  SUITE stdlib-integration-tests
+  SRCS mb_cur_max_test.cpp
+  DEPENDS
+    libc.include.stdlib
+    libc.src.locale.__ctype_get_mb_cur_max
+)
+
+add_integration_test(
   getenv_test
   SUITE
     stdlib-integration-tests

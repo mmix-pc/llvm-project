@@ -12,6 +12,7 @@ add_libc_test(
   SRCS
     file_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.include.stdio
     libc.hdr.wchar_macros
     libc.hdr.types.size_t

@@ -13,10 +13,12 @@
 #include "src/wchar/mbrlen.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcMBRLenTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST_F(LlvmLibcMBRLenTest, OneByte) {
+  LocaleGuard locale;
   const char *ch = "A";
   mbstate_t mb;
   LIBC_NAMESPACE::memset(&mb, 0, sizeof(mbstate_t));
@@ -31,6 +33,7 @@ TEST_F(LlvmLibcMBRLenTest, OneByte) {
 }
 
 TEST_F(LlvmLibcMBRLenTest, TwoByte) {
+  LocaleGuard locale;
   const char ch[2] = {static_cast<char>(0xC2),
                       static_cast<char>(0x8E)}; //  car symbol
   mbstate_t mb;
@@ -50,6 +53,7 @@ TEST_F(LlvmLibcMBRLenTest, TwoByte) {
 }
 
 TEST_F(LlvmLibcMBRLenTest, ThreeByte) {
+  LocaleGuard locale;
   const char ch[3] = {static_cast<char>(0xE2), static_cast<char>(0x88),
                       static_cast<char>(0x91)}; // ∑ sigma symbol
   mbstate_t mb;
@@ -65,6 +69,7 @@ TEST_F(LlvmLibcMBRLenTest, ThreeByte) {
 }
 
 TEST_F(LlvmLibcMBRLenTest, FourByte) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0xF0), static_cast<char>(0x9F),
                       static_cast<char>(0xA4),
                       static_cast<char>(0xA1)}; // 🤡 clown emoji
@@ -91,6 +96,7 @@ TEST_F(LlvmLibcMBRLenTest, FourByte) {
 }
 
 TEST_F(LlvmLibcMBRLenTest, InvalidByte) {
+  LocaleGuard locale;
   const char ch[1] = {static_cast<char>(0x80)};
   size_t n = LIBC_NAMESPACE::mbrlen(ch, 1, nullptr);
   ASSERT_EQ(static_cast<int>(n), -1);
@@ -98,6 +104,7 @@ TEST_F(LlvmLibcMBRLenTest, InvalidByte) {
 }
 
 TEST_F(LlvmLibcMBRLenTest, InvalidMultiByte) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0x80), static_cast<char>(0x00),
                       static_cast<char>(0x80),
                       static_cast<char>(0x00)}; // invalid sequence of bytes
@@ -115,6 +122,7 @@ TEST_F(LlvmLibcMBRLenTest, InvalidMultiByte) {
 }
 
 TEST_F(LlvmLibcMBRLenTest, NullString) {
+  LocaleGuard locale;
   // reading on nullptr should return 0
   size_t n = LIBC_NAMESPACE::mbrlen(nullptr, 2, nullptr);
   ASSERT_EQ(static_cast<int>(n), 0);
@@ -126,6 +134,7 @@ TEST_F(LlvmLibcMBRLenTest, NullString) {
 }
 
 TEST_F(LlvmLibcMBRLenTest, InvalidMBState) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0xC2), static_cast<char>(0x8E),
                       static_cast<char>(0xC7), static_cast<char>(0x8C)};
   mbstate_t *mb;

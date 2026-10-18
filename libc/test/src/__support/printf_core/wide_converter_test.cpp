@@ -13,6 +13,7 @@
 #include "src/stdio/snprintf.h"
 #include "test/UnitTest/RoundingModeUtils.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 #include <stdarg.h>
 
@@ -46,11 +47,13 @@ void check(const wchar_t *expected, const wchar_t *format, Args... args) {
 } // namespace
 
 TEST(LlvmLibcWidePrintfConverterTest, LiteralAndPercent) {
+  LocaleGuard locale;
   check(L"\u4e2d%\u03bb", L"\u4e2d%%\u03bb");
 }
 
 #ifndef LIBC_COPT_PRINTF_DISABLE_WIDE
 TEST(LlvmLibcWidePrintfConverterTest, Characters) {
+  LocaleGuard locale;
   check(L"A \u4e2d", L"%c %lc", int('A'), wint_t(L'\u4e2d'));
   check(L"  A|\u03bb  ", L"%3c|%-3lc", int('A'), wint_t(L'\u03bb'));
   check(L"A", L"%c", 0x141); // Conversion to unsigned char precedes btowc.
@@ -63,6 +66,7 @@ TEST(LlvmLibcWidePrintfConverterTest, Characters) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, InvalidSingleBytes) {
+  LocaleGuard locale;
   const int bytes[] = {0x80, 0xc2, 0xff};
   for (int byte : bytes) {
     wchar_t buffer[8];
@@ -72,6 +76,7 @@ TEST(LlvmLibcWidePrintfConverterTest, InvalidSingleBytes) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, Strings) {
+  LocaleGuard locale;
   check(L"abc|\u4e2d\u03bb", L"%s|%ls", "abc", L"\u4e2d\u03bb");
   check(L"\u4e2d\u03bb\U0001f642", L"%s",
         "\xe4\xb8\xad\xce\xbb\xf0\x9f\x99\x82");
@@ -80,6 +85,7 @@ TEST(LlvmLibcWidePrintfConverterTest, Strings) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, StringPrecision) {
+  LocaleGuard locale;
   check(L"\u4e2d|\u03bb", L"%.1s|%.1ls", "\xe4\xb8\xadX", L"\u03bbX");
   check(L"  \u4e2d|\u03bb  ", L"%*.*s|%-*.*ls", 3, 1, "\xe4\xb8\xadX", 3, 1,
         L"\u03bbX");
@@ -93,6 +99,7 @@ TEST(LlvmLibcWidePrintfConverterTest, StringPrecision) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, InvalidStrings) {
+  LocaleGuard locale;
   const char *invalid[] = {
       "\x80",         "\xe4\xb8",        "\xc2X",        "A\xff",
       "\xc0\x80",     "\xc0\xaf",        "\xe0\x80\xaf", "\xf0\x80\x80\xaf",
@@ -105,6 +112,7 @@ TEST(LlvmLibcWidePrintfConverterTest, InvalidStrings) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, IndependentStringState) {
+  LocaleGuard locale;
   check(L"\u4e2d\u03bb", L"%s%s", "\xe4\xb8\xad", "\xce\xbb");
   wchar_t buffer[8];
   EXPECT_EQ(format_to(buffer, 8, L"%s", "\xe4"), MB_CONVERSION_ERROR);
@@ -112,6 +120,7 @@ TEST(LlvmLibcWidePrintfConverterTest, IndependentStringState) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, StringAndCharacterTruncation) {
+  LocaleGuard locale;
   wchar_t buffer[] = {L'!', L'!', L'!', L'!', L'!'};
   EXPECT_EQ(format_to(buffer + 1, 3, L"%s",
                       "A\xe4\xb8\xad"
@@ -136,6 +145,7 @@ TEST(LlvmLibcWidePrintfConverterTest, StringAndCharacterTruncation) {
 #endif
 
 TEST(LlvmLibcWidePrintfConverterTest, IntegerValuesAndLengths) {
+  LocaleGuard locale;
   check(L"-128 -32768 -2147483648", L"%hhd %hd %d", -128, -32768,
         (-2147483647 - 1));
   check(L"-9223372036854775808", L"%lld", (-9223372036854775807LL - 1));
@@ -146,6 +156,7 @@ TEST(LlvmLibcWidePrintfConverterTest, IntegerValuesAndLengths) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, IntegerPaddingAndPrecision) {
+  LocaleGuard locale;
   // Retain representative expectations from stdio/sprintf_test.cpp.
   check(L"007F 0x1000000000 002   ", L"%04X %#llx %-6.3zu", 127U,
         0x1000000000ULL, size_t(2));
@@ -158,6 +169,7 @@ TEST(LlvmLibcWidePrintfConverterTest, IntegerPaddingAndPrecision) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, BasesAndPrefixes) {
+  LocaleGuard locale;
   check(L"0x1f 0X1F 037 0b11111 0B11111", L"%#x %#X %#o %#b %#B", 31U, 31U, 31U,
         31U, 31U);
 #ifndef LIBC_COPT_PRINTF_DISABLE_BITINT
@@ -185,6 +197,7 @@ void check_float_boundaries(const char *format, const wchar_t *wide_format) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, FloatingFormats) {
+  LocaleGuard locale;
   using LIBC_NAMESPACE::fputil::testing::ForceRoundingMode;
   using LIBC_NAMESPACE::fputil::testing::RoundingMode;
   ForceRoundingMode rounding(RoundingMode::Nearest);
@@ -201,6 +214,7 @@ TEST(LlvmLibcWidePrintfConverterTest, FloatingFormats) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, FloatingHexAndExtremes) {
+  LocaleGuard locale;
   using LIBC_NAMESPACE::fputil::testing::ForceRoundingMode;
   using LIBC_NAMESPACE::fputil::testing::RoundingMode;
   ForceRoundingMode rounding(RoundingMode::Nearest);
@@ -216,6 +230,7 @@ TEST(LlvmLibcWidePrintfConverterTest, FloatingHexAndExtremes) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, InfAndNaN) {
+  LocaleGuard locale;
   using Bits = LIBC_NAMESPACE::fputil::FPBits<double>;
   check(L"inf -INF", L"%f %F", Bits::inf().get_val(), -Bits::inf().get_val());
   check(L"nan NAN", L"%g %A", Bits::quiet_nan().get_val(),
@@ -224,6 +239,7 @@ TEST(LlvmLibcWidePrintfConverterTest, InfAndNaN) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, FloatingRoundingModes) {
+  LocaleGuard locale;
   using LIBC_NAMESPACE::fputil::testing::ForceRoundingMode;
   using LIBC_NAMESPACE::fputil::testing::RoundingMode;
   const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Downward,
@@ -238,6 +254,7 @@ TEST(LlvmLibcWidePrintfConverterTest, FloatingRoundingModes) {
 
 #ifndef LIBC_TYPES_LONG_DOUBLE_IS_DOUBLE_DOUBLE
 TEST(LlvmLibcWidePrintfConverterTest, LongDoubleFormats) {
+  LocaleGuard locale;
   check(L"1.500000 -0.000000", L"%Lf %Lf", 1.5L, -0.0L);
   check(L"1.500000e+00 1.5", L"%Le %Lg", 1.5L, 1.5L);
   check(L"1.25000000000000000000", L"%.20Lf", 1.25L);
@@ -248,12 +265,14 @@ TEST(LlvmLibcWidePrintfConverterTest, LongDoubleFormats) {
 #endif
 
 TEST(LlvmLibcWidePrintfConverterTest, DoubleBoundaryAgreement) {
+  LocaleGuard locale;
   check_float_boundaries<double>("%.20e", L"%.20e");
   check_float_boundaries<double>("%.20g", L"%.20g");
   check_float_boundaries<double>("%.20a", L"%.20a");
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, FloatTruncation) {
+  LocaleGuard locale;
   wchar_t buffer[5];
   EXPECT_EQ(format_to(buffer, 5, L"%.100f", 1.25), BUFFER_TOO_SMALL);
   EXPECT_TRUE(basic_string_view<wchar_t>(buffer) == L"1.25");
@@ -268,6 +287,7 @@ TEST(LlvmLibcWidePrintfConverterTest, FloatTruncation) {
 #endif
 
 TEST(LlvmLibcWidePrintfConverterTest, Pointers) {
+  LocaleGuard locale;
   check(L"0x123", L"%p", reinterpret_cast<void *>(uintptr_t(0x123)));
   check(L"   (nullptr)", L"%12p", static_cast<void *>(nullptr));
   check(L"(nullptr)   ", L"%-12p", static_cast<void *>(nullptr));
@@ -276,6 +296,7 @@ TEST(LlvmLibcWidePrintfConverterTest, Pointers) {
 
 #ifndef LIBC_COPT_PRINTF_DISABLE_WRITE_INT
 TEST(LlvmLibcWidePrintfConverterTest, WideCounts) {
+  LocaleGuard locale;
   signed char hh = -1;
   short h = -1;
   int n = -1;
@@ -298,6 +319,7 @@ TEST(LlvmLibcWidePrintfConverterTest, WideCounts) {
 }
 
 TEST(LlvmLibcWidePrintfConverterTest, TruncationStopsBeforeCountStore) {
+  LocaleGuard locale;
   wchar_t buffer[4];
   int count = -1;
   EXPECT_EQ(format_to(buffer, 4, L"%100d%n", 7, &count), BUFFER_TOO_SMALL);
@@ -317,6 +339,7 @@ TEST(LlvmLibcWidePrintfConverterTest, TruncationStopsBeforeCountStore) {
 
 #ifndef LIBC_COPT_PRINTF_DISABLE_INDEX_MODE
 TEST(LlvmLibcWidePrintfConverterTest, IndexedIntegers) {
+  LocaleGuard locale;
   check(L"  002a 6", L"%3$*1$.*2$x %1$d", 6, 4, 42U);
 }
 #endif

@@ -15,16 +15,19 @@
 #include "src/__support/wchar/mbstate.h"
 #include "src/__support/wchar/wcsnrtombs.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 // TODO: add support for 16-bit widechars to remove this macro
 #ifdef LIBC_TARGET_OS_IS_WINDOWS
 TEST(LlvmLibcStringConverterTest, Windows) {
+  LocaleGuard locale;
   // pass on windows for now
 }
 
 #else
 
 TEST(LlvmLibcWcsnrtombs, AllMultibyteLengths) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::internal::mbstate state;
 
   /// clown emoji, sigma symbol, y with diaeresis, letter A
@@ -53,6 +56,7 @@ TEST(LlvmLibcWcsnrtombs, AllMultibyteLengths) {
 }
 
 TEST(LlvmLibcWcsnrtombs, DestLimit) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::internal::mbstate state1;
 
   /// clown emoji, sigma symbol, y with diaeresis, letter A
@@ -94,6 +98,7 @@ TEST(LlvmLibcWcsnrtombs, DestLimit) {
 }
 
 TEST(LlvmLibcWcsnrtombs, SrcLimit) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::internal::mbstate state;
 
   /// clown emoji, sigma symbol, y with diaeresis, letter A
@@ -139,6 +144,7 @@ TEST(LlvmLibcWcsnrtombs, SrcLimit) {
 }
 
 TEST(LlvmLibcWcsnrtombs, NullDest) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::internal::mbstate state1;
 
   const wchar_t src[] = {static_cast<wchar_t>(0x1f921),
@@ -161,6 +167,7 @@ TEST(LlvmLibcWcsnrtombs, NullDest) {
 }
 
 TEST(LlvmLibcWcsnrtombs, InvalidState) {
+  LocaleGuard locale;
   // this is more thoroughly tested by CharacterConverter
   LIBC_NAMESPACE::internal::mbstate state;
   state.total_bytes = 100;
@@ -178,6 +185,7 @@ TEST(LlvmLibcWcsnrtombs, InvalidState) {
 }
 
 TEST(LlvmLibcWcsnrtombs, InvalidCharacter) {
+  LocaleGuard locale;
   LIBC_NAMESPACE::internal::mbstate state1;
 
   const wchar_t src[] = {static_cast<wchar_t>(0x1f921),
@@ -201,6 +209,7 @@ TEST(LlvmLibcWcsnrtombs, InvalidCharacter) {
 
 #if defined(LIBC_ADD_NULL_CHECKS) && !defined(LIBC_HAS_SANITIZER)
 TEST(LlvmLibcWcsnrtombs, NullSrc) {
+  LocaleGuard locale;
   EXPECT_DEATH(
       [] {
         LIBC_NAMESPACE::internal::mbstate state;

@@ -214,8 +214,6 @@ add_entrypoint_object(
     libc.hdr.types.locale_t
     libc.src.__support.StringUtil.error_to_string
     libc.src.__support.common
-    libc.src.__support.libc_assert
-    libc.src.locale.locale
 )
 
 add_entrypoint_object(

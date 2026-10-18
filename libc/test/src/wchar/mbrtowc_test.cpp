@@ -14,10 +14,12 @@
 #include "src/wchar/mbrtowc.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcMBRToWCTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST_F(LlvmLibcMBRToWCTest, OneByte) {
+  LocaleGuard locale;
   const char *ch = "A";
   wchar_t dest[2];
   // Testing if it works with nullptr mbstate_t
@@ -34,6 +36,7 @@ TEST_F(LlvmLibcMBRToWCTest, OneByte) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, TwoByte) {
+  LocaleGuard locale;
   const char ch[2] = {static_cast<char>(0xC2),
                       static_cast<char>(0x8E)}; //  car symbol
   wchar_t dest[2];
@@ -55,6 +58,7 @@ TEST_F(LlvmLibcMBRToWCTest, TwoByte) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, ThreeByte) {
+  LocaleGuard locale;
   const char ch[3] = {static_cast<char>(0xE2), static_cast<char>(0x88),
                       static_cast<char>(0x91)}; // ∑ sigma symbol
   wchar_t dest[2];
@@ -77,6 +81,7 @@ TEST_F(LlvmLibcMBRToWCTest, ThreeByte) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, FourByte) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0xF0), static_cast<char>(0x9F),
                       static_cast<char>(0xA4),
                       static_cast<char>(0xA1)}; // 🤡 clown emoji
@@ -99,6 +104,7 @@ TEST_F(LlvmLibcMBRToWCTest, FourByte) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, InvalidByte) {
+  LocaleGuard locale;
   const char ch[1] = {static_cast<char>(0x80)};
   wchar_t dest[2];
   mbstate_t mb;
@@ -109,6 +115,7 @@ TEST_F(LlvmLibcMBRToWCTest, InvalidByte) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, InvalidMultiByte) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0x80), static_cast<char>(0x00),
                       static_cast<char>(0x80),
                       static_cast<char>(0x00)}; // invalid sequence of bytes
@@ -131,6 +138,7 @@ TEST_F(LlvmLibcMBRToWCTest, InvalidMultiByte) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, InvalidLastByte) {
+  LocaleGuard locale;
   // Last byte is invalid since it does not have correct starting sequence.
   // 0xC0 --> 11000000 starting sequence should be 10xxxxxx
   const char ch[4] = {static_cast<char>(0xF1), static_cast<char>(0x80),
@@ -145,6 +153,7 @@ TEST_F(LlvmLibcMBRToWCTest, InvalidLastByte) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, ValidTwoByteWithExtraRead) {
+  LocaleGuard locale;
   const char ch[3] = {static_cast<char>(0xC2), static_cast<char>(0x8E),
                       static_cast<char>(0x80)};
   wchar_t dest[2];
@@ -158,6 +167,7 @@ TEST_F(LlvmLibcMBRToWCTest, ValidTwoByteWithExtraRead) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, TwoValidTwoBytes) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0xC2), static_cast<char>(0x8E),
                       static_cast<char>(0xC7), static_cast<char>(0x8C)};
   wchar_t dest[2];
@@ -175,6 +185,7 @@ TEST_F(LlvmLibcMBRToWCTest, TwoValidTwoBytes) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, NullString) {
+  LocaleGuard locale;
   wchar_t dest[2] = {L'O', L'K'};
   mbstate_t mb;
   LIBC_NAMESPACE::memset(&mb, 0, sizeof(mbstate_t));
@@ -191,6 +202,7 @@ TEST_F(LlvmLibcMBRToWCTest, NullString) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, NullDest) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0xF0), static_cast<char>(0x9F),
                       static_cast<char>(0xA4),
                       static_cast<char>(0xA1)}; // 🤡 clown emoji
@@ -203,6 +215,7 @@ TEST_F(LlvmLibcMBRToWCTest, NullDest) {
 }
 
 TEST_F(LlvmLibcMBRToWCTest, InvalidMBState) {
+  LocaleGuard locale;
   const char ch[4] = {static_cast<char>(0xC2), static_cast<char>(0x8E),
                       static_cast<char>(0xC7), static_cast<char>(0x8C)};
   wchar_t dest[2] = {L'O', L'K'};

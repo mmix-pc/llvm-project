@@ -19,6 +19,7 @@ add_libc_test(
   SRCS
     iswalpha_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.wctype.iswalpha
     libc.src.__support.wctype_utils
 )
@@ -131,6 +132,7 @@ add_libc_test(
   SRCS
     iswprint_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.wctype.iswprint
 )
 
@@ -162,6 +164,7 @@ add_libc_test(
   SRCS
     towlower_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.hdr.wchar_macros
     libc.src.wctype.towlower
     libc.src.__support.wctype_utils
@@ -174,6 +177,7 @@ add_libc_test(
   SRCS
     towupper_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.hdr.wchar_macros
     libc.src.wctype.towupper
     libc.src.__support.wctype_utils

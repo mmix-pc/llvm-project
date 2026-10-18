@@ -20,7 +20,7 @@ namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(size_t, wcrtomb,
                    (char *__restrict s, wchar_t wc, mbstate_t *__restrict ps)) {
-  static internal::mbstate internal_mbstate;
+  static LIBC_THREAD_LOCAL internal::mbstate internal_mbstate;
 
   // when s is nullptr, this is equivalent to wcrtomb(buf, L'\0', ps)
   char buf[sizeof(wchar_t) / sizeof(char)];

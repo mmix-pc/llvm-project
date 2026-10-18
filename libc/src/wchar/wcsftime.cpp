@@ -30,7 +30,7 @@ struct WideTimeBuffer {
 
   static int write(cpp::string_view bytes, void *context) {
     auto &out = *static_cast<WideTimeBuffer *>(context);
-    internal::CharacterConverter converter(&out.state);
+    internal::LocaleCharacterConverter converter(&out.state);
     for (char byte : bytes) {
       int error = converter.push(static_cast<char8_t>(byte));
       if (error)

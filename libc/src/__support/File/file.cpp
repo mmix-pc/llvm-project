@@ -586,7 +586,7 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
     err = true;
     return {0, EINVAL};
   case Orientation::UNORIENTED:
-    orientation = Orientation::WIDE;
+    try_set_orientation_unlocked(Orientation::WIDE);
     break;
   case Orientation::WIDE:
     break;
@@ -594,7 +594,7 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
 
   size_t written = 0;
   for (size_t i = 0; i < len; ++i) {
-    internal::CharacterConverter cr(&mbstate);
+    internal::CharacterConverter cr(&mbstate, wide_utf8);
     int push_err = cr.push(static_cast<char32_t>(ws[i]));
     if (push_err != 0) {
       err = true;
@@ -631,7 +631,7 @@ FileIOResult File::read_unlocked(wchar_t *ws, size_t len) {
     err = true;
     return {0, EINVAL};
   case Orientation::UNORIENTED:
-    orientation = Orientation::WIDE;
+    try_set_orientation_unlocked(Orientation::WIDE);
     break;
   case Orientation::WIDE:
     break;
@@ -645,7 +645,7 @@ FileIOResult File::read_unlocked(wchar_t *ws, size_t len) {
       ++read_count;
       continue;
     }
-    internal::CharacterConverter cr(&mbstate);
+    internal::CharacterConverter cr(&mbstate, wide_utf8);
     while (!cr.isFull()) {
       uint8_t byte;
       auto read_res = read_unlocked_impl(&byte, 1);
@@ -686,7 +686,7 @@ ErrorOr<wint_t> File::ungetwc_unlocked(wint_t wc) {
     err = true;
     return WEOF;
   case Orientation::UNORIENTED:
-    orientation = Orientation::WIDE;
+    try_set_orientation_unlocked(Orientation::WIDE);
     break;
   case Orientation::WIDE:
     break;
@@ -697,7 +697,8 @@ ErrorOr<wint_t> File::ungetwc_unlocked(wint_t wc) {
 
   char mb_buf[4];
   internal::mbstate state;
-  auto result = internal::wcrtomb(mb_buf, static_cast<wchar_t>(wc), &state);
+  auto result =
+      internal::wcrtomb(mb_buf, static_cast<wchar_t>(wc), &state, wide_utf8);
   if (!result.has_value())
     return Error(result.error());
 

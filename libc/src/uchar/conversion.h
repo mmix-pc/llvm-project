@@ -28,7 +28,7 @@ LIBC_INLINE size_t decode(char32_t *out, const char *s, size_t n,
     s = "";
     n = 1;
   }
-  CharacterConverter converter(state);
+  LocaleCharacterConverter converter(state);
   if (!converter.isValidState()) {
     libc_errno = EILSEQ;
     return size_t(-1);
@@ -54,7 +54,7 @@ LIBC_INLINE size_t encode(char *s, char32_t scalar, mbstate *state) {
     s = buffer;
     scalar = 0;
   }
-  CharacterConverter converter(state);
+  LocaleCharacterConverter converter(state);
   if (!converter.isValidState() || !converter.isEmpty() ||
       converter.push(scalar) != 0) {
     libc_errno = EILSEQ;

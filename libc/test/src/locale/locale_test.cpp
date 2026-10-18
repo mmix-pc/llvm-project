@@ -19,9 +19,8 @@ TEST(LlvmLibcLocale, DefaultLocale) {
   locale_t old_locale = LIBC_NAMESPACE::uselocale(new_locale);
   EXPECT_NE(old_locale, static_cast<locale_t>(nullptr));
 
-  LIBC_NAMESPACE::freelocale(new_locale);
-
   LIBC_NAMESPACE::uselocale(old_locale);
+  LIBC_NAMESPACE::freelocale(new_locale);
 }
 
 TEST(LlvmLibcLocale, NewLocaleValidation) {
@@ -31,9 +30,8 @@ TEST(LlvmLibcLocale, NewLocaleValidation) {
   EXPECT_NE(loc, static_cast<locale_t>(nullptr));
   LIBC_NAMESPACE::freelocale(loc);
 
-  // Empty locale name is implementation-defined,
-  // defaults to C locale.
-  loc = LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "", nullptr);
+  // POSIX is an alias for the C locale.
+  loc = LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "POSIX", nullptr);
   EXPECT_NE(loc, static_cast<locale_t>(nullptr));
   LIBC_NAMESPACE::freelocale(loc);
 

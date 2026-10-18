@@ -27,6 +27,7 @@ add_header_library(
   HDRS
     character_converter.h
   DEPENDS
+    libc.src.locale.encoding
     libc.hdr.errno_macros
     libc.hdr.types.char8_t
     libc.hdr.types.char32_t

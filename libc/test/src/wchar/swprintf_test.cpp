@@ -21,6 +21,7 @@
 #include "src/wchar/swprintf.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcSwprintfTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
@@ -28,6 +29,7 @@ using LIBC_NAMESPACE::swprintf;
 using LIBC_NAMESPACE::cpp::basic_string_view;
 
 TEST_F(LlvmLibcSwprintfTest, EmptyAndZeroCapacity) {
+  LocaleGuard locale;
   wchar_t buf[] = {L'!', L'!'};
   EXPECT_EQ(swprintf(buf, 0, L""), -1);
   EXPECT_EQ(buf[0], L'!');
@@ -40,6 +42,7 @@ TEST_F(LlvmLibcSwprintfTest, EmptyAndZeroCapacity) {
 }
 
 TEST_F(LlvmLibcSwprintfTest, ExactFitAndTruncation) {
+  LocaleGuard locale;
   wchar_t buf[] = {L'!', L'!', L'!', L'!', L'!'};
   EXPECT_EQ(swprintf(buf + 1, 3, L"\u4e2dX"), 2);
   EXPECT_TRUE(basic_string_view<wchar_t>(buf + 1) == L"\u4e2dX");
@@ -51,6 +54,7 @@ TEST_F(LlvmLibcSwprintfTest, ExactFitAndTruncation) {
 }
 
 TEST_F(LlvmLibcSwprintfTest, PreservesErrno) {
+  LocaleGuard locale;
   wchar_t buf[4];
   LIBC_NAMESPACE::libc_errno = EDOM;
   EXPECT_EQ(swprintf(buf, 4, L"%d", 12), 2);
@@ -60,6 +64,7 @@ TEST_F(LlvmLibcSwprintfTest, PreservesErrno) {
 }
 
 TEST_F(LlvmLibcSwprintfTest, MixedConversions) {
+  LocaleGuard locale;
   wchar_t buf[128];
   EXPECT_EQ(swprintf(buf, 128, L"%+04d|%#x|%#o|%u|%%|%c|%lc|%.1s|%.1ls", -1,
                      31U, 8U, 42U, int('A'), wint_t(L'\u03bb'), "\xe4\xb8\xadX",
@@ -70,6 +75,7 @@ TEST_F(LlvmLibcSwprintfTest, MixedConversions) {
 }
 
 TEST_F(LlvmLibcSwprintfTest, FieldsAndLengths) {
+  LocaleGuard locale;
   wchar_t buf[128];
   EXPECT_EQ(swprintf(buf, 128, L"%*.*d|%hhd|%hd|%ld|%lld|%jd|%zu|%td", -5, 3, 1,
                      -2, -3, -4L, -5LL, intmax_t(-6), size_t(7), ptrdiff_t(-8)),
@@ -80,6 +86,7 @@ TEST_F(LlvmLibcSwprintfTest, FieldsAndLengths) {
 }
 
 TEST_F(LlvmLibcSwprintfTest, FloatingAndPointer) {
+  LocaleGuard locale;
   wchar_t buf[128];
 #ifndef LIBC_COPT_PRINTF_DISABLE_FLOAT
   EXPECT_EQ(
@@ -92,6 +99,7 @@ TEST_F(LlvmLibcSwprintfTest, FloatingAndPointer) {
 }
 
 TEST_F(LlvmLibcSwprintfTest, CharactersStringsAndCounts) {
+  LocaleGuard locale;
   wchar_t buf[32];
   EXPECT_EQ(swprintf(buf, 32, L"%c%lcX", 0, wint_t(0)), 3);
   EXPECT_EQ(buf[0], L'\0');
@@ -109,6 +117,7 @@ TEST_F(LlvmLibcSwprintfTest, CharactersStringsAndCounts) {
 }
 
 TEST_F(LlvmLibcSwprintfTest, EncodingError) {
+  LocaleGuard locale;
   wchar_t buf[32];
   EXPECT_EQ(swprintf(buf, 32, L"A%s", "\xc0\xaf"), -1);
   EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"A");
@@ -119,6 +128,7 @@ TEST_F(LlvmLibcSwprintfTest, EncodingError) {
 }
 
 TEST_F(LlvmLibcSwprintfTest, CountOverflow) {
+  LocaleGuard locale;
   wchar_t buf[4];
   // The leading character leaves fewer than INT_MAX representable elements.
   EXPECT_EQ(swprintf(buf, 4, L"x%*ls", INT_MAX, L""), -1);
@@ -128,6 +138,7 @@ TEST_F(LlvmLibcSwprintfTest, CountOverflow) {
 
 #ifndef LIBC_COPT_PRINTF_DISABLE_INDEX_MODE
 TEST_F(LlvmLibcSwprintfTest, IndexedArguments) {
+  LocaleGuard locale;
   wchar_t buf[32];
   EXPECT_EQ(swprintf(buf, 32, L"%2$ls %1$d", 42, L"\u4e2d"), 4);
   EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"\u4e2d 42");

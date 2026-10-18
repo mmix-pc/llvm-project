@@ -37,7 +37,7 @@ wcsnrtombs(char *__restrict dest, const wchar_t **__restrict ptr_to_src,
 
   StringConverter<char32_t> str_conv(
       reinterpret_cast<const char32_t *>(*ptr_to_src), ps, dest_len,
-      num_src_widechars);
+      num_src_widechars, locale_is_utf8());
   size_t dst_idx = 0;
   ErrorOr<char8_t> converted = str_conv.pop<char8_t>();
   while (converted.has_value()) {

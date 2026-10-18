@@ -18,7 +18,7 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, wctomb, (char *s, wchar_t wc)) {
-  static internal::mbstate internal_mbstate;
+  static LIBC_THREAD_LOCAL internal::mbstate internal_mbstate;
   if (s == nullptr)
     return 0;
 
