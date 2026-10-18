@@ -140,6 +140,23 @@ add_entrypoint_object(
     .${LIBC_TARGET_OS}.fpathconf
 )
 
+add_header_library(
+  exec_args
+  HDRS exec_args.h
+  DEPENDS libc.hdr.types.size_t libc.src.__support.macros.config
+)
+
+add_entrypoint_object(
+  execl
+  SRCS execl.cpp
+  HDRS execl.h
+  DEPENDS
+    .exec_args
+    .execve
+    .environ
+    libc.src.__support.common
+)
+
 add_entrypoint_object(
   execle
   ALIAS

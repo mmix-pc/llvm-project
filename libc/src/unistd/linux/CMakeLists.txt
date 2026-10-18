@@ -211,9 +211,9 @@ add_entrypoint_object(
   HDRS
     ../execle.h
   DEPENDS
-    libc.hdr.types.size_t
-    libc.src.__support.OSUtil.linux.syscall_wrappers.execve
-    libc.src.errno.errno
+    libc.src.unistd.exec_args
+    libc.src.unistd.execve
+    libc.src.__support.common
 )
 
 add_entrypoint_object(

@@ -2,6 +2,22 @@ add_custom_target(unistd-integration-tests)
 add_dependencies(libc-integration-tests unistd-integration-tests)
 
 add_integration_test(
+  exec_list_test
+  SUITE unistd-integration-tests
+  SRCS exec_list_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.include.sys_wait
+    libc.src.errno.errno
+    libc.src.stdlib.getenv
+    libc.src.sys.wait.waitpid
+    libc.src.unistd.environ
+    libc.src.unistd.execl
+    libc.src.unistd.execle
+    libc.src.unistd.fork
+)
+
+add_integration_test(
   getcwd_test
   SUITE
     unistd-integration-tests
