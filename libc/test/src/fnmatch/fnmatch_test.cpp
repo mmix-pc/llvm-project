@@ -116,6 +116,16 @@ TEST(LlvmLibcFnmatchTest, Brackets) {
     EXPECT_EQ(LIBC_NAMESPACE::fnmatch(c.pattern, c.text, 0), c.result);
 }
 
+TEST(LlvmLibcFnmatchTest, EscapedClosingBracket) {
+  // An escaped closing bracket does not terminate the bracket expression.
+  EXPECT_EQ(LIBC_NAMESPACE::fnmatch("[[?*\\]", "\\", 0), FNM_NOMATCH);
+  EXPECT_EQ(LIBC_NAMESPACE::fnmatch("[]?*\\]", "]", 0), FNM_NOMATCH);
+  EXPECT_EQ(LIBC_NAMESPACE::fnmatch("[[?*\\]", "\\", FNM_NOESCAPE), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fnmatch("[]?*\\]", "]", FNM_NOESCAPE), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fnmatch("[\\]]", "]", 0), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fnmatch("[\\]]", "\\", 0), FNM_NOMATCH);
+}
+
 TEST(LlvmLibcFnmatchTest, CharacterClasses) {
   const char *patterns[] = {"[[:alnum:]]", "[[:alpha:]]", "[[:blank:]]",
                             "[[:cntrl:]]", "[[:digit:]]", "[[:graph:]]",
