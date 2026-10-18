@@ -684,6 +684,17 @@ add_libc_test(
 
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
+    tmpnam_test
+    SUITE libc_stdio_unittests
+    SRCS tmpnam_test.cpp
+    DEPENDS
+      libc.src.stdio.tmpnam
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.hdr.stdio_macros
+      libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+  )
+  add_libc_test(
     tmpfile_failure_test
     SUITE libc_stdio_unittests
     FULL_BUILD_ONLY
@@ -695,6 +706,20 @@ if(LIBC_TARGET_OS_IS_LINUX)
       libc.src.__support.File.platform_file
       libc.src.__support.OSUtil.linux.syscall_wrappers.open
       libc.src.__support.OSUtil.linux.syscall_wrappers.close
+      libc.src.__support.libc_errno
+  )
+  add_libc_test(
+    tmpnam_failure_test
+    SUITE libc_stdio_unittests
+    FULL_BUILD_ONLY
+    SRCS tmpnam_failure_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.hdr.stdio_macros
+      libc.src.__support.CPP.atomic
+      libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
+      libc.src.__support.OSUtil.linux.syscall_wrappers.statx
       libc.src.__support.libc_errno
   )
 endif()

@@ -98,3 +98,18 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
     COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
   )
 endif()
+
+add_entrypoint_object(
+  tmpnam
+  SRCS tmpnam.cpp
+  HDRS ../tmpnam.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fcntl_macros
+    libc.hdr.stdio_macros
+    libc.src.__support.CPP.atomic
+    libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
+    libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+)

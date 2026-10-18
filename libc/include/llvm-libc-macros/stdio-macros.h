@@ -39,6 +39,9 @@ extern FILE *stderr;
 
 #define BUFSIZ 1024
 
+#define L_tmpnam 64
+#define TMP_MAX 10000
+
 #define _IONBF 2
 #define _IOLBF 1
 #define _IOFBF 0
