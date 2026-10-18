@@ -1,6 +1,16 @@
 add_custom_target(libc_include_tests)
 add_dependencies(check-libc libc_include_tests-build)
 
+add_libc_test(
+  c17_required_macros_test
+  C_TEST
+  FULL_BUILD_ONLY
+  SUITE libc_include_tests
+  SRCS c17_required_macros_test.c
+  COMPILE_OPTIONS -std=c17 -pedantic-errors
+  DEPENDS libc.include.stdio libc.include.stdlib libc.include.wctype
+)
+
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
     sys_stat_classification_c_test

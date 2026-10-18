@@ -1248,6 +1248,7 @@ add_header_macro(
   wctype.h
   DEPENDS
     .llvm_libc_common_h
+    .llvm-libc-macros.wchar_macros
     .llvm-libc-types.wint_t
     .llvm-libc-types.wctype_t
     .llvm-libc-types.wctrans_t

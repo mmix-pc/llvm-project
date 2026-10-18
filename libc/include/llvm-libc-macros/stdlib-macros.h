@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_MACROS_STDLIB_MACROS_H
 #define LLVM_LIBC_MACROS_STDLIB_MACROS_H
 
+#include "../llvm-libc-types/size_t.h"
+
 #ifdef _GNU_SOURCE
 #include "alloca-macros.h"
 #endif
@@ -23,7 +25,7 @@
 
 #ifndef MB_CUR_MAX
 // We only support the "C" locale right now, so this is a constant byte.
-#define MB_CUR_MAX 1
+#define MB_CUR_MAX ((size_t)1)
 #endif // MB_CUR_MAX
 
 #define RAND_MAX 2147483647

@@ -1,6 +1,9 @@
 header: wctype.h
 standards:
   - stdc
+macros:
+  - macro_name: WEOF
+    macro_header: wchar-macros.h
 types:
   - type_name: wint_t
   - type_name: wctype_t
