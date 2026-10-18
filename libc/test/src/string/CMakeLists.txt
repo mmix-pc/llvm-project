@@ -198,6 +198,33 @@ if(NOT LIBC_TARGET_ARCHITECTURE_IS_NVPTX)
 endif()
 
 add_libc_test(
+  strerror_l_test
+  SUITE libc-string-tests
+  SRCS strerror_l_test.cpp
+  DEPENDS
+    libc.hdr.locale_macros
+    libc.src.locale.newlocale
+    libc.src.locale.freelocale
+    libc.src.string.strerror
+    libc.src.string.strerror_l
+)
+
+add_libc_test(
+  strerror_l_thread_test
+  SUITE libc-string-tests
+  SRCS strerror_l_thread_test.cpp
+  DEPENDS
+    libc.hdr.locale_macros
+    libc.src.locale.newlocale
+    libc.src.locale.freelocale
+    libc.src.pthread.pthread_create
+    libc.src.pthread.pthread_join
+    libc.src.string.strcmp
+    libc.src.string.strerror
+    libc.src.string.strerror_l
+)
+
+add_libc_test(
   strerror_r_test
   SUITE
     libc-string-tests

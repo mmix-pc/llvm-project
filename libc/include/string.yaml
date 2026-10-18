@@ -195,6 +195,13 @@ functions:
     return_type: char *
     arguments:
       - type: int
+  - name: strerror_l
+    standards:
+      - posix
+    return_type: char *
+    arguments:
+      - type: int
+      - type: locale_t
   - name: strerror_r
     standards:
       - gnu
