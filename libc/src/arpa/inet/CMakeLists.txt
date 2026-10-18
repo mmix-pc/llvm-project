@@ -91,6 +91,20 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  inet_pton
+  SRCS
+    inet_pton.cpp
+  HDRS
+    inet_pton.h
+  DEPENDS
+    libc.include.arpa_inet
+    libc.hdr.errno_macros
+    libc.hdr.sys_socket_macros
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+)
+
+add_entrypoint_object(
   ntohl
   SRCS
     ntohl.cpp
