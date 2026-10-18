@@ -78,6 +78,15 @@ add_libc_test(
 )
 
 add_libc_test(
+  complex_c_test
+  C_TEST
+  SUITE libc_include_tests
+  SRCS complex_test.c
+  COMPILE_OPTIONS -std=c17 -pedantic-errors
+  DEPENDS libc.include.llvm-libc-macros.complex_macros
+)
+
+add_libc_test(
   unistd_macros_test
   SUITE
     libc_include_tests
