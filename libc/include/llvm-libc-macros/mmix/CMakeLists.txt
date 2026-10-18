@@ -4,11 +4,15 @@ add_header(
     signal-macros.h
 )
 
-add_header(
-  unistd_macros
-  HDR
-    unistd-macros.h
-)
+include(UnistdOptions.cmake)
+set(unistd_options_header "${CMAKE_CURRENT_BINARY_DIR}/unistd-options.h")
+mmix_configure_unistd_options("${unistd_options_header}")
+add_header_library(unistd_options HDRS "${unistd_options_header}")
+get_fq_target_name(unistd_options unistd_options_target)
+set_target_properties(${unistd_options_target} PROPERTIES
+  HEADER_FILE_PATH "${unistd_options_header}"
+  HEADER_NAME "unistd-options.h")
+add_header(unistd_macros HDR unistd-macros.h DEPENDS .unistd_options)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
   if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)

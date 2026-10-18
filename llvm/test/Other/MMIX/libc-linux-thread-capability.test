@@ -19,7 +19,7 @@
 
 // Public capability is independent of private libc compilation flags.
 #if defined(__linux__) && defined(__mmix__)
-CHECK(_POSIX_THREADS == -1L, "MMIX Linux has no pthread provider");
+CHECK(_POSIX_THREADS == -1L, "source-only headers have no configured provider");
 #elif defined(__linux__)
 CHECK(_POSIX_THREADS == 202405L, "retain other Linux targets");
 #elif defined(_POSIX_THREADS)

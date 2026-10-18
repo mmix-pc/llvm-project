@@ -141,6 +141,54 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
     return get_nprocessors_onln();
   case _SC_THREADS:
     return _POSIX_THREADS;
+#if defined(_SC_THREAD_ATTR_STACKADDR) && defined(_POSIX_THREAD_ATTR_STACKADDR)
+  case _SC_THREAD_ATTR_STACKADDR:
+    return _POSIX_THREAD_ATTR_STACKADDR;
+#endif
+#if defined(_SC_THREAD_ATTR_STACKSIZE) && defined(_POSIX_THREAD_ATTR_STACKSIZE)
+  case _SC_THREAD_ATTR_STACKSIZE:
+    return _POSIX_THREAD_ATTR_STACKSIZE;
+#endif
+#if defined(_SC_THREAD_PRIORITY_SCHEDULING) && defined(_POSIX_THREAD_PRIORITY_SCHEDULING)
+  case _SC_THREAD_PRIORITY_SCHEDULING:
+    return _POSIX_THREAD_PRIORITY_SCHEDULING;
+#endif
+#if defined(_SC_THREAD_PRIO_INHERIT) && defined(_POSIX_THREAD_PRIO_INHERIT)
+  case _SC_THREAD_PRIO_INHERIT:
+    return _POSIX_THREAD_PRIO_INHERIT;
+#endif
+#if defined(_SC_THREAD_PRIO_PROTECT) && defined(_POSIX_THREAD_PRIO_PROTECT)
+  case _SC_THREAD_PRIO_PROTECT:
+    return _POSIX_THREAD_PRIO_PROTECT;
+#endif
+#if defined(_SC_THREAD_PROCESS_SHARED) && defined(_POSIX_THREAD_PROCESS_SHARED)
+  case _SC_THREAD_PROCESS_SHARED:
+    return _POSIX_THREAD_PROCESS_SHARED;
+#endif
+#if defined(_SC_THREAD_CPUTIME) && defined(_POSIX_THREAD_CPUTIME)
+  case _SC_THREAD_CPUTIME:
+    return _POSIX_THREAD_CPUTIME;
+#endif
+#if defined(_SC_THREAD_ROBUST_PRIO_INHERIT) && defined(_POSIX_THREAD_ROBUST_PRIO_INHERIT)
+  case _SC_THREAD_ROBUST_PRIO_INHERIT:
+    return _POSIX_THREAD_ROBUST_PRIO_INHERIT;
+#endif
+#if defined(_SC_THREAD_ROBUST_PRIO_PROTECT) && defined(_POSIX_THREAD_ROBUST_PRIO_PROTECT)
+  case _SC_THREAD_ROBUST_PRIO_PROTECT:
+    return _POSIX_THREAD_ROBUST_PRIO_PROTECT;
+#endif
+#if defined(_SC_BARRIERS) && defined(_POSIX_BARRIERS)
+  case _SC_BARRIERS:
+    return _POSIX_BARRIERS;
+#endif
+#if defined(_SC_READER_WRITER_LOCKS) && defined(_POSIX_READER_WRITER_LOCKS)
+  case _SC_READER_WRITER_LOCKS:
+    return _POSIX_READER_WRITER_LOCKS;
+#endif
+#if defined(_SC_SPIN_LOCKS) && defined(_POSIX_SPIN_LOCKS)
+  case _SC_SPIN_LOCKS:
+    return _POSIX_SPIN_LOCKS;
+#endif
   case _SC_GETPW_R_SIZE_MAX:
     // Passwd records have no fixed size limit. Preserve errno for this
     // indeterminate value, unlike an invalid configuration name.
