@@ -7,6 +7,7 @@ if(NOT LIBC_MMIX_BUILD_FORK OR NOT LIBC_MMIX_BUILD_DESCRIPTORS OR
   message(FATAL_ERROR "MMIX Linux spawn requires fork, descriptor and allocation providers")
 endif()
 list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.stdlib.system
   libc.src.spawn.posix_spawn
   libc.src.spawn.posix_spawn_file_actions_init
   libc.src.spawn.posix_spawn_file_actions_destroy

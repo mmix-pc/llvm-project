@@ -81,10 +81,22 @@ add_entrypoint_object(
     libc.src.stdlib.environ_internal
 )
 
+set(system_source system.cpp)
+set(system_extra_deps "")
+set(system_options "")
+set(system_platform_deps
+  libc.src.__support.OSUtil.linux.syscall_wrappers.execle
+  libc.src.__support.OSUtil.linux.syscall_wrappers.clone3
+  libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigaction
+  libc.src.signal.linux.signal_utils)
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  include(mmix/System.cmake)
+endif()
+
 add_entrypoint_object(
   system
   SRCS
-    system.cpp
+    ${system_source}
   HDRS
     ../system.h
   DEPENDS
@@ -96,11 +108,10 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     libc.src.__support.macros.config
     libc.src.__support.OSUtil.osutil
-    libc.src.__support.OSUtil.linux.syscall_wrappers.execle
-    libc.src.__support.OSUtil.linux.syscall_wrappers.clone3
-    libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigaction
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
     libc.src.__support.OSUtil.linux.syscall_wrappers.wait4
-    libc.src.signal.linux.signal_utils
+    ${system_platform_deps}
     libc.src.unistd.environ
+    ${system_extra_deps}
+  COMPILE_OPTIONS ${system_options}
 )
