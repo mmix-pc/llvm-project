@@ -285,16 +285,17 @@ public:
   // 1. If in write mode, Write out any data present in the buffer.
   // 2. Call platform_close.
   // platform_close releases platform resources and any owned file object.
-  int close() {
+  // Cancellation cleanup can discard pending output without repeating a
+  // blocking write. Storage and backend resources are still consumed.
+  int close(bool flush_buffer = true) {
     int flush_error;
     {
       FileLock lock(this);
       // Memory streams must publish even empty buffers. Their close callback
       // also releases owned state after flush failure; legacy backends retain
       // the existing retryable-close contract unless they opt in.
-      flush_error = (platform_flush || (prev_op == FileOp::WRITE && pos > 0))
-                        ? flush_unlocked()
-                        : 0;
+      bool need_flush = platform_flush || (prev_op == FileOp::WRITE && pos > 0);
+      flush_error = flush_buffer && need_flush ? flush_unlocked() : 0;
       if (flush_error && !close_on_flush_error)
         return flush_error;
       pos = read_limit = 0;

@@ -433,6 +433,21 @@ functions:
       - posix
     return_type: int
     arguments: []
+  - name: popen
+    noexcept: false
+    standards:
+      - posix
+    return_type: FILE *
+    arguments:
+      - type: const char *
+      - type: const char *
+  - name: pclose
+    noexcept: false
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: FILE *
   - name: perror
     standards:
       - stdc
