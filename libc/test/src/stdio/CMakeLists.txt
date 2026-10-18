@@ -1,7 +1,88 @@
 add_custom_target(libc_stdio_unittests)
 
+set(memory_stream_test_deps
+  libc.hdr.errno_macros
+  libc.hdr.stdio_macros
+  libc.hdr.func.free
+  libc.src.__support.File.file
+  libc.src.__support.File.memory_file
+  libc.src.errno.errno
+  libc.src.stdio.clearerr
+  libc.src.stdio.fclose
+  libc.src.stdio.feof
+  libc.src.stdio.ferror
+  libc.src.stdio.fflush
+  libc.src.stdio.fgetc
+  libc.src.stdio.fgets
+  libc.src.stdio.fileno
+  libc.src.stdio.fputc
+  libc.src.stdio.fputs
+  libc.src.stdio.fread
+  libc.src.stdio.fseek
+  libc.src.stdio.fseeko
+  libc.src.stdio.ftell
+  libc.src.stdio.fwrite
+  libc.src.stdio.setvbuf
+  libc.test.UnitTest.ErrnoCheckingTest
+)
+foreach(memory_stream fmemopen open_memstream)
+  add_libc_test(
+    ${memory_stream}_test
+    SUITE libc_stdio_unittests
+    SRCS ${memory_stream}_test.cpp
+    DEPENDS ${memory_stream_test_deps} libc.src.stdio.${memory_stream}
+  )
+endforeach()
+
+# Only the allocator boundary is injected; the production stream and File
+# implementation perform all positioning, buffering, flushing and cleanup.
+set(memory_stream_overlay_sources
+  ${LIBC_SOURCE_DIR}/src/stdio/setvbuf.cpp
+  ${LIBC_SOURCE_DIR}/src/stdio/generic/clearerr.cpp
+  ${LIBC_SOURCE_DIR}/src/stdio/generic/fclose.cpp
+  ${LIBC_SOURCE_DIR}/src/stdio/generic/ferror.cpp
+  ${LIBC_SOURCE_DIR}/src/stdio/generic/fflush.cpp
+  ${LIBC_SOURCE_DIR}/src/stdio/generic/ftell.cpp
+  ${LIBC_SOURCE_DIR}/src/stdio/generic/fwrite.cpp
+)
+set(memory_stream_overlay_deps
+  libc.hdr.errno_macros
+  libc.hdr.stdio_macros
+  libc.hdr.func.free
+  libc.hdr.func.malloc
+  libc.hdr.func.realloc
+  libc.src.__support.File.file
+  libc.src.__support.File.memory_file
+  libc.src.__support.alloc_checker
+  libc.src.__support.libc_errno
+  libc.src.string.memory_utils.inline_memcpy
+  libc.src.string.memory_utils.inline_memset
+  libc.test.UnitTest.ErrnoCheckingTest
+)
+add_libc_test(
+  open_memstream_alloc_test
+  OVERLAY_BUILD_ONLY
+  SUITE libc_stdio_unittests
+  SRCS open_memstream_alloc_test.cpp
+    ${memory_stream_overlay_sources}
+  DEPENDS ${memory_stream_overlay_deps}
+)
+
 # Provider exceptions need the native host C++ runtime, not a target probe.
 if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPILING)
+  add_libc_test(
+    memory_stream_lock_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc_stdio_unittests
+    SRCS memory_stream_lock_test.cpp
+      ${memory_stream_overlay_sources}
+      ${LIBC_SOURCE_DIR}/src/stdio/open_memstream.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/flockfile.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/funlockfile.cpp
+    DEPENDS ${memory_stream_overlay_deps}
+    LINK_LIBRARIES pthread
+  )
+
   add_libc_test(
     unwind_lock_test
     OVERLAY_BUILD_ONLY

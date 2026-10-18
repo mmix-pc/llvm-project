@@ -52,6 +52,27 @@ add_entrypoint_object(
     libc.src.__support.File.platform_file
 )
 
+foreach(memory_stream fmemopen open_memstream)
+  add_entrypoint_object(
+    ${memory_stream}
+    SRCS ${memory_stream}.cpp
+    HDRS ${memory_stream}.h
+    DEPENDS
+      libc.hdr.types.FILE
+      libc.hdr.types.size_t
+      libc.hdr.func.free
+      libc.hdr.func.malloc
+      libc.hdr.func.realloc
+      libc.src.__support.File.file
+      libc.src.__support.File.memory_file
+      libc.src.__support.alloc_checker
+      libc.src.__support.common
+      libc.src.errno.errno
+      libc.src.string.memory_utils.inline_memcpy
+      libc.src.string.memory_utils.inline_memset
+  )
+endforeach()
+
 add_entrypoint_object(
   fopencookie
   SRCS

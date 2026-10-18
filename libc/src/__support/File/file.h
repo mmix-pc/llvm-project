@@ -67,6 +67,8 @@ public:
   // file position indicator.
   using SeekFunc = ErrorOr<off_t>(File *, off_t, int);
   using CloseFunc = int(File *);
+  // Runs under the stream lock after buffered I/O has been synchronized.
+  using FlushFunc = int(File *);
 
   using ModeFlags = uint32_t;
 
@@ -116,6 +118,9 @@ private:
   ReadFunc *platform_read;
   SeekFunc *platform_seek;
   CloseFunc *platform_close;
+  FlushFunc *platform_flush;
+  bool has_descriptor;
+  bool close_on_flush_error;
 
   Mutex mutex;
 
@@ -152,12 +157,12 @@ private:
   bool err;
 
   Orientation orientation;
+  bool wide_utf8;
   internal::mbstate mbstate;
   // Wide pushback must survive byte-buffer refills, including partial UTF-8.
   wchar_t wide_pushback = 0;
   size_t wide_pushback_bytes = 0;
 
-  bool wide_utf8;
 protected:
   constexpr bool write_allowed() const {
     return mode & (static_cast<ModeFlags>(OpenMode::WRITE) |
@@ -178,12 +183,12 @@ protected:
     eof = false;
     err = false;
     orientation = Orientation::UNORIENTED;
+    wide_utf8 = false;
     mbstate = internal::mbstate();
     wide_pushback_bytes = 0;
     adjust_buf();
   }
 
-    wide_utf8 = false;
 public:
   // We want this constructor to be constexpr so that global file objects
   // like stdout do not require invocation of the constructor which can
@@ -194,10 +199,13 @@ public:
   // the set_buffer method and allocate a buffer.
   constexpr File(WriteFunc *wf, ReadFunc *rf, SeekFunc *sf, CloseFunc *cf,
                  uint8_t *buffer, size_t buffer_size, int buffer_mode,
-                 bool owned, ModeFlags modeflags)
+                 bool owned, ModeFlags modeflags, FlushFunc *ff = nullptr,
+                 bool descriptor = true, bool close_on_error = false)
       : platform_write(wf), platform_read(rf), platform_seek(sf),
-        platform_close(cf), mutex(/*timed=*/false, /*recursive=*/true,
-                                  /*robust=*/false, /*pshared=*/false),
+        platform_close(cf), platform_flush(ff), has_descriptor(descriptor),
+        close_on_flush_error(close_on_error),
+        mutex(/*timed=*/false, /*recursive=*/true,
+              /*robust=*/false, /*pshared=*/false),
         ungetc_buf{}, buf(buffer), bufsize(buffer_size), bufmode(buffer_mode),
         own_buf(owned), mode(modeflags), pos(0), prev_op(FileOp::NONE),
         read_limit(0), eof(false), err(false),
@@ -278,13 +286,17 @@ public:
   // 2. Call platform_close.
   // platform_close releases platform resources and any owned file object.
   int close() {
+    int flush_error;
     {
       FileLock lock(this);
-      if (prev_op == FileOp::WRITE && pos > 0) {
-        int error = flush_unlocked();
-        if (error)
-          return error;
-      }
+      // Memory streams must publish even empty buffers. Their close callback
+      // also releases owned state after flush failure; legacy backends retain
+      // the existing retryable-close contract unless they opt in.
+      flush_error = (platform_flush || (prev_op == FileOp::WRITE && pos > 0))
+                        ? flush_unlocked()
+                        : 0;
+      if (flush_error && !close_on_flush_error)
+        return flush_error;
       pos = read_limit = 0;
       prev_op = FileOp::NONE;
     }
@@ -304,7 +316,8 @@ public:
     // Hence, we call platform_close after releasing
     // the file lock. Another thread doing file operations while a thread is
     // closing the file is undefined behavior as per POSIX.
-    return platform_close(this);
+    int close_error = platform_close(this);
+    return flush_error ? flush_error : close_error;
   }
 
   // Sets the internal buffer to |buffer| with buffering mode |mode|.
@@ -323,6 +336,7 @@ public:
 
   void lock() { mutex.lock(); }
   void unlock() { mutex.unlock(); }
+  bool has_file_descriptor() const { return has_descriptor; }
 
   bool error_unlocked() const { return err; }
   void set_error_unlocked() { err = true; }
@@ -339,7 +353,7 @@ public:
   // for the pre-processor.
 #pragma push_macro("clearerr_unlocked")
 #undef clearerr_unlocked
-  void clearerr_unlocked() { err = false; }
+  void clearerr_unlocked() { err = eof = false; }
 #pragma pop_macro("clearerr_unlocked")
 
   void clearerr() {
@@ -364,6 +378,9 @@ public:
   Orientation try_set_orientation_unlocked(Orientation o) {
     if (orientation == Orientation::UNORIENTED) {
       orientation = o;
+      if (o == Orientation::WIDE)
+        wide_utf8 = internal::locale_is_utf8();
+    }
     return orientation;
   }
 
@@ -378,9 +395,6 @@ public:
 
 private:
   FileIOResult write_unlocked_impl(const void *data, size_t len);
-      if (o == Orientation::WIDE)
-        wide_utf8 = internal::locale_is_utf8();
-    }
   ErrorOr<int> seek_unlocked(off_t offset, int whence);
   ErrorOr<off_t> tell_unlocked();
   FileIOResult read_unlocked_impl(void *data, size_t len);

@@ -32,6 +32,17 @@ add_object_library(
     libc.hdr.errno_macros
 )
 
+add_header_library(
+  memory_file
+  HDRS memory_file.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.stdio_macros
+    libc.hdr.types.off_t
+    libc.src.__support.CPP.limits
+    libc.src.__support.error_or
+)
+
 add_object_library(
   dir
   SRCS

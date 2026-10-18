@@ -1,0 +1,114 @@
+//===-- Memory stream allocation failure tests ----------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#include "hdr/errno_macros.h"
+#include "hdr/func/free.h"
+#include "hdr/func/realloc.h"
+#include "hdr/stdio_macros.h"
+#include "src/__support/File/file.h"
+#include "src/stdio/clearerr.h"
+#include "src/stdio/fclose.h"
+#include "src/stdio/ferror.h"
+#include "src/stdio/fflush.h"
+#include "src/stdio/fseek.h"
+#include "src/stdio/ftell.h"
+#include "src/stdio/fwrite.h"
+#include "src/stdio/open_memstream.h"
+#include "src/stdio/setvbuf.h"
+#include "test/UnitTest/ErrnoCheckingTest.h"
+
+// Only the production memory streams participate in global flush traversal.
+namespace LIBC_NAMESPACE_DECL {
+FILE *stdin = nullptr;
+FILE *stdout = nullptr;
+FILE *stderr = nullptr;
+} // namespace LIBC_NAMESPACE_DECL
+
+namespace {
+bool fail_reallocation = false;
+}
+
+extern "C" void *memory_stream_test_realloc(void *pointer,
+                                            size_t size) noexcept {
+  if (fail_reallocation)
+    return nullptr;
+  return ::realloc(pointer, size);
+}
+
+// Parse host allocator declarations before redirecting the production call.
+#define realloc memory_stream_test_realloc
+#include "src/stdio/open_memstream.cpp"
+#undef realloc
+
+using LlvmLibcMemstreamAllocTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
+namespace LIBC = LIBC_NAMESPACE;
+
+TEST_F(LlvmLibcMemstreamAllocTest, FailedGrowthCanBeRetried) {
+  char *memory;
+  size_t length;
+  FILE *f = LIBC::open_memstream(&memory, &length);
+  ASSERT_NE(f, nullptr);
+  ASSERT_EQ(LIBC::setvbuf(f, nullptr, _IONBF, 0), 0);
+  ASSERT_EQ(LIBC::fwrite("abc", 1, 3, f), size_t(3));
+  char *saved = memory;
+  fail_reallocation = true;
+  EXPECT_EQ(LIBC::fwrite("defgh", 1, 5, f), size_t(0));
+  fail_reallocation = false;
+  ASSERT_ERRNO_EQ(ENOMEM);
+  EXPECT_NE(LIBC::ferror(f), 0);
+  EXPECT_EQ(LIBC::ftell(f), 3L);
+  EXPECT_EQ(memory, saved);
+  EXPECT_EQ(length, size_t(3));
+  EXPECT_STREQ(memory, "abc");
+  LIBC::clearerr(f);
+  ASSERT_EQ(LIBC::fwrite("defgh", 1, 5, f), size_t(5));
+  ASSERT_EQ(LIBC::fclose(f), 0);
+  EXPECT_EQ(length, size_t(8));
+  EXPECT_STREQ(memory, "abcdefgh");
+  ::free(memory);
+}
+
+TEST_F(LlvmLibcMemstreamAllocTest, BufferedFlushFailureRetainsPendingData) {
+  char *memory;
+  size_t length;
+  FILE *f = LIBC::open_memstream(&memory, &length);
+  ASSERT_NE(f, nullptr);
+  ASSERT_EQ(LIBC::fwrite("abc", 1, 3, f), size_t(3));
+  fail_reallocation = true;
+  EXPECT_EQ(LIBC::fflush(f), EOF);
+  fail_reallocation = false;
+  ASSERT_ERRNO_EQ(ENOMEM);
+  EXPECT_EQ(length, size_t(0));
+  EXPECT_STREQ(memory, "");
+  EXPECT_EQ(LIBC::ftell(f), 3L);
+  LIBC::clearerr(f);
+  ASSERT_EQ(LIBC::fflush(f), 0);
+  EXPECT_EQ(length, size_t(3));
+  EXPECT_STREQ(memory, "abc");
+  ASSERT_EQ(LIBC::fclose(f), 0);
+  ::free(memory);
+}
+
+TEST_F(LlvmLibcMemstreamAllocTest, FailedCloseTransfersLastValidAllocation) {
+  char *memory;
+  size_t length;
+  FILE *f = LIBC::open_memstream(&memory, &length);
+  ASSERT_NE(f, nullptr);
+  ASSERT_EQ(LIBC::fwrite("abc", 1, 3, f), size_t(3));
+  ASSERT_EQ(LIBC::fflush(f), 0);
+  ASSERT_EQ(LIBC::fwrite("defgh", 1, 5, f), size_t(5));
+  fail_reallocation = true;
+  EXPECT_EQ(LIBC::fclose(f), EOF);
+  fail_reallocation = false;
+  ASSERT_ERRNO_EQ(ENOMEM);
+  EXPECT_EQ(length, size_t(3));
+  EXPECT_STREQ(memory, "abc");
+  // The closed stream cannot remain in the global list after either error.
+  EXPECT_EQ(LIBC::fflush(nullptr), 0);
+  ::free(memory);
+}

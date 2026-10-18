@@ -297,6 +297,10 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
 }
 
 int get_fileno(File *f) {
+  if (!f->has_file_descriptor()) {
+    libc_errno = EBADF;
+    return -1;
+  }
   auto *lf = reinterpret_cast<LinuxFile *>(f);
   return lf->get_fd();
 }
@@ -307,6 +311,8 @@ int reopenfile(File *f, const char *path, const char *mode) {
 }
 
 int reopenfile_unlocked(File *f, const char *path, const char *mode) {
+  if (!f->has_file_descriptor())
+    return EBADF;
   auto *lf = reinterpret_cast<LinuxFile *>(f);
   return lf->reopen_unlocked(path, mode);
 }

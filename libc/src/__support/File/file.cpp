@@ -79,9 +79,11 @@ FileIOResult File::write_unlocked_impl(const void *data, size_t len) {
   prev_op = FileOp::WRITE;
 
   if (bufmode == _IONBF) { // unbuffered.
-    size_t ret_val =
+    FileIOResult ret_val =
         write_unlocked_nbf(static_cast<const uint8_t *>(data), len);
-    flush_unlocked();
+    int flush_error = flush_unlocked();
+    if (!ret_val.has_error())
+      ret_val.error = flush_error;
     return ret_val;
   }
   if (bufmode == _IOFBF) // fully buffered
@@ -100,7 +102,7 @@ FileIOResult File::write_unlocked_nbf(const uint8_t *data, size_t len) {
   }
 
   FileIOResult write_result = platform_write(this, data, len);
-  if (write_result < len)
+  if (write_result.has_error() || write_result < len)
     err = true;
   return write_result;
 }
@@ -212,23 +214,19 @@ FileIOResult File::write_unlocked_lbf(const uint8_t *data, size_t len) {
   cpp::span<const uint8_t> remainder(
       static_cast<const uint8_t *>(data) + split_point, len - split_point);
 
-  size_t written = 0;
-
-  written = write_unlocked_nbf(primary.data(), primary.size());
-  if (written < primary.size()) {
+  FileIOResult first = write_unlocked_nbf(primary.data(), primary.size());
+  if (first.has_error() || first.value < primary.size()) {
     err = true;
-    return written;
+    return first;
   }
 
-  flush_unlocked();
+  int flush_error = flush_unlocked();
+  if (flush_error)
+    return {first.value, flush_error};
 
-  written += write_unlocked_fbf(remainder.data(), remainder.size());
-  if (written < len) {
-    err = true;
-    return written;
-  }
-
-  return len;
+  FileIOResult second =
+      write_unlocked_fbf(remainder.data(), remainder.size());
+  return {first.value + second.value, second.error};
 }
 
 FileIOResult File::read_unlocked(void *data, size_t len) {
@@ -432,7 +430,10 @@ ErrorOr<off_t> File::tell() {
 }
 
 ErrorOr<off_t> File::tell_unlocked() {
-  auto seek_target = eof ? SEEK_END : SEEK_CUR;
+  auto seek_target = prev_op == FileOp::WRITE && pos > 0 &&
+                             (mode & ModeFlags(OpenMode::APPEND))
+                         ? SEEK_END
+                         : SEEK_CUR;
   auto result = platform_seek(this, 0, seek_target);
   if (!result.has_value() || result.value() < 0)
     return Error(result.error());
@@ -481,6 +482,12 @@ int File::flush_unlocked() {
     }
     pos = read_limit = 0;
   }
+  if (platform_flush) {
+    int error = platform_flush(this);
+    if (error)
+      err = true;
+    return error;
+  }
   return 0;
 }
 
@@ -505,9 +512,10 @@ int File::set_buffer(void *buffer, size_t size, int buffer_mode) {
     if (own_buf) {
       // This is one of the places where a C allocation function is used
       // as C++ does not have an equivalent of realloc.
-      buf = reinterpret_cast<uint8_t *>(realloc(buf, size));
-      if (buf == nullptr)
+      auto *new_buf = reinterpret_cast<uint8_t *>(realloc(buf, size));
+      if (new_buf == nullptr)
         return ENOMEM;
+      buf = new_buf;
     } else {
       AllocChecker ac;
       buf = new (ac) uint8_t[size];
@@ -519,7 +527,7 @@ int File::set_buffer(void *buffer, size_t size, int buffer_mode) {
     // TODO: Handle allocation failures.
   } else {
     if (own_buf)
-      delete buf;
+      delete[] buf;
     if (buffer_mode != _IONBF) {
       buf = static_cast<uint8_t *>(buffer);
       bufsize = size;
