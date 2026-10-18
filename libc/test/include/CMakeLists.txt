@@ -2,6 +2,16 @@ add_custom_target(libc_include_tests)
 add_dependencies(check-libc libc_include_tests-build)
 
 add_libc_test(
+  posix_limits_test
+  C_TEST
+  FULL_BUILD_ONLY
+  SUITE libc_include_tests
+  SRCS posix_limits_test.c
+  COMPILE_OPTIONS -std=c17 -pedantic-errors
+  DEPENDS libc.include.limits
+)
+
+add_libc_test(
   c17_required_macros_test
   C_TEST
   FULL_BUILD_ONLY

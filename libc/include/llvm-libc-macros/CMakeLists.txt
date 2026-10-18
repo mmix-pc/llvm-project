@@ -158,9 +158,17 @@ add_macro_header(
 )
 
 add_macro_header(
+  posix_limits_macros
+  HDR
+    posix-limits-macros.h
+)
+
+add_macro_header(
   limits_macros
   HDR
     limits-macros.h
+  DEPENDS
+    .posix_limits_macros
 )
 
 add_macro_header(

@@ -14,6 +14,8 @@
 #ifndef LLVM_LIBC_MACROS_LIMITS_MACROS_H
 #define LLVM_LIBC_MACROS_LIMITS_MACROS_H
 
+#include "posix-limits-macros.h"
+
 // Define all C23 macro constants of limits.h
 
 #ifndef CHAR_BIT
@@ -262,6 +264,10 @@
 #endif
 
 #ifdef __linux__
+
+#ifndef NZERO
+#define NZERO 20
+#endif
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096

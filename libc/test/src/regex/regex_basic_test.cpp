@@ -178,3 +178,11 @@ TEST(LlvmLibcRegexTest, InvalidPatternsAndReuse) {
     EXPECT_TRUE(re.__internal == nullptr);
   }
 }
+
+TEST(LlvmLibcRegexTest, RepetitionLimit) {
+  regex_t re;
+  ASSERT_EQ(LIBC_NAMESPACE::regcomp(&re, "a{255}", REG_EXTENDED), 0);
+  LIBC_NAMESPACE::regfree(&re);
+  EXPECT_EQ(LIBC_NAMESPACE::regcomp(&re, "a{256}", REG_EXTENDED), REG_BADBR);
+  EXPECT_TRUE(re.__internal == nullptr);
+}
