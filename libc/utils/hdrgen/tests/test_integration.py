@@ -140,7 +140,8 @@ class TestHeaderGenIntegration(unittest.TestCase):
                        "fscanf", "vfscanf", "vprintf", "getchar", "putchar",
                        "freopen"]),
             ("wchar", ["getwc", "fputwc", "fgetwc", "fgetws", "fputws",
-                       "getwchar", "putwc", "putwchar"]),
+                       "getwchar", "putwc", "putwchar", "fwprintf",
+                       "vfwprintf", "wprintf", "vwprintf"]),
             ("dirent", ["opendir", "readdir", "closedir"]),
         ):
             with self.subTest(header=header):

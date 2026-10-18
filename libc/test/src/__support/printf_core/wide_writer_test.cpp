@@ -13,6 +13,32 @@
 
 using namespace LIBC_NAMESPACE::printf_core;
 
+TEST(LlvmLibcWideWriterTest, StreamCallbackAndFailure) {
+  struct Output {
+    size_t count = 0;
+    bool fail = false;
+  } output;
+  auto sink = [](void *context, const wchar_t *data, size_t length) {
+    auto &out = *static_cast<Output *>(context);
+    if (out.fail)
+      return FILE_WRITE_ERROR;
+    for (size_t i = 0; i < length; ++i)
+      EXPECT_EQ(data[i], L'x');
+    out.count += length;
+    return WRITE_OK;
+  };
+  WideWriter writer({&output, sink});
+  EXPECT_EQ(writer.write(L'x', 130), WRITE_OK);
+  EXPECT_EQ(writer.write_ascii("xxx"), WRITE_OK);
+  EXPECT_EQ(writer.write(L"xx"), WRITE_OK);
+  EXPECT_EQ(writer.get_chars_written(), size_t(135));
+  EXPECT_EQ(output.count, size_t(135));
+  output.fail = true;
+  EXPECT_EQ(writer.write(L'x'), FILE_WRITE_ERROR);
+  EXPECT_EQ(writer.write(L'x'), FILE_WRITE_ERROR);
+  EXPECT_EQ(writer.get_chars_written(), size_t(135));
+}
+
 namespace {
 
 struct GuardedBuffer {

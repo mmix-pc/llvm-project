@@ -1674,6 +1674,11 @@ if(LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
 
       # wchar.h entrypoints
       libc.src.wchar.swprintf
+      libc.src.wchar.vswprintf
+      libc.src.wchar.fwprintf
+      libc.src.wchar.vfwprintf
+      libc.src.wchar.wprintf
+      libc.src.wchar.vwprintf
     )
   endif()
 endif()

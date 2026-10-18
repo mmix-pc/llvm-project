@@ -1,4 +1,4 @@
-//===-- Bounded wide printf output -----------------------------*- C++ -*-===//
+//===-- Wide printf output ------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -21,13 +21,16 @@ namespace printf_core {
 // Capacity includes the terminator. Unlike snprintf, truncation is an error
 // and the count describes only the wide characters actually stored.
 class WideWriter {
+  using WriteFunction = int (*)(void *, const wchar_t *, size_t);
   wchar_t *buffer;
   size_t capacity;
+  void *context = nullptr;
+  WriteFunction output = nullptr;
   size_t chars_written = 0;
   int error = WRITE_OK;
 
   LIBC_INLINE void terminate() {
-    if (capacity != 0)
+    if (!output && capacity != 0)
       buffer[chars_written] = L'\0';
   }
 
@@ -39,6 +42,8 @@ class WideWriter {
       error = OVERFLOW_ERROR;
       return 0;
     }
+    if (output)
+      return requested;
     // A zero-capacity writer already has an error; reserve the terminator.
     size_t remaining = capacity - 1 - chars_written;
     if (requested > remaining) {
@@ -51,6 +56,20 @@ class WideWriter {
   template <typename CharT>
   LIBC_INLINE int write_span(cpp::basic_string_view<CharT> text) {
     size_t length = writable_size(text.size());
+    if (output) {
+      wchar_t chunk[64];
+      for (size_t offset = 0; offset < length;) {
+        size_t count = length - offset < 64 ? length - offset : 64;
+        for (size_t i = 0; i < count; ++i)
+          chunk[i] = static_cast<wchar_t>(text[offset + i]);
+        error = output(context, chunk, count);
+        if (error != WRITE_OK)
+          return error;
+        chars_written += count;
+        offset += count;
+      }
+      return error;
+    }
     for (size_t i = 0; i < length; ++i)
       buffer[chars_written + i] = static_cast<wchar_t>(text[i]);
     chars_written += length;
@@ -59,6 +78,15 @@ class WideWriter {
   }
 
 public:
+  struct Sink {
+    void *context;
+    WriteFunction write;
+  };
+
+  LIBC_INLINE explicit WideWriter(Sink sink)
+      : buffer(nullptr), capacity(0), context(sink.context),
+        output(sink.write) {}
+
   LIBC_INLINE WideWriter(wchar_t *buffer, size_t capacity)
       : buffer(buffer), capacity(capacity) {
     if (capacity == 0)
@@ -72,6 +100,20 @@ public:
 
   LIBC_INLINE int write(wchar_t value, size_t length) {
     size_t written = writable_size(length);
+    if (output) {
+      wchar_t chunk[64];
+      for (auto &item : chunk)
+        item = value;
+      while (written != 0) {
+        size_t count = written < 64 ? written : 64;
+        error = output(context, chunk, count);
+        if (error != WRITE_OK)
+          return error;
+        chars_written += count;
+        written -= count;
+      }
+      return error;
+    }
     for (size_t i = 0; i < written; ++i)
       buffer[chars_written + i] = value;
     chars_written += written;

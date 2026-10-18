@@ -20,6 +20,44 @@ types:
 enums: []
 objects: []
 functions:
+  - name: vswprintf
+    standards: [stdc]
+    return_type: int
+    arguments:
+      - type: wchar_t *__restrict
+      - type: size_t
+      - type: const wchar_t *__restrict
+      - type: va_list
+  - name: vfwprintf
+    noexcept: false
+    standards: [stdc]
+    return_type: int
+    arguments:
+      - type: FILE *__restrict
+      - type: const wchar_t *__restrict
+      - type: va_list
+  - name: fwprintf
+    noexcept: false
+    standards: [stdc]
+    return_type: int
+    arguments:
+      - type: FILE *__restrict
+      - type: const wchar_t *__restrict
+      - type: '...'
+  - name: vwprintf
+    noexcept: false
+    standards: [stdc]
+    return_type: int
+    arguments:
+      - type: const wchar_t *__restrict
+      - type: va_list
+  - name: wprintf
+    noexcept: false
+    standards: [stdc]
+    return_type: int
+    arguments:
+      - type: const wchar_t *__restrict
+      - type: '...'
   - name: wcslen
     standards:
       - stdc

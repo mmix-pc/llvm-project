@@ -8,6 +8,34 @@ add_header_library(
     libc.src.__support.common
 )
 
+foreach(name vswprintf vfwprintf)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS
+      libc.hdr.types.FILE
+      libc.hdr.types.size_t
+      libc.hdr.types.wchar_t
+      libc.src.__support.printf_core.wide_printf_main
+      libc.src.__support.printf_core.error_mapper
+      libc.src.__support.File.file
+      libc.src.__support.libc_errno
+  )
+endforeach()
+
+foreach(name fwprintf vwprintf wprintf)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS
+      .vfwprintf
+      libc.src.stdio.stdout
+      libc.src.__support.common
+  )
+endforeach()
+
 add_entrypoint_object(
   wcslen
   SRCS
