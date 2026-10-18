@@ -4,7 +4,19 @@ standards:
 types:
   - type_name: wint_t
   - type_name: wctype_t
+  - type_name: wctrans_t
 functions:
+  - name: wctrans
+    standards: [stdc]
+    return_type: wctrans_t
+    arguments:
+      - type: const char *
+  - name: towctrans
+    standards: [stdc]
+    return_type: wint_t
+    arguments:
+      - type: wint_t
+      - type: wctrans_t
   - name: iswalpha
     standards:
       - stdc

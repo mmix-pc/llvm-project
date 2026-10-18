@@ -817,6 +817,12 @@ add_proxy_header_library(
 )
 
 add_proxy_header_library(
+  wctrans_t
+  HDRS wctrans_t.h
+  FULL_BUILD_DEPENDS libc.include.llvm-libc-types.wctrans_t
+)
+
+add_proxy_header_library(
   uid_t
   HDRS
     uid_t.h

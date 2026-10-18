@@ -1,4 +1,14 @@
 add_entrypoint_object(
+  wctrans
+  SRCS wctrans.cpp
+  HDRS wctrans.h
+  DEPENDS
+    libc.hdr.types.wctrans_t
+    libc.src.__support.CPP.string_view
+    libc.src.__support.common
+)
+
+add_entrypoint_object(
   iswalpha
   SRCS
     iswalpha.cpp
@@ -176,4 +186,17 @@ add_entrypoint_object(
     libc.hdr.types.wint_t
     libc.src.__support.common
     libc.src.__support.wctype_utils
+)
+
+add_entrypoint_object(
+  towctrans
+  SRCS towctrans.cpp
+  HDRS towctrans.h
+  DEPENDS
+    .wctrans
+    .towlower
+    .towupper
+    libc.hdr.types.wctrans_t
+    libc.hdr.types.wint_t
+    libc.src.__support.common
 )

@@ -547,6 +547,8 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.wctype.iswprint
     libc.src.wctype.iswctype
     libc.src.wctype.wctype
+    libc.src.wctype.wctrans
+    libc.src.wctype.towctrans
     libc.src.wctype.towlower
     libc.src.wctype.towupper
 

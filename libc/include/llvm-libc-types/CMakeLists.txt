@@ -273,6 +273,7 @@ add_header(
 )
 add_header(wint_t HDR wint_t.h)
 add_header(wctype_t HDR wctype_t.h)
+add_header(wctrans_t HDR wctrans_t.h)
 add_header(sa_family_t HDR sa_family_t.h)
 add_header(socklen_t HDR socklen_t.h)
 add_header(struct_sockaddr HDR struct_sockaddr.h DEPENDS .sa_family_t)

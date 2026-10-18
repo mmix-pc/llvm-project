@@ -1,6 +1,18 @@
 add_custom_target(libc_wctype_unittests)
 
 add_libc_test(
+  wctrans_test
+  SUITE libc_wctype_unittests
+  SRCS wctrans_test.cpp
+  DEPENDS
+    libc.src.wctype.wctrans
+    libc.src.wctype.towctrans
+    libc.src.wctype.towlower
+    libc.src.wctype.towupper
+    libc.hdr.wchar_macros
+)
+
+add_libc_test(
   iswalpha_test
   SUITE
     libc_wctype_unittests

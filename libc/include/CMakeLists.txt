@@ -1250,6 +1250,7 @@ add_header_macro(
     .llvm_libc_common_h
     .llvm-libc-types.wint_t
     .llvm-libc-types.wctype_t
+    .llvm-libc-types.wctrans_t
 )
 
 add_header_macro(
