@@ -23,6 +23,7 @@ foreach(entry libc.src.stdlib.rand libc.src.stdlib.srand libc.src.string.strsign
               libc.src.sys.wait.wait libc.src.unistd.alarm
               libc.src.pwd.getpwnam_r libc.src.pwd.getpwuid_r
               libc.src.sys.stat.futimens libc.src.sys.statfs.statfs
+              libc.src.sys.stat.mkdirat
               libc.src.sys.statfs.fstatfs libc.src.unistd.getuid
               libc.src.sys.statvfs.statvfs libc.src.sys.statvfs.fstatvfs
               libc.src.sys.stat.fchmodat libc.src.unistd.pathconf

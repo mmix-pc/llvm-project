@@ -9,6 +9,7 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.sys.stat.fstat
   libc.src.sys.stat.lstat
   libc.src.sys.stat.mkdir
+  libc.src.sys.stat.mkdirat
   libc.src.sys.stat.chmod
   libc.src.sys.stat.fchmod
   libc.src.sys.stat.fchmodat
