@@ -72,6 +72,13 @@ set(mmix_threaded_entrypoints ${TARGET_LIBC_ENTRYPOINTS})
 function(mmix_configure_threaded_libc)
   get_all_object_file_deps(public_objects "${mmix_threaded_entrypoints}")
   get_property(internal_objects DIRECTORY PROPERTY MMIX_THREAD_SUPPORT_OBJECTS)
+  # Archive collection does not traverse header-library object dependencies.
+  # Built-in UTF-8 locales need these tables as well as the public wrappers.
+  if(LIBC_MMIX_BUILD_LOCALE)
+    list(APPEND internal_objects
+      libc.src.__support.wctype.wctype_classification_utils
+      libc.src.__support.wctype.wctype_conversion_utils)
+  endif()
   # Reuse the real internal support graph, never its private entrypoint variants
   # (notably the fixed-capacity atexit implementation).
   set(support_objects "")

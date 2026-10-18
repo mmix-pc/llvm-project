@@ -1,0 +1,44 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(SharedExports NONE)
+set(LIBC_MMIX_BUILD_SHARED_LIBC ON)
+function(mmix_check_runtime_mode)
+endfunction()
+function(get_all_object_file_deps result)
+  set(${result} "" PARENT_SCOPE)
+endfunction()
+set(CMAKE_C_COMPILER "${CMAKE_BINARY_DIR}/clang")
+file(WRITE "${CMAKE_BINARY_DIR}/llvm-nm" "")
+set(LIBC_MMIX_SHARED_BUILTINS "${CMAKE_BINARY_DIR}/builtins.a" CACHE FILEPATH "")
+file(WRITE "${LIBC_MMIX_SHARED_BUILTINS}" "")
+add_library(libc STATIC IMPORTED)
+set_target_properties(libc PROPERTIES IMPORTED_LOCATION "${CMAKE_BINARY_DIR}/libc.a")
+foreach(name errno tz_variables tzset)
+  add_custom_target(provider_${name})
+  set_target_properties(provider_${name} PROPERTIES ENTRYPOINT_NAME ${name})
+  list(APPEND mmix_threaded_entrypoints provider_${name})
+endforeach()
+foreach(name libc.src.__support.OSUtil.linux.mmix.dynamic_tls
+    libc.startup.linux.mmix.shared_prepare libc.startup.linux.mmix.shared_adopt
+    libc.startup.linux.mmix.shared_run libc.startup.linux.mmix.stack_guard)
+  add_library(${name} OBJECT IMPORTED)
+  set_target_properties(${name} PROPERTIES IMPORTED_OBJECTS "${CMAKE_BINARY_DIR}/dummy.o")
+endforeach()
+include(${LIBC_SOURCE}/config/linux/mmix/SharedLibc.cmake)
+
+#--- check.py
+from pathlib import Path
+import subprocess
+import sys
+
+source, root = (Path(arg).resolve() for arg in sys.argv[1:])
+subprocess.run(["cmake", "-S", str(root), "-B", str(root / "build"),
+                "-DLIBC_SOURCE=" + str(source)], check=True)
+exports = set((root / "build/mmix-shared-libc/exports.txt").read_text().splitlines())
+assert {"tzname", "timezone", "daylight", "tzset", "__llvm_libc_errno"} <= exports
+assert not {"tz_variables", "errno"} & exports
