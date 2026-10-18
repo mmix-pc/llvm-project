@@ -11,6 +11,7 @@ types:
   - type_name: struct_timespec
 functions:
   - name: sem_clockwait
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -60,6 +61,7 @@ functions:
     arguments:
       - type: sem_t *
   - name: sem_timedwait
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -79,6 +81,7 @@ functions:
     arguments:
       - type: const char *
   - name: sem_wait
+    noexcept: false
     standards:
       - posix
     return_type: int

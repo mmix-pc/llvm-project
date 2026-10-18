@@ -7,6 +7,8 @@ set(MMIX_VM_ENTRYPOINTS
   libc.src.sys.mman.mmap
   libc.src.sys.mman.munmap
   libc.src.sys.mman.mprotect
+  libc.src.sys.mman.shm_open
+  libc.src.sys.mman.shm_unlink
   libc.src.unistd.sysconf
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_VM_ENTRYPOINTS})

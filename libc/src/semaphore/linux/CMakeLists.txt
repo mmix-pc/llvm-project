@@ -1,3 +1,11 @@
+foreach(name sem_wait sem_timedwait sem_clockwait)
+  set(${name}_source ${name}.cpp)
+endforeach()
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
+  mmix_select_cancellation_points(sem_wait sem_timedwait sem_clockwait)
+endif()
+
 add_header_library(
   semaphore
   HDRS
@@ -31,23 +39,24 @@ add_object_library(
     libc.hdr.errno_macros
     libc.hdr.fcntl_macros
     libc.src.__support.CPP.array
+    libc.src.__support.CPP.limits
+    libc.src.__support.CPP.mutex
     libc.src.__support.CPP.new
+    libc.src.__support.CPP.scope
     libc.src.__support.CPP.string_view
     libc.src.__support.ctype_utils
     libc.src.__support.error_or
+    libc.src.__support.threads.raw_mutex
+    libc.src.__support.OSUtil.linux.stat.stat_via_statx
     libc.src.__support.OSUtil.linux.syscall_wrappers.close
     libc.src.__support.OSUtil.linux.syscall_wrappers.ftruncate
     libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
     libc.src.__support.OSUtil.linux.syscall_wrappers.link
-    libc.src.__support.CPP.limits
-    libc.src.__support.CPP.mutex
     libc.src.__support.OSUtil.linux.syscall_wrappers.mmap
     libc.src.__support.OSUtil.linux.syscall_wrappers.munmap
     libc.src.__support.OSUtil.linux.syscall_wrappers.open
     libc.src.__support.OSUtil.linux.syscall_wrappers.unlink
     libc.src.string.memory_utils.inline_memcpy
-    libc.src.__support.threads.raw_mutex
-    libc.src.__support.OSUtil.linux.stat.stat_via_statx
     libc.src.sys.mman.linux.shm_common
 )
 
@@ -157,7 +166,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   sem_wait
   SRCS
-    sem_wait.cpp
+    ${sem_wait_source}
   HDRS
     ../sem_wait.h
   DEPENDS
@@ -166,6 +175,9 @@ add_entrypoint_object(
     libc.hdr.types.sem_t
     libc.src.__support.macros.null_check
     libc.src.errno.errno
+    libc.src.__support.CPP.scope
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
@@ -185,7 +197,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   sem_timedwait
   SRCS
-    sem_timedwait.cpp
+    ${sem_timedwait_source}
   HDRS
     ../sem_timedwait.h
   DEPENDS
@@ -195,12 +207,15 @@ add_entrypoint_object(
     libc.hdr.types.struct_timespec
     libc.src.__support.macros.null_check
     libc.src.errno.errno
+    libc.src.__support.CPP.scope
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   sem_clockwait
   SRCS
-    sem_clockwait.cpp
+    ${sem_clockwait_source}
   HDRS
     ../sem_clockwait.h
   DEPENDS
@@ -211,4 +226,7 @@ add_entrypoint_object(
     libc.hdr.types.struct_timespec
     libc.src.__support.macros.null_check
     libc.src.errno.errno
+    libc.src.__support.CPP.scope
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
