@@ -58,6 +58,9 @@
 // should not be followed.
 #define AT_SYMLINK_NOFOLLOW 0x100
 
+// Do not automount the terminal component during a metadata lookup.
+#define AT_NO_AUTOMOUNT 0x800
+
 // Allow empty relative pathname.
 #define AT_EMPTY_PATH 0x1000
 
