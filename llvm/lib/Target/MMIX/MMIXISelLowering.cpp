@@ -1413,7 +1413,11 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
     int64_t Offset = 0;
     SDValue Target;
     if (auto *GA = dyn_cast<GlobalAddressSDNode>(Op)) {
-      UseGOT = IsPIC && !getTargetMachine().shouldAssumeDSOLocal(GA->getGlobal());
+      // An unresolved weak symbol must remain null after the image is rebased,
+      // including hidden declarations that are otherwise considered local.
+      UseGOT = IsPIC &&
+               (GA->getGlobal()->hasExternalWeakLinkage() ||
+                !getTargetMachine().shouldAssumeDSOLocal(GA->getGlobal()));
       Offset = UseGOT ? GA->getOffset() : 0;
       Target = DAG.getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64,
                                           UseGOT ? 0 : GA->getOffset());
@@ -2342,7 +2346,8 @@ SDValue MMIXTargetLowering::LowerCall(CallLoweringInfo &CLI,
   if (IsPIC) {
     if (auto GlobalCallee = getMMIXDirectGlobalCallee(Callee)) {
       const GlobalValue *GV = GlobalCallee->first->getGlobal();
-      bool UseGOT = !getTargetMachine().shouldAssumeDSOLocal(GV);
+      bool UseGOT = GV->hasExternalWeakLinkage() ||
+                    !getTargetMachine().shouldAssumeDSOLocal(GV);
       SDValue Target = DAG.getTargetGlobalAddress(
           GV, CLI.DL, MVT::i64, UseGOT ? 0 : GlobalCallee->second);
       Callee = lowerMMIXPICAddress(Target, UseGOT, CLI.DL, DAG);

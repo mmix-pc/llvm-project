@@ -64,3 +64,17 @@ define void @defined_function() { ret void }
 ; CHECK: .mmix_got_pc64 public_alias
 ; REL: R_MMIX_GOT_PC64 public_alias 0x0
 define ptr @alias_address() { ret ptr @public_alias }
+
+; Hidden undefined weak addresses must still be loaded from a nullable GOT slot.
+@hidden_weak = extern_weak hidden global i8
+declare extern_weak hidden void @hidden_weak_function()
+
+; CHECK-LABEL: hidden_weak_address:
+; CHECK: .mmix_got_pc64 hidden_weak
+; REL: R_MMIX_GOT_PC64 hidden_weak 0x0
+define ptr @hidden_weak_address() { ret ptr @hidden_weak }
+
+; CHECK-LABEL: hidden_weak_function_address:
+; CHECK: .mmix_got_pc64 hidden_weak_function
+; REL: R_MMIX_GOT_PC64 hidden_weak_function 0x0
+define ptr @hidden_weak_function_address() { ret ptr @hidden_weak_function }

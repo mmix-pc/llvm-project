@@ -81,3 +81,24 @@ define i64 @indirect_tail(ptr %f, i64 %x) {
   %v = musttail call i64 %f(ptr %f, i64 %x)
   ret i64 %v
 }
+
+declare extern_weak hidden i64 @hidden_weak(i64)
+
+; CHECK-LABEL: hidden_weak_call:
+; CHECK: .mmix_got_pc64 hidden_weak
+; CHECK: PUSHGO r31,
+; REL: R_MMIX_GOT_PC64 hidden_weak 0x0
+define i64 @hidden_weak_call(i64 %x) {
+  %v = call i64 @hidden_weak(i64 %x)
+  %r = add i64 %v, 1
+  ret i64 %r
+}
+
+; CHECK-LABEL: hidden_weak_tail:
+; CHECK: .mmix_got_pc64 hidden_weak
+; CHECK: GO r255,
+; REL: R_MMIX_GOT_PC64 hidden_weak 0x0
+define i64 @hidden_weak_tail(i64 %x) {
+  %v = musttail call i64 @hidden_weak(i64 %x)
+  ret i64 %v
+}
