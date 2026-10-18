@@ -11,6 +11,8 @@ set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio.stderr
   libc.src.stdio.fopen
   libc.src.stdio.fdopen
+  libc.src.stdio.tmpfile
+  libc.src.stdio.tmpnam
   libc.src.stdio.fclose
   libc.src.stdio.fread
   libc.src.stdio.fwrite
