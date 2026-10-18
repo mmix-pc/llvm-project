@@ -73,7 +73,7 @@ TEST_F(LlvmLibcSemOpenTest, OpenExisting) {
   ASSERT_THAT(LIBC_NAMESPACE::sem_unlink(name), Succeeds());
 }
 
-TEST_F(LlvmLibcSemOpenTest, DistinctHandlesShareState) {
+TEST_F(LlvmLibcSemOpenTest, RepeatedOpenSharesAddressAndLifetime) {
   const char name[] = "/llvmlibc_sem_open_handles";
 
   LIBC_NAMESPACE::sem_unlink(name);
@@ -85,8 +85,8 @@ TEST_F(LlvmLibcSemOpenTest, DistinctHandlesShareState) {
   sem_t *second = LIBC_NAMESPACE::sem_open(name, 0);
   ASSERT_NE(second, SEM_FAILED);
 
-  // Each call returns its own handle.
-  EXPECT_NE(first, second);
+  // POSIX requires the same address for repeated opens of a linked object.
+  EXPECT_EQ(first, second);
 
   // Both handles operate on the same underlying semaphore, so a post through
   // one is observed through the other.

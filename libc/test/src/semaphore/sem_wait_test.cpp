@@ -146,3 +146,20 @@ TEST_F(LlvmLibcSemWaitTest, ClockWaitUnsupportedClock) {
 
   ASSERT_THAT(LIBC_NAMESPACE::sem_destroy(&sem), Succeeds());
 }
+
+TEST_F(LlvmLibcSemWaitTest, SuccessPreservesErrno) {
+  sem_t sem;
+  ASSERT_THAT(LIBC_NAMESPACE::sem_init(&sem, 1, 0), Succeeds());
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::sem_post(&sem), 0);
+  ASSERT_ERRNO_EQ(EDOM);
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::sem_wait(&sem), 0);
+  ASSERT_ERRNO_EQ(EDOM);
+  EXPECT_EQ(LIBC_NAMESPACE::sem_post(&sem), 0);
+  timespec invalid{-1, -1};
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::sem_timedwait(&sem, &invalid), 0);
+  ASSERT_ERRNO_EQ(EDOM);
+  ASSERT_THAT(LIBC_NAMESPACE::sem_destroy(&sem), Succeeds());
+}

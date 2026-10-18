@@ -237,3 +237,47 @@ TEST(LlvmLibcSemaphoreTest, NamedOpenInvalidName) {
   ASSERT_FALSE(r3.has_value());
   ASSERT_EQ(r3.error(), EINVAL);
 }
+
+TEST(LlvmLibcSemaphoreTest, NamedUnlinkRecreateLifetime) {
+  const char *name = "/llvmlibc_sem_recreated";
+  Semaphore::unlink(name);
+  auto first = Semaphore::open(name, O_CREAT | O_EXCL, 0600, 1);
+  ASSERT_TRUE(first.has_value());
+  auto again = Semaphore::open(name, O_CREAT, 0, SEM_VALUE_MAX + 1U);
+  ASSERT_TRUE(again.has_value());
+  EXPECT_EQ(first.value(), again.value());
+  ASSERT_EQ(Semaphore::unlink(name), 0);
+  auto missing = Semaphore::open(name, 0, 0, 0);
+  ASSERT_FALSE(missing.has_value());
+  EXPECT_EQ(missing.error(), ENOENT);
+  auto replacement = Semaphore::open(name, O_CREAT | O_EXCL, 0600, 2);
+  ASSERT_TRUE(replacement.has_value());
+  EXPECT_NE(first.value(), replacement.value());
+  ASSERT_EQ(Semaphore::close(again.value()), 0);
+  EXPECT_EQ(first.value()->trywait(), 0);
+  EXPECT_EQ(first.value()->getvalue(), 0);
+  EXPECT_EQ(replacement.value()->getvalue(), 2);
+  ASSERT_EQ(Semaphore::unlink(name), 0);
+  EXPECT_EQ(replacement.value()->trywait(), 0);
+  ASSERT_EQ(Semaphore::close(first.value()), 0);
+  ASSERT_EQ(Semaphore::close(replacement.value()), 0);
+}
+
+TEST(LlvmLibcSemaphoreTest, CloseRejectsUnnamed) {
+  Semaphore sem(1, false);
+  EXPECT_EQ(Semaphore::close(&sem), EINVAL);
+  EXPECT_EQ(sem.trywait(), 0);
+}
+
+TEST(LlvmLibcSemaphoreTest, InvalidNanosecondsDoNotPreventAcquisition) {
+  Semaphore sem(1, false);
+  timespec invalid{-1, -1};
+  EXPECT_EQ(sem.timedwait(&invalid), 0);
+  EXPECT_EQ(sem.timedwait(&invalid), EINVAL);
+}
+
+TEST(LlvmLibcSemaphoreTest, InvalidClockDoesNotConsumeToken) {
+  Semaphore sem(1, false);
+  EXPECT_EQ(sem.clockwait(static_cast<clockid_t>(99), nullptr), EINVAL);
+  EXPECT_EQ(sem.getvalue(), 1);
+}

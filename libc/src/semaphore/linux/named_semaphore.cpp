@@ -11,8 +11,12 @@
 #include "hdr/errno_macros.h"
 #include "hdr/fcntl_macros.h"
 #include "src/__support/CPP/array.h"
+#include "src/__support/CPP/limits.h"
+#include "src/__support/CPP/mutex.h"
 #include "src/__support/CPP/new.h"
+#include "src/__support/CPP/scope.h"
 #include "src/__support/CPP/string_view.h"
+#include "src/__support/OSUtil/linux/stat/stat_via_statx.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/ftruncate.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/getrandom.h"
@@ -24,6 +28,7 @@
 #include "src/__support/ctype_utils.h"
 #include "src/__support/error_or.h"
 #include "src/__support/macros/config.h"
+#include "src/__support/threads/raw_mutex.h"
 #include "src/string/memory_utils/inline_memcpy.h"
 #include "src/sys/mman/linux/shm_common.h"
 
@@ -39,7 +44,7 @@ constexpr cpp::string_view SEM_PREFIX = "/dev/shm/sem.";
 
 // use temporary file to solve data race and guarantee atomic publish.
 // Temporary file use different prefix.
-constexpr cpp::string_view SEM_TMP_PREFIX = "/dev/shm/sem.tmp_";
+constexpr cpp::string_view SEM_TMP_PREFIX = "/dev/shm/.sem.tmp_";
 
 // 8 random bytes from getrandom() produce a 16 character hex suffix, giving
 // 2^64 possible temp names to avoid collision.
@@ -54,12 +59,34 @@ using TmpPath =
 // fd is not leaked to child processes across exec.
 constexpr int DEFAULT_OFLAGS = O_NOFOLLOW | O_CLOEXEC;
 
+// A mapping keeps its inode alive even after unlink. Keying by file identity
+// distinguishes an unlinked semaphore from a new one with the same name.
+struct Mapping {
+  decltype(stat::st_dev) device;
+  decltype(stat::st_ino) inode;
+  Semaphore *semaphore;
+  size_t references;
+  Mapping *next;
+};
+RawMutex mappings_mutex;
+Mapping *mappings = nullptr;
+
 ErrorOr<TmpPath> generate_tmp_path() {
   // fill out 8 random bytes.
   cpp::array<uint8_t, RANDOM_SUFFIX_BYTES> rand_bytes{};
-  auto ret = linux_syscalls::getrandom(rand_bytes.data(), rand_bytes.size(), 0);
-  if (!ret.has_value())
-    return Error(ret.error());
+  size_t filled = 0;
+  while (filled != rand_bytes.size()) {
+    auto ret = linux_syscalls::getrandom(rand_bytes.data() + filled,
+                                         rand_bytes.size() - filled, 0);
+    if (!ret) {
+      if (ret.error() == EINTR)
+        continue;
+      return Error(ret.error());
+    }
+    if (ret.value() == 0)
+      return Error(EIO);
+    filled += static_cast<size_t>(ret.value());
+  }
 
   TmpPath path;
   inline_memcpy(path.data(), SEM_TMP_PREFIX.data(), SEM_TMP_PREFIX.size());
@@ -76,14 +103,40 @@ ErrorOr<TmpPath> generate_tmp_path() {
 
 // map an open semaphore fd into memory.
 ErrorOr<Semaphore *> map_semaphore(int fd) {
+  cpp::scope_exit close_fd([&] { linux_syscalls::close(fd); });
+  struct stat status;
+  auto stat_or = internal::stat_via_statx(fd, "", AT_EMPTY_PATH, &status);
+  if (!stat_or)
+    return Error(stat_or.error());
+  if (status.st_size < static_cast<off_t>(sizeof(Semaphore)))
+    return Error(EINVAL);
+
+  cpp::lock_guard lock(mappings_mutex);
+  for (Mapping *entry = mappings; entry; entry = entry->next) {
+    if (entry->device == status.st_dev && entry->inode == status.st_ino) {
+      if (entry->references == cpp::numeric_limits<size_t>::max())
+        return Error(EOVERFLOW);
+      ++entry->references;
+      return entry->semaphore;
+    }
+  }
+
+  auto entry_or =
+      linux_syscalls::mmap(nullptr, sizeof(Mapping), PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (!entry_or)
+    return Error(entry_or.error());
   auto mmap_or = linux_syscalls::mmap(
       nullptr, sizeof(Semaphore), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  linux_syscalls::close(fd);
-
-  if (!mmap_or.has_value())
+  if (!mmap_or.has_value()) {
+    linux_syscalls::munmap(entry_or.value(), sizeof(Mapping));
     return Error(mmap_or.error());
+  }
 
-  return reinterpret_cast<Semaphore *>(mmap_or.value());
+  auto *sem = reinterpret_cast<Semaphore *>(mmap_or.value());
+  mappings = new (entry_or.value())
+      Mapping{status.st_dev, status.st_ino, sem, 1, mappings};
+  return sem;
 }
 
 // open an existing named semaphore file and map it.
@@ -106,6 +159,14 @@ ErrorOr<Semaphore *> Semaphore::open(const char *name, int oflag, mode_t mode,
   if (!(oflag & O_CREAT))
     return open_existing(path_or->data());
 
+  // Existing objects ignore mode and value and do not require directory write
+  // permission or a temporary file.
+  if (!(oflag & O_EXCL)) {
+    auto existing = open_existing(path_or->data());
+    if (existing || existing.error() != ENOENT)
+      return existing;
+  }
+
   // check semaphore value.
   if (value > SEM_VALUE_MAX)
     return Error(EINVAL);
@@ -121,10 +182,16 @@ ErrorOr<Semaphore *> Semaphore::open(const char *name, int oflag, mode_t mode,
   if (!tmp_or.has_value())
     return Error(tmp_or.error());
 
-  // if two process happen to map the same random tmp_path, though rare
-  // in 2^64 namespace, one succees and the other return EEXIST.
+  // A temporary-name collision is not an EEXIST failure of the public name.
   auto fd_or = linux_syscalls::open(
       tmp_or->data(), O_RDWR | O_CREAT | O_EXCL | DEFAULT_OFLAGS, mode);
+  while (!fd_or && fd_or.error() == EEXIST) {
+    tmp_or = generate_tmp_path();
+    if (!tmp_or)
+      return Error(tmp_or.error());
+    fd_or = linux_syscalls::open(
+        tmp_or->data(), O_RDWR | O_CREAT | O_EXCL | DEFAULT_OFLAGS, mode);
+  }
   if (!fd_or.has_value())
     return Error(fd_or.error());
 
@@ -163,7 +230,7 @@ ErrorOr<Semaphore *> Semaphore::open(const char *name, int oflag, mode_t mode,
     return sem;
 
   // link() fail, clean up the mapping.
-  linux_syscalls::munmap(sem, sizeof(Semaphore));
+  Semaphore::close(sem);
 
   // if the name already exists and O_EXCL was not set, open existing.
   if (link_or.error() == EEXIST && !(oflag & O_EXCL))
@@ -173,10 +240,23 @@ ErrorOr<Semaphore *> Semaphore::open(const char *name, int oflag, mode_t mode,
 }
 
 int Semaphore::close(Semaphore *sem) {
-  auto result = linux_syscalls::munmap(sem, sizeof(Semaphore));
-  if (!result.has_value())
-    return result.error();
-  return 0;
+  cpp::lock_guard lock(mappings_mutex);
+  for (Mapping **slot = &mappings; *slot; slot = &(*slot)->next) {
+    Mapping *entry = *slot;
+    if (entry->semaphore != sem)
+      continue;
+    if (entry->references > 1) {
+      --entry->references;
+      return 0;
+    }
+    auto result = linux_syscalls::munmap(sem, sizeof(Semaphore));
+    if (!result)
+      return result.error();
+    *slot = entry->next;
+    linux_syscalls::munmap(entry, sizeof(Mapping));
+    return 0;
+  }
+  return EINVAL;
 }
 
 int Semaphore::unlink(const char *name) {

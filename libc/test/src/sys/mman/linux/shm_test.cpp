@@ -75,3 +75,47 @@ TEST_F(LlvmLibcShmTest, NameConversion) {
   ASSERT_THAT(LIBC_NAMESPACE::shm_open("/..", O_CREAT | O_RDWR, 0666),
               Fails(EINVAL));
 }
+
+TEST_F(LlvmLibcShmTest, UnlinkRecreateKeepsOldMapping) {
+  const char *name = "/llvmlibc_shm_recreated";
+  LIBC_NAMESPACE::shm_unlink(name);
+  LIBC_NAMESPACE::libc_errno = 0;
+  int oldfd = LIBC_NAMESPACE::shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0600);
+  ASSERT_GE(oldfd, 0);
+  ASSERT_THAT(LIBC_NAMESPACE::shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0600),
+              Fails(EEXIST));
+  ASSERT_THAT(LIBC_NAMESPACE::ftruncate(oldfd, 4096), Succeeds());
+  void *oldmap = LIBC_NAMESPACE::mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                                      MAP_SHARED, oldfd, 0);
+  ASSERT_NE(oldmap, MAP_FAILED);
+  static_cast<char *>(oldmap)[0] = 42;
+  ASSERT_THAT(LIBC_NAMESPACE::shm_unlink(name), Succeeds());
+  ASSERT_THAT(LIBC_NAMESPACE::shm_open(name, O_RDWR, 0), Fails(ENOENT));
+  int newfd = LIBC_NAMESPACE::shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0600);
+  ASSERT_GE(newfd, 0);
+  ASSERT_THAT(LIBC_NAMESPACE::ftruncate(newfd, 4096), Succeeds());
+  void *newmap = LIBC_NAMESPACE::mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                                      MAP_SHARED, newfd, 0);
+  ASSERT_NE(newmap, MAP_FAILED);
+  EXPECT_EQ(static_cast<char *>(newmap)[0], char(0));
+  static_cast<char *>(newmap)[0] = 7;
+  ASSERT_THAT(LIBC_NAMESPACE::close(oldfd), Succeeds());
+  ASSERT_THAT(LIBC_NAMESPACE::close(newfd), Succeeds());
+  ASSERT_THAT(LIBC_NAMESPACE::shm_unlink(name), Succeeds());
+  EXPECT_EQ(static_cast<char *>(oldmap)[0], char(42));
+  EXPECT_EQ(static_cast<char *>(newmap)[0], char(7));
+  ASSERT_THAT(LIBC_NAMESPACE::munmap(oldmap, 4096), Succeeds());
+  ASSERT_THAT(LIBC_NAMESPACE::munmap(newmap, 4096), Succeeds());
+}
+
+TEST_F(LlvmLibcShmTest, EmptyAndOverlongNames) {
+  EXPECT_THAT(LIBC_NAMESPACE::shm_open("", O_RDWR, 0), Fails(EINVAL));
+  EXPECT_THAT(LIBC_NAMESPACE::shm_unlink("////"), Fails(EINVAL));
+  char name[258];
+  name[0] = '/';
+  for (unsigned i = 1; i != sizeof(name) - 1; ++i)
+    name[i] = 'x';
+  name[sizeof(name) - 1] = 0;
+  EXPECT_THAT(LIBC_NAMESPACE::shm_open(name, O_RDWR, 0), Fails(ENAMETOOLONG));
+  EXPECT_THAT(LIBC_NAMESPACE::shm_unlink(name), Fails(ENAMETOOLONG));
+}

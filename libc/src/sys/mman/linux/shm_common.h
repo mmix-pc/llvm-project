@@ -41,7 +41,10 @@ translate_name(cpp::string_view name) {
   name = name.substr(offset);
 
   // check the name
-  if (name.size() > NAME_MAX)
+  // NAME_MAX bounds the final component, including e.g. the "sem." prefix.
+  constexpr size_t component_prefix =
+      Prefix.size() - Prefix.find_last_of('/') - 1;
+  if (name.size() > NAME_MAX - component_prefix)
     return Error(ENAMETOOLONG);
   if (name == "." || name == ".." || name.contains('/'))
     return Error(EINVAL);

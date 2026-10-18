@@ -40,11 +40,19 @@ class Semaphore {
   // 0x4D='M', 0x31='1').
   static constexpr unsigned int SEM_CANARY = 0x53454D31U;
 
-  // Helper function for timed blocking wait, wait for a required
-  // absolute timeout.
-  LIBC_INLINE int wait_until(internal::AbsTimeout timeout) {
+  // Unlike internal mutex waits, POSIX semaphore waits report interruption.
+  static LIBC_INLINE ErrorOr<int>
+  futex_wait(Futex &futex, cpp::optional<internal::AbsTimeout> timeout,
+             bool shared) {
+    return futex.wait(0, timeout, shared, /*restart_on_interrupt=*/false);
+  }
+
+  // The callback may cancel before acquisition, but must not consume a token.
+  template <typename Wait>
+  LIBC_INLINE int wait_until(cpp::optional<internal::AbsTimeout> timeout,
+                             Wait do_wait) {
     while (trywait() != 0) {
-      auto wait_or = value.wait(/*expected=*/0, timeout, is_shared);
+      auto wait_or = do_wait(value, timeout, is_shared);
 
       // returned error is not a benign race EAGAIN
       if (!wait_or.has_value() && wait_or.error() != EAGAIN) {
@@ -101,6 +109,9 @@ public:
   // Atomically increments the semaphore value and
   // wakes one blocked waiter if any.
   LIBC_INLINE int post() {
+    // After publishing the token, a waiter may consume it and destroy the
+    // semaphore. Do not read its metadata after the successful exchange.
+    const bool shared = is_shared;
     FutexWordType v = value.load(cpp::MemoryOrder::RELAXED);
 
     do {
@@ -113,7 +124,7 @@ public:
 
     // Wake one waiter if any,
     // waiter selection is left to linux futex implementation.
-    value.notify_one(is_shared);
+    value.notify_one(shared);
     return 0;
   }
 
@@ -133,22 +144,11 @@ public:
 
   // Blocking wait, decrements the value when positive, or blocks until a
   // post() makes it positive again.
-  LIBC_INLINE int wait() {
-    while (trywait() != 0) {
-      // Blocks when value was zero.
-      // Futex wait re-checks the value atomically,
-      // so a racing post() before sleep is not lost.
-      // Spurious wakeups just send back to trywait().
-      auto wait_or =
-          value.wait(/*expected=*/0, /*timeout=*/cpp::nullopt, is_shared);
-
-      // A successful wake or EAGAIN both just send it back to trywait().
-      // Any other error is unexpected.
-      if (!wait_or.has_value() && wait_or.error() != EAGAIN)
-        return wait_or.error();
-    }
-    return 0;
+  template <typename Wait> LIBC_INLINE int wait_with(Wait do_wait) {
+    return wait_until(cpp::nullopt, do_wait);
   }
+
+  LIBC_INLINE int wait() { return wait_with(futex_wait); }
 
   // Blocking wait against an absolute CLOCK_REALTIME deadline.
   LIBC_INLINE int timedwait(const timespec *abstime) {
@@ -158,6 +158,12 @@ public:
   // Blocking wait against a deadline on the given clock:
   // CLOCK_REALTIME or CLOCK_MONOTONIC
   LIBC_INLINE int clockwait(clockid_t clock_id, const timespec *abstime) {
+    return clockwait_with(clock_id, abstime, futex_wait);
+  }
+
+  template <typename Wait>
+  LIBC_INLINE int clockwait_with(clockid_t clock_id, const timespec *abstime,
+                                 Wait do_wait) {
     if (clock_id != CLOCK_MONOTONIC && clock_id != CLOCK_REALTIME)
       return EINVAL;
 
@@ -172,7 +178,7 @@ public:
     auto timeout =
         internal::AbsTimeout::from_timespec(*abstime, /*realtime=*/is_realtime);
     if (LIBC_LIKELY(timeout.has_value()))
-      return wait_until(timeout.value());
+      return wait_until(timeout.value(), do_wait);
 
     internal::AbsTimeout::Error err = timeout.error();
     LIBC_ASSERT(err == internal::AbsTimeout::Error::Invalid ||

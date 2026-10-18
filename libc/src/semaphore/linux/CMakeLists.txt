@@ -39,11 +39,15 @@ add_object_library(
     libc.src.__support.OSUtil.linux.syscall_wrappers.ftruncate
     libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
     libc.src.__support.OSUtil.linux.syscall_wrappers.link
+    libc.src.__support.CPP.limits
+    libc.src.__support.CPP.mutex
     libc.src.__support.OSUtil.linux.syscall_wrappers.mmap
     libc.src.__support.OSUtil.linux.syscall_wrappers.munmap
     libc.src.__support.OSUtil.linux.syscall_wrappers.open
     libc.src.__support.OSUtil.linux.syscall_wrappers.unlink
     libc.src.string.memory_utils.inline_memcpy
+    libc.src.__support.threads.raw_mutex
+    libc.src.__support.OSUtil.linux.stat.stat_via_statx
     libc.src.sys.mman.linux.shm_common
 )
 
