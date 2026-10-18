@@ -99,6 +99,7 @@ functions:
       - type: size_t
       - type: int
   - name: recvfrom
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t

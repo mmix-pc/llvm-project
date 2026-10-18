@@ -9,4 +9,8 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.sys.socket.bind
   libc.src.sys.socket.listen
   libc.src.sys.socket.accept
+  libc.src.sys.socket.recvfrom
+  libc.src.sys.socket.sendto
+  libc.src.sys.socket.getsockname
+  libc.src.sys.socket.setsockopt
 )

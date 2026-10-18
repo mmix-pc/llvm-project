@@ -1,3 +1,9 @@
+set(recvfrom_source recvfrom.cpp)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
+  mmix_select_cancellation_points(recvfrom)
+endif()
+
 add_entrypoint_object(
   socket
   SRCS
@@ -225,7 +231,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   recvfrom
   SRCS
-    recvfrom.cpp
+    ${recvfrom_source}
   HDRS
     ../recvfrom.h
   DEPENDS
@@ -236,6 +242,8 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.OSUtil.linux.syscall_wrappers.recvfrom
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
