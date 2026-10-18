@@ -16,10 +16,11 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(int, mbsinit, (mbstate_t * ps)) {
+LLVM_LIBC_FUNCTION(int, mbsinit, (const mbstate_t *ps)) {
   if (ps == nullptr)
     return true;
-  internal::CharacterConverter cr(reinterpret_cast<internal::mbstate *>(ps));
+  auto state = *reinterpret_cast<const internal::mbstate *>(ps);
+  internal::CharacterConverter cr(&state);
   return cr.isValidState() && cr.isEmpty();
 }
 

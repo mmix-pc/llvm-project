@@ -13,6 +13,8 @@
 #include "test/UnitTest/Test.h"
 
 TEST(LlvmLibcMBSInitTest, EmptyState) {
+  const mbstate_t initial = {};
+  ASSERT_NE(LIBC_NAMESPACE::mbsinit(&initial), 0);
   mbstate_t ps;
   LIBC_NAMESPACE::memset(&ps, 0, sizeof(mbstate_t));
   ASSERT_NE(LIBC_NAMESPACE::mbsinit(&ps), 0);

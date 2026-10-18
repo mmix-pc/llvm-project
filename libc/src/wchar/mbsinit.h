@@ -15,7 +15,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-int mbsinit(mbstate_t *ps);
+int mbsinit(const mbstate_t *ps);
 
 } // namespace LIBC_NAMESPACE_DECL
 

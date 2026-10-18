@@ -78,7 +78,7 @@ functions:
       - stdc
     return_type: int
     arguments:
-      - type: mbstate_t *
+      - type: const mbstate_t *
   - name: mbrlen
     standards:
       - stdc
