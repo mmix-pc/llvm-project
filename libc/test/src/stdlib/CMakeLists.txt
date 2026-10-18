@@ -438,6 +438,21 @@ add_libc_test(
 )
 
 add_libc_test(
+  mkdtemp_test
+  SUITE libc-stdlib-tests
+  SRCS mkdtemp_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.sys_stat_macros
+    libc.hdr.types.struct_stat
+    libc.src.stdlib.mkdtemp
+    libc.src.string.strdup
+    libc.src.sys.stat.stat
+    libc.src.unistd.rmdir
+    libc.test.UnitTest.ErrnoCheckingTest
+)
+
+add_libc_test(
   mkstemp_test
   SUITE
     libc-stdlib-tests

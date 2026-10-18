@@ -418,6 +418,20 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  mkdtemp
+  SRCS mkdtemp.cpp
+  HDRS mkdtemp.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.src.__support.CPP.string_view
+    libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
+    libc.src.__support.OSUtil.linux.syscall_wrappers.mkdir
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+    libc.src.__support.macros.null_check
+)
+
+add_entrypoint_object(
   mkstemp
   SRCS
     mkstemp.cpp
