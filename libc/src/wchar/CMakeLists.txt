@@ -801,6 +801,20 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+add_entrypoint_object(
+  wcsftime
+  SRCS wcsftime.cpp
+  HDRS wcsftime.h
+  DEPENDS
+    libc.hdr.types.size_t
+    libc.hdr.types.struct_tm
+    libc.hdr.types.wchar_t
+    libc.src.__support.macros.null_check
+    libc.src.__support.printf_core.writer
+    libc.src.__support.wchar.character_converter
+    libc.src.time.strftime_core.strftime_main
+)
+
 if(LIBC_TARGET_OS_IS_BAREMETAL AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
   add_subdirectory(baremetal/mmix)
 endif()

@@ -19,6 +19,7 @@ set(MMIX_TIME_ENTRYPOINTS
   libc.src.time.ctime
   libc.src.time.ctime_r
   libc.src.time.strftime
+  libc.src.wchar.wcsftime
   libc.src.sys.time.gettimeofday
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_TIME_ENTRYPOINTS})

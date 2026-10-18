@@ -1,6 +1,13 @@
 add_custom_target(libc_wchar_unittests)
 
 add_libc_test(
+  wcsftime_test
+  SUITE libc_wchar_unittests
+  SRCS wcsftime_test.cpp
+  DEPENDS libc.src.wchar.wcsftime libc.src.time.strftime
+)
+
+add_libc_test(
   wide_scan_test
   SUITE libc_wchar_unittests
   FULL_BUILD_ONLY

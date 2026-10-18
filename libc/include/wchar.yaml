@@ -10,9 +10,6 @@ types:
   - type_name: FILE
   - type_name: rsize_t
   - type_name: size_t
-  # TODO: Remove this once we have a function declaration using "struct tm"
-  # (wcsftime). We're declaring it here now, since libc++ expects
-  # forward-declaration of "struct tm" in the <wchar.h> header.
   - type_name: struct_tm
   - type_name: wint_t
   - type_name: wchar_t
@@ -20,6 +17,14 @@ types:
 enums: []
 objects: []
 functions:
+  - name: wcsftime
+    standards: [stdc]
+    return_type: size_t
+    arguments:
+      - type: wchar_t *__restrict
+      - type: size_t
+      - type: const wchar_t *__restrict
+      - type: const struct tm *
   - name: vswscanf
     standards: [stdc]
     return_type: int
