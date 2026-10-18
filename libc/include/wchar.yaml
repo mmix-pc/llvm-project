@@ -363,12 +363,14 @@ functions:
       - type: const wchar_t *__restrict
       - type: size_t
   - name: fgetwc
+    noexcept: false
     standards:
       - stdc
     return_type: wint_t
     arguments:
       - type: FILE *
   - name: fgetws
+    noexcept: false
     standards:
       - stdc
     return_type: wchar_t *
@@ -385,6 +387,7 @@ functions:
       - type: wchar_t
       - type: FILE *
   - name: fputws
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -406,12 +409,14 @@ functions:
     arguments:
       - type: FILE *
   - name: getwchar
+    noexcept: false
     standards:
       - stdc
     return_type: wint_t
     arguments:
       - type: void
   - name: putwc
+    noexcept: false
     standards:
       - stdc
     return_type: wint_t
@@ -419,6 +424,7 @@ functions:
       - type: wchar_t
       - type: FILE *
   - name: putwchar
+    noexcept: false
     standards:
       - stdc
     return_type: wint_t
