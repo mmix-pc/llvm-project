@@ -77,6 +77,9 @@ public:
 };
 
 LIBC_INLINE bool CharacterConverter::isValidState() {
+  if (!utf8)
+    return (isEmpty() && state->total_bytes == 0 && state->partial == 0) ||
+           (isFull() && state->total_bytes == 1 && state->partial <= 0xff);
   if (state->total_bytes > MAX_UTF8_LENGTH)
     return false;
 
@@ -88,9 +91,15 @@ LIBC_INLINE bool CharacterConverter::isValidState() {
 }
 
 LIBC_INLINE int CharacterConverter::push(char8_t utf8_byte) {
-  if (!utf8 && (utf8_byte > 0x7f || !isEmpty())) {
-    clear();
-    return EILSEQ;
+  if (!utf8) {
+    if (!isEmpty()) {
+      clear();
+      return EILSEQ;
+    }
+    // C/POSIX uses a reversible byte mapping, not UTF-8 decoding.
+    state->partial = utf8_byte;
+    state->total_bytes = state->bytes_stored = 1;
+    return 0;
   }
   uint8_t num_ones = static_cast<uint8_t>(cpp::countl_one(utf8_byte));
   // Checking the first byte if first push
@@ -151,7 +160,7 @@ LIBC_INLINE int CharacterConverter::push(char8_t utf8_byte) {
 }
 
 LIBC_INLINE int CharacterConverter::push(char32_t utf32) {
-  if (!utf8 && utf32 > 0x7f) {
+  if (!utf8 && utf32 > 0xff) {
     clear();
     return EILSEQ;
   }
@@ -165,6 +174,10 @@ LIBC_INLINE int CharacterConverter::push(char32_t utf32) {
   }
 
   state->partial = utf32;
+  if (!utf8) {
+    state->total_bytes = state->bytes_stored = 1;
+    return 0;
+  }
 
   // determine number of utf-8 bytes needed to represent this utf32 value
   for (uint8_t i = 0; i < MAX_UTF8_LENGTH; i++) {

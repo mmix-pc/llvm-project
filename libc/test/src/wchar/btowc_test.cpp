@@ -11,10 +11,14 @@
 #include "test/UnitTest/Test.h"
 
 TEST(LlvmLibcBtowc, DefaultLocale) {
-  // Loops through all characters, verifying that ascii returns itself and
-  // everything else returns WEOF.
-  for (int c = 0; c < 255; ++c) {
-    if (c < 128)
+  // Full builds own the byte-preserving C locale; overlay uses UTF-8.
+#ifdef LIBC_FULL_BUILD
+  constexpr int limit = 256;
+#else
+  constexpr int limit = 128;
+#endif
+  for (int c = -1; c <= 256; ++c) {
+    if (c >= 0 && c < limit)
       EXPECT_EQ(LIBC_NAMESPACE::btowc(c), static_cast<wint_t>(c));
     else
       EXPECT_EQ(LIBC_NAMESPACE::btowc(c), WEOF);

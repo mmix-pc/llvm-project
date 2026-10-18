@@ -42,6 +42,8 @@ add_libc_test(
     libc.src.uchar.mbrtoc32
     libc.src.wchar.mbrtowc
     libc.src.wchar.wcrtomb
+    libc.src.wchar.btowc
+    libc.src.wchar.wctob
     libc.src.wchar.swprintf
     libc.src.wctype.iswalpha
     libc.src.wctype.towlower

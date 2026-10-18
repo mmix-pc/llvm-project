@@ -10,6 +10,8 @@
 #include "hdr/errno_macros.h"
 #include "hdr/langinfo_macros.h"
 #include "hdr/locale_macros.h"
+#include "hdr/stdio_macros.h"
+#include "hdr/wchar_macros.h"
 #include "src/__support/CPP/string.h"
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/libc_errno.h"
@@ -28,6 +30,8 @@
 #include "src/uchar/c32rtomb.h"
 #include "src/uchar/mbrtoc32.h"
 #include "src/wchar/mbrtowc.h"
+#include "src/wchar/btowc.h"
+#include "src/wchar/wctob.h"
 #include "src/wchar/swprintf.h"
 #include "src/wchar/wcrtomb.h"
 #include "src/wctype/iswalpha.h"
@@ -136,13 +140,16 @@ TEST_F(LlvmLibcBuiltinLocaleTest, CharacterEncodingAndClassification) {
   char bytes[4];
   wchar_t formatted[8];
   EXPECT_EQ(LIBC_NAMESPACE::__ctype_get_mb_cur_max(), size_t(1));
-  EXPECT_EQ(LIBC_NAMESPACE::mbrtowc(&wc, "\xc3\xa9", 2, &state), size_t(-1));
-  EXPECT_EQ(static_cast<int>(libc_errno), EILSEQ);
+  EXPECT_EQ(LIBC_NAMESPACE::mbrtowc(&wc, "\xc3\xa9", 2, &state), size_t(1));
+  EXPECT_EQ(wc, wchar_t(0xc3));
   state = {};
-  EXPECT_EQ(LIBC_NAMESPACE::wcrtomb(bytes, 0xe9, &state), size_t(-1));
+  EXPECT_EQ(LIBC_NAMESPACE::wcrtomb(bytes, 0xe9, &state), size_t(1));
+  EXPECT_EQ(static_cast<unsigned char>(bytes[0]), static_cast<unsigned char>(0xe9));
   EXPECT_EQ(LIBC_NAMESPACE::iswalpha(0xe9), 0);
   EXPECT_EQ(LIBC_NAMESPACE::towlower(0xc9), wint_t(0xc9));
-  EXPECT_EQ(LIBC_NAMESPACE::swprintf(formatted, 8, L"%s", "\xc3\xa9"), -1);
+  EXPECT_EQ(LIBC_NAMESPACE::swprintf(formatted, 8, L"%s", "\xc3\xa9"), 2);
+  EXPECT_EQ(formatted[0], wchar_t(0xc3));
+  EXPECT_EQ(formatted[1], wchar_t(0xa9));
   EXPECT_NE(LIBC_NAMESPACE::setlocale(LC_CTYPE, "C.UTF-8"), nullptr);
   state = {};
   EXPECT_EQ(LIBC_NAMESPACE::mbrtowc(&wc, "\xc3", 1, &state), size_t(-2));
@@ -170,7 +177,57 @@ TEST_F(LlvmLibcBuiltinLocaleTest, CharacterEncodingAndClassification) {
   EXPECT_EQ(LIBC_NAMESPACE::mbrtowc(&wc, "\xc0\x80", 2, &state), size_t(-1));
   state = {};
   EXPECT_NE(LIBC_NAMESPACE::setlocale(LC_CTYPE, "C"), nullptr);
-  EXPECT_EQ(LIBC_NAMESPACE::c32rtomb(bytes, 0xe9, &state), size_t(-1));
+  EXPECT_EQ(LIBC_NAMESPACE::c32rtomb(bytes, 0xe9, &state), size_t(1));
+}
+
+TEST_F(LlvmLibcBuiltinLocaleTest, AllBytesRoundTrip) {
+  const char *names[] = {"C", "POSIX"};
+  for (const char *name : names) {
+    locale_t loc = LIBC_NAMESPACE::newlocale(LC_CTYPE_MASK, name, nullptr);
+    ASSERT_NE(loc, nullptr);
+    locale_t previous = LIBC_NAMESPACE::uselocale(loc);
+    EXPECT_EQ(LIBC_NAMESPACE::__ctype_get_mb_cur_max(), size_t(1));
+    for (unsigned c = 0; c <= 255; ++c) {
+      mbstate_t state{};
+      char byte = static_cast<char>(c);
+      wchar_t wc = 0;
+      EXPECT_EQ(LIBC_NAMESPACE::mbrtowc(&wc, &byte, 1, &state),
+                size_t(c != 0));
+      EXPECT_EQ(wc, static_cast<wchar_t>(c));
+      EXPECT_EQ(LIBC_NAMESPACE::btowc(static_cast<int>(c)),
+                static_cast<wint_t>(c));
+      EXPECT_EQ(LIBC_NAMESPACE::wctob(static_cast<wint_t>(c)),
+                static_cast<int>(c));
+      char output[4] = {};
+      EXPECT_EQ(LIBC_NAMESPACE::wcrtomb(output, wc, &state), size_t(1));
+      EXPECT_EQ(output[0], byte);
+      char32_t scalar = 0;
+      EXPECT_EQ(LIBC_NAMESPACE::mbrtoc32(&scalar, &byte, 1, &state),
+                size_t(c != 0));
+      EXPECT_EQ(static_cast<unsigned>(scalar), c);
+      EXPECT_EQ(LIBC_NAMESPACE::c32rtomb(output, scalar, &state), size_t(1));
+      EXPECT_EQ(output[0], byte);
+      if (c >= 128) {
+        EXPECT_EQ(LIBC_NAMESPACE::iswalpha(wc), 0);
+        EXPECT_EQ(LIBC_NAMESPACE::towlower(wc), static_cast<wint_t>(c));
+      }
+    }
+    EXPECT_EQ(LIBC_NAMESPACE::btowc(EOF), WEOF);
+    EXPECT_EQ(LIBC_NAMESPACE::btowc(256), WEOF);
+    EXPECT_EQ(LIBC_NAMESPACE::wctob(WEOF), EOF);
+    EXPECT_EQ(LIBC_NAMESPACE::wctob(256), EOF);
+    mbstate_t state{};
+    char output[4] = {};
+    EXPECT_EQ(LIBC_NAMESPACE::wcrtomb(output, 256, &state), size_t(-1));
+    EXPECT_EQ(static_cast<int>(libc_errno), EILSEQ);
+    LIBC_NAMESPACE::uselocale(previous);
+    LIBC_NAMESPACE::freelocale(loc);
+  }
+  ASSERT_NE(LIBC_NAMESPACE::setlocale(LC_CTYPE, "C.UTF-8"), nullptr);
+  for (int c = 128; c <= 255; ++c) {
+    EXPECT_EQ(LIBC_NAMESPACE::btowc(c), WEOF);
+    EXPECT_EQ(LIBC_NAMESPACE::wctob(static_cast<wint_t>(c)), EOF);
+  }
 }
 
 TEST_F(LlvmLibcBuiltinLocaleTest, EnvironmentPrecedenceAndAtomicFailure) {

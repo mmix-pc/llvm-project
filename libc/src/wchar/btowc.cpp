@@ -9,6 +9,7 @@
 #include "src/wchar/btowc.h"
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
+#include "src/locale/encoding.h"
 
 #include "hdr/types/wint_t.h"
 #include "hdr/wchar_macros.h" // for WEOF.
@@ -16,7 +17,7 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(wint_t, btowc, (int c)) {
-  if (c > 127 || c < 0)
+  if (c > (internal::locale_is_utf8() ? 127 : 255) || c < 0)
     return WEOF;
   return static_cast<wint_t>(c);
 }

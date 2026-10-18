@@ -11,10 +11,14 @@
 #include "test/UnitTest/Test.h"
 
 TEST(LlvmLibcWctob, DefaultLocale) {
-  // Loops through a subset of the wide characters, verifying that ascii returns
-  // itself and everything else returns EOF.
+  // Full builds own the byte-preserving C locale; overlay uses UTF-8.
+#ifdef LIBC_FULL_BUILD
+  constexpr wint_t limit = 256;
+#else
+  constexpr wint_t limit = 128;
+#endif
   for (wint_t c = 0; c < 32767; ++c) {
-    if (c < 128)
+    if (c < limit)
       EXPECT_EQ(LIBC_NAMESPACE::wctob(c), static_cast<int>(c));
     else
       EXPECT_EQ(LIBC_NAMESPACE::wctob(c), EOF);

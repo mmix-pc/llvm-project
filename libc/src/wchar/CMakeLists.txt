@@ -96,6 +96,7 @@ add_entrypoint_object(
   HDRS
     wctob.h
   DEPENDS
+    libc.src.locale.encoding
     libc.hdr.types.wint_t
     libc.hdr.stdio_macros
 )
@@ -107,6 +108,7 @@ add_entrypoint_object(
   HDRS
     btowc.h
   DEPENDS
+    libc.src.locale.encoding
     libc.hdr.types.wint_t
     libc.hdr.wchar_macros
 )
