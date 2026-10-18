@@ -7,6 +7,8 @@
 #include "src/__support/CPP/new.h"
 #include "src/__support/alloc-checker.h"
 #include "src/__support/common.h"
+#include "src/__support/wchar/character_converter.h"
+#include "src/locale/encoding.h"
 #include "src/regex/bsd_regex.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -17,6 +19,19 @@ LLVM_LIBC_FUNCTION(int, regcomp,
   preg->__internal = nullptr;
   if (cflags & ~(REG_EXTENDED | REG_ICASE | REG_NOSUB | REG_NEWLINE))
     return REG_BADPAT;
+  // The byte-oriented engine does not validate the locale's input encoding.
+  if (internal::locale_is_utf8()) {
+    internal::mbstate state;
+    internal::CharacterConverter converter(&state);
+    for (const char *p = pattern; *p; ++p) {
+      if (converter.push(static_cast<char8_t>(*p)))
+        return REG_BADPAT;
+      if (converter.isFull())
+        converter.clear();
+    }
+    if (!converter.isEmpty())
+      return REG_BADPAT;
+  }
   AllocChecker ac;
   auto *compiled = new (ac) BSDRegex;
   if (!ac)

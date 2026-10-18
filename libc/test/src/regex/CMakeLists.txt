@@ -19,6 +19,10 @@ if(LLVM_LIBC_FULL_BUILD AND LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
     SRCS
       regex_basic_test.cpp
     DEPENDS
+      libc.hdr.locale_macros
+      libc.src.locale.newlocale
+      libc.src.locale.uselocale
+      libc.src.locale.freelocale
       libc.hdr.regex_macros
       libc.hdr.types.regex_t
       libc.src.regex.regcomp

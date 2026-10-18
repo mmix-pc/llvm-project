@@ -11,13 +11,57 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include "src/locale/freelocale.h"
+#include "src/locale/newlocale.h"
+#include "src/locale/uselocale.h"
 #include "src/regex/regcomp.h"
 #include "src/regex/regexec.h"
 #include "src/regex/regfree.h"
 #include "test/UnitTest/Test.h"
 
+#include "hdr/locale_macros.h"
 #include "hdr/regex_macros.h"
 #include "hdr/types/regex_t.h"
+
+TEST(LlvmLibcRegexTest, LocaleEncodingValidation) {
+  locale_t loc = LIBC_NAMESPACE::newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
+  ASSERT_NE(loc, static_cast<locale_t>(nullptr));
+  locale_t previous = LIBC_NAMESPACE::uselocale(loc);
+  const char *invalid[] = {"\\\xfc", "\xc0\xaf", "\xed\xa0\x80",
+                           "\xf4\x90\x80\x80", "\xe2\x82"};
+  for (const char *pattern : invalid) {
+    regex_t re{};
+    int result = LIBC_NAMESPACE::regcomp(&re, pattern, 0);
+    EXPECT_EQ(result, REG_BADPAT);
+    if (result == 0)
+      LIBC_NAMESPACE::regfree(&re);
+    else {
+      EXPECT_EQ(re.__internal, static_cast<void *>(nullptr));
+      EXPECT_EQ(re.re_nsub, size_t(0));
+    }
+  }
+  const char *valid[] = {"", "abc", "\xc3\xbc", "\xf0\x9f\x98\x80"};
+  for (const char *pattern : valid) {
+    regex_t re{};
+    int result = LIBC_NAMESPACE::regcomp(&re, pattern, 0);
+    EXPECT_EQ(result, 0);
+    if (result == 0)
+      LIBC_NAMESPACE::regfree(&re);
+  }
+  LIBC_NAMESPACE::uselocale(previous);
+  LIBC_NAMESPACE::freelocale(loc);
+
+  loc = LIBC_NAMESPACE::newlocale(LC_CTYPE_MASK, "C", nullptr);
+  ASSERT_NE(loc, static_cast<locale_t>(nullptr));
+  previous = LIBC_NAMESPACE::uselocale(loc);
+  regex_t re{};
+  int result = LIBC_NAMESPACE::regcomp(&re, "\xfc", 0);
+  EXPECT_EQ(result, 0);
+  if (result == 0)
+    LIBC_NAMESPACE::regfree(&re);
+  LIBC_NAMESPACE::uselocale(previous);
+  LIBC_NAMESPACE::freelocale(loc);
+}
 
 TEST(LlvmLibcRegexTest, BasicLiteralRoundTrip) {
   regex_t preg;

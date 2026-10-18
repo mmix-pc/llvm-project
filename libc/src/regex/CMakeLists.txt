@@ -56,6 +56,8 @@ add_entrypoint_object(
   HDRS
     regcomp.h
   DEPENDS
+    libc.src.__support.wchar.character_converter
+    libc.src.locale.encoding
     .bsd_engine
     libc.hdr.types.regex_t
     libc.hdr.regex_macros
