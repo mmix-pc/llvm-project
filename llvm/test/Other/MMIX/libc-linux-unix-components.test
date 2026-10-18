@@ -30,7 +30,8 @@ if(LIBC_MMIX_BUILD_THREADED_LIBC)
                    wchar.fputws wchar.fwide wchar.getwchar wchar.putwc wchar.putwchar
                    stdio.fgetpos stdio.fsetpos wchar.vswprintf wchar.vfwprintf
                    wchar.fwprintf wchar.vwprintf wchar.wprintf
-                   wctype.wctrans wctype.towctrans)
+                   wctype.wctrans wctype.towctrans wchar.swscanf wchar.vswscanf
+                   wchar.fwscanf wchar.vfwscanf wchar.wscanf wchar.vwscanf)
     if(NOT "libc.src.${provider}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
       message(FATAL_ERROR "Missing provider ${provider}")
     endif()

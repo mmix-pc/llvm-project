@@ -8,7 +8,7 @@ foreach(option FLOAT WIDE WRITE_INT)
   endif()
 endforeach()
 
-# Wide scanning and locale databases are separate capabilities.
+# This does not provide named locale databases.
 set(MMIX_WIDE_ENTRYPOINTS
   libc.src.wchar.fgetwc
   libc.src.wchar.fgetws
@@ -23,6 +23,12 @@ set(MMIX_WIDE_ENTRYPOINTS
   libc.src.wchar.vfwprintf
   libc.src.wchar.wprintf
   libc.src.wchar.vwprintf
+  libc.src.wchar.swscanf
+  libc.src.wchar.vswscanf
+  libc.src.wchar.fwscanf
+  libc.src.wchar.vfwscanf
+  libc.src.wchar.wscanf
+  libc.src.wchar.vwscanf
   libc.src.wchar.btowc
   libc.src.wchar.wctob
   libc.src.wchar.wcscat
