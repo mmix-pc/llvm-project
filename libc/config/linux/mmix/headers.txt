@@ -95,7 +95,7 @@ if(LIBC_MMIX_BUILD_WIDE)
 endif()
 if(LIBC_MMIX_BUILD_LOCALE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.locale libc.include.wchar
-    libc.include.wctype)
+    libc.include.wctype libc.include.langinfo)
 endif()
 if(LIBC_MMIX_BUILD_FILESYSTEM)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.sys_stat libc.include.dirent

@@ -6,7 +6,10 @@ endif()
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.stdlib.clearenv
   libc.src.stdlib.mkstemp
+  libc.src.stdlib.mkdtemp
+  libc.src.libgen.basename
   libc.src.libgen.dirname
+  libc.src.string.memmem
   libc.src.string.strverscmp
   libc.src.stdio.fseeko
   libc.src.stdio.freopen

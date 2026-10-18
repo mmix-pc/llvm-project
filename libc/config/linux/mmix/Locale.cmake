@@ -1,10 +1,13 @@
-option(LIBC_MMIX_BUILD_LOCALE "Build C-locale providers for Linux C++ streams" OFF)
+option(LIBC_MMIX_BUILD_LOCALE "Build built-in C and C.UTF-8 locale providers" OFF)
 if(NOT LIBC_MMIX_BUILD_LOCALE)
   return()
 endif()
 
-# Reuse LLVM libc's C locale; this does not provide named locale databases.
+# Built-in locales do not provide an external regional locale database.
 set(MMIX_LOCALE_ENTRYPOINTS
+  libc.src.locale.__ctype_get_mb_cur_max
+  libc.src.langinfo.nl_langinfo
+  libc.src.langinfo.nl_langinfo_l
   libc.src.locale.newlocale
   libc.src.locale.freelocale
   libc.src.locale.localeconv
