@@ -244,6 +244,13 @@ add_libc_test(
 )
 
 add_libc_test(
+  char_vector_failure_test
+  SUITE libc-support-tests
+  SRCS char_vector_failure_test.cpp
+  DEPENDS libc.src.__support.char_vector
+)
+
+add_libc_test(
   char_vector_test
   SUITE
     libc-support-tests

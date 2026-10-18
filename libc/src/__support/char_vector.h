@@ -45,10 +45,12 @@ public:
     if (index >= cur_buff_size - 2) {
       // If the new character would cause the string to be longer than the
       // buffer's size, attempt to allocate a new buffer.
-      cur_buff_size = cur_buff_size * 2;
+      if (cur_buff_size > static_cast<size_t>(-1) / 2)
+        return false;
+      size_t new_size = cur_buff_size * 2;
       if (cur_str == local_buffer) {
         char *new_str;
-        new_str = reinterpret_cast<char *>(malloc(cur_buff_size));
+        new_str = reinterpret_cast<char *>(malloc(new_size));
         if (new_str == nullptr) {
           return false;
         }
@@ -57,11 +59,13 @@ public:
           new_str[i] = cur_str[i];
         cur_str = new_str;
       } else {
-        cur_str = reinterpret_cast<char *>(realloc(cur_str, cur_buff_size));
-        if (cur_str == nullptr) {
+        char *new_str = reinterpret_cast<char *>(realloc(cur_str, new_size));
+        if (new_str == nullptr) {
           return false;
         }
+        cur_str = new_str;
       }
+      cur_buff_size = new_size;
     }
     cur_str[index] = new_char;
     ++index;
