@@ -1,5 +1,4 @@
-//===-- MMIX Linux process-operation admission -------------------*- C++
-//-*-===//
+//===-- MMIX Linux process-operation admission -------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -15,21 +14,28 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
+enum class ProcessOperationKind { ForkOrExec, Credentials };
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-int begin_process_operation();
+int begin_process_operation(
+    ProcessOperationKind kind = ProcessOperationKind::ForkOrExec);
 void end_process_operation();
 #else
-inline int begin_process_operation() { return 0; }
+inline int begin_process_operation(
+    ProcessOperationKind = ProcessOperationKind::ForkOrExec) {
+  return 0;
+}
 inline void end_process_operation() {}
 #endif
 
 // FIXME: Replace pre-creation-only admission with coordinated fork/credential
 // handling. No registry lock is held across callbacks, syscalls or child entry.
 class ProcessOperation {
-  int error_code = begin_process_operation();
+  int error_code;
 
 public:
-  ProcessOperation() = default;
+  explicit ProcessOperation(
+      ProcessOperationKind kind = ProcessOperationKind::ForkOrExec)
+      : error_code(begin_process_operation(kind)) {}
   ~ProcessOperation() {
     if (!error_code)
       end_process_operation();

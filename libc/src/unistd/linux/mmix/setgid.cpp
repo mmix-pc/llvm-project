@@ -16,7 +16,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, setgid, (gid_t id)) {
-  mmix::ProcessOperation operation;
+  mmix::ProcessOperation operation(mmix::ProcessOperationKind::Credentials);
   if (operation.error()) {
     libc_errno = operation.error();
     return -1;

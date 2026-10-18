@@ -15,11 +15,14 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
-int begin_process_operation() {
+int begin_process_operation([[maybe_unused]] ProcessOperationKind kind) {
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   // FIXME: Add cancellation request/queue handoff before joint fork/exec export.
-  return ENOTSUP;
-#else
+  if (kind == ProcessOperationKind::ForkOrExec)
+    return ENOTSUP;
+#endif
+  // Credential updates neither clone nor replace runtime state. The registry
+  // still excludes creation and permanently rejects admission after it begins.
   uint64_t full = UINT64_MAX, saved = 0;
   long result =
       syscall_impl(SYS_rt_sigprocmask, SIG_BLOCK, reinterpret_cast<long>(&full),
@@ -38,7 +41,6 @@ int begin_process_operation() {
                    reinterpret_cast<long>(&saved), 0, sizeof(saved)))
     __builtin_trap();
   return admitted ? 0 : ENOTSUP;
-#endif
 }
 
 void end_process_operation() {

@@ -94,7 +94,11 @@ for opt in ("0", "2"):
 static int admission_error;
 static unsigned begins, ends;
 namespace credential_test::mmix {
-int begin_process_operation() { ++begins; return admission_error; }
+int begin_process_operation(ProcessOperationKind kind) {
+  if (kind != ProcessOperationKind::Credentials) __builtin_trap();
+  ++begins;
+  return admission_error;
+}
 void end_process_operation() { ++ends; }
 }
 #else
@@ -106,6 +110,23 @@ void end_process_operation() { ++ends; }
 #include "src/unistd/linux/getgroups.cpp"
 #include "src/__support/OSUtil/linux/syscall_wrappers/setgroups.h"
 #include "src/errno/libc_errno.cpp"
+
+#ifdef TEST_ADMISSION
+// The common group tests exercise real database parsing and allocation. Isolate
+// collection here to verify that the MMIX wrapper never reaches it on rejection.
+#define LLVM_LIBC_SRC_GRP_SUPPLEMENTARY_GROUPS_H
+static unsigned collections;
+static int collection_error;
+namespace credential_test::internal {
+struct SupplementaryGroups {
+  gid_t values[2] = {7, 9};
+  gid_t *data = values;
+  size_t size = 2;
+  int collect(const char *, gid_t) { ++collections; return collection_error; }
+};
+}
+#include "src/grp/linux/mmix/initgroups.cpp"
+#endif
 
 using namespace credential_test;
 #ifdef TEST_IDS32
@@ -172,6 +193,12 @@ extern "C" int main() {
   require(linux_syscalls::setgroups(0, nullptr).has_value());
   require(args[0] == 0 && args[1] == 0);
 #ifdef TEST_ADMISSION
+  require(initgroups("alice", 7) == 0 && number == SETGROUPS && args[0] == 2);
+  require(collections == 1);
+  collection_error = ENOMEM;
+  before = calls;
+  require(initgroups("alice", 7) == -1 && libc_errno == ENOMEM && calls == before);
+  collection_error = 0;
   require(begins == ends);
   before = calls;
   unsigned released = ends;
@@ -182,6 +209,9 @@ extern "C" int main() {
     require(setgid(0) == -1 && libc_errno == error);
     require(seteuid(0) == -1 && libc_errno == error);
     require(setegid(0) == -1 && libc_errno == error);
+    unsigned collected = collections;
+    require(initgroups("alice", 7) == -1 && libc_errno == error);
+    require(collections == collected);
     require(calls == before && ends == released);
   }
 #endif
