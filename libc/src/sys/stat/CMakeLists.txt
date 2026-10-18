@@ -106,3 +106,25 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.mknod
 )
+
+add_entrypoint_object(
+  mkfifo
+  SRCS mkfifo.cpp
+  HDRS mkfifo.h
+  DEPENDS
+    libc.hdr.types.mode_t
+    libc.hdr.sys_stat_macros
+    libc.src.__support.common
+    .mknod
+)
+
+add_entrypoint_object(
+  mkfifoat
+  SRCS mkfifoat.cpp
+  HDRS mkfifoat.h
+  DEPENDS
+    libc.hdr.types.mode_t
+    libc.hdr.sys_stat_macros
+    libc.src.__support.common
+    .mknodat
+)

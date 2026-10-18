@@ -90,6 +90,25 @@ add_libc_test(
 )
 
 add_libc_test(
+  mkfifo_test
+  SUITE libc_sys_stat_unittests
+  SRCS mkfifo_test.cpp
+  DEPENDS
+    libc.hdr.fcntl_macros
+    libc.hdr.sys_stat_macros
+    libc.src.fcntl.open
+    libc.src.sys.stat.fstatat
+    libc.src.sys.stat.mkfifo
+    libc.src.sys.stat.mkfifoat
+    libc.src.sys.stat.umask
+    libc.src.unistd.close
+    libc.src.unistd.getcwd
+    libc.src.unistd.unlink
+    libc.test.UnitTest.ErrnoCheckingTest
+    libc.test.UnitTest.ErrnoSetterMatcher
+)
+
+add_libc_test(
   mknodat_test
   SUITE libc_sys_stat_unittests
   SRCS mknodat_test.cpp
