@@ -395,6 +395,7 @@ functions:
       - type: int
       - type: locale_t
   - name: system
+    noexcept: false
     standards:
       - stdc
     return_type: int
