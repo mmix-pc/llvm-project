@@ -14,6 +14,7 @@
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
 #include "src/spawn/file_actions.h"
+#include "src/spawn/linux/spawn.h"
 
 #include "hdr/fcntl_macros.h"
 #include "hdr/signal_macros.h" // For SIGCHLD
@@ -50,7 +51,7 @@ void exit() {
   }
 }
 
-void child_process(const char *__restrict path,
+void child_process(const char *const *paths,
                    const posix_spawn_file_actions_t *file_actions,
                    const posix_spawnattr_t *__restrict, // For now unused
                    char *const *__restrict argv, char *const *__restrict envp) {
@@ -96,21 +97,18 @@ void child_process(const char *__restrict path,
     }
   }
 
-  if (LIBC_NAMESPACE::syscall_impl<long>(SYS_execve, path, argv, envp) < 0)
-    exit();
+  (void)spawn_exec(paths, argv, envp);
+  exit();
 }
 
 } // anonymous namespace
 
-LLVM_LIBC_FUNCTION(int, posix_spawn,
-                   (pid_t *__restrict pid, const char *__restrict path,
-                    const posix_spawn_file_actions_t *file_actions,
-                    const posix_spawnattr_t *__restrict attr,
-                    char *const *__restrict argv,
-                    char *const *__restrict envp)) {
+int spawn(pid_t *pid, const char *const *paths,
+          const posix_spawn_file_actions_t *file_actions,
+          const posix_spawnattr_t *attr, char *const *argv, char *const *envp) {
   pid_t cpid = fork();
   if (cpid == 0)
-    child_process(path, file_actions, attr, argv, envp);
+    child_process(paths, file_actions, attr, argv, envp);
   else if (cpid < 0)
     return -cpid;
 
@@ -122,6 +120,16 @@ LLVM_LIBC_FUNCTION(int, posix_spawn,
   // wait (using pipes for example).
 
   return 0;
+}
+
+LLVM_LIBC_FUNCTION(int, posix_spawn,
+                   (pid_t *__restrict pid, const char *__restrict path,
+                    const posix_spawn_file_actions_t *file_actions,
+                    const posix_spawnattr_t *__restrict attr,
+                    char *const *__restrict argv,
+                    char *const *__restrict envp)) {
+  const char *paths[] = {path, nullptr};
+  return spawn(pid, paths, file_actions, attr, argv, envp);
 }
 
 } // namespace LIBC_NAMESPACE_DECL

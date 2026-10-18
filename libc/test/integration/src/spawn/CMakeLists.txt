@@ -1,6 +1,37 @@
 add_custom_target(spawn-integration-tests)
 add_dependencies(libc-integration-tests spawn-integration-tests)
 
+add_integration_test(
+  posix_spawnp_test
+  SUITE spawn-integration-tests
+  SRCS posix_spawnp_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.include.fcntl
+    libc.include.spawn
+    libc.include.sys_wait
+    libc.src.__support.CPP.stringstream
+    libc.src.errno.errno
+    libc.src.fcntl.open
+    libc.src.spawn.posix_spawnp
+    libc.src.spawn.posix_spawn_file_actions_addopen
+    libc.src.spawn.posix_spawn_file_actions_destroy
+    libc.src.spawn.posix_spawn_file_actions_init
+    libc.src.stdlib.getenv
+    libc.src.stdlib.mkdtemp
+    libc.src.stdlib.setenv
+    libc.src.stdlib.unsetenv
+    libc.src.sys.stat.chmod
+    libc.src.sys.stat.mkdir
+    libc.src.sys.wait.waitpid
+    libc.src.unistd.close
+    libc.src.unistd.read
+    libc.src.unistd.rmdir
+    libc.src.unistd.symlink
+    libc.src.unistd.unlink
+    libc.src.unistd.write
+)
+
 add_executable(
   libc_posix_spawn_test_binary
   EXCLUDE_FROM_ALL

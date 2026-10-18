@@ -79,3 +79,10 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.posix_spawn
 )
+
+add_entrypoint_object(
+  posix_spawnp
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.posix_spawnp
+)

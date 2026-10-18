@@ -1,3 +1,13 @@
+add_header_library(
+  spawn
+  HDRS spawn.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.include.spawn
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+)
+
 set(spawn_source posix_spawn.cpp)
 set(spawn_signal_deps libc.src.signal.linux.signal_utils)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
@@ -25,5 +35,21 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.linux.syscall_wrappers.dup2
     libc.src.__support.OSUtil.linux.syscall_wrappers.open
     libc.src.spawn.file_actions
+    .spawn
     ${spawn_signal_deps}
+)
+
+add_entrypoint_object(
+  posix_spawnp
+  SRCS posix_spawnp.cpp
+  HDRS ../posix_spawnp.h
+  DEPENDS
+    .spawn
+    .posix_spawn
+    libc.src.__support.CPP.stringstream
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+    libc.hdr.func.free
+    libc.hdr.func.malloc
+    libc.src.stdlib.getenv
 )

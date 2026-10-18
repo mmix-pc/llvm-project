@@ -1509,6 +1509,7 @@ if(LLVM_LIBC_FULL_BUILD)
 
     # spawn.h entrypoints
     libc.src.spawn.posix_spawn
+    libc.src.spawn.posix_spawnp
     libc.src.spawn.posix_spawn_file_actions_addclose
     libc.src.spawn.posix_spawn_file_actions_adddup2
     libc.src.spawn.posix_spawn_file_actions_addopen
@@ -1584,11 +1585,11 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.time.timer_settime
 
     # locale.h entrypoints
-    libc.src.locale.localeconv
-    libc.src.locale.duplocale
     libc.src.locale.__ctype_get_mb_cur_max
     libc.src.langinfo.nl_langinfo
     libc.src.langinfo.nl_langinfo_l
+    libc.src.locale.localeconv
+    libc.src.locale.duplocale
     libc.src.locale.freelocale
     libc.src.locale.localeconv
     libc.src.locale.newlocale

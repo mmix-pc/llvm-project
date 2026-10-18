@@ -16,6 +16,7 @@
 #include "src/__support/threads/linux/mmix/process_operation.h"
 #include "src/signal/linux/mmix/rt_sigaction.h"
 #include "src/spawn/file_actions.h"
+#include "src/spawn/linux/spawn.h"
 
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE &&                             \
     LIBC_THREAD_MODE != LIBC_THREAD_MODE_PLATFORM
@@ -25,7 +26,7 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace {
 
-[[noreturn]] void child_process(const char *path,
+[[noreturn]] void child_process(const char *const *paths,
                                 const posix_spawn_file_actions_t *actions,
                                 const sigset_t &saved, char *const *argv,
                                 char *const *envp) {
@@ -85,7 +86,7 @@ namespace {
   }
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
     internal::exit(127);
-  (void)syscall_impl<long>(SYS_execve, path, argv, envp);
+  (void)spawn_exec(paths, argv, envp);
   // Exec must not return, including an unexpected nonnegative syscall result.
   internal::exit(127);
 }
@@ -94,12 +95,9 @@ namespace {
 
 // FIXME: Reuse shared spawn policy after MMIX restorer selection and pthread
 // coordination are supported. Only the null-attribute caller profile is ready.
-LLVM_LIBC_FUNCTION(int, posix_spawn,
-                   (pid_t *__restrict pid, const char *__restrict path,
-                    const posix_spawn_file_actions_t *actions,
-                    const posix_spawnattr_t *__restrict attr,
-                    char *const *__restrict argv,
-                    char *const *__restrict envp)) {
+int spawn(pid_t *pid, const char *const *paths,
+          const posix_spawn_file_actions_t *actions,
+          const posix_spawnattr_t *attr, char *const *argv, char *const *envp) {
   mmix::ProcessOperation operation;
   if (operation.error())
     return operation.error();
@@ -114,7 +112,7 @@ LLVM_LIBC_FUNCTION(int, posix_spawn,
   // The kernel copies the software and register stacks; both return normally.
   long result = syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
   if (result == 0)
-    child_process(path, actions, saved, argv, envp);
+    child_process(paths, actions, saved, argv, envp);
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
     internal::exit(127);
   if (result < 0)
@@ -124,6 +122,16 @@ LLVM_LIBC_FUNCTION(int, posix_spawn,
   // As in the shared provider, child setup/exec errors are reported by status
   // 127 on wait, not synchronously through a parent-side error pipe.
   return 0;
+}
+
+LLVM_LIBC_FUNCTION(int, posix_spawn,
+                   (pid_t *__restrict pid, const char *__restrict path,
+                    const posix_spawn_file_actions_t *actions,
+                    const posix_spawnattr_t *__restrict attr,
+                    char *const *__restrict argv,
+                    char *const *__restrict envp)) {
+  const char *paths[] = {path, nullptr};
+  return spawn(pid, paths, actions, attr, argv, envp);
 }
 
 } // namespace LIBC_NAMESPACE_DECL
