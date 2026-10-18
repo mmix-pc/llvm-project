@@ -10,6 +10,10 @@ endforeach()
 
 # This does not provide named locale databases.
 set(MMIX_WIDE_ENTRYPOINTS
+  libc.src.uchar.c16rtomb
+  libc.src.uchar.c32rtomb
+  libc.src.uchar.mbrtoc16
+  libc.src.uchar.mbrtoc32
   libc.src.wchar.fgetwc
   libc.src.wchar.fgetws
   libc.src.wchar.fputws

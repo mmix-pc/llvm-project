@@ -1,0 +1,18 @@
+//===-- Implementation header for c32rtomb--------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef LLVM_LIBC_SRC_UCHAR_C32RTOMB_H
+#define LLVM_LIBC_SRC_UCHAR_C32RTOMB_H
+#include "hdr/types/char32_t.h"
+#include "hdr/types/mbstate_t.h"
+#include "hdr/types/size_t.h"
+#include "src/__support/macros/config.h"
+namespace LIBC_NAMESPACE_DECL {
+size_t c32rtomb(char *__restrict s, char32_t c, mbstate_t *__restrict ps);
+}
+#endif

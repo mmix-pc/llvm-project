@@ -1597,6 +1597,10 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.sys.select.select
 
     # wchar.h entrypoints
+    libc.src.uchar.c16rtomb
+    libc.src.uchar.c32rtomb
+    libc.src.uchar.mbrtoc16
+    libc.src.uchar.mbrtoc32
     libc.src.wchar.mbrlen
     libc.src.wchar.mbsinit
     libc.src.wchar.mbrtowc

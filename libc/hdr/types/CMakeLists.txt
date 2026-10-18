@@ -28,6 +28,15 @@ add_proxy_header_library(
 )
 
 add_proxy_header_library(
+  char16_t
+  HDRS char16_t.h
+  DEPENDS libc.hdr.uchar_overlay
+  FULL_BUILD_DEPENDS
+    libc.include.llvm-libc-types.char16_t
+    libc.include.uchar
+)
+
+add_proxy_header_library(
   mbstate_t
   HDRS
     mbstate_t.h

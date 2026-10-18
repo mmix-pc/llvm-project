@@ -25,6 +25,7 @@ add_subdirectory(string)
 add_subdirectory(strings)
 add_subdirectory(time)
 add_subdirectory(wchar)
+add_subdirectory(uchar)
 add_subdirectory(wctype)
 
 if(${LIBC_TARGET_OS} STREQUAL "linux")
