@@ -12,8 +12,21 @@
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
 #include "test/src/time/TmHelper.h"
+#include "test/src/time/TimezoneGuard.h"
 
-using LlvmLibcCtime = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
+class LlvmLibcCtime : public LIBC_NAMESPACE::testing::ErrnoCheckingTest {
+  LIBC_NAMESPACE::testing::TimezoneGuard timezone_guard{false};
+
+public:
+  void SetUp() override {
+    timezone_guard.save();
+    LIBC_NAMESPACE::testing::ErrnoCheckingTest::SetUp();
+  }
+  void TearDown() override {
+    LIBC_NAMESPACE::testing::ErrnoCheckingTest::TearDown();
+    timezone_guard.restore();
+  }
+};
 
 TEST_F(LlvmLibcCtime, nullptr) {
   EXPECT_DEATH([] { LIBC_NAMESPACE::ctime(nullptr); }, WITH_SIGNAL(-1));

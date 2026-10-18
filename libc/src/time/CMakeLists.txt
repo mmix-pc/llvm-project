@@ -2,6 +2,18 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
+add_object_library(
+  posix_timezone
+  SRCS
+    posix_timezone.cpp
+  HDRS
+    posix_timezone.h
+  DEPENDS
+    libc.hdr.stdint_proxy
+    libc.src.__support.CPP.string_view
+    libc.src.__support.macros.config
+)
+
 add_header_library(
   time_constants
   HDRS
@@ -21,6 +33,7 @@ add_object_library(
   HDRS
     time_utils.h
   DEPENDS
+    .posix_timezone
     .time_constants
     libc.hdr.stdint_proxy
     libc.hdr.types.size_t
@@ -32,10 +45,43 @@ add_object_library(
     libc.src.__support.CPP.string_view
     libc.src.__support.common
     libc.src.__support.error_or
-    libc.src.__support.libc_assert
     libc.src.__support.libc_errno
     libc.src.__support.macros.config
-    libc.src.__support.uint128
+)
+
+set(time_zone_deps .posix_timezone .time_utils
+  libc.hdr.types.struct_tm libc.hdr.types.time_t
+  libc.src.__support.CPP.limits
+  libc.src.__support.error_or libc.src.__support.macros.config)
+set(time_zone_options "")
+if(LIBC_TARGET_OS_IS_LINUX)
+  list(APPEND time_zone_options -DLIBC_COPT_POSIX_TIMEZONE)
+  list(APPEND time_zone_deps
+    libc.hdr.func.malloc
+    libc.src.__support.CPP.mutex
+    libc.src.__support.CPP.new
+    libc.src.__support.threads.mutex)
+  if(LLVM_LIBC_FULL_BUILD)
+    list(APPEND time_zone_deps libc.config.app_h libc.src.stdlib.environ_internal)
+  else()
+    list(APPEND time_zone_deps libc.hdr.stdlib_overlay)
+  endif()
+  if("tz_variables" IN_LIST TARGET_ENTRYPOINT_NAME_LIST)
+    list(APPEND time_zone_options -DLIBC_COPT_TZ_VARIABLES)
+    list(APPEND time_zone_deps .linux.tz_variables)
+  endif()
+endif()
+
+add_object_library(
+  time_zone
+  SRCS
+    time_zone.cpp
+  HDRS
+    time_zone.h
+  DEPENDS
+    ${time_zone_deps}
+  COMPILE_OPTIONS
+    ${time_zone_options}
 )
 
 add_subdirectory(strftime_core) #TODO: Move to top
@@ -95,6 +141,7 @@ add_entrypoint_object(
   DEPENDS
     .asctime_utils
     .time_utils
+    .time_zone
     .time_constants
     libc.hdr.types.time_t
     libc.include.time
@@ -111,6 +158,7 @@ add_entrypoint_object(
   DEPENDS
     .asctime_utils
     .time_utils
+    .time_zone
     .time_constants
     libc.hdr.types.time_t
     libc.include.time
@@ -126,6 +174,7 @@ add_entrypoint_object(
     localtime.h
   DEPENDS
     .time_utils
+    .time_zone
     libc.hdr.types.time_t
     libc.hdr.types.struct_tm
     libc.src.errno.errno
@@ -140,6 +189,7 @@ add_entrypoint_object(
     localtime_r.h
   DEPENDS
     .time_utils
+    .time_zone
     libc.hdr.types.time_t
     libc.hdr.types.struct_tm
     libc.src.errno.errno
@@ -195,6 +245,7 @@ add_entrypoint_object(
     mktime.h
   DEPENDS
     .time_utils
+    .time_zone
     .time_constants
     libc.include.time
     libc.src.errno.errno

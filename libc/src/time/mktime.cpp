@@ -13,28 +13,20 @@
 #include "src/__support/macros/null_check.h"
 #include "src/time/time_constants.h"
 #include "src/time/time_utils.h"
+#include "src/time/time_zone.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(time_t, mktime, (struct tm * tm_out)) {
   LIBC_CRASH_ON_NULLPTR(tm_out);
 
-  auto mktime_result = time_utils::mktime_internal(tm_out);
+  auto mktime_result = time_utils::mktime_local(tm_out);
   if (!mktime_result) {
-    libc_errno = time_utils::TIME_OVERFLOW;
+    libc_errno = mktime_result.error();
     return time_constants::OUT_OF_RANGE_RETURN_VALUE;
   }
 
-  time_t seconds = *mktime_result;
-
-  // Update the tm structure's year, month, day, etc. from seconds.
-  auto status = time_utils::update_from_seconds(seconds, tm_out);
-  if (!status) {
-    libc_errno = status.error();
-    return time_constants::OUT_OF_RANGE_RETURN_VALUE;
-  }
-
-  return seconds;
+  return *mktime_result;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

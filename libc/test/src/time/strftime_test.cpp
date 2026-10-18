@@ -12,6 +12,7 @@
 #include "src/time/strftime.h"
 #include "src/time/time_constants.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/time/TimezoneGuard.h"
 
 // Copied from sprintf_test.cpp.
 // TODO: put this somewhere more reusable, it's handy.
@@ -897,9 +898,10 @@ TEST(LlvmLibcStrftimeTest, MinuteOfHour) {
 }
 
 TEST(LlvmLibcStrftimeTest, SecondsSinceEpoch) {
+  LIBC_NAMESPACE::testing::TimezoneGuard timezone_guard;
   // this tests %s, which reads: [tm_year, tm_mon, tm_mday, tm_hour, tm_min,
   // tm_sec, tm_isdst]
-  struct tm time;
+  struct tm time{};
   char buffer[100];
   size_t written = 0;
 
@@ -2320,6 +2322,7 @@ TEST(LlvmLibcStrftimeTest, TimeFormatFullDateTime) {
 
 #if defined(__linux__)
 TEST(LlvmLibcStrftimeTest, TimezoneTest) {
+  LIBC_NAMESPACE::testing::TimezoneGuard timezone_guard;
   struct tm time;
   char buffer[100];
   size_t written = 0;
@@ -2361,7 +2364,7 @@ TEST(LlvmLibcStrftimeTest, TimezoneTest) {
   time.tm_zone = nullptr;
   time.tm_isdst = 0;
   written = LIBC_NAMESPACE::strftime(buffer, sizeof(buffer), "%Z", &time);
-  EXPECT_STREQ_LEN(written, buffer, "");
+  EXPECT_STREQ_LEN(written, buffer, "UTC");
 
   // Test negative tm_isdst (should write no characters)
   time.tm_isdst = -1;

@@ -29,6 +29,7 @@ add_header_library(
   DEPENDS
     .core_structs
     libc.src.time.time_utils
+    libc.src.time.time_zone
     libc.src.time.time_constants
     libc.src.__support.printf_core.writer
     libc.src.__support.CPP.string_view

@@ -13,8 +13,21 @@
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
 #include "test/src/time/TmHelper.h"
+#include "test/src/time/TimezoneGuard.h"
 
-using LlvmLibcCtimeR = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
+class LlvmLibcCtimeR : public LIBC_NAMESPACE::testing::ErrnoCheckingTest {
+  LIBC_NAMESPACE::testing::TimezoneGuard timezone_guard{false};
+
+public:
+  void SetUp() override {
+    timezone_guard.save();
+    LIBC_NAMESPACE::testing::ErrnoCheckingTest::SetUp();
+  }
+  void TearDown() override {
+    LIBC_NAMESPACE::testing::ErrnoCheckingTest::TearDown();
+    timezone_guard.restore();
+  }
+};
 
 TEST_F(LlvmLibcCtimeR, Nullptr) {
   char buffer[LIBC_NAMESPACE::time_constants::ASCTIME_BUFFER_SIZE];

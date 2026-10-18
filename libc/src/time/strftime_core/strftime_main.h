@@ -16,6 +16,7 @@
 #include "src/time/strftime_core/converter.h"
 #include "src/time/strftime_core/core_structs.h"
 #include "src/time/strftime_core/parser.h"
+#include "src/time/time_zone.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace strftime_core {
@@ -23,6 +24,10 @@ namespace strftime_core {
 template <printf_core::WriteMode write_mode>
 ErrorOr<size_t> strftime_main(printf_core::Writer<write_mode> *writer,
                               const char *__restrict str, const tm *timeptr) {
+  // POSIX requires strftime to update timezone globals as if tzset was called.
+  // An invalid TZ need not prevent formatting timezone-independent fields;
+  // timezone conversions report their own errors through convert().
+  (void)time_utils::refresh_timezone();
   Parser parser(str);
   int result = 0;
   for (strftime_core::FormatSection cur_section = parser.get_next_section();

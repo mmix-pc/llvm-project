@@ -1,5 +1,65 @@
 add_custom_target(libc_time_unittests)
 
+set(timezone_test_support_deps
+  libc.src.__support.CPP.string
+  libc.src.__support.CPP.string_view
+  libc.src.__support.macros.config)
+if(LIBC_TARGET_OS_IS_LINUX)
+  if(LLVM_LIBC_FULL_BUILD)
+    list(APPEND timezone_test_support_deps
+      libc.config.app_h libc.src.stdlib.environ_internal)
+  else()
+    list(APPEND timezone_test_support_deps libc.hdr.stdlib_overlay)
+  endif()
+endif()
+add_object_library(
+  timezone_test_support
+  SRCS TimezoneGuard.cpp
+  HDRS TimezoneGuard.h
+  DEPENDS ${timezone_test_support_deps}
+)
+
+add_libc_test(
+  posix_timezone_test
+  SUITE libc_time_unittests
+  SRCS posix_timezone_test.cpp
+  DEPENDS libc.src.time.posix_timezone
+)
+
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    timezone_thread_test
+    SUITE libc_time_unittests
+    SRCS timezone_thread_test.cpp
+    DEPENDS
+      .timezone_test_support
+      libc.src.pthread.pthread_create
+      libc.src.pthread.pthread_join
+      libc.src.time.localtime_r
+      libc.src.time.mktime
+      libc.src.time.strftime
+      libc.src.time.tzset
+  )
+  add_libc_test(
+    timezone_test
+    SUITE libc_time_unittests
+    SRCS timezone_test.cpp
+    DEPENDS
+      .timezone_test_support
+      libc.hdr.errno_macros
+      libc.src.__support.CPP.limits
+      libc.src.__support.libc_errno
+      libc.src.time.ctime_r
+      libc.src.time.gmtime_r
+      libc.src.time.localtime_r
+      libc.src.time.mktime
+      libc.src.time.strftime
+      libc.src.time.time_utils
+      libc.src.time.tz_variables
+      libc.src.time.tzset
+  )
+endif()
+
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
     ctime_r_concurrent_test
@@ -11,11 +71,13 @@ if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
       # ctime_r is not selected as an overlay entrypoint.
       ${LIBC_SOURCE_DIR}/src/time/ctime_r.cpp
     DEPENDS
+      .timezone_test_support
       libc.src.__support.CPP.atomic
       libc.src.__support.common
       libc.src.errno.errno
       libc.src.time.asctime_utils
       libc.src.time.time_utils
+      libc.src.time.time_zone
     LINK_LIBRARIES
       pthread
   )
@@ -76,6 +138,7 @@ add_libc_test(
   CXX_STANDARD
     20
   DEPENDS
+    .timezone_test_support
     .time_test_utils
     libc.include.time
     libc.hdr.types.time_t
@@ -94,6 +157,7 @@ add_libc_test(
   CXX_STANDARD
     20
   DEPENDS
+    .timezone_test_support
     .time_test_utils
     libc.include.time
     libc.hdr.types.time_t
@@ -110,6 +174,7 @@ add_libc_test(
   SRCS
     localtime_test.cpp
   DEPENDS
+    .timezone_test_support
     libc.hdr.types.time_t
     libc.src.time.localtime
 )
@@ -121,6 +186,7 @@ add_libc_test(
   SRCS
     localtime_r_test.cpp
   DEPENDS
+    .timezone_test_support
     libc.hdr.types.struct_tm
     libc.hdr.types.time_t
     libc.src.time.localtime_r
@@ -257,6 +323,7 @@ add_libc_test(
   CXX_STANDARD
     20
   DEPENDS
+    .timezone_test_support
     .time_test_utils
     libc.src.time.mktime
     libc.src.__support.CPP.limits
@@ -285,6 +352,7 @@ add_libc_test(
   SRCS
     strftime_test.cpp
   DEPENDS
+    .timezone_test_support
     libc.hdr.types.struct_tm
     libc.src.time.strftime
 )
@@ -343,6 +411,7 @@ add_libc_test(
   SRCS
     tzset_test.cpp
   DEPENDS
+    .timezone_test_support
     libc.src.time.tz_variables
     libc.src.time.tzset
 )

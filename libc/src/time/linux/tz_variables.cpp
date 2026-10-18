@@ -19,8 +19,12 @@
 namespace LIBC_NAMESPACE_DECL {
 
 using TZNameArrayType = char *[2];
+namespace {
+char utc_name[] = "UTC";
+char empty_name[] = "";
+} // namespace
 
-LLVM_LIBC_VARIABLE(TZNameArrayType, tzname) = {};
+LLVM_LIBC_VARIABLE(TZNameArrayType, tzname) = {utc_name, empty_name};
 LLVM_LIBC_VARIABLE(long, timezone) = 0;
 LLVM_LIBC_VARIABLE(int, daylight) = 0;
 

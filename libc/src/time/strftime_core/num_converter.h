@@ -162,7 +162,12 @@ get_int_format(const FormatSection &to_conv, const tm *timeptr) {
   case 'z': // Timezone offset [+/-HHMM]
     raw_num = time_reader.get_timezone_offset();
     result.sign_char = '+'; // force the '+' sign iff raw_num is non-negative
-    result.pad_to_len = 5;  // 4 + 1 for the sign
+#if defined(__linux__)
+    // Preserve the sign of westward offsets smaller than one minute.
+    if (timeptr->tm_gmtoff < 0)
+      result.sign_char = '-';
+#endif
+    result.pad_to_len = 5; // 4 + 1 for the sign
     break;
   default:
     __builtin_trap(); // this should be unreachable, but trap if you hit it.

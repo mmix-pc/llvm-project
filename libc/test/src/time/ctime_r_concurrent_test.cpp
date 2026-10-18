@@ -9,6 +9,7 @@
 #include "src/__support/CPP/atomic.h"
 #include "src/time/ctime_r.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/time/TimezoneGuard.h"
 #include <pthread.h>
 #include <sched.h>
 
@@ -38,6 +39,7 @@ void *format(void *arg) {
 } // namespace
 
 TEST(LlvmLibcCtimeRConcurrentTest, IndependentCalendars) {
+  LIBC_NAMESPACE::testing::TimezoneGuard timezone_guard;
   Input inputs[] = {{0, "Thu Jan  1 00:00:00 1970\n"},
                     {2147483647, "Tue Jan 19 03:14:07 2038\n"}};
   pthread_t threads[2];

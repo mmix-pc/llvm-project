@@ -21,6 +21,7 @@
 #include "src/time/strftime_core/core_structs.h"
 #include "src/time/strftime_core/num_converter.h"
 #include "src/time/strftime_core/str_converter.h"
+#include "src/time/time_zone.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace strftime_core {
@@ -42,6 +43,19 @@ int convert(printf_core::Writer<write_mode> *writer,
 
   if (!to_conv.has_conv)
     return writer->write(to_conv.raw_string);
+  if ((to_conv.conv_name == 'z' || to_conv.conv_name == 'Z') &&
+      timeptr->tm_isdst < 0)
+    return 0;
+  tm with_zone;
+  if (to_conv.conv_name == 's' || to_conv.conv_name == 'z' ||
+      to_conv.conv_name == 'Z') {
+    with_zone = *timeptr;
+    auto status = time_utils::prepare_timezone_for_format(
+        &with_zone, to_conv.conv_name == 's');
+    if (!status)
+      return -status.error();
+    timeptr = &with_zone;
+  }
   switch (to_conv.conv_name) {
     // The cases are grouped by type, then alphabetized with lowercase before
     // uppercase.

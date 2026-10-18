@@ -11,8 +11,21 @@
 #include "src/time/time_constants.h"
 #include "test/UnitTest/ErrnoSetterMatcher.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/time/TimezoneGuard.h"
 #include "test/src/time/TmHelper.h"
 #include "test/src/time/TmMatcher.h"
+
+class LlvmLibcMkTime : public LIBC_NAMESPACE::testing::Test {
+  LIBC_NAMESPACE::testing::TimezoneGuard timezone_guard{false};
+
+public:
+  void SetUp() override {
+    timezone_guard.save();
+  }
+  void TearDown() override {
+    timezone_guard.restore();
+  }
+};
 
 using LIBC_NAMESPACE::testing::ErrnoSetterMatcher::Fails;
 using LIBC_NAMESPACE::testing::ErrnoSetterMatcher::Succeeds;
@@ -24,7 +37,7 @@ static inline constexpr int tm_year(int year) {
   return year - LIBC_NAMESPACE::time_constants::TIME_YEAR_BASE;
 }
 
-TEST(LlvmLibcMkTime, FailureSetsErrno) {
+TEST_F(LlvmLibcMkTime, FailureSetsErrno) {
   struct tm tm_data{.tm_sec = INT_MAX,
                     .tm_min = INT_MAX,
                     .tm_hour = INT_MAX,
@@ -38,7 +51,7 @@ TEST(LlvmLibcMkTime, FailureSetsErrno) {
               Fails(LIBC_NAMESPACE::time_utils::TIME_OVERFLOW));
 }
 
-TEST(LlvmLibcMkTime, InvalidSeconds) {
+TEST_F(LlvmLibcMkTime, InvalidSeconds) {
   {
     // -1 second from 1970-01-01 00:00:00 returns 1969-12-31 23:59:59.
     struct tm tm_data{.tm_sec = -1,
@@ -90,7 +103,7 @@ TEST(LlvmLibcMkTime, InvalidSeconds) {
   }
 }
 
-TEST(LlvmLibcMkTime, InvalidMinutes) {
+TEST_F(LlvmLibcMkTime, InvalidMinutes) {
   {
     // -1 minute from 1970-01-01 00:00:00 returns 1969-12-31 23:59:00.
     struct tm tm_data{.tm_sec = 0,
@@ -144,7 +157,7 @@ TEST(LlvmLibcMkTime, InvalidMinutes) {
   }
 }
 
-TEST(LlvmLibcMkTime, InvalidHours) {
+TEST_F(LlvmLibcMkTime, InvalidHours) {
   {
     // -1 hour from 1970-01-01 00:00:00 returns 1969-12-31 23:00:00.
     struct tm tm_data{.tm_sec = 0,
@@ -198,7 +211,7 @@ TEST(LlvmLibcMkTime, InvalidHours) {
   }
 }
 
-TEST(LlvmLibcMkTime, InvalidYear) {
+TEST_F(LlvmLibcMkTime, InvalidYear) {
   // -1 year from 1970-01-01 00:00:00 returns 1969-01-01 00:00:00.
   struct tm tm_data{.tm_sec = 0,
                     .tm_min = 0,
@@ -225,7 +238,7 @@ TEST(LlvmLibcMkTime, InvalidYear) {
                tm_data);
 }
 
-TEST(LlvmLibcMkTime, InvalidMonths) {
+TEST_F(LlvmLibcMkTime, InvalidMonths) {
   {
     // -1 month from 1970-01-01 00:00:00 returns 1969-12-01 00:00:00.
     struct tm tm_data{.tm_sec = 0,
@@ -280,7 +293,7 @@ TEST(LlvmLibcMkTime, InvalidMonths) {
   }
 }
 
-TEST(LlvmLibcMkTime, InvalidDays) {
+TEST_F(LlvmLibcMkTime, InvalidDays) {
   {
     // -1 day from 1970-01-01 00:00:00 returns 1969-12-31 00:00:00.
     struct tm tm_data{.tm_sec = 0,
@@ -389,7 +402,7 @@ TEST(LlvmLibcMkTime, InvalidDays) {
   }
 }
 
-TEST(LlvmLibcMkTime, EndOf32BitEpochYear) {
+TEST_F(LlvmLibcMkTime, EndOf32BitEpochYear) {
   // Test for maximum value of a signed 32-bit integer.
   // Test implementation can encode time for Tue 19 January 2038 03:14:07 UTC.
   {
@@ -530,7 +543,7 @@ TEST(LlvmLibcMkTime, EndOf32BitEpochYear) {
   }
 }
 
-TEST(LlvmLibcMkTime, Max64BitYear) {
+TEST_F(LlvmLibcMkTime, Max64BitYear) {
   {
     // Mon Jan 1 12:50:50 2170 (200 years from 1970),
     struct tm tm_data{.tm_sec = 50,

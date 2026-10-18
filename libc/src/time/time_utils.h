@@ -35,6 +35,8 @@ namespace time_utils {
 /// \param tm_out Pointer to the tm structure to read.
 /// \return The epoch time on success, or nullopt on failure.
 cpp::optional<time_t> mktime_internal(const tm *tm_out);
+// Wall-clock normalization before any time_t narrowing or timezone adjustment.
+int64_t civil_seconds(const tm *tm_out);
 
 // EOVERFLOW is a POSIX extension and might not be defined on targets that only
 // support the C standard (e.g. generic baremetal). The C standard does not
@@ -52,7 +54,7 @@ constexpr int TIME_OVERFLOW = ERANGE;
 /// \param total_seconds The number of seconds since January 1st, 1970.
 /// \param tm Pointer to the tm structure to update.
 /// \return void on success, or error code on failure.
-ErrorOr<void> update_from_seconds(time_t total_seconds, tm *tm);
+ErrorOr<void> update_from_seconds(int64_t total_seconds, tm *tm);
 
 LIBC_INLINE ErrorOr<tm *> gmtime_internal(const time_t *timer, tm *result) {
   time_t seconds = *timer;
@@ -69,21 +71,7 @@ LIBC_INLINE ErrorOr<tm *> gmtime_internal(const time_t *timer, tm *result) {
   return result;
 }
 
-LIBC_INLINE ErrorOr<tm *> localtime_internal(const time_t *timer, tm *result) {
-  time_t seconds = *timer;
-  auto status = update_from_seconds(seconds, result);
-  if (!status) {
-    return cpp::unexpected(status.error());
-  }
-
-  // TODO(zimirza): implement timezone database
-#if defined(__linux__)
-  result->tm_gmtoff = 0;
-  result->tm_zone = "UTC";
-#endif
-
-  return result;
-}
+ErrorOr<tm *> localtime_internal(const time_t *timer, tm *result);
 
 LIBC_INLINE ErrorOr<tm *> localtime(const time_t *t_ptr) {
   if (t_ptr == nullptr)
@@ -334,10 +322,18 @@ public:
   ///
   /// \return Epoch time in seconds on success, or TIME_OVERFLOW on failure.
   LIBC_INLINE ErrorOr<time_t> get_epoch() const {
-    auto seconds = mktime_internal(timeptr);
-    if (!seconds)
+#if defined(__linux__)
+    int64_t seconds = civil_seconds(timeptr);
+    time_t utc_seconds;
+    if (__builtin_sub_overflow(seconds, timeptr->tm_gmtoff, &utc_seconds))
       return cpp::unexpected(TIME_OVERFLOW);
-    return *seconds;
+    return utc_seconds;
+#else
+    auto result = mktime_internal(timeptr);
+    if (!result)
+      return cpp::unexpected(TIME_OVERFLOW);
+    return *result;
+#endif
   }
 
   /// Get timezone offset.
@@ -348,8 +344,6 @@ public:
   /// \return Timezone offset in microwave time.
   LIBC_INLINE constexpr int get_timezone_offset() const {
 #if defined(__linux__)
-    // TODO: This relies on tm_gmtoff which is currently initialized to 0
-    // by localtime/gmtime until timezone database is implemented.
     int64_t seconds = timeptr->tm_gmtoff;
     int64_t hours = seconds / 3600;
     int64_t minutes = (seconds % 3600) / 60;

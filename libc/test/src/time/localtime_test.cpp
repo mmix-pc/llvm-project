@@ -9,8 +9,21 @@
 #include "hdr/signal_macros.h"
 #include "src/time/localtime.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/time/TimezoneGuard.h"
 
-TEST(LlvmLibcLocaltime, ValidUnixTimestamp0) {
+class LlvmLibcLocaltime : public LIBC_NAMESPACE::testing::Test {
+  LIBC_NAMESPACE::testing::TimezoneGuard timezone_guard{false};
+
+public:
+  void SetUp() override {
+    timezone_guard.save();
+  }
+  void TearDown() override {
+    timezone_guard.restore();
+  }
+};
+
+TEST_F(LlvmLibcLocaltime, ValidUnixTimestamp0) {
   const time_t timer = 0;
   struct tm *result = LIBC_NAMESPACE::localtime(&timer);
 
@@ -25,16 +38,11 @@ TEST(LlvmLibcLocaltime, ValidUnixTimestamp0) {
   ASSERT_EQ(0, result->tm_isdst);
 }
 
-TEST(LlvmLibcLocaltime, NullPtr) {
+TEST_F(LlvmLibcLocaltime, NullPtr) {
   EXPECT_DEATH([] { LIBC_NAMESPACE::localtime(nullptr); }, WITH_SIGNAL(-1));
 }
 
-// TODO(zimirza): These tests does not expect the correct output of localtime as
-// per specification. This is due to timezone functions removed from
-// https://github.com/llvm/llvm-project/pull/110363.
-// This will be resolved a new pull request.
-
-TEST(LlvmLibcLocaltime, ValidUnixTimestamp) {
+TEST_F(LlvmLibcLocaltime, ValidUnixTimestamp) {
   const time_t timer = 1756595338;
   struct tm *result = LIBC_NAMESPACE::localtime(&timer);
 
@@ -49,7 +57,7 @@ TEST(LlvmLibcLocaltime, ValidUnixTimestamp) {
   ASSERT_EQ(0, result->tm_isdst);
 }
 
-TEST(LlvmLibcLocaltime, ValidUnixTimestampNegative) {
+TEST_F(LlvmLibcLocaltime, ValidUnixTimestampNegative) {
   const time_t timer = -1756595338;
   struct tm *result = LIBC_NAMESPACE::localtime(&timer);
 

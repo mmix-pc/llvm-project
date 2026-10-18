@@ -163,6 +163,8 @@ add_entrypoint_object(
     ../tzset.h
   DEPENDS
     libc.src.__support.macros.config
+    libc.src.__support.libc_errno
+    libc.src.time.time_zone
 )
 
 add_entrypoint_object(
