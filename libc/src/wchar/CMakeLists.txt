@@ -1,3 +1,33 @@
+foreach(name vswscanf vfwscanf)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS
+      libc.hdr.types.FILE
+      libc.hdr.types.wchar_t
+      libc.src.__support.common
+      libc.src.__support.File.file
+      libc.src.stdio.scanf_core.wide_scanf_main
+  )
+endforeach()
+
+add_entrypoint_object(
+  swscanf
+  SRCS swscanf.cpp
+  HDRS swscanf.h
+  DEPENDS .vswscanf libc.src.__support.common
+)
+
+foreach(name fwscanf vwscanf wscanf)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .vfwscanf libc.src.stdio.stdin libc.src.__support.common
+  )
+endforeach()
+
 add_header_library(
   wchar_utils
   HDRS

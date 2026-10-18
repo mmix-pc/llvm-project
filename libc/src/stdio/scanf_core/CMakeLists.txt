@@ -108,6 +108,21 @@ add_header_library(
     ${use_system_file}
 )
 
+add_header_library(
+  wide_scanf_main
+  HDRS wide_scanf_main.h
+  DEPENDS
+    .converter
+    libc.hdr.stdio_macros
+    libc.hdr.wchar_macros
+    libc.src.__support.arg_list
+    libc.src.__support.char_vector
+    libc.src.__support.CPP.limits
+    libc.src.__support.libc_errno
+    libc.src.__support.wctype_utils
+    libc.src.__support.wchar.wcrtomb
+)
+
 # TODO: condense the file-related code as possible.
 add_header_library(
   vfscanf_internal

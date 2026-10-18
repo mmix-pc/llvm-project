@@ -1,6 +1,31 @@
 add_custom_target(libc_wchar_unittests)
 
 add_libc_test(
+  wide_scan_test
+  SUITE libc_wchar_unittests
+  FULL_BUILD_ONLY
+  SRCS wide_scan_test.cpp
+  DEPENDS
+    libc.src.wchar.swscanf
+    libc.src.wchar.vswscanf
+    libc.src.wchar.fwscanf
+    libc.src.wchar.vfwscanf
+    libc.src.wchar.wscanf
+    libc.src.wchar.vwscanf
+    libc.src.wchar.fgetwc
+    libc.src.wchar.fwide
+    libc.src.stdio.fopen
+    libc.src.stdio.fclose
+    libc.src.stdio.fwrite
+    libc.src.stdio.ftell
+    libc.src.stdio.feof
+    libc.src.stdio.ferror
+    libc.src.stdio.stdin
+    libc.src.stdio.setvbuf
+    libc.src.__support.libc_errno
+)
+
+add_libc_test(
   wide_format_test
   SUITE libc_wchar_unittests
   FULL_BUILD_ONLY
