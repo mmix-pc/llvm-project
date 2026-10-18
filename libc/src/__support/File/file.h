@@ -159,6 +159,8 @@ private:
   Orientation orientation;
   bool wide_utf8;
   internal::mbstate mbstate;
+  // Keep a byte available for pushback even at the start of a full buffer.
+  int byte_pushback = EOF;
   // Wide pushback must survive byte-buffer refills, including partial UTF-8.
   wchar_t wide_pushback = 0;
   size_t wide_pushback_bytes = 0;
@@ -186,6 +188,7 @@ protected:
     wide_utf8 = false;
     mbstate = internal::mbstate();
     wide_pushback_bytes = 0;
+    byte_pushback = EOF;
     adjust_buf();
   }
 

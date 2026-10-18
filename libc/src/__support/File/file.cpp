@@ -262,6 +262,15 @@ FileIOResult File::read_unlocked_impl(void *data, size_t len) {
 }
 
 size_t File::copy_data_from_buf(uint8_t *data, size_t len) {
+  if (len == 0)
+    return 0;
+  size_t prefix = 0;
+  if (byte_pushback != EOF) {
+    *data++ = static_cast<uint8_t>(byte_pushback);
+    byte_pushback = EOF;
+    --len;
+    prefix = 1;
+  }
   cpp::span<uint8_t> bufref(static_cast<uint8_t *>(buf), bufsize);
   cpp::span<uint8_t> dataref(static_cast<uint8_t *>(data), len);
 
@@ -271,14 +280,14 @@ size_t File::copy_data_from_buf(uint8_t *data, size_t len) {
   if (len <= available_data) {
     inline_memcpy(dataref.data(), bufref.data() + pos, len);
     pos += len;
-    return len;
+    return prefix + len;
   }
 
   // Copy all of the available data.
   inline_memcpy(dataref.data(), bufref.data() + pos, available_data);
   read_limit = pos = 0; // Reset the pointers.
 
-  return available_data;
+  return prefix + available_data;
 }
 
 FileIOResult File::read_unlocked_fbf(uint8_t *data, size_t len) {
@@ -347,7 +356,8 @@ int File::ungetc_unlocked(int c) {
   // 1. You are trying to push back EOF.
   // 2. Read operations are not allowed on this file.
   // 3. The previous operation was a write operation.
-  if (c == EOF || !read_allowed() || (prev_op == FileOp::WRITE))
+  if (c == EOF || !read_allowed() || (prev_op == FileOp::WRITE) ||
+      byte_pushback != EOF)
     return EOF;
 
   switch (orientation) {
@@ -377,17 +387,19 @@ int File::ungetc_unlocked(int c) {
     // If |read_limit| is non-zero, it means that there is data in the buffer
     // from a previous read operation. Which would also mean that |pos| is not
     // zero. So, we decrement |pos| and write |c| in to the buffer at the new
-    // |pos|. If too many ungetc operations are performed without reads, it
-    // can lead to (pos == 0 but read_limit != 0). We will just error out in
-    // such a case.
-    if (pos == 0)
-      return EOF;
-    --pos;
-    bufref[pos] = static_cast<unsigned char>(c);
+    // |pos|. Scanner lookahead can restore the buffer to its beginning;
+    // leave a separate slot for the caller's guaranteed pushback byte.
+    if (pos == 0) {
+      byte_pushback = static_cast<unsigned char>(c);
+    } else {
+      --pos;
+      bufref[pos] = static_cast<unsigned char>(c);
+    }
   }
 
   eof = false; // There is atleast one character that can be read now.
   err = false; // This operation was a success.
+  prev_op = FileOp::READ;
   return c;
 }
 
@@ -405,7 +417,7 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
     // More data could have been read out from the platform file than was
     // required. So, we have to adjust the offset we pass to platform seek
     // function. Note that read_limit >= pos is always true.
-    offset -= (read_limit - pos) + wide_pushback_bytes;
+    offset -= (read_limit - pos) + wide_pushback_bytes + (byte_pushback != EOF);
   }
   auto result = platform_seek(this, offset, whence);
   if (!result.has_value())
@@ -413,6 +425,7 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
 
   pos = read_limit = 0;
   wide_pushback_bytes = 0;
+  byte_pushback = EOF;
   prev_op = FileOp::SEEK;
   // Reset the eof flag as a seek might move the file position to some place
   // readable.
@@ -439,7 +452,8 @@ ErrorOr<off_t> File::tell_unlocked() {
     return Error(result.error());
   off_t platform_offset = result.value();
   if (prev_op == FileOp::READ)
-    return platform_offset - (read_limit - pos) - wide_pushback_bytes;
+    return platform_offset - (read_limit - pos) - wide_pushback_bytes -
+           (byte_pushback != EOF);
   if (prev_op == FileOp::WRITE)
     return platform_offset + pos;
   return platform_offset;
@@ -473,14 +487,16 @@ int File::flush_unlocked() {
       return buf_result.error ? buf_result.error : EIO;
     }
   } else if (prev_op == FileOp::READ) {
-    if (read_limit > pos) {
-      if (!platform_seek(this, -static_cast<off_t>(read_limit - pos), SEEK_CUR)
+    size_t unread = read_limit - pos + (byte_pushback != EOF);
+    if (unread > 0) {
+      if (!platform_seek(this, -static_cast<off_t>(unread), SEEK_CUR)
                .has_value()) {
         // We ignore seek errors for non-seekable files (like pipes) as per
         // POSIX.
       }
     }
     pos = read_limit = 0;
+    byte_pushback = EOF;
   }
   if (platform_flush) {
     int error = platform_flush(this);

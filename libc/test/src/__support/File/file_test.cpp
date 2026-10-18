@@ -572,6 +572,54 @@ TEST(LlvmLibcFileTest, ByteCharOrientation) {
   ASSERT_EQ(f->close(), 0);
 }
 
+TEST(LlvmLibcFileTest, PushbackBeforeBufferedLookahead) {
+  const int modes[] = {_IOFBF, _IOLBF, _IONBF};
+  for (int mode : modes) {
+    char buffer[4];
+    StringFile *f = new_string_file(buffer, sizeof(buffer), mode, false, "r");
+    f->reset_and_fill("hello", 5);
+    char data[3] = {};
+    ASSERT_EQ(f->read(data, 1).value, size_t(1));
+    ASSERT_EQ(data[0], 'h');
+    // A scanner returns its nonmatching lookahead, then the caller pushes
+    // another byte without consuming that lookahead.
+    ASSERT_EQ(f->ungetc('h'), int('h'));
+    ASSERT_EQ(f->ungetc('x'), int('x'));
+    ASSERT_EQ(f->read(data, 0).value, size_t(0));
+    ASSERT_EQ(f->read(data, 3).value, size_t(3));
+    EXPECT_EQ(data[0], 'x');
+    EXPECT_EQ(data[1], 'h');
+    EXPECT_EQ(data[2], 'e');
+    EXPECT_EQ(f->tell().value(), off_t(2));
+    ASSERT_EQ(f->close(), 0);
+  }
+}
+
+TEST(LlvmLibcFileTest, PushbackBoundaryPositionAndSeek) {
+  char buffer[2];
+  StringFile *f = new_string_file(buffer, sizeof(buffer), _IOFBF, false, "r");
+  f->reset_and_fill("abcd", 4);
+  char data[2];
+  ASSERT_EQ(f->read(data, 2).value, size_t(2));
+  ASSERT_EQ(f->read(data, 1).value, size_t(1));
+  ASSERT_EQ(f->ungetc('c'), int('c'));
+  ASSERT_EQ(f->ungetc('x'), int('x'));
+  EXPECT_EQ(f->tell().value(), off_t(1));
+  ASSERT_EQ(f->seek(0, SEEK_CUR).value(), 0);
+  ASSERT_EQ(f->read(data, 1).value, size_t(1));
+  EXPECT_EQ(data[0], 'b');
+  ASSERT_EQ(f->read(data, 1).value, size_t(1));
+  ASSERT_EQ(f->ungetc('c'), int('c'));
+  ASSERT_EQ(f->ungetc('b'), int('b'));
+  ASSERT_EQ(f->ungetc('x'), int('x'));
+  EXPECT_EQ(f->tell().value(), off_t(0));
+  ASSERT_EQ(f->flush(), 0);
+  EXPECT_EQ(f->tell().value(), off_t(0));
+  ASSERT_EQ(f->read(data, 1).value, size_t(1));
+  EXPECT_EQ(data[0], 'a');
+  ASSERT_EQ(f->close(), 0);
+}
+
 TEST(LlvmLibcFileTest, Ungetwc) {
   LocaleGuard locale;
   constexpr size_t FILE_BUFFER_SIZE = 512;
@@ -770,7 +818,7 @@ TEST(LlvmLibcFileTest, WideOrientationRetainsEncoding) {
     LocaleGuard c(false);
     f->try_set_orientation(File::Orientation::WIDE);
   }
-  const wchar_t text[] = {0xe9};
+  const wchar_t text[] = {0x100};
   auto written = f->write(text, 1);
   EXPECT_TRUE(written.has_error());
   EXPECT_EQ(written.error, EILSEQ);
