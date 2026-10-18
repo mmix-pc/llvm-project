@@ -62,6 +62,18 @@ class TestHeaderGenIntegration(unittest.TestCase):
             self.assertIn("wchar_t *" + name + "(", content)
             self.assertNotIn("const wchar_t *" + name + "(", content)
 
+    def test_posix_spawn_const_inputs(self):
+        output_file = self.output_dir / "spawn.h"
+        self.run_script(self.source_dir.parents[2] / "include/spawn.yaml",
+                        output_file, ["posix_spawn"])
+        self.assertIn(
+            "int posix_spawn(pid_t *__restrict, const char *__restrict, "
+            "const posix_spawn_file_actions_t *, "
+            "const posix_spawnattr_t *__restrict, "
+            "char * const * __restrict, char * const * __restrict) __NOEXCEPT;",
+            output_file.read_text(),
+        )
+
     def test_system_exception_specification(self):
         output_file = self.output_dir / "system.h"
         self.run_script(self.source_dir.parents[2] / "include/stdlib.yaml",
