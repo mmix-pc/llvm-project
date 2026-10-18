@@ -9,6 +9,9 @@ endif()
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.stdlib.system
   libc.src.spawn.posix_spawn
+  libc.src.spawn.posix_spawnp
+  libc.src.stdio.popen
+  libc.src.stdio.pclose
   libc.src.spawn.posix_spawn_file_actions_init
   libc.src.spawn.posix_spawn_file_actions_destroy
   libc.src.spawn.posix_spawn_file_actions_addopen

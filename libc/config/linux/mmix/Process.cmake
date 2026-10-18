@@ -13,6 +13,8 @@ set(MMIX_PROCESS_ENTRYPOINTS
   libc.src.stdlib.putenv
   libc.src.unistd.execve
   libc.src.unistd.execv
+  libc.src.unistd.execl
+  libc.src.unistd.execle
   libc.src.unistd.setsid
   libc.src.unistd.gethostname
   libc.src.sys.resource.getrlimit

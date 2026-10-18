@@ -19,6 +19,9 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.stdlib.system
   libc.src.unistd.vfork
   libc.src.spawn.posix_spawn
+  libc.src.spawn.posix_spawnp
+  libc.src.stdio.popen
+  libc.src.stdio.pclose
   libc.src.unistd.setuid
   libc.src.unistd.setgid
   libc.src.unistd.seteuid
