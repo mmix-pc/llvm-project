@@ -10,7 +10,10 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.locale.localeconv
   libc.src.locale.setlocale
   libc.src.string.strcoll
+  libc.src.string.strcoll_l
   libc.src.string.strxfrm
+  libc.src.string.strxfrm_l
+  libc.src.string.strerror_l
   libc.src.stdlib.mbtowc
   libc.src.stdlib.mblen
   libc.src.stdlib.mbstowcs

@@ -5,7 +5,7 @@
 #--- check.cmake
 cmake_minimum_required(VERSION 3.20)
 set(config ${LIBC_SOURCE}/config/linux/mmix)
-foreach(family Core Process Signals Filesystem Sockets)
+foreach(family Core Process Signals Filesystem Sockets Locale)
   include(${config}/${family}.cmake)
 endforeach()
 if(TARGET_LIBC_ENTRYPOINTS)
@@ -16,7 +16,8 @@ set(LIBC_MMIX_BUILD_PROCESS_BASE ON CACHE BOOL "" FORCE)
 set(LIBC_MMIX_BUILD_SIGNAL_MASKS ON CACHE BOOL "" FORCE)
 set(LIBC_MMIX_BUILD_FILESYSTEM ON CACHE BOOL "" FORCE)
 set(LIBC_MMIX_BUILD_SOCKETS ON CACHE BOOL "" FORCE)
-foreach(family Core Process Signals Filesystem Sockets)
+set(LIBC_MMIX_BUILD_LOCALE ON CACHE BOOL "" FORCE)
+foreach(family Core Process Signals Filesystem Sockets Locale)
   include(${config}/${family}.cmake)
 endforeach()
 foreach(entry libc.src.stdlib.rand libc.src.stdlib.srand libc.src.string.strsignal
@@ -24,6 +25,10 @@ foreach(entry libc.src.stdlib.rand libc.src.stdlib.srand libc.src.string.strsign
               libc.src.pwd.getpwnam_r libc.src.pwd.getpwuid_r
               libc.src.sys.stat.futimens libc.src.sys.statfs.statfs
               libc.src.sys.stat.mkdirat
+              libc.src.sys.stat.fstatat libc.src.sys.stat.mknod
+              libc.src.sys.stat.mknodat libc.src.sys.stat.mkfifo
+              libc.src.sys.stat.mkfifoat libc.src.string.strcoll_l
+              libc.src.string.strxfrm_l libc.src.string.strerror_l
               libc.src.sys.statfs.fstatfs libc.src.unistd.getuid
               libc.src.sys.statvfs.statvfs libc.src.sys.statvfs.fstatvfs
               libc.src.sys.stat.fchmodat libc.src.unistd.pathconf

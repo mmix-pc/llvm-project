@@ -7,9 +7,14 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.sys.stat.umask
   libc.src.sys.stat.stat
   libc.src.sys.stat.fstat
+  libc.src.sys.stat.fstatat
   libc.src.sys.stat.lstat
   libc.src.sys.stat.mkdir
   libc.src.sys.stat.mkdirat
+  libc.src.sys.stat.mknod
+  libc.src.sys.stat.mknodat
+  libc.src.sys.stat.mkfifo
+  libc.src.sys.stat.mkfifoat
   libc.src.sys.stat.chmod
   libc.src.sys.stat.fchmod
   libc.src.sys.stat.fchmodat
