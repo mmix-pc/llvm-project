@@ -20,6 +20,8 @@ set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio.clearerr
   libc.src.stdio.fileno
   libc.src.stdio.fseek
+  libc.src.stdio.fgetpos
+  libc.src.stdio.fsetpos
   libc.src.stdio.ftell
   libc.src.stdio.ftello
   libc.src.stdio.rewind

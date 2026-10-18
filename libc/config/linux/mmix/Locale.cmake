@@ -12,6 +12,12 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.string.strcoll
   libc.src.string.strxfrm
   libc.src.stdlib.mbtowc
+  libc.src.stdlib.mblen
+  libc.src.stdlib.mbstowcs
+  libc.src.stdlib.wcstombs
+  libc.src.stdlib.wctomb
+  libc.src.wchar.mbsinit
+  libc.src.wchar.wcsrtombs
   libc.src.wchar.mbrlen
   libc.src.wchar.mbrtowc
   libc.src.wchar.mbsrtowcs
@@ -39,5 +45,7 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.wctype.towlower
   libc.src.wctype.towupper
   libc.src.wctype.wctype
+  libc.src.wctype.wctrans
+  libc.src.wctype.towctrans
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_LOCALE_ENTRYPOINTS})
