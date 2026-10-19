@@ -59,9 +59,9 @@ for opt in ('0','2'):
         subprocess.run([sys.argv[3], *common, '-D__mmix__', '-pthread', '-O'+opt,
             '-include', str(root/'reclaim/transport.h'), *map(str,sources),
             str(root/'test.cpp'), str(bridge), '-o', str(exe)], check=True)
-        for mode in range(32):
+        for mode in range(33):
             subprocess.run([str(exe), str(mode)], check=True, timeout=15)
-        print('Native reaper/bootstrap lifecycle: 32 scenarios passed at O'+opt, flush=True)
+        print('Native reaper/bootstrap lifecycle: 33 scenarios passed at O'+opt, flush=True)
 
 #--- headers/linux/param.h
 #define EXEC_PAGESIZE 8192
@@ -137,6 +137,11 @@ struct Done {};
 namespace reaper_test { namespace internal {
 void cleanup_main_thread() { __builtin_trap(); }
 void call_atexit_callbacks(ThreadAttributes *a) {
+  if (mode == 32) {
+    require(a == &helper->attributes && mask == UINT64_MAX);
+    ++callbacks;
+    return;
+  }
   require(mode >= 28 && a == &worker->attributes && mask == 0x1234);
   ++callbacks;
 }
@@ -147,6 +152,7 @@ namespace reaper_test { namespace mmix {
 } }
 extern "C" void __llvm_libc_mmix_reaper_loop() {
   require(mask == UINT64_MAX && internal::self.attrib == &helper->attributes);
+  if (mode == 32) { require(reaper_stop_requested()); return; }
   if (mode == 11) throw Done{};
   require(mode == 10); // A returning service must be fatal.
 }
@@ -219,6 +225,17 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n,long a,long b,long c,lo
     return 0;
   }
   if (n == SYS_futex) {
+    if (mode == 32 && helper &&
+        a == reinterpret_cast<long>(&helper->clear_tid.value.val) &&
+        b == FUTEX_WAIT_BITSET) {
+      auto *saved = internal::self.attrib;
+      internal::self.attrib = &helper->attributes;
+      try { __llvm_libc_mmix_thread_run(helper); __builtin_abort(); }
+      catch (Done &) {}
+      helper->clear_tid.value.store(0, cpp::MemoryOrder::RELEASE);
+      internal::self.attrib = saved;
+      return -EAGAIN;
+    }
     if (early_run && worker && a == reinterpret_cast<long>(&worker->creator_decision.value.val)) {
       require(b == FUTEX_WAKE_PRIVATE && worker->acquire_decision() == CreatorDecision::Go);
       early_run = false;
@@ -254,6 +271,24 @@ extern "C" int main(int argc,char **argv) {
   for (auto p=argv[1];*p;++p) mode=mode*10+*p-'0';
   { ThreadRegistryLock lock(thread_registry);
     main_control.attributes.tid=1; require(lock.register_main(main_control)); }
+  if (mode == 32) {
+    inject = false;
+    mask = UINT64_MAX;
+    internal::self.attrib = &main_control.attributes;
+    for (unsigned generation = 0; generation != 3; ++generation) {
+      require(!ensure_thread_reaper({}, 8192).error);
+      { ThreadRegistryLock lock(thread_registry); require(lock.reserve()); }
+      require(!retire_reaper_for_fork(main_control));
+      require(unmaps.load() == generation * 3);
+      { ThreadRegistryLock lock(thread_registry); require(lock.cancel_reservation()); }
+      require(retire_reaper_for_fork(main_control));
+      require(unmaps.load() == (generation + 1) * 3);
+      require(callbacks == generation + 1 && !reaper_stop_requested());
+      for (unsigned i = 0; i != maps.load(); ++i) require(freed[i]);
+    }
+    require(helper_clones.load() == 3);
+    return 0;
+  }
   bool fatal=mode==9 || mode==10 || mode==12;
   if (fatal) {
     int child=fork(); require(child>=0);

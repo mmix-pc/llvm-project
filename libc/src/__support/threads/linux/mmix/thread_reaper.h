@@ -16,7 +16,7 @@ namespace mmix {
 
 // Caller holds an application creation reservation, blocks signals and
 // suppresses cancellation. Failed attempts finish cleanup before a retry can
-// acquire the bootstrap lock; successful helper resources persist until exit.
+// acquire the bootstrap lock; fork preparation may retire an idle helper.
 ThreadCreationResult ensure_thread_reaper(const TLSImage &image,
                                          uintptr_t page_size);
 
@@ -25,7 +25,12 @@ ThreadCreationResult ensure_thread_reaper(const TLSImage &image,
 bool reap_detached_pass();
 void restore_reaper_after_fork();
 
-// A returning service is a fatal loss of detached cleanup.
+// Block signals and cancellation. Call before taking loader/allocator locks.
+// A true result proves the sole application caller has no orphan helper state.
+bool retire_reaper_for_fork(ThreadControl &caller);
+bool reaper_stop_requested();
+
+// Return only after an explicit stop request, outside a reclamation pass.
 extern "C" __attribute__((visibility("hidden"))) void
 __llvm_libc_mmix_reaper_loop();
 

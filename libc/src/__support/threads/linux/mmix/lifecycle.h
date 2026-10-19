@@ -164,7 +164,8 @@ public:
   constexpr ThreadRegistry() = default;
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
   bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0,
-                       bool *single_thread = nullptr);
+                       bool *single_thread = nullptr,
+                       bool helper_drained = false);
   void release_after_fork();
   void restore_fork_child(
       ThreadControl &survivor,
@@ -198,6 +199,7 @@ public:
   uint32_t sequence();
   bool reserve();
   bool begin_helper_creation();
+  bool sole_fork_caller(const ThreadControl &caller) const;
   bool begin_process_operation(const ThreadControl &caller);
   bool end_process_operation();
   bool cancel_reservation();

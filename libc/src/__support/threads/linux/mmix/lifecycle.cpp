@@ -16,7 +16,7 @@ namespace mmix {
 LIBC_CONSTINIT ThreadRegistry thread_registry;
 
 bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression,
-                                    bool *single_thread) {
+                                    bool *single_thread, bool helper_drained) {
   if (single_thread)
     *single_thread = false;
   mutex.value.lock();
@@ -30,7 +30,8 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
     return false;
   }
   if (single_thread)
-    *single_thread = !creation_started && live == 1 && head == &caller &&
+    *single_thread = (!creation_started || helper_drained) &&
+                     live == 1 && head == &caller &&
                      !caller.next && !reap_head && !reap_count;
   return true;
 }
@@ -49,7 +50,7 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   live = 1;
   exiting = process_cleanup_claimed = process_operation = false;
   main_registered = true;
-  // Only a proven never-threaded snapshot starts a fresh creation history.
+  // Only a proven quiescent snapshot starts a fresh creation history.
   // reserve/begin_helper_creation set it even if later preparation fails.
   creation_started = !recovery.allows_thread_creation();
   fork_recovery = recovery;
@@ -107,6 +108,15 @@ bool ThreadRegistryLock::begin_helper_creation() {
     return false;
   registry.creation_started = true;
   return true;
+}
+
+bool ThreadRegistryLock::sole_fork_caller(const ThreadControl &caller) const {
+  return registry.main_registered && !registry.exiting &&
+         !registry.process_operation && !registry.reservations &&
+         registry.live == 1 && registry.head == &caller && !caller.next &&
+         !registry.reap_head && !registry.reap_count &&
+         caller.execution == ThreadExecution::Running &&
+         !caller.callbacks_started && caller.fork_recovery.allows_fork();
 }
 
 bool ThreadRegistryLock::begin_process_operation(const ThreadControl &caller) {
@@ -449,9 +459,11 @@ bool ThreadRegistryLock::claim_process_cleanup() {
 
 ThreadTermination
 ThreadRegistryLock::termination_action(const ThreadControl &c) {
-  if (!belongs(c) || c.internal_helper || c.counted ||
+  if (!belongs(c) || c.counted ||
       c.execution != ThreadExecution::ExitReady)
     __builtin_trap();
+  if (c.internal_helper)
+    return ThreadTermination::ThreadOnly;
   if (registry.exiting || registry.live)
     return ThreadTermination::ThreadOnly;
   // Keep this application context alive until a pending creation either

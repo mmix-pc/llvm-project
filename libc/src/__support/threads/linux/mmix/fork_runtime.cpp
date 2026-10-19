@@ -74,6 +74,9 @@ ForkOperation::ForkOperation() {
 }
 
 int ForkOperation::prepare_runtime() {
+  // Helper TLS retirement can enter the loader and allocator. Complete it
+  // before either subsystem is locked for the clone snapshot.
+  helper_drained = retire_reaper_for_fork(*caller);
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (int error = prepare_loader_fork(&resume_loader))
     return error;
@@ -106,7 +109,8 @@ int ForkOperation::prepare_runtime() {
 
 int ForkOperation::freeze_registry() {
   bool single_thread = false;
-  registry = thread_registry.freeze_for_fork(*caller, 1, &single_thread);
+  registry = thread_registry.freeze_for_fork(*caller, 1, &single_thread,
+                                            helper_drained);
 #ifdef LIBC_MMIX_SHARED_STARTUP
   resume_loader &= single_thread;
   child_recovery = internal::ForkRecovery::child(single_thread, resume_loader);

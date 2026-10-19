@@ -30,7 +30,8 @@ for opt in ("0", "2"):
         symbols = subprocess.check_output(["llvm-nm", "-u", path + ".o"], text=True)
         for forbidden in ("__atomic_", "__sync_", "pthread_", "__tls_get_addr",
                           "malloc", "free", "clock_gettime"):
-            assert forbidden not in symbols, symbols
+            assert not any(line.split()[-1].startswith(forbidden)
+                           for line in symbols.splitlines()), symbols
         if index == 0:
             assert {line.split()[-1] for line in symbols.splitlines()} == {
                 "__llvm_libc_mmix_syscall"}, symbols
@@ -381,6 +382,50 @@ extern "C" int main() {
   layout_and_publication();
   ownership();
   main_registration();
+  // History alone neither proves nor disproves a recoverable snapshot. The
+  // bootstrap must drain the helper, and registry ownership must agree.
+  for (unsigned detached = 0; detached != 2; ++detached) {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl caller, peer, helper;
+    caller.attributes.tid = 1;
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(caller) && lock.sole_fork_caller(caller));
+      require(lock.reserve() && !lock.sole_fork_caller(caller));
+      require(lock.cancel_reservation() && lock.sole_fork_caller(caller));
+    }
+    bool single = true;
+    require(process.freeze_for_fork(caller, 0, &single) && !single);
+    process.release_after_fork();
+    require(process.freeze_for_fork(caller, 0, &single, true) && single);
+    process.release_after_fork();
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.reserve() && lock.insert(peer, detached));
+      require(lock.start(peer) && lock.drop_creator(peer));
+      require(!lock.sole_fork_caller(caller));
+      require(lock.begin_cleanup(peer) && lock.close_leases(peer));
+      require(lock.exit_ready(peer, 0) && !lock.sole_fork_caller(caller));
+      peer.clear_tid.value.store(0);
+      if (!detached) {
+        require(lock.pin(&peer.attributes) == &peer && lock.claim_join(peer));
+        require(lock.unpin(peer));
+      }
+      require(lock.begin_reaping(peer) && lock.finish_reaping(peer));
+      require(lock.sole_fork_caller(caller));
+      require(lock.insert(helper, true, true) && lock.start(helper));
+      require(lock.drop_creator(helper) && lock.begin_cleanup(helper));
+      require(lock.close_leases(helper) && lock.exit_ready(helper, 0));
+      require(lock.termination_action(helper) == ThreadTermination::ThreadOnly);
+      require(!lock.queued_reclaims());
+      helper.clear_tid.value.store(0);
+      require(lock.begin_reaping(helper) && lock.finish_reaping(helper));
+    }
+    require(process.freeze_for_fork(caller, 0, &single, true) && single);
+    process.restore_fork_child(caller, internal::ForkRecovery::child(single, true));
+    { ThreadRegistryLock lock(process); require(lock.reserve()); }
+  }
   // Admission is exclusive with both ordinary and helper creation, and never
   // reopens after a creation reservation is cancelled.
   for (unsigned helper = 0; helper != 2; ++helper) {

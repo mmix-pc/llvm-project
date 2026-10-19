@@ -90,7 +90,8 @@ static long await_startup(ThreadControl &control) {
 
 static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
                                                ThreadAttributes *&output,
-                                               bool helper) {
+                                               bool helper,
+                                               ThreadControl **helper_control = nullptr) {
   ThreadPreparation input = request;
   uint64_t blocked = UINT64_MAX, saved_mask = 0;
   long ret = syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
@@ -190,6 +191,8 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
     if (!lock.insert(*control, input.detached, helper) || !lock.start(*control))
       __builtin_trap();
     output = &control->attributes;
+    if (helper_control)
+      *helper_control = control;
   }
   control->publish_decision(CreatorDecision::Go);
   wake_decision(*control);
@@ -208,10 +211,11 @@ ThreadCreationResult create_thread(const ThreadPreparation &request,
 }
 
 ThreadCreationResult create_thread_helper(const ThreadPreparation &request,
-                                          ThreadAttributes *&output) {
+                                          ThreadAttributes *&output,
+                                          ThreadControl **helper_control) {
   if (!request.detached || request.stack)
     __builtin_trap();
-  return create_thread_impl(request, output, true);
+  return create_thread_impl(request, output, true, helper_control);
 }
 
 } // namespace mmix

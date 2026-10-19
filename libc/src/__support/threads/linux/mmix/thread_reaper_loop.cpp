@@ -82,6 +82,9 @@ bool reap_detached_pass() {
 
 extern "C" void __llvm_libc_mmix_reaper_loop() {
   for (;;) {
+    // Finish any in-flight unmapping before acknowledging fork preparation.
+    if (reaper_stop_requested())
+      return;
     uint32_t sequence;
     {
       ThreadRegistryLock lock(thread_registry);

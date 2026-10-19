@@ -27,9 +27,11 @@ create_thread(const ThreadPreparation &request, ThreadAttributes *&output);
 
 // Runtime bootstrap only: bypasses reaper initialization, creates no public
 // registry handle or application reservation, and inherits blocked signals.
-// The internal runner must never return or invoke application callbacks.
+// The internal runner may return only during coordinated helper retirement;
+// it must not invoke application callbacks.
 ThreadCreationResult create_thread_helper(const ThreadPreparation &request,
-                                         ThreadAttributes *&output);
+                                         ThreadAttributes *&output,
+                                         ThreadControl **helper_control = nullptr);
 
 // Consume the abort owner's creator pin and reclaim only after kernel clear
 // and reference drain. Return only after safe reclamation, otherwise terminate.
