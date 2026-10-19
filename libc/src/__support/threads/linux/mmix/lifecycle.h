@@ -206,6 +206,7 @@ public:
   bool begin_helper_creation();
   bool sole_fork_caller(const ThreadControl &caller) const;
   bool begin_process_operation(const ThreadControl &caller);
+  bool begin_vfork(const ThreadControl &caller);
   bool end_process_operation();
   bool cancel_reservation();
   // Bootstrap only, before user callbacks or worker publication. Main uses

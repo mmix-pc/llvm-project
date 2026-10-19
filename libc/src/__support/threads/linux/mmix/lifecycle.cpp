@@ -139,6 +139,16 @@ bool ThreadRegistryLock::end_process_operation() {
   return true;
 }
 
+bool ThreadRegistryLock::begin_vfork(const ThreadControl &caller) {
+  // The caller has retired the reaper. Preserve creation history, but freeze
+  // new reservations until the shared-VM child has execed or exited.
+  if (!sole_fork_caller(caller) ||
+      !caller.fork_recovery.allows_thread_creation())
+    return false;
+  registry.process_operation = true;
+  return true;
+}
+
 bool ThreadRegistryLock::cancel_reservation() {
   if (!registry.reservations)
     return false;

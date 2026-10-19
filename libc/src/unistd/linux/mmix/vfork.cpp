@@ -18,9 +18,9 @@
 #endif
 
 // No software frame, saved rJ slot or helper call may span the clone trap.
-// Errors create no child, so only that path may enter ordinary C++ code.
-// FIXME: The current kernel rejects shared-VM clone. Qualify register-stack
-// backing, signal and thread-state ownership before claiming successful vfork.
+// Helpers complete before clone or run only after the parent resumes. The
+// child borrows TP and must not run fork-style thread-state recovery.
+// FIXME: Admit live sibling threads only after shared-VM ownership is qualified.
 asm(".section .text.__llvm_libc_mmix_vfork,\"ax\",@progbits\n"
     ".p2align 2\n"
     ".global __llvm_libc_mmix_vfork\n"
