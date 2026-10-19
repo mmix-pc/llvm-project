@@ -141,6 +141,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   target_include_directories(loader-runtime-api-test PRIVATE ../..)
   target_compile_definitions(loader-runtime-api-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
   target_compile_features(loader-runtime-api-test PRIVATE cxx_std_17)
+  # Keep native return PCs outside the fixture's fixed low MMIX image ranges.
+  target_compile_options(loader-runtime-api-test PRIVATE -fPIE)
+  target_link_options(loader-runtime-api-test PRIVATE -pie)
   target_link_libraries(loader-runtime-api-test PRIVATE Threads::Threads)
   # Takes real cross-linked MMIX DSOs; never executes their code on the host.
   add_executable(loader-runtime-load-linked-test runtime_load_linked_test.cpp
