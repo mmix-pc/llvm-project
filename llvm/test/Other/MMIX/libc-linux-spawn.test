@@ -23,8 +23,12 @@
 #define SYS_execve 221
 
 #--- linux/errno.h
+#define ENOENT 2
+#define EIO 5
 #define EBADF 9
 #define ENOMEM 12
+#define EACCES 13
+#define ENOTDIR 20
 #define EINVAL 22
 #define EFAULT 14
 #define ENOSYS 38
@@ -82,7 +86,9 @@ for missing in [None, *variables]:
     else:
         assert result.returncode == 0, result.stderr
         selected = (root / "selected.txt").read_text().split(";")
-        assert selected == (["libc.src.spawn.posix_spawn"] + [
+        assert selected == (["libc.src.stdlib.system", "libc.src.spawn.posix_spawn",
+                             "libc.src.spawn.posix_spawnp", "libc.src.stdio.popen",
+                             "libc.src.stdio.pclose"] + [
             "libc.src.spawn.posix_spawn_file_actions_" + x
             for x in ("init", "destroy", "addopen", "adddup2", "addclose")]
             if missing is None else [""])

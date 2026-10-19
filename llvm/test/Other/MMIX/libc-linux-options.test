@@ -31,7 +31,7 @@ options = ["THREADS", "THREAD_ATTR_STACKADDR", "THREAD_ATTR_STACKSIZE",
 def check(name, enabled):
     directory = work / name
     header = directory / "llvm-libc-macros/mmix/unistd-options.h"
-    header.parent.mkdir(parents=True)
+    header.parent.mkdir(parents=True, exist_ok=True)
     script = directory / "configure.cmake"
     script.write_text(
         'include("' + str(libc / "include/llvm-libc-macros/mmix/UnistdOptions.cmake") + '")\n' +

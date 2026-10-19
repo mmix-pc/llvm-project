@@ -73,8 +73,9 @@ for missing in [None, *variables]:
         assert result.returncode and "requires signal, process" in result.stderr
     else:
         assert result.returncode == 0, result.stderr
-        assert (root / "selected.txt").read_text() == (
-            "libc.src.unistd.fork" if missing is None else "")
+        selected = set(filter(None, (root / "selected.txt").read_text().split(";")))
+        assert selected == ({"libc.src.unistd.fork", "libc.src.unistd._Fork"}
+                            if missing is None else set())
 
 #--- semantics.cpp
 #include "src/unistd/linux/mmix/fork.cpp"

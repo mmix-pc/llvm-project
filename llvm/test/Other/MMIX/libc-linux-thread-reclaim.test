@@ -30,8 +30,12 @@ for opt in ('0', '2'):
     combined = root/('reclaim-O'+opt+'.o')
     subprocess.run(['ld.lld', '-r', *objects, '-o', str(combined)], check=True)
     undefined = subprocess.check_output(['llvm-nm', '-u', str(combined)], text=True)
-    # Reaper bootstrap is injected here; its dedicated test executes production.
+    # Reaper bootstrap and credential membership have separate production tests.
     assert {l.split()[-1] for l in undefined.splitlines() if 'ensure_thread_reaper' not in l} <= {
+        '_ZN12reclaim_test4mmix14CredentialGateC1Ev',
+        '_ZN12reclaim_test4mmix14CredentialGateD1Ev',
+        '_ZN12reclaim_test4mmix14CredentialGate7releaseEv',
+        '_ZN12reclaim_test4mmix20register_credentialsERNS0_13ThreadControlE',
         '__llvm_libc_mmix_syscall', '__llvm_libc_mmix_clone_thread', 'memcpy', 'memset'}, undefined
     report = subprocess.check_output(['llvm-readobj', '--sections', str(combined)], text=True)
     for forbidden in ('.init_array', 'SHF_TLS', '.MMIX.reg_contents'):
@@ -67,6 +71,7 @@ for opt in ('0', '2'):
 #--- test.cpp
 #include "src/__support/threads/linux/mmix/thread_reclaim.h"
 #include "src/__support/threads/linux/mmix/thread_create.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include "hdr/errno_macros.h"
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -74,6 +79,10 @@ using namespace reclaim_test;
 using namespace reclaim_test::mmix;
 namespace reclaim_test { namespace mmix {
 ThreadCreationResult ensure_thread_reaper(const TLSImage &, uintptr_t) { return {}; }
+CredentialGate::CredentialGate() { owned = true; }
+CredentialGate::~CredentialGate() { release(); }
+void CredentialGate::release() { owned = false; }
+void register_credentials(ThreadControl &) {}
 } }
 extern "C" int fork();
 extern "C" int waitpid(int, int *, int);

@@ -32,7 +32,9 @@ for opt in ('0','2'):
     linked=root/('detach-O'+opt+'.o')
     subprocess.run(['ld.lld','-m','elf64mmix_linux','-r',*objects,'-o',str(linked)],check=True)
     undefined=subprocess.check_output(['llvm-nm','-u',str(linked)],text=True)
+    # Helper retirement is tested separately; this fixture keeps it running.
     assert {l.split()[-1] for l in undefined.splitlines()} <= {
+        '_ZN11detach_test4mmix21reaper_stop_requestedEv',
         '__llvm_libc_mmix_syscall','memcpy','memset'},undefined
     if len(sys.argv)==4:
         import resource as limits
@@ -58,6 +60,9 @@ for opt in ('0','2'):
 #include <sys/syscall.h>
 using namespace detach_test;
 using namespace detach_test::mmix;
+namespace detach_test { namespace mmix {
+bool reaper_stop_requested() { return false; }
+} }
 extern "C" void concurrent(void (*)());
 extern "C" long host_futex(long,long,long,long,long,long);
 extern "C" int fork();
