@@ -1,5 +1,8 @@
 set(exit_source linux/mmix/exit.cpp)
 list(APPEND exit_deps libc.src.__support.threads.linux.mmix.main_thread)
+if(LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_PLATFORM")
+  list(APPEND exit_deps libc.src.__support.threads.linux.mmix.credentials)
+endif()
 if(LIBC_MMIX_ENABLE_STATIC_TLS)
   list(APPEND exit_deps libc.hdr.errno_macros libc.hdr.signal_macros
     libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall)

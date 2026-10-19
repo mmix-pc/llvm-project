@@ -15,6 +15,7 @@
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include <sys/syscall.h>
 #endif
 #ifdef LIBC_MMIX_CONCURRENT_STDIO
@@ -33,7 +34,9 @@ static mmix::LifecycleWord process_exit_wait;
 
 void begin_process_exit(int status) {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-  uint64_t blocked = UINT64_MAX, previous;
+  // Losing exit callers remain kernel tasks until exit_group. Keep them
+  // responsive if the cleanup owner changes credentials from a callback.
+  uint64_t blocked = UINT64_MAX & ~mmix::CREDENTIAL_MASK, previous;
   if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
                    reinterpret_cast<long>(&blocked),
                    reinterpret_cast<long>(&previous), sizeof(blocked)) != 0)
