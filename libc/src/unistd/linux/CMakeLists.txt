@@ -1,9 +1,9 @@
-foreach(name close read write)
+foreach(name close read write sleep usleep)
   set(${name}_source ${name}.cpp)
 endforeach()
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
-  mmix_select_cancellation_points(close read write)
+  mmix_select_cancellation_points(close read write sleep usleep)
   include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/ProcessOperations.cmake)
 else()
   foreach(name setuid setgid seteuid setegid)
@@ -715,7 +715,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   sleep
   SRCS
-    sleep.cpp
+    ${sleep_source}
   HDRS
     ../sleep.h
   DEPENDS
@@ -724,6 +724,8 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.linux.syscall_wrappers.nanosleep
     libc.src.__support.common
     libc.src.__support.macros.config
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
@@ -853,7 +855,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   usleep
   SRCS
-    usleep.cpp
+    ${usleep_source}
   HDRS
     ../usleep.h
   DEPENDS
@@ -864,6 +866,8 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     libc.src.__support.macros.config
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
