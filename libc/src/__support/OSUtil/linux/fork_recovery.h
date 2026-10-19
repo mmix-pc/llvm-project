@@ -30,7 +30,7 @@ public:
                             : State::ExecOnly);
   }
   constexpr bool is_child() const { return state != State::Original; }
-  constexpr bool allows_fork() const { return state == State::Original; }
+  constexpr bool allows_fork() const { return state != State::ExecOnly; }
   constexpr bool allows_thread_creation() const {
     return state == State::Original;
   }

@@ -29,8 +29,13 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
     mutex.value.unlock();
     return false;
   }
+  // A recovered quiescent child inherits the original never-threaded proof.
+  // Keep creation_started intact: unrelated process admission still uses it.
+  const bool inherited_quiescence =
+      fork_recovery.is_child() && fork_recovery.allows_fork();
   if (single_thread)
-    *single_thread = !creation_started && live == 1 && head == &caller &&
+    *single_thread = (!creation_started || inherited_quiescence) &&
+                     live == 1 && head == &caller &&
                      !caller.next && !reap_head && !reap_count;
   return true;
 }
