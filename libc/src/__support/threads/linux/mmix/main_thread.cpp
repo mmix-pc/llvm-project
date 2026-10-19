@@ -64,6 +64,37 @@ bool initialize_main_thread() {
 #endif
 }
 
+bool restore_minimal_fork_child() {
+  long tid = syscall_impl(SYS_gettid);
+  if (!self.attrib || tid <= 0 || tid > cpp::numeric_limits<int>::max())
+    return false;
+  self.attrib->tid = int(tid);
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes)
+    return false;
+  // The child may have interrupted any internal critical section. Preserve
+  // copied locks/owners, but never deliver a parent's cancellation request or
+  // enter its credential rendezvous. Only safe operations precede exec/_exit.
+  control->fork_recovery = ForkRecovery::child();
+  control->unwind_root.active = false;
+  control->cancellation.restore_after_fork();
+  control->cancellation_identity = control->cancellation_generation = 0;
+  control->cancellation_point.store(nullptr);
+  control->cancellation_transfer.store(0);
+  control->credential_pending.store(0);
+  control->clear_tid.value.store(UINT32_MAX);
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  if (mmix::reset_robust_list_after_fork())
+    return false;
+#endif
+  if (syscall_impl(SYS_set_tid_address,
+                   reinterpret_cast<long>(&control->clear_tid.value.val)) != tid)
+    return false;
+#endif
+  return true;
+}
+
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE
 bool restore_main_thread_after_fork() {
   auto *control = mmix::current_control;

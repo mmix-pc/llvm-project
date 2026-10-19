@@ -16,6 +16,7 @@ list(REMOVE_ITEM TARGET_LIBC_ENTRYPOINTS libc.src.compiler.__stack_chk_fail)
 # Fork and credential wrappers retain pre-creation-only runtime admission.
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.unistd.fork
+  libc.src.unistd._Fork
   libc.src.stdlib.system
   libc.src.unistd.vfork
   libc.src.spawn.posix_spawn

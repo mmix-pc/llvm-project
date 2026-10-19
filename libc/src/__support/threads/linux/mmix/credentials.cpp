@@ -128,6 +128,10 @@ void finish_credentials_fork() { gate.value.unlock(); }
 
 long change_credentials(unsigned long number, long first, long second,
                         long third) {
+  // An exec-only fork child has no peers and cannot create them. In particular,
+  // _Fork may have copied the gate while an interrupted thread owned it.
+  if (current_control && !current_control->fork_recovery.allows_thread_creation())
+    return syscall_impl<long>(number, first, second, third);
   CredentialGate lock;
   if (!current_control || !current_control->credential_registered)
     return -ENOTSUP;

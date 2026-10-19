@@ -30,6 +30,8 @@ bool activate_main_thread(MainThreadState &state);
 // Pre-creation fork only, after publishing the child's TID with signals blocked.
 bool restore_main_thread_after_fork();
 bool adopt_fork_survivor();
+// Signals are blocked; do not acquire locks or repair interrupted subsystems.
+bool restore_minimal_fork_child();
 
 // Called by Linux CRT before constructors or any current_thread() consumer.
 // Failure leaves state unpublished. Repeated initialization while active is

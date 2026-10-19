@@ -94,6 +94,13 @@ int register_robust_list(bool force) {
   return 0;
 }
 
+int reset_robust_list_after_fork() {
+  // _Fork does not transfer mutex ownership. Discard even an interrupted
+  // list operation before registering the surviving thread's empty head.
+  registered = false;
+  return register_robust_list();
+}
+
 MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
                                 bool try_only) {
   if (register_robust_list())
