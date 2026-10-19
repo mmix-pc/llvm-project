@@ -516,6 +516,7 @@ functions:
     arguments:
       - type: uid_t
   - name: sleep
+    noexcept: false
     standards:
       - posix
     return_type: unsigned int
@@ -591,6 +592,7 @@ functions:
       - type: const char *
       - type: int
   - name: usleep
+    noexcept: false
     standards:
       - posix
     return_type: int

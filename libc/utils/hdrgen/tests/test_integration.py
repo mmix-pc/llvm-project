@@ -145,6 +145,15 @@ class TestHeaderGenIntegration(unittest.TestCase):
                 self.assertIn(declaration, content)
         self.assertIn("int abs(int) __NOEXCEPT;", content)
 
+    def test_sleep_exception_specifications(self):
+        output_file = self.output_dir / "unistd.h"
+        self.run_script(self.source_dir.parents[2] / "include/unistd.yaml",
+                        output_file, ["sleep", "usleep", "getpid"])
+        content = output_file.read_text()
+        self.assertIn("unsigned int sleep(unsigned int);", content)
+        self.assertIn("int usleep(useconds_t);", content)
+        self.assertIn("int getpid(void) __NOEXCEPT;", content)
+
     def test_invalid_exception_specification(self):
         yaml_file = self.output_dir / "invalid-noexcept.yaml"
         yaml_file.write_text((self.source_dir / "input/noexcept.yaml").read_text()
