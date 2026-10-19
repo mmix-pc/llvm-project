@@ -1,6 +1,18 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  locale_no_environment_test
+  SUITE libc-locale-tests
+  SRCS
+    locale_no_environment_test.cpp
+    ${LIBC_SOURCE_DIR}/src/locale/locale_name.cpp
+  COMPILE_OPTIONS -DLIBC_TARGET_OS_IS_BAREMETAL
+  DEPENDS
+    libc.src.locale.locale
+    libc.src.__support.CPP.string_view
+)
+
+add_libc_test(
   locale_thread_test
   SUITE libc-locale-tests
   SRCS locale_thread_test.cpp

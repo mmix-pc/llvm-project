@@ -31,6 +31,11 @@ add_object_library(
     libc.src.__support.CPP.atomic
 )
 
+set(locale_environment_deps)
+if(NOT LIBC_TARGET_OS_IS_BAREMETAL)
+  list(APPEND locale_environment_deps libc.src.stdlib.environ_internal)
+endif()
+
 add_object_library(
   locale_name
   SRCS
@@ -38,7 +43,7 @@ add_object_library(
   DEPENDS
     .locale
     libc.src.__support.CPP.string_view
-    libc.src.stdlib.environ_internal
+    ${locale_environment_deps}
 )
 
 add_entrypoint_object(

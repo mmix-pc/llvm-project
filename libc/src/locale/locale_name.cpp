@@ -8,7 +8,9 @@
 
 #include "src/__support/CPP/string_view.h"
 #include "src/locale/locale.h"
+#ifndef LIBC_TARGET_OS_IS_BAREMETAL
 #include "src/stdlib/environ_internal.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -49,11 +51,14 @@ bool resolve_locale(int mask, const char *name, __locale_t &result) {
         continue;
       const char *selected = name;
       if (input.empty()) {
+#ifndef LIBC_TARGET_OS_IS_BAREMETAL
         selected = EnvironmentManager::get_instance().get("LC_ALL");
         if (!selected || !*selected)
           selected = EnvironmentManager::get_instance().get(category_names[i]);
         if (!selected || !*selected)
           selected = EnvironmentManager::get_instance().get("LANG");
+#endif
+        // Bare-metal startup has no process environment to select a locale.
         if (!selected || !*selected)
           selected = "C";
       }
