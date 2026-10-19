@@ -12,6 +12,9 @@
 #include "src/__support/CPP/new.h"
 #include "src/__support/OSUtil/exit.h"
 #include "src/__support/threads/mutex.h"
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+#include "src/__support/threads/linux/mmix/main_thread.h"
+#endif
 #include "src/stdlib/at_quick_exit.h"
 #include "src/stdlib/free.h"
 #include "src/stdlib/malloc.h"
@@ -29,20 +32,21 @@ Mutex quick_exit_mutex(false, false, false, false);
 }
 namespace {
 class RegistrationScope {
+  [[maybe_unused]] bool active;
 #ifdef LIBC_MMIX_QUICK_EXIT_CANCELLATION
   loader::LoaderCancellation hooks = mmix::loader_cancellation_hooks();
   uint64_t saved = 0;
 #endif
 public:
-  RegistrationScope() {
+  explicit RegistrationScope(bool active = true) : active(active) {
 #ifdef LIBC_MMIX_QUICK_EXIT_CANCELLATION
-    if (hooks.enter(&saved))
+    if (active && hooks.enter(&saved))
       __builtin_trap();
 #endif
   }
   ~RegistrationScope() noexcept(false) {
 #ifdef LIBC_MMIX_QUICK_EXIT_CANCELLATION
-    if (hooks.leave(saved))
+    if (active && hooks.leave(saved))
       __builtin_trap();
 #endif
   }
@@ -101,9 +105,15 @@ LLVM_LIBC_FUNCTION(int, at_quick_exit, (__atexithandler_t function)) {
 }
 
 [[noreturn]] LLVM_LIBC_FUNCTION(void, quick_exit, (int status)) {
+  bool restricted_child = false;
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  restricted_child = mmix::current_control &&
+                     !mmix::current_control->fork_recovery.allows_loader();
+#endif
   // Suppress cancellation through ownership election, callbacks and exit_group.
-  // No scope restoration runs on this non-returning path.
-  RegistrationScope scope;
+  // Restricted children already have an inactive root. No scope is restored
+  // on this non-returning path.
+  RegistrationScope scope(!restricted_child);
   internal::begin_process_exit(status);
   for (;;) {
     QuickCallback *node;
@@ -117,6 +127,10 @@ LLVM_LIBC_FUNCTION(int, at_quick_exit, (__atexithandler_t function)) {
       quick_head = node->next;
     }
     invoke(node->function);
+    // The coordinated snapshot released the list lock, but an exec-only child
+    // must not enter its frozen loader. exit_group reclaims copied nodes/pins.
+    if (restricted_child)
+      continue;
 #ifdef LIBC_MMIX_SHARED_STARTUP
     if (mmix::release_shared_tls_destructor(node->pin))
       __builtin_trap();
