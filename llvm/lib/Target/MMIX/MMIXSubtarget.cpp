@@ -70,6 +70,55 @@ void MMIXSubtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
   Info.setLibcallImpl(RTLIB::NEARBYINT_F32, RTLIB::impl_nearbyintf);
   Info.setLibcallImpl(RTLIB::NEARBYINT_F64, RTLIB::impl_nearbyint);
 
+  // Constrained operations without native instructions retain their chain
+  // through the ordinary C math providers.
+  Info.setLibcallImpl(RTLIB::ACOS_F32, RTLIB::impl_acosf);
+  Info.setLibcallImpl(RTLIB::ACOS_F64, RTLIB::impl_acos);
+  Info.setLibcallImpl(RTLIB::ASIN_F32, RTLIB::impl_asinf);
+  Info.setLibcallImpl(RTLIB::ASIN_F64, RTLIB::impl_asin);
+  Info.setLibcallImpl(RTLIB::ATAN_F32, RTLIB::impl_atanf);
+  Info.setLibcallImpl(RTLIB::ATAN_F64, RTLIB::impl_atan);
+  Info.setLibcallImpl(RTLIB::ATAN2_F32, RTLIB::impl_atan2f);
+  Info.setLibcallImpl(RTLIB::ATAN2_F64, RTLIB::impl_atan2);
+  Info.setLibcallImpl(RTLIB::COS_F32, RTLIB::impl_cosf);
+  Info.setLibcallImpl(RTLIB::COS_F64, RTLIB::impl_cos);
+  Info.setLibcallImpl(RTLIB::COSH_F32, RTLIB::impl_coshf);
+  Info.setLibcallImpl(RTLIB::COSH_F64, RTLIB::impl_cosh);
+  Info.setLibcallImpl(RTLIB::EXP_F32, RTLIB::impl_expf);
+  Info.setLibcallImpl(RTLIB::EXP_F64, RTLIB::impl_exp);
+  Info.setLibcallImpl(RTLIB::EXP2_F32, RTLIB::impl_exp2f);
+  Info.setLibcallImpl(RTLIB::EXP2_F64, RTLIB::impl_exp2);
+  Info.setLibcallImpl(RTLIB::LOG_F32, RTLIB::impl_logf);
+  Info.setLibcallImpl(RTLIB::LOG_F64, RTLIB::impl_log);
+  Info.setLibcallImpl(RTLIB::LOG10_F32, RTLIB::impl_log10f);
+  Info.setLibcallImpl(RTLIB::LOG10_F64, RTLIB::impl_log10);
+  Info.setLibcallImpl(RTLIB::LOG2_F32, RTLIB::impl_log2f);
+  Info.setLibcallImpl(RTLIB::LOG2_F64, RTLIB::impl_log2);
+  Info.setLibcallImpl(RTLIB::POW_F32, RTLIB::impl_powf);
+  Info.setLibcallImpl(RTLIB::POW_F64, RTLIB::impl_pow);
+  Info.setLibcallImpl(RTLIB::SIN_F32, RTLIB::impl_sinf);
+  Info.setLibcallImpl(RTLIB::SIN_F64, RTLIB::impl_sin);
+  Info.setLibcallImpl(RTLIB::SINH_F32, RTLIB::impl_sinhf);
+  Info.setLibcallImpl(RTLIB::SINH_F64, RTLIB::impl_sinh);
+  Info.setLibcallImpl(RTLIB::TAN_F32, RTLIB::impl_tanf);
+  Info.setLibcallImpl(RTLIB::TAN_F64, RTLIB::impl_tan);
+  Info.setLibcallImpl(RTLIB::TANH_F32, RTLIB::impl_tanhf);
+  Info.setLibcallImpl(RTLIB::TANH_F64, RTLIB::impl_tanh);
+  Info.setLibcallImpl(RTLIB::LDEXP_F32, RTLIB::impl_ldexpf);
+  Info.setLibcallImpl(RTLIB::LDEXP_F64, RTLIB::impl_ldexp);
+  Info.setLibcallImpl(RTLIB::LRINT_F32, RTLIB::impl_lrintf);
+  Info.setLibcallImpl(RTLIB::LRINT_F64, RTLIB::impl_lrint);
+  Info.setLibcallImpl(RTLIB::LLRINT_F32, RTLIB::impl_llrintf);
+  Info.setLibcallImpl(RTLIB::LLRINT_F64, RTLIB::impl_llrint);
+  Info.setLibcallImpl(RTLIB::LROUND_F32, RTLIB::impl_lroundf);
+  Info.setLibcallImpl(RTLIB::LROUND_F64, RTLIB::impl_lround);
+  Info.setLibcallImpl(RTLIB::LLROUND_F32, RTLIB::impl_llroundf);
+  Info.setLibcallImpl(RTLIB::LLROUND_F64, RTLIB::impl_llround);
+  Info.setLibcallImpl(RTLIB::FMIN_F32, RTLIB::impl_fminf);
+  Info.setLibcallImpl(RTLIB::FMIN_F64, RTLIB::impl_fmin);
+  Info.setLibcallImpl(RTLIB::FMAX_F32, RTLIB::impl_fmaxf);
+  Info.setLibcallImpl(RTLIB::FMAX_F64, RTLIB::impl_fmax);
+
   Info.setLibcallImpl(RTLIB::ATOMIC_LOAD, RTLIB::impl___atomic_load);
   Info.setLibcallImpl(RTLIB::ATOMIC_STORE, RTLIB::impl___atomic_store);
   Info.setLibcallImpl(RTLIB::ATOMIC_EXCHANGE, RTLIB::impl___atomic_exchange);

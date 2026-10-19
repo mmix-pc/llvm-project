@@ -64,6 +64,9 @@ enum NodeType : unsigned {
 } // namespace MMIXISD
 
 class MMIXTargetLowering final : public TargetLowering {
+  void configureStrictFP();
+  SDValue lowerStrictFP(SDValue Op, SelectionDAG &DAG) const;
+
 public:
   MMIXTargetLowering(const TargetMachine &TM, const MMIXSubtarget &STI);
 
@@ -101,6 +104,8 @@ public:
                           const CallBase &I, MachineFunction &MF,
                           unsigned Intrinsic) const override;
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+  void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                          SelectionDAG &DAG) const override;
   SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
   bool shouldInsertFencesForAtomic(const Instruction *) const override {
     return true;

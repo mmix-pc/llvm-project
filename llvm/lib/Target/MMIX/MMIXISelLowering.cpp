@@ -779,20 +779,7 @@ MMIXTargetLowering::MMIXTargetLowering(const TargetMachine &TM,
   for (unsigned Opcode : FloatingLibcallOperations)
     setOperationAction(Opcode, {MVT::f32, MVT::f64}, LibCall);
 
-  static constexpr unsigned StrictFloatingOperations[] = {
-      ISD::STRICT_FADD,       ISD::STRICT_FSUB,       ISD::STRICT_FMUL,
-      ISD::STRICT_FDIV,       ISD::STRICT_FREM,       ISD::STRICT_FSQRT,
-      ISD::STRICT_FMA,        ISD::STRICT_FSETCC,     ISD::STRICT_FSETCCS,
-      ISD::STRICT_FP_ROUND,   ISD::STRICT_FP_EXTEND,  ISD::STRICT_FTRUNC,
-      ISD::STRICT_FCEIL,      ISD::STRICT_FFLOOR,     ISD::STRICT_FROUND,
-      ISD::STRICT_FROUNDEVEN, ISD::STRICT_FNEARBYINT, ISD::STRICT_FRINT};
-  for (unsigned Opcode : StrictFloatingOperations)
-    RejectOperation(Opcode, MVT::f64);
-  for (unsigned Opcode : StrictFloatingOperations)
-    RejectOperation(Opcode, MVT::f32);
-  for (unsigned Opcode : {ISD::STRICT_SINT_TO_FP, ISD::STRICT_UINT_TO_FP,
-                          ISD::STRICT_FP_TO_SINT, ISD::STRICT_FP_TO_UINT})
-    RejectOperation(Opcode, MVT::i64);
+  configureStrictFP();
 
   static constexpr unsigned SymbolicAddressOperations[] = {
       ISD::GlobalAddress, ISD::ExternalSymbol, ISD::BlockAddress,
@@ -1152,8 +1139,7 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
   if (Op.getOpcode() == ISD::INTRINSIC_WO_CHAIN)
     return SDValue();
   if (Op->isStrictFPOpcode())
-    report_fatal_error(
-        "MMIX constrained floating-point lowering is not implemented");
+    return lowerStrictFP(Op, DAG);
 
   switch (Op.getOpcode()) {
   case ISD::INTRINSIC_W_CHAIN:
@@ -1341,8 +1327,8 @@ SDValue MMIXTargetLowering::LowerOperation(SDValue Op,
 
     // FCMP raises invalid for any NaN. Replace unordered operands with zeros
     // before comparing, preserving its unordered result without the exception.
-    // FEQL/FUN are quiet even for signaling NaNs; constrained comparisons still
-    // require separate exception handling and remain unsupported.
+    // FEQL/FUN are quiet even for signaling NaNs; strict lowering performs
+    // the required exception-raising operation before using this quiet result.
     switch (CC) {
     case ISD::SETFALSE:
     case ISD::SETFALSE2:

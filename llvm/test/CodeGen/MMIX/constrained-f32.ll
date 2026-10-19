@@ -1,6 +1,11 @@
-; RUN: not --crash llc -mtriple=mmix %s -o /dev/null 2>&1 | FileCheck %s
+; RUN: llc -mtriple=mmix -verify-machineinstrs %s -o - | FileCheck %s
+; RUN: llc -mtriple=mmix-unknown-linux -O0 -verify-machineinstrs %s -o - | FileCheck %s
 
-; CHECK: LLVM ERROR: MMIX constrained floating-point lowering is not implemented
+; CHECK-LABEL: strict_add_f32:
+; CHECK: FMUL
+; CHECK: FMUL
+; CHECK: FADD
+; CHECK: STSF
 
 define float @strict_add_f32(float %lhs, float %rhs) strictfp {
   %result = call float @llvm.experimental.constrained.fadd.f32(
