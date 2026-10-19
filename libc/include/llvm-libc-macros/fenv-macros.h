@@ -14,10 +14,16 @@
 #define FE_INVALID 0x4
 #define FE_OVERFLOW 0x8
 #define FE_UNDERFLOW 0x10
+#if defined(__mmix__)
+// MMIX has no separate denormal-operand exception.
+#define FE_ALL_EXCEPT                                                           \
+  (FE_DIVBYZERO | FE_INEXACT | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW)
+#else
 #define FE_DENORM 0x20
 #define FE_ALL_EXCEPT                                                          \
   (FE_DIVBYZERO | FE_INEXACT | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW |       \
    FE_DENORM)
+#endif
 
 #define FE_DOWNWARD 0x400
 #define FE_TONEAREST 0

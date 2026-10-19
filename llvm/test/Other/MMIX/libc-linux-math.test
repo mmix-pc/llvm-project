@@ -5,6 +5,8 @@
 # RUN: clang --target=mmix-unknown-linux -std=c++17 -ffreestanding -DLIBC_FULL_BUILD -I%S/../../../../libc -O2 -c %t/fenv.cpp -o %t.o2
 # RUN: clang --target=mmix-unknown-linux -c %S/../../../../libc/src/__support/FPUtil/mmix/fenv_register.cpp -o %t.writer
 # RUN: llvm-objdump -d %t.writer | FileCheck %s
+# RUN: clang --target=mmix-unknown-unknown -I%S/../../../../libc -fsyntax-only %t/macros.cpp
+# RUN: clang --target=x86_64-unknown-linux-gnu -I%S/../../../../libc -fsyntax-only %t/macros.cpp
 # CHECK: <__llvm_libc_mmix_set_fenv>:
 # CHECK-NEXT: PUT rA, r231
 # CHECK-NEXT: POP 0x0, 0x0
@@ -64,6 +66,7 @@ static_assert(FEnv::to_bits(FE_UNDERFLOW) == 4);
 static_assert(FEnv::to_bits(FE_INEXACT) == 1);
 static_assert(FEnv::to_flags(0x1f) ==
               (FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW | FE_INEXACT));
+static_assert(FEnv::to_flags(FEnv::to_bits(FE_ALL_EXCEPT)) == FE_ALL_EXCEPT);
 static_assert((FEnv::ENV_MASK & 0xe0e0) == 0);
 int environment(int mask, int round, fenv_t *env) {
   get_env(env);
@@ -78,3 +81,17 @@ int environment(int mask, int round, fenv_t *env) {
   set_env(FE_DFL_ENV);
   return result;
 }
+
+#--- macros.cpp
+#include "include/llvm-libc-macros/fenv-macros.h"
+constexpr int standard_exceptions =
+    FE_DIVBYZERO | FE_INEXACT | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW;
+#ifdef __mmix__
+#ifdef FE_DENORM
+#error MMIX does not implement a denormal-operand exception
+#endif
+static_assert(FE_ALL_EXCEPT == standard_exceptions);
+#else
+static_assert(FE_DENORM == 0x20);
+static_assert(FE_ALL_EXCEPT == (standard_exceptions | FE_DENORM));
+#endif
