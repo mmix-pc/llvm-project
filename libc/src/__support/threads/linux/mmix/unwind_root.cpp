@@ -116,6 +116,17 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
 void disposed(_Unwind_Reason_Code, _Unwind_Exception *) { __builtin_trap(); }
 } // namespace
 
+bool restore_fork_unwind(ThreadControl &control) {
+  const auto &root = control.unwind_root;
+  // Fork copies the ordinary register-stack chain and stack addresses. Keep
+  // inherited cleanup generations, but never revive an in-progress exit.
+  if (forced.active || current_control != &control || !root.active ||
+      root.owner != &control || !root.generation ||
+      root.chain != current_chain())
+    return false;
+  return validate_fork_cleanup(root);
+}
+
 [[gnu::noinline, clang::disable_tail_calls]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
   if (current_control != &control || !body)

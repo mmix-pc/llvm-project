@@ -30,6 +30,12 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     set(mmix_callback_ownership_dependency .callback_ownership)
   endif()
   if(LIBC_MMIX_BUILD_COORDINATED_FORK)
+    set(mmix_fork_unwind_dependency)
+    set(mmix_fork_unwind_options)
+    if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
+      set(mmix_fork_unwind_dependency .unwind_root)
+      set(mmix_fork_unwind_options -DLIBC_MMIX_UNWIND_ROOTS -funwind-tables)
+    endif()
     set(mmix_loader_fork_dependency)
     if(LIBC_MMIX_BUILD_SHARED_LIBC)
       set(mmix_loader_fork_dependency libc.src.dlfcn.linux.mmix.loading)
@@ -43,8 +49,8 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
         libc.src.stdlib.linux.mmix.allocator libc.src.__support.OSUtil.osutil
         libc.src.stdio.stdin libc.src.stdio.stdout libc.src.stdio.stderr
         libc.src.__support.CPP.new libc.include.sys_syscall ${mmix_loader_fork_dependency}
-        ${mmix_callback_ownership_dependency}
-      COMPILE_OPTIONS -fno-lto
+        ${mmix_callback_ownership_dependency} ${mmix_fork_unwind_dependency}
+      COMPILE_OPTIONS -fno-lto ${mmix_fork_unwind_options}
     )
   endif()
   if(LIBC_MMIX_BUILD_PTHREAD_CLOCKS)

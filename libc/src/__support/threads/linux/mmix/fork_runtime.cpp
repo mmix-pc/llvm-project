@@ -110,6 +110,8 @@ int ForkOperation::freeze_registry() {
 #ifdef LIBC_MMIX_SHARED_STARTUP
   resume_loader &= single_thread;
   child_recovery = internal::ForkRecovery::child(single_thread, resume_loader);
+#else
+  child_recovery = internal::ForkRecovery::child(single_thread, true);
 #endif
   return registry ? 0 : EAGAIN;
 }
@@ -151,7 +153,8 @@ void ForkOperation::restore_runtime(bool child) {
     if (tid <= 0 || tid > cpp::numeric_limits<int>::max())
       internal::exit(127);
     caller->attributes.tid = int(tid);
-    caller->unwind_root.active = false;
+    if (!child_recovery.allows_loader())
+      caller->unwind_root.active = false;
     caller->cancellation.restore_after_fork();
     caller->cancellation_identity = caller->cancellation_generation = 0;
     caller->cancellation_point.store(nullptr);
@@ -166,6 +169,11 @@ void ForkOperation::restore_runtime(bool child) {
     finish_loader_fork(child, child_recovery.allows_loader());
     loader_locked = false;
   }
+#endif
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  // Metadata queries are safe only after the quiescent loader has resumed.
+  if (child && child_recovery.allows_loader() && !restore_fork_unwind(*caller))
+    internal::exit(127);
 #endif
 }
 

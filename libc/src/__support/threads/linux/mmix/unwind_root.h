@@ -28,6 +28,8 @@ using RootBody = void(void *);
 void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp);
 void dispatch_async_cleanup(uintptr_t interrupted_ro, uintptr_t interrupted_sp);
 bool has_c_cleanup();
+bool validate_fork_cleanup(const UnwindRoot &root);
+bool restore_fork_unwind(ThreadControl &control);
 [[gnu::visibility("hidden")]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument);
 

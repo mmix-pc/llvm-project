@@ -242,6 +242,53 @@ void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
 
 bool has_c_cleanup() { return head.record != nullptr; }
 
+bool validate_fork_cleanup(const UnwindRoot &root) {
+  if (dispatching || !root.ro || !root.sp || (root.ro & 7) || (root.sp & 7))
+    return false;
+  unw_context_t context;
+  unw_cursor_t cursor;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  MMIXCursorLifetime lifetime{};
+  __libunwind_mmix_cursor_begin(&lifetime, &cursor);
+#endif
+  bool valid = false;
+  auto link = head;
+  uint64_t newer = UINT64_MAX;
+  if (!unw_getcontext(&context) && !unw_init_local(&cursor, &context)) {
+    for (;;) {
+      unw_word_t ro, sp;
+      unw_proc_info_t procedure;
+      if (unw_is_signal_frame(&cursor) != 0 ||
+          unw_get_reg(&cursor, UNW_MMIX_RO, &ro) ||
+          unw_get_reg(&cursor, UNW_REG_SP, &sp) ||
+          unw_get_proc_info(&cursor, &procedure) || ro < root.ro)
+        break;
+      while (link.record && link.frame.ro >= ro) {
+        if (link.serial >= newer || link.frame.owner != root.owner ||
+            link.frame.chain != root.chain ||
+            link.frame.generation != root.generation || link.frame.ro != ro ||
+            link.frame.sp != sp || link.frame.procedure != procedure.start_ip)
+          goto done;
+        validate_link(link);
+        newer = link.serial;
+        link = link.record->previous;
+      }
+      if (ro == root.ro) {
+        valid = !link.record && sp == root.sp &&
+                procedure.start_ip == root.procedure;
+        break;
+      }
+      if (unw_step(&cursor) != 1)
+        break;
+    }
+  }
+done:
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  __libunwind_mmix_cursor_end(&lifetime);
+#endif
+  return valid;
+}
+
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
 void dispatch_async_cleanup(uintptr_t interrupted_ro,
                             uintptr_t interrupted_sp) {
