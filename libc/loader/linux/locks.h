@@ -23,6 +23,7 @@ class LoaderLocks {
     cpp::Atomic<uint32_t> word{0};
 
   public:
+    bool try_lock();
     long lock();
     void unlock();
     void reset_after_fork() { word.store(0, cpp::MemoryOrder::RELAXED); }
@@ -39,7 +40,7 @@ public:
   // The libc fork owner already masks signals and suppresses cancellation.
   // Acquire after user prepare callbacks and before any pthread registry lock.
   long prepare_fork(bool *quiescent = nullptr);
-  // Resume only when libc proves that no other thread has ever existed.
+  // Resume only after libc proves a reconciled, sole-survivor snapshot.
   void finish_fork(bool child, bool resume = false);
   enum class Kind { None, Mutation, Registry, Arena };
   class Guard;

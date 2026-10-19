@@ -152,25 +152,12 @@ static void finalizer(Address pc) {
     pending_cancellation = true;
   ++f.callbacks;
   if (f.fork_from_callback && f.callbacks == 1) {
-    // Detached finalization has no mutation guard. A copied active plan must
-    // stay inert in the child rather than waiting for or replaying its owner.
+    // Detached finalization has no mutation guard, but its live session still
+    // prevents copying a half-completed plan. The original drainer continues.
     LoaderLocks::Session inherited(f.locks, hooks);
-    check(!f.locks.prepare_fork());
-    pid_t child = fork();
-    check(child >= 0);
-    f.locks.finish_fork(child == 0);
-    if (!child) {
-      LoaderLocks::Guard old_guard(inherited, Kind::Mutation);
-      check(old_guard.error() == -ENOTSUP &&
-            !inherited.unlocked_callback_owner());
-      LoaderLocks::Session session(f.locks, hooks);
-      check(session.error() == -ENOTSUP);
-      check(f.retirement.drain(session, finalizer) == -EINVAL);
-      check(f.retirement.draining() && f.callbacks == 1);
-      _exit(0);
-    }
-    int status;
-    check(waitpid(child, &status, 0) == child && status == 0);
+    check(f.locks.prepare_fork() == -EAGAIN);
+    check(inherited.unlocked_callback_owner());
+    check(f.retirement.draining() && f.callbacks == 1);
   }
   if (pc >= 0x300000) {
     LoaderLocks::Session nested(f.locks, hooks);

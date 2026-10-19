@@ -90,6 +90,14 @@ static LoaderLocks locks;
 using Kind = LoaderLocks::Kind;
 static unsigned counter;
 static unsigned published;
+static void *fork_during_writer(void *) {
+  uint64_t saved;
+  check(!enter(&saved));
+  bool quiescent = true;
+  check(locks.prepare_fork(&quiescent) == -EAGAIN && !quiescent);
+  check(!leave(saved));
+  return nullptr;
+}
 static void *fork_after_writer(void *) {
   uint64_t saved;
   check(!enter(&saved));
@@ -199,17 +207,15 @@ extern "C" int main() {
   }
   check(!pthread_join(interrupted, nullptr));
   pthread_t forking;
-  before_wait = waits.load();
   {
     LoaderLocks::Session scope(locks, hooks);
     LoaderLocks::Guard mutation(scope, Kind::Mutation);
-    check(!pthread_create(&forking, nullptr, fork_after_writer, nullptr));
-    while (waits.load() == before_wait)
-      sched_yield();
+    check(!pthread_create(&forking, nullptr, fork_during_writer, nullptr));
+    check(!pthread_join(forking, nullptr));
     // The fork snapshot cannot observe a half-published writer transaction.
     published = 37;
   }
-  check(!pthread_join(forking, nullptr));
+  fork_after_writer(nullptr); // Retry after the complete writer publication.
   struct sigaction action{};
   action.sa_handler = [](int) { signal_seen = 1; };
   sigemptyset(&action.sa_mask);
@@ -242,9 +248,8 @@ extern "C" int main() {
   {
     // A detached callback still owns a session even without a mutation guard.
     LoaderLocks::Session scope(locks, hooks);
-    check(!scope.error() && !locks.prepare_fork(&quiescent));
+    check(!scope.error() && locks.prepare_fork(&quiescent) == -EAGAIN);
     check(!quiescent);
-    locks.finish_fork(false);
   }
   check(!enter(&saved) && !locks.prepare_fork(&quiescent) && quiescent);
   child = fork();

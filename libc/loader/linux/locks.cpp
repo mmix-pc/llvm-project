@@ -15,6 +15,12 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
+bool LoaderLocks::Mutex::try_lock() {
+  uint32_t expected = 0;
+  return word.compare_exchange_strong(expected, 1, cpp::MemoryOrder::ACQUIRE,
+                                      cpp::MemoryOrder::RELAXED);
+}
+
 long LoaderLocks::Mutex::lock() {
   uint32_t expected = 0;
   if (word.compare_exchange_strong(expected, 1, cpp::MemoryOrder::ACQUIRE,
@@ -71,12 +77,17 @@ long LoaderLocks::prepare_fork(bool *quiescent) {
   // A constructor cannot fork a half-completed same-owner transaction.
   if (mutation_owner.load(cpp::MemoryOrder::ACQUIRE) == tid)
     return -EDEADLK;
-  if (long error = mutation.lock())
-    return error;
+  // User constructors can wait for the forking thread. Do not wait for their
+  // transaction, or copy detached work whose owner may disappear in the child.
+  if (!mutation.try_lock())
+    return -EAGAIN;
+  if (sessions.load(cpp::MemoryOrder::ACQUIRE) != 0) {
+    mutation.unlock();
+    return -EAGAIN;
+  }
   mutation_depth = 1;
   mutation_owner.store(tid, cpp::MemoryOrder::RELEASE);
-  // Detached finalizers and callbacks may retain a session without a guard.
-  fork_quiescent = sessions.load(cpp::MemoryOrder::ACQUIRE) == 0;
+  fork_quiescent = true;
   if (quiescent)
     *quiescent = fork_quiescent;
   return 0;
