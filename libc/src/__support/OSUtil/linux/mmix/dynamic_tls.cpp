@@ -18,6 +18,7 @@ bool adopt_startup_tls_resolver(const loader::StartupTLSResolver &service) {
   if (resolver.resolve || !service.context || !service.resolve)
     return false;
   resolver.context = service.context;
+  resolver.try_resolve = service.try_resolve;
   resolver.resolve = service.resolve;
   return true;
 }
@@ -29,6 +30,12 @@ __llvm_libc_tls_get_addr(const LIBC_NAMESPACE::loader::TLSIndex *index) {
   using namespace LIBC_NAMESPACE;
   if (!index || !mmix::resolver.resolve)
     mmix::fatal_dynamic_tls();
+  // A signal may interrupt a loader transaction. Existing TLS needs neither
+  // its locks nor cancellation-state changes; allocation still uses the guard.
+  if (mmix::resolver.try_resolve)
+    if (void *result =
+            mmix::resolver.try_resolve(mmix::resolver.context, index))
+      return result;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   auto hooks = mmix::loader_cancellation_hooks();
   uint64_t saved;

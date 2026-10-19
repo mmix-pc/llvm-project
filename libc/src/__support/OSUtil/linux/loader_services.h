@@ -52,6 +52,8 @@ struct TLSIndex {
 struct StartupTLSResolver {
   void *context;
   void *(*resolve)(void *, const TLSIndex *);
+  // Signal-safe lookup of already allocated TLS; null means slow path needed.
+  void *(*try_resolve)(void *, const TLSIndex *) = nullptr;
 };
 
 struct StartupTLSModule {
@@ -212,6 +214,7 @@ struct LoaderServices {
                               UnwindImageView *) = nullptr;
   long (*pin_unwind_lease)(void *, uintptr_t) = nullptr;
   LoaderLifetime lifetime = LoaderLifetime::Unspecified;
+  void *(*try_resolve_tls)(void *, const TLSIndex *) = nullptr;
 };
 
 inline bool has_reclaiming_services(const LoaderServices &s) {
@@ -226,7 +229,8 @@ inline bool has_reclaiming_services(const LoaderServices &s) {
          s.queries.iterate && s.process.context && s.process.prepare_fork &&
          s.process.finish_fork && s.run_initializers && s.images.context &&
          s.images.retain && s.images.release && s.images.retain_process &&
-         s.signals.context && s.signals.retain && s.signals.finish;
+         s.signals.context && s.signals.retain && s.signals.finish &&
+         s.try_resolve_tls;
 }
 
 struct LibcBootstrap {
@@ -237,7 +241,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 272);
+static_assert(sizeof(LoaderServices) == 280);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

@@ -34,6 +34,9 @@ long release_runtime_thread_tls(void *, ThreadTLSAllocation *);
 // The current DTV identifies stable loader state, not a copied pthread
 // descriptor.
 void *resolve_runtime_thread_tls(void *, const TLSIndex *);
+// Signal-safe, nonallocating lookup. Misses must use the guarded slow resolver;
+// this does not grow/refresh a DTV or make an unallocated module signal-safe.
+void *try_resolve_runtime_thread_tls(void *, const TLSIndex *);
 // Current-thread inspection only: never grows the DTV or instantiates a module.
 void *peek_runtime_thread_tls(void *, const StartupTLSModule *);
 

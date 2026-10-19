@@ -72,9 +72,10 @@ add_object_library(
   thread_tls
   SRCS thread_tls.cpp
   HDRS thread_tls.h
-  DEPENDS .runtime_tls .runtime_scopes .tls_allocation .mmix.tls_pointer
+  DEPENDS .runtime_tls .runtime_scopes .tls_allocation .mmix.tls_pointer .io
     .mmix.syscall .mmix.target libc.hdr.func.free libc.src.__support.common
-    libc.hdr.errno_macros libc.hdr.sys_mman_macros libc.include.sys_syscall
+    libc.hdr.errno_macros libc.hdr.signal_macros libc.hdr.sys_mman_macros
+    libc.include.sys_syscall
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 

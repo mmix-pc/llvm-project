@@ -1501,6 +1501,7 @@ extern "C" int main() {
   CHECK_MISSING_SERVICE(prepare_thread_tls);
   CHECK_MISSING_SERVICE(release_thread_tls);
   CHECK_MISSING_SERVICE(resolve_startup_tls);
+  CHECK_MISSING_SERVICE(try_resolve_tls);
   CHECK_MISSING_SERVICE(finalize_startup);
   CHECK_MISSING_SERVICE(find_unwind_image);
   CHECK_MISSING_SERVICE(release_unwind_image);

@@ -153,6 +153,10 @@ void RuntimeState::services(LoaderServices &out, StartupUnwindImages *unwind) {
   out.resolve_startup_tls = [](void *p, const TLSIndex *i) {
     return resolve_runtime_thread_tls(&static_cast<RuntimeState *>(p)->tls, i);
   };
+  out.try_resolve_tls = [](void *p, const TLSIndex *i) {
+    return try_resolve_runtime_thread_tls(&static_cast<RuntimeState *>(p)->tls,
+                                         i);
+  };
   out.find_unwind_image = [](void *p, uintptr_t pc, UnwindImageView *v) {
     auto &state = *static_cast<RuntimeState *>(p);
     long error = find_runtime_unwind_image(&state.scopes, pc, v);

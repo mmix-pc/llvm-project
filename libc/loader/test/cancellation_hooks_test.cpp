@@ -15,6 +15,8 @@
 #include <pthread.h>
 #include <signal.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 // Exercise the production hooks with injected kernel and thread state, not
 // native MMIX execution. Do not substitute the loader admission algorithm.
@@ -68,6 +70,25 @@ long syscall_impl(long number, long how, long set, long old, long size) {
 } // namespace LIBC_NAMESPACE_DECL
 
 #include "src/__support/threads/linux/mmix/loader_cancellation.cpp"
+#define __tls_get_addr mmix_test_tls_get_addr
+#include "src/__support/OSUtil/linux/mmix/dynamic_tls.cpp"
+
+namespace LIBC_NAMESPACE::mmix {
+[[noreturn]] void fatal_dynamic_tls() { std::abort(); }
+} // namespace LIBC_NAMESPACE::mmix
+
+static unsigned fast_calls, slow_calls;
+static int tls_value;
+static void *fast_tls(void *context, const LIBC_NAMESPACE::loader::TLSIndex *i) {
+  ++fast_calls;
+  check(context == &tls_value);
+  return i->module_id == 1 ? &tls_value : nullptr;
+}
+static void *slow_tls(void *context, const LIBC_NAMESPACE::loader::TLSIndex *) {
+  ++slow_calls;
+  check(cancel_state == PTHREAD_CANCEL_DISABLE);
+  return context;
+}
 
 int main() {
   using namespace LIBC_NAMESPACE::mmix;
@@ -86,12 +107,33 @@ int main() {
   unsigned before = changes;
   check(hooks.enter(&nested) == -ENOTSUP && changes == before);
   check(control.loader_scopes.load() == 1 && signal_mask == 0x40);
+  check(adopt_startup_tls_resolver({&tls_value, slow_tls, fast_tls}));
+  LIBC_NAMESPACE::loader::TLSIndex index{1, 0};
+  check(mmix_test_tls_get_addr(&index) == &tls_value);
+  check(fast_calls == 1 && !slow_calls && changes == before);
+  check(control.loader_scopes.load() == 1 && signal_mask == 0x40);
+  // A miss in the handler must still fail closed, never allocate through the
+  // suspended loader scope. Test the production wrapper and admission hook.
+  pid_t child = fork();
+  check(child >= 0);
+  if (!child) {
+    index.module_id = 2;
+    (void)mmix_test_tls_get_addr(&index);
+    _exit(1);
+  }
+  int status;
+  check(waitpid(child, &status, 0) == child && WIFSIGNALED(status) &&
+        WTERMSIG(status) == SIGABRT);
   active_chain = 7;
   query_failure = -EIO;
   check(hooks.enter(&nested) == -EIO && changes == before);
   query_failure = 0;
   check(!hooks.leave(saved) && cancel_state == PTHREAD_CANCEL_ENABLE);
   check(!control.loader_scopes.load() && !control.loader_callbacks.load());
+  index.module_id = 2;
+  check(mmix_test_tls_get_addr(&index) == &tls_value);
+  check(fast_calls == 2 && slow_calls == 1);
+  check(cancel_state == PTHREAD_CANCEL_ENABLE && !control.loader_scopes.load());
   check(signal_mask == 0x40);
   current_control = nullptr;
   check(hooks.enter(&saved) == -ENOTSUP && signal_mask == 0x40);

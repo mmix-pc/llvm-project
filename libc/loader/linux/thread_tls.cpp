@@ -8,7 +8,9 @@
 
 #include "loader/linux/thread_tls.h"
 #include "hdr/errno_macros.h"
+#include "hdr/signal_macros.h"
 #include "hdr/sys_mman_macros.h"
+#include "loader/linux/io.h"
 #include "loader/linux/runtime_tls.h"
 #include "loader/linux/syscall.h"
 #include "loader/linux/target.h"
@@ -173,6 +175,51 @@ void *resolve_runtime_thread_tls(void *context, const TLSIndex *index) {
   RuntimeTLSContext lookup{scope ? scope->registry : nullptr, &state.allocation,
                            &state.refresh, ctx.startup.page_size};
   return resolve_runtime_tls(&lookup, index);
+}
+
+void *try_resolve_runtime_thread_tls(void *context, const TLSIndex *index) {
+  if (!context || !index ||
+      reinterpret_cast<Address>(index) % alignof(TLSIndex) || !index->module_id)
+    return nullptr;
+  // Protect the reader lease against nonlocal handler exits and cancellation.
+  // DTV mutation also masks signals and is confined to this thread; another
+  // thread may retire metadata, but cannot reclaim this thread's TLS storage.
+  uint64_t full = ~uint64_t(0), saved = 0;
+  if (raw_syscall(SYS_rt_sigprocmask, SIG_BLOCK, reinterpret_cast<long>(&full),
+                  reinterpret_cast<long>(&saved), sizeof(full)))
+    return nullptr;
+  void *result = [&]() -> void * {
+    Address tp = current_thread_pointer();
+    if (!tp)
+      return nullptr;
+    Address pointer =
+        __atomic_load_n(reinterpret_cast<Address *>(tp), __ATOMIC_ACQUIRE);
+    const auto *dtv = reinterpret_cast<const StartupDTV *>(pointer);
+    if (!dtv || !dtv->runtime_owner || index->module_id >= dtv->capacity)
+      return nullptr;
+    const auto &state = *reinterpret_cast<const State *>(dtv->runtime_owner);
+    const auto &ctx = *static_cast<const ThreadTLSContext *>(context);
+    if (state.context != &ctx || state.retiring || state.allocation.tp != tp ||
+        !ctx.scopes)
+      return nullptr;
+    auto lease = ctx.scopes->acquire();
+    if (!lease.get())
+      return nullptr;
+    const auto &entry = reinterpret_cast<const StartupDTVEntry *>(
+        dtv->entries)[index->module_id];
+    Address generation =
+        __atomic_load_n(&entry.generation, __ATOMIC_ACQUIRE);
+    const auto *image =
+        lease.get()->registry->find(index->module_id, generation);
+    if (!generation || !image || index->offset > image->tls.memory_size ||
+        !entry.image_base || index->offset > ~Address(0) - entry.image_base)
+      return nullptr;
+    return reinterpret_cast<void *>(entry.image_base + index->offset);
+  }(); // Drop the nonallocating snapshot lease before restoring signals.
+  if (raw_syscall(SYS_rt_sigprocmask, SIG_SETMASK,
+                  reinterpret_cast<long>(&saved), 0, sizeof(saved)))
+    fatal_startup();
+  return result;
 }
 
 } // namespace loader

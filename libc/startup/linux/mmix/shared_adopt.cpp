@@ -153,7 +153,8 @@ long adopt_shared_main(const loader::StartupProcessView *process,
   attempted = true;
   __builtin_memcpy_inline(&services, input, sizeof(services));
   if (!adopt_startup_tls_resolver(
-          {services.context, services.resolve_startup_tls}))
+          {services.context, services.resolve_startup_tls,
+           services.try_resolve_tls}))
     return EINVAL;
   __llvm_libc_mmix_linux_init_guard(
       reinterpret_cast<const unsigned char *>(process->random));

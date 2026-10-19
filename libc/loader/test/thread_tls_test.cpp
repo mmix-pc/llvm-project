@@ -136,6 +136,20 @@ extern "C" int main() {
   check(prepare_runtime_thread_tls(&f.context, &f, &old) == EBUSY);
   auto *startup = f.lookup(old, 1);
   *startup = 19;
+  TLSIndex startup_index{1, 0}, late_index{3, 0};
+  auto fast = [&](TLSIndex index) {
+    unsigned before_maps = maps, before_unmaps = unmaps;
+    Address before_mask = mask;
+    void *result = try_resolve_runtime_thread_tls(&f.context, &index);
+    check(mask == before_mask && maps == before_maps && unmaps == before_unmaps);
+    check(!f.scopes.active_readers());
+    return result;
+  };
+  mask = 0x40;
+  check(fast(startup_index) == startup);
+  check(!fast({0, 0}) && !fast({2, 0}) && !fast({1, 65}));
+  check(fast({1, 64}) == startup + 64); // One-past address formation.
+  check(!try_resolve_runtime_thread_tls(&f.context, nullptr));
   check(release_runtime_thread_tls(&f.context, &old) == EBUSY);
   tp = 0;
   // Publication between preparation and first worker execution. Both the old
@@ -144,6 +158,8 @@ extern "C" int main() {
   tp = old.tp;
   const Address old_dtv = *reinterpret_cast<Address *>(tp);
   check(!peek_runtime_thread_tls(&f.context, &f.records[1].tls));
+  check(!fast(late_index)); // No growth even after a newer scope is published.
+  check(fast(startup_index) == startup); // Unrelated growth does not invalidate.
   check(*reinterpret_cast<Address *>(tp) == old_dtv);
   check(peek_runtime_thread_tls(&f.context, &f.records[0].tls) == startup);
   tp = 0;
@@ -151,9 +167,11 @@ extern "C" int main() {
   check(reinterpret_cast<StartupDTV *>(newly.dtv_mapping_base)->generation ==
         2);
   auto *a = f.lookup(old, 3);
+  check(fast(late_index) == a);
   check(peek_runtime_thread_tls(&f.context, &f.records[1].tls) == a);
   *a = 42;
   auto *b = f.lookup(newly, 3);
+  check(fast(late_index) == b);
   check(a != b && !*b);
   *b = 73;
   check(f.lookup(old, 3) == a && *a == 42);
@@ -226,6 +244,7 @@ extern "C" int main() {
   check(entries[3].allocation_owner == owned); // No remote DTV edits.
   tp = initialized.tp;
   check(!peek_runtime_thread_tls(&f.context, &f.records[1].tls));
+  check(!fast(late_index)); // A stale DTV entry cannot resurrect a removed ID.
   check(entries[3].allocation_owner == owned); // Inspection does not allocate.
   // A terminal reaper can reclaim stale storage without consulting the now
   // absent module or its template. Failed cleanup remains owned for retry.
