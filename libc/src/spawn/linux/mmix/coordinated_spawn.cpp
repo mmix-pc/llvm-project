@@ -6,10 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "coordinated_spawn.h"
-#include "hdr/signal_macros.h"
-#include "src/__support/OSUtil/syscall.h"
 #include "src/__support/threads/linux/mmix/fork_runtime.h"
-#include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -22,8 +19,7 @@ long coordinated_spawn_clone() {
   int error = operation.prepare_runtime();
   if (!error)
     error = operation.freeze_registry();
-  long result =
-      error ? -error : syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+  long result = error ? -error : operation.create_child();
   operation.restore_runtime(result == 0);
   // Destroy the operation in both processes before returning to raw child
   // setup. Its saved mask was already fully blocked by the spawn caller.

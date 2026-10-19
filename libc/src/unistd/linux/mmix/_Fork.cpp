@@ -12,6 +12,7 @@
 #include "src/__support/OSUtil/syscall.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
+#include "src/__support/threads/linux/mmix/fork_transport.h"
 #include "src/__support/threads/linux/mmix/main_thread.h"
 #include <stdint.h>
 #include <sys/syscall.h>
@@ -26,9 +27,7 @@ LLVM_LIBC_FUNCTION(pid_t, _Fork, (void)) {
     libc_errno = int(-result);
     return -1;
   }
-  // The kernel copies both stacks and returns normally through the syscall
-  // leaf. Do not enter coordinated fork, callbacks, allocation or loader locks.
-  result = syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+  result = mmix::fork_process().value;
   if (!result && !internal::restore_minimal_fork_child())
     internal::exit(127);
   // Publish the child identity before inherited handlers can run. A child

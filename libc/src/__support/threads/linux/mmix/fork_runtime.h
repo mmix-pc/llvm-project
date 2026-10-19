@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 #ifndef LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_FORK_RUNTIME_H
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_FORK_RUNTIME_H
+#include "hdr/types/pid_t.h"
 #include "lifecycle.h"
 namespace LIBC_NAMESPACE_DECL {
 class File;
@@ -25,6 +26,7 @@ class ForkOperation {
   bool resume_loader = false;
 #endif
   int error_code = 0;
+  pid_t previous_tid = 0;
   File *standard[3]{};
   File *stream_stop = nullptr;
   bool standard_locked[3]{};
@@ -37,6 +39,7 @@ public:
   int error() const { return error_code; }
   int prepare_runtime();
   int freeze_registry();
+  long create_child();
   void restore_runtime(bool child);
 };
 } // namespace mmix

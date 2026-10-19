@@ -97,8 +97,7 @@ public:
     int error = operation.prepare_runtime();
     if (!error)
       error = operation.freeze_registry();
-    long result =
-        error ? -error : syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+    long result = error ? -error : operation.create_child();
     operation.restore_runtime(result == 0);
 #else
     mmix::ProcessOperation operation;

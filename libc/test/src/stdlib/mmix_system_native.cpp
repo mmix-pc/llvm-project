@@ -69,6 +69,10 @@ public:
   int error() { return failure == 1 ? EAGAIN : 0; }
   int prepare_runtime() { return failure == 2 ? ENOMEM : 0; }
   int freeze_registry() { return failure == 3 ? EAGAIN : 0; }
+  long create_child() {
+    long result = ::syscall(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+    return result < 0 ? -errno : result;
+  }
   void restore_runtime(bool) {}
 };
 int set_cancel_state(int state, int *old) {

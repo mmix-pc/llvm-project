@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 #include "fork_runtime.h"
 #include "credentials.h"
+#include "fork_transport.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include "main_thread.h"
@@ -146,6 +147,14 @@ int ForkOperation::freeze_registry() {
   return registry ? 0 : EAGAIN;
 }
 
+long ForkOperation::create_child() {
+  if (!registry)
+    __builtin_trap();
+  ForkResult result = fork_process();
+  previous_tid = result.previous_tid;
+  return result.value;
+}
+
 void ForkOperation::restore_runtime(bool child) {
   if (registry) {
     if (child)
@@ -159,19 +168,15 @@ void ForkOperation::restore_runtime(bool child) {
     allocator = false;
   }
   if (child) {
-    long tid = syscall_impl<long>(SYS_gettid);
-    if (tid <= 0 || tid > cpp::numeric_limits<int>::max())
-      internal::exit(127);
-    pid_t previous = caller->attributes.tid;
+    pid_t tid = caller->attributes.tid;
     for (unsigned i = 0; i < 3; ++i)
       if (standard_locked[i] &&
-          !standard[i]->rebind_owner_after_fork(previous, pid_t(tid)))
+          !standard[i]->rebind_owner_after_fork(previous_tid, tid))
         internal::exit(127);
     for (auto *file = File::get_first_file(); file; file = file->get_next())
       if (file != standard[0] && file != standard[1] && file != standard[2] &&
-          !file->rebind_owner_after_fork(previous, pid_t(tid)))
+          !file->rebind_owner_after_fork(previous_tid, tid))
         internal::exit(127);
-    caller->attributes.tid = pid_t(tid);
     restore_credentials_after_fork(*caller);
   }
   if (streams) {

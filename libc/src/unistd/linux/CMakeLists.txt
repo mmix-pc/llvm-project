@@ -168,6 +168,7 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     list(APPEND fork_extra_deps libc.src.__support.threads.linux.mmix.fork_runtime)
   endif()
   list(APPEND fork_extra_deps
+    libc.src.__support.threads.linux.mmix.fork_transport
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
     libc.src.__support.threads.linux.mmix.process_operation_h)
 endif()

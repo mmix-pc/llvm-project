@@ -5,14 +5,11 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "hdr/signal_macros.h"
-#include "src/__support/OSUtil/syscall.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/linux/mmix/atfork_callbacks.h"
 #include "src/__support/threads/linux/mmix/fork_runtime.h"
 #include "src/unistd/fork.h"
-#include <sys/syscall.h>
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
   int saved_errno = libc_errno;
@@ -27,8 +24,7 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
   mmix::lock_fork_callbacks();
   if (!error)
     error = operation.freeze_registry();
-  long result =
-      error ? -error : syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+  long result = error ? -error : operation.create_child();
   operation.restore_runtime(result == 0);
   mmix::finish_fork_callbacks(count, result == 0);
   if (result < 0) {

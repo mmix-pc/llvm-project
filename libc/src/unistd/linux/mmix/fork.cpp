@@ -9,12 +9,12 @@
 #include "src/unistd/fork.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
-#include "src/__support/CPP/limits.h"
 #include "src/__support/OSUtil/exit.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/rt_sigprocmask.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/fork_callbacks.h"
 #include "src/__support/threads/identifier.h"
+#include "src/__support/threads/linux/mmix/fork_transport.h"
 #include "src/__support/threads/linux/mmix/process_operation.h"
 #ifdef LIBC_MMIX_SHARED_STARTUP
 #include "src/dlfcn/linux/mmix/loading.h"
@@ -53,7 +53,6 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
     return -1;
   }
 
-  pid_t parent_tid = attributes->tid;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   bool resume_loader = false;
   if (int error = mmix::prepare_loader_fork(&resume_loader)) {
@@ -64,23 +63,11 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
     return -1;
   }
 #endif
-  attributes->tid = 0;
-  // Linux copies both stacks and resumes after TRAP with r231=0 in the child.
-  // The syscall leaf can POP normally; no foreign new-stack clone recipe is
-  // used.
-  long result = syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
-  if (result == 0) {
-    long tid = syscall_impl<long>(SYS_gettid);
-    if (tid <= 0 || tid > cpp::numeric_limits<pid_t>::max())
-      internal::exit(127);
-    attributes->tid = static_cast<pid_t>(tid);
+  long result = mmix::fork_process().value;
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-    if (!internal::restore_main_thread_after_fork())
-      internal::exit(127);
+  if (result == 0 && !internal::restore_main_thread_after_fork())
+    internal::exit(127);
 #endif
-  } else {
-    attributes->tid = parent_tid;
-  }
 
   // Publish valid identity before handlers or callbacks can observe the child.
 #ifdef LIBC_MMIX_SHARED_STARTUP

@@ -41,6 +41,25 @@ ThreadAttributes *active_attributes = nullptr;
 enum class Phase { Uninitialized, Active, Cleaning, Finished };
 Phase phase = Phase::Uninitialized;
 
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+enum class RobustInheritance { Preserve, Discard };
+
+bool register_fork_child(mmix::ThreadControl &control,
+                         [[maybe_unused]] RobustInheritance robust) {
+  control.clear_tid.value.store(UINT32_MAX);
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  int error = robust == RobustInheritance::Discard
+                  ? mmix::reset_robust_list_after_fork()
+                  : mmix::register_robust_list(true);
+  if (error)
+    return false;
+#endif
+  return syscall_impl(SYS_set_tid_address,
+                      reinterpret_cast<long>(&control.clear_tid.value.val)) ==
+         control.attributes.tid;
+}
+#endif
+
 } // namespace
 
 bool initialize_main_thread() {
@@ -65,10 +84,8 @@ bool initialize_main_thread() {
 }
 
 bool restore_minimal_fork_child() {
-  long tid = syscall_impl(SYS_gettid);
-  if (!self.attrib || tid <= 0 || tid > cpp::numeric_limits<int>::max())
+  if (!self.attrib || self.attrib->tid <= 0)
     return false;
-  self.attrib->tid = int(tid);
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   auto *control = mmix::current_control;
   if (!control || self.attrib != &control->attributes)
@@ -83,16 +100,10 @@ bool restore_minimal_fork_child() {
   control->cancellation_point.store(nullptr);
   control->cancellation_transfer.store(0);
   control->credential_pending.store(0);
-  control->clear_tid.value.store(UINT32_MAX);
-#ifdef LIBC_MMIX_ROBUST_MUTEX
-  if (mmix::reset_robust_list_after_fork())
-    return false;
-#endif
-  if (syscall_impl(SYS_set_tid_address,
-                   reinterpret_cast<long>(&control->clear_tid.value.val)) != tid)
-    return false;
-#endif
+  return register_fork_child(*control, RobustInheritance::Discard);
+#else
   return true;
+#endif
 }
 
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE
@@ -104,14 +115,7 @@ bool restore_main_thread_after_fork() {
     return false;
   // No peer, reaper or creation reservation has ever existed. All pointers and
   // unlocked runtime objects remain valid in the copied address space.
-  control->clear_tid.value.store(UINT32_MAX, cpp::MemoryOrder::RELAXED);
-#ifdef LIBC_MMIX_ROBUST_MUTEX
-  if (mmix::register_robust_list(true))
-    return false;
-#endif
-  return syscall_impl(SYS_set_tid_address,
-                      reinterpret_cast<long>(&control->clear_tid.value.val)) ==
-         control->attributes.tid;
+  return register_fork_child(*control, RobustInheritance::Preserve);
 }
 
 bool adopt_fork_survivor() {
@@ -121,14 +125,7 @@ bool adopt_fork_survivor() {
     return false;
   active_attributes = self.attrib;
   phase = Phase::Active;
-  control->clear_tid.value.store(UINT32_MAX);
-#ifdef LIBC_MMIX_ROBUST_MUTEX
-  if (mmix::register_robust_list(true))
-    return false;
-#endif
-  return syscall_impl(SYS_set_tid_address,
-                      reinterpret_cast<long>(&control->clear_tid.value.val)) ==
-         control->attributes.tid;
+  return register_fork_child(*control, RobustInheritance::Preserve);
 }
 
 bool activate_main_thread(MainThreadState &state) {

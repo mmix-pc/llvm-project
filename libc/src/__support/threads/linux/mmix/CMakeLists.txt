@@ -14,6 +14,17 @@ add_object_library(
   COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector -fno-lto
 )
 
+add_object_library(
+  fork_transport
+  SRCS fork_transport.cpp
+  HDRS fork_transport.h
+  DEPENDS
+    libc.hdr.types.pid_t libc.hdr.errno_macros libc.hdr.signal_macros
+    libc.src.__support.CPP.limits libc.src.__support.threads.thread_common
+    libc.src.__support.OSUtil.osutil libc.include.sys_syscall
+  COMPILE_OPTIONS -fno-lto
+)
+
 if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
@@ -44,7 +55,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       fork_runtime
       SRCS fork_runtime.cpp atfork_callbacks.cpp
       HDRS fork_runtime.h atfork_callbacks.h
-      DEPENDS .lifecycle .once .main_thread .thread_create .robust_mutex .credentials
+      DEPENDS .lifecycle .once .main_thread .fork_transport .thread_create .robust_mutex .credentials
         libc.src.__support.File.file libc.src.stdlib.environ_internal
         libc.src.stdlib.linux.mmix.allocator libc.src.__support.OSUtil.osutil
         libc.src.stdio.stdin libc.src.stdio.stdout libc.src.stdio.stderr
