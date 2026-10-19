@@ -130,6 +130,7 @@ add_object_library(
   SRCS locks.cpp
   HDRS locks.h
   DEPENDS .mmix.syscall libc.src.__support.CPP.atomic
+    libc.src.__support.OSUtil.linux.fork_recovery
     libc.src.__support.OSUtil.linux.loader_services
     libc.hdr.errno_macros libc.include.sys_syscall
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS} -funwind-tables

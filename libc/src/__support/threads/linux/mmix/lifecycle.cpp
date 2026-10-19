@@ -23,7 +23,7 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
   if (exiting || reservations || process_operation ||
       caller.registry != this || !caller.listed ||
       caller.execution != ThreadExecution::Running || caller.callbacks_started ||
-      caller.fork_child || caller.cancellation_transfer.load() ||
+      !caller.fork_recovery.allows_fork() || caller.cancellation_transfer.load() ||
       caller.cancellation_suppression.load() != suppression ||
       caller.cancellation_point.load()) {
     mutex.value.unlock();
@@ -37,7 +37,10 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
 
 void ThreadRegistry::release_after_fork() { mutex.value.unlock(); }
 
-void ThreadRegistry::restore_fork_child(ThreadControl &survivor) {
+void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
+                                      internal::ForkRecovery recovery) {
+  if (!recovery.is_child())
+    __builtin_trap();
   // Only the survivor exists in this copied address space. Do not traverse or
   // reclaim vanished stacks, copied pins, leases or reaper queue entries.
   head = &survivor;
@@ -46,7 +49,7 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor) {
   live = 1;
   exiting = process_cleanup_claimed = process_operation = false;
   main_registered = creation_started = true;
-  exec_child = true;
+  fork_recovery = recovery;
   survivor.registry = this;
   survivor.next = survivor.reap_next = nullptr;
   survivor.queued = survivor.creator_pin = survivor.leases_open = false;
@@ -56,7 +59,7 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor) {
   survivor.api_pins = survivor.leases = 0;
   survivor.owner = ThreadOwner::Joinable;
   survivor.execution = ThreadExecution::Running;
-  survivor.fork_child = true;
+  survivor.fork_recovery = recovery;
   event.value.store(0);
   RawMutex::init(&mutex.value);
 }
@@ -84,7 +87,8 @@ uint32_t ThreadRegistryLock::sequence() {
 }
 
 bool ThreadRegistryLock::reserve() {
-  if (registry.exiting || registry.process_operation || registry.exec_child ||
+  if (registry.exiting || registry.process_operation ||
+      !registry.fork_recovery.allows_thread_creation() ||
       registry.reservations == SIZE_MAX)
     return false;
   registry.creation_started = true;
@@ -94,7 +98,8 @@ bool ThreadRegistryLock::reserve() {
 }
 
 bool ThreadRegistryLock::begin_helper_creation() {
-  if (registry.exiting || registry.process_operation || registry.exec_child)
+  if (registry.exiting || registry.process_operation ||
+      !registry.fork_recovery.allows_thread_creation())
     return false;
   registry.creation_started = true;
   return true;

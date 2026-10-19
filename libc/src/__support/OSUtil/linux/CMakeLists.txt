@@ -16,6 +16,12 @@ add_header_library(
   DEPENDS libc.hdr.stdint_proxy libc.src.__support.macros.config
 )
 
+add_header_library(
+  fork_recovery
+  HDRS fork_recovery.h
+  DEPENDS libc.src.__support.macros.config
+)
+
 add_object_library(
   linux_util
   SRCS

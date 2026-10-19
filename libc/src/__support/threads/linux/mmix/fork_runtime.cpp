@@ -40,7 +40,7 @@ ForkOperation::ForkOperation() {
     return;
   }
   caller = current_control;
-  if (!caller || caller->fork_child) {
+  if (!caller || !caller->fork_recovery.allows_fork()) {
     error_code = ENOTSUP;
     return;
   }
@@ -109,6 +109,7 @@ int ForkOperation::freeze_registry() {
   registry = thread_registry.freeze_for_fork(*caller, 1, &single_thread);
 #ifdef LIBC_MMIX_SHARED_STARTUP
   resume_loader &= single_thread;
+  child_recovery = internal::ForkRecovery::child(single_thread, resume_loader);
 #endif
   return registry ? 0 : EAGAIN;
 }
@@ -116,7 +117,7 @@ int ForkOperation::freeze_registry() {
 void ForkOperation::restore_runtime(bool child) {
   if (registry) {
     if (child)
-      thread_registry.restore_fork_child(*caller);
+      thread_registry.restore_fork_child(*caller, child_recovery);
     else
       thread_registry.release_after_fork();
     registry = false;
@@ -162,7 +163,7 @@ void ForkOperation::restore_runtime(bool child) {
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (loader_locked) {
-    finish_loader_fork(child, resume_loader);
+    finish_loader_fork(child, child_recovery.allows_loader());
     loader_locked = false;
   }
 #endif

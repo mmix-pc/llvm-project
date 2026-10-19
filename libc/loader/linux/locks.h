@@ -12,6 +12,7 @@
 
 #include "hdr/stdint_proxy.h"
 #include "src/__support/CPP/atomic.h"
+#include "src/__support/OSUtil/linux/fork_recovery.h"
 #include "src/__support/OSUtil/linux/loader_services.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -32,7 +33,7 @@ class LoaderLocks {
   cpp::Atomic<uint64_t> sessions{0};
   bool fork_quiescent = false; // Protected by the fork mutation guard.
   // Only the surviving child writes this, before callbacks/signals resume.
-  bool fork_child = false;
+  internal::ForkRecovery fork_recovery;
 
 public:
   // The libc fork owner already masks signals and suppresses cancellation.
@@ -63,16 +64,16 @@ public:
     // A callback boundary must retain mutation serialization and cancellation
     // suppression, but never a short registry/arena guard.
     long callback_owner() const {
-      return !failure && !locks.fork_child && suppressed && top &&
-                     rank == Kind::Mutation
+      return !failure && locks.fork_recovery.allows_loader() && suppressed &&
+                     top && rank == Kind::Mutation
                  ? tid
                  : 0;
     }
     // Detached plans retain their code explicitly and invoke outside all
     // loader guards, including a mutation guard held by an outer session.
     long unlocked_callback_owner() const {
-      return !failure && !locks.fork_child && suppressed && !top &&
-                     rank == Kind::None &&
+      return !failure && locks.fork_recovery.allows_loader() && suppressed &&
+                     !top && rank == Kind::None &&
                      locks.mutation_owner.load() != tid
                  ? tid
                  : 0;

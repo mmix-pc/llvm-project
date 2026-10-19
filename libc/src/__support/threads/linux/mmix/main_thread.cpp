@@ -82,7 +82,8 @@ bool restore_main_thread_after_fork() {
 
 bool adopt_fork_survivor() {
   auto *control = mmix::current_control;
-  if (!control || self.attrib != &control->attributes || !control->fork_child)
+  if (!control || self.attrib != &control->attributes ||
+      !control->fork_recovery.is_child())
     return false;
   active_attributes = self.attrib;
   phase = Phase::Active;

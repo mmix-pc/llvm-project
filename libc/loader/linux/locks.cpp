@@ -41,7 +41,7 @@ void LoaderLocks::Mutex::unlock() {
 
 LoaderLocks::Session::Session(LoaderLocks &owner, LoaderCancellation hooks)
     : locks(owner), cancellation(hooks) {
-  if (locks.fork_child) {
+  if (!locks.fork_recovery.allows_loader()) {
     failure = -ENOTSUP;
     return;
   }
@@ -63,7 +63,7 @@ LoaderLocks::Session::Session(LoaderLocks &owner, LoaderCancellation hooks)
 long LoaderLocks::prepare_fork(bool *quiescent) {
   if (quiescent)
     *quiescent = false;
-  if (fork_child)
+  if (!fork_recovery.allows_loader())
     return -ENOTSUP;
   long tid = raw_syscall(SYS_gettid);
   if (tid <= 0)
@@ -95,7 +95,7 @@ void LoaderLocks::finish_fork(bool child, bool resume) {
       __builtin_trap();
     // Without a quiescent single-thread snapshot, retain the exec/_exit-only
     // boundary. Never clear copied tickets or readers to manufacture safety.
-    fork_child = !resume;
+    fork_recovery = internal::ForkRecovery::child(resume, fork_quiescent);
     // The copied wait queues name vanished threads. Do not wake/unlock them.
     arena.reset_after_fork();
     registry.reset_after_fork();
@@ -121,7 +121,7 @@ LoaderLocks::Guard::Guard(Session &scope, Kind requested)
       failure(scope.error()) {
   if (failure)
     return;
-  if (session.locks.fork_child) {
+  if (!session.locks.fork_recovery.allows_loader()) {
     failure = -ENOTSUP;
     return;
   }

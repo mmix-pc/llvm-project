@@ -21,6 +21,18 @@
 
 using namespace LIBC_NAMESPACE::loader;
 using LIBC_NAMESPACE::cpp::Atomic;
+using LIBC_NAMESPACE::internal::ForkRecovery;
+static_assert(!ForkRecovery().is_child());
+static_assert(ForkRecovery().allows_fork());
+static_assert(ForkRecovery().allows_thread_creation());
+static_assert(ForkRecovery().allows_loader());
+static_assert(!ForkRecovery::child().allows_loader());
+static_assert(!ForkRecovery::child(true, false).allows_loader());
+static_assert(!ForkRecovery::child(false, true).allows_loader());
+static_assert(ForkRecovery::child(true, true).allows_loader());
+static_assert(ForkRecovery::child(true, true).is_child());
+static_assert(!ForkRecovery::child(true, true).allows_fork());
+static_assert(!ForkRecovery::child(true, true).allows_thread_creation());
 static thread_local unsigned disabled;
 static thread_local long wait_error, enter_error;
 static thread_local bool pending;

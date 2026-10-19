@@ -16,6 +16,7 @@ class ForkOperation {
   uint64_t saved_mask = 0;
   bool serial = false, masked = false, suppressed = false;
   bool priority = false, streams = false, allocator = false, registry = false;
+  internal::ForkRecovery child_recovery = internal::ForkRecovery::child();
 #ifdef LIBC_MMIX_SHARED_STARTUP
   bool loader_locked = false;
   bool resume_loader = false;

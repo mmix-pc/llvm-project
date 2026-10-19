@@ -126,6 +126,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     HDRS lifecycle.h unwind_root.h cancellation_state.h
     DEPENDS
       .tls_h
+      libc.src.__support.OSUtil.linux.fork_recovery
       libc.src.__support.threads.raw_mutex
       libc.src.__support.threads.thread_attributes
       libc.hdr.errno_macros

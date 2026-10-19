@@ -11,6 +11,7 @@
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_LIFECYCLE_H
 
 #include "priority_protection_state.h"
+#include "src/__support/OSUtil/linux/fork_recovery.h"
 #ifdef LIBC_MMIX_SHARED_STARTUP
 #include "src/__support/OSUtil/linux/loader_services.h"
 #endif
@@ -75,7 +76,7 @@ struct ThreadControl {
   UnwindRoot unwind_root{};
   PriorityProtectionState priority_protection;
   bool apply_scheduling = false;
-  bool fork_child = false;
+  internal::ForkRecovery fork_recovery;
   int scheduling_policy = 0, scheduling_priority = 0;
   CancellationState cancellation;
   cpp::Atomic<CancellationPoint *> cancellation_point{nullptr};
@@ -157,7 +158,7 @@ class ThreadRegistry {
   bool main_registered = false;
   bool creation_started = false;
   bool process_operation = false;
-  bool exec_child = false;
+  internal::ForkRecovery fork_recovery;
 
 public:
   constexpr ThreadRegistry() = default;
@@ -165,7 +166,9 @@ public:
   bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0,
                        bool *single_thread = nullptr);
   void release_after_fork();
-  void restore_fork_child(ThreadControl &survivor);
+  void restore_fork_child(
+      ThreadControl &survivor,
+      internal::ForkRecovery recovery = internal::ForkRecovery::child());
   // Snapshot under ThreadRegistryLock; wait only after releasing it. Callers
   // supply a bounded deadline and recheck predicates even after timeout/wrap.
   ErrorOr<int> wait(uint32_t sequence, Futex::Timeout deadline) {
