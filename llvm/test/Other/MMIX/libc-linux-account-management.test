@@ -4,8 +4,33 @@
 # RUN: not cmake -DSOURCE=%S/../../../.. -DTHREADED=ON -P %t/check.cmake 2>&1 | FileCheck %s --check-prefix=THREAD
 # RUN: not cmake -DSOURCE=%S/../../../.. -DNO_LOOKUP=ON -P %t/check.cmake 2>&1 | FileCheck %s --check-prefix=LOOKUP
 # RUN: %python %t/run.py %S/../../../../libc %t
+# RUN: cmake -DSOURCE=%S/../../../.. -DMODE=SINGLE -P %t/selection.cmake
+# RUN: cmake -DSOURCE=%S/../../../.. -DMODE=PLATFORM -P %t/selection.cmake
 # THREAD: MMIX account management requires single-thread configuration
 # LOOKUP: MMIX account management requires file-backed account queries
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+set(LIBC_TARGET_ARCHITECTURE_IS_MMIX ON)
+set(LIBC_MMIX_ENABLE_STATIC_TLS ON)
+set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_${MODE})
+set(prefix "")
+if(MODE STREQUAL "PLATFORM")
+  set(prefix "mmix/")
+endif()
+include(${SOURCE}/libc/src/unistd/linux/mmix/ProcessOperations.cmake)
+foreach(name setuid setgid seteuid setegid)
+  if(NOT "${${name}_source}" STREQUAL "${prefix}${name}.cpp")
+    message(FATAL_ERROR "wrong ${MODE} credential provider for ${name}")
+  endif()
+endforeach()
+function(add_entrypoint_object name)
+  cmake_parse_arguments(ENTRY "" "" "SRCS;HDRS;DEPENDS" ${ARGN})
+  if(NOT ENTRY_SRCS STREQUAL "${prefix}initgroups.cpp")
+    message(FATAL_ERROR "wrong ${MODE} supplementary-group provider")
+  endif()
+endfunction()
+include(${SOURCE}/libc/src/grp/linux/CMakeLists.txt)
 
 #--- check.cmake
 cmake_minimum_required(VERSION 3.20)
@@ -92,14 +117,11 @@ for opt in ("0", "2"):
 #include "src/unistd/linux/mmix/seteuid.cpp"
 #include "src/unistd/linux/mmix/setegid.cpp"
 static int admission_error;
-static unsigned begins, ends;
 namespace credential_test::mmix {
-int begin_process_operation(ProcessOperationKind kind) {
-  if (kind != ProcessOperationKind::Credentials) __builtin_trap();
-  ++begins;
-  return admission_error;
+long change_credentials(unsigned long number, long first, long second, long third) {
+  if (admission_error) return -admission_error;
+  return __llvm_libc_mmix_syscall(number, first, second, third, 0, 0, 0);
 }
-void end_process_operation() { ++ends; }
 }
 #else
 #include "src/unistd/linux/setuid.cpp"
@@ -113,7 +135,7 @@ void end_process_operation() { ++ends; }
 
 #ifdef TEST_ADMISSION
 // The common group tests exercise real database parsing and allocation. Isolate
-// collection here to verify that the MMIX wrapper never reaches it on rejection.
+// collection here to verify syscall routing and the collected array's lifetime.
 #define LLVM_LIBC_SRC_GRP_SUPPLEMENTARY_GROUPS_H
 static unsigned collections;
 static int collection_error;
@@ -199,9 +221,7 @@ extern "C" int main() {
   before = calls;
   require(initgroups("alice", 7) == -1 && libc_errno == ENOMEM && calls == before);
   collection_error = 0;
-  require(begins == ends);
   before = calls;
-  unsigned released = ends;
   const int admission_errors[] = {ENOTSUP, EINVAL};
   for (int error : admission_errors) {
     admission_error = error;
@@ -211,8 +231,8 @@ extern "C" int main() {
     require(setegid(0) == -1 && libc_errno == error);
     unsigned collected = collections;
     require(initgroups("alice", 7) == -1 && libc_errno == error);
-    require(collections == collected);
-    require(calls == before && ends == released);
+    require(collections == collected + 1);
+    require(calls == before);
   }
 #endif
   return 0;

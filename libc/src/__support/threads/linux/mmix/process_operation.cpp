@@ -21,8 +21,8 @@ int begin_process_operation([[maybe_unused]] ProcessOperationKind kind) {
   if (kind == ProcessOperationKind::ForkOrExec)
     return ENOTSUP;
 #endif
-  // Credential updates neither clone nor replace runtime state. The registry
-  // still excludes creation and permanently rejects admission after it begins.
+  // Legacy process admission excludes creation and rejects its history.
+  // Credential updates use the separate all-task rendezvous.
   uint64_t full = UINT64_MAX, saved = 0;
   long result =
       syscall_impl(SYS_rt_sigprocmask, SIG_BLOCK, reinterpret_cast<long>(&full),

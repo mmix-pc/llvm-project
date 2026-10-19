@@ -10,25 +10,22 @@
 #include "src/__support/OSUtil/linux/syscall_wrappers/setgroups.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
-#include "src/__support/threads/linux/mmix/process_operation.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include "src/grp/supplementary_groups.h"
+#include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, initgroups, (const char *user, gid_t group)) {
-  // FIXME: Replace pre-creation admission with process-wide credential updates.
-  mmix::ProcessOperation operation(mmix::ProcessOperationKind::Credentials);
-  if (operation.error()) {
-    libc_errno = operation.error();
-    return -1;
-  }
   internal::SupplementaryGroups groups;
   if (int error = groups.collect(user, group)) {
     libc_errno = error;
     return -1;
   }
-  auto result = linux_syscalls::setgroups(groups.size, groups.data);
-  if (!result) {
-    libc_errno = result.error();
+  // The array must remain alive until every kernel task acknowledges it.
+  long result = mmix::change_credentials(
+      SYS_setgroups, groups.size, reinterpret_cast<long>(groups.data));
+  if (result < 0) {
+    libc_errno = static_cast<int>(-result);
     return -1;
   }
   return 0;

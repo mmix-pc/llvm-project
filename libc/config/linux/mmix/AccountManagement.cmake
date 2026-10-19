@@ -3,8 +3,8 @@ option(LIBC_MMIX_BUILD_ACCOUNT_MANAGEMENT
 if(NOT LIBC_MMIX_BUILD_ACCOUNT_MANAGEMENT)
   return()
 endif()
-# Credential-changing providers serialize with creation and reject updates
-# after another thread has been created; they do not broadcast credentials.
+# PLATFORM coordinates every task's credentials with creation and departure;
+# SINGLE retains the generic direct syscall providers.
 if(NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_SINGLE" AND
    NOT LIBC_MMIX_BUILD_THREADED_LIBC)
   message(FATAL_ERROR "MMIX account management requires single-thread configuration")

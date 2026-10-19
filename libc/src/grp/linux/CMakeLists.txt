@@ -1,9 +1,10 @@
 set(initgroups_source initgroups.cpp)
 set(initgroups_platform_deps)
-if(LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX AND
+   LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_PLATFORM")
   set(initgroups_source mmix/initgroups.cpp)
   list(APPEND initgroups_platform_deps
-    libc.src.__support.threads.linux.mmix.process_operation_h)
+    libc.src.__support.threads.linux.mmix.credentials)
 endif()
 
 add_entrypoint_object(

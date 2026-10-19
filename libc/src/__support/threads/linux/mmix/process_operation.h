@@ -27,8 +27,9 @@ inline int begin_process_operation(
 inline void end_process_operation() {}
 #endif
 
-// FIXME: Replace pre-creation-only admission with coordinated fork/credential
-// handling. No registry lock is held across callbacks, syscalls or child entry.
+// FIXME: Migrate remaining legacy process operations to coordinated admission.
+// Credential providers use their separate rendezvous, not this history gate.
+// No registry lock is held across callbacks, syscalls or child entry.
 class ProcessOperation {
   int error_code;
 

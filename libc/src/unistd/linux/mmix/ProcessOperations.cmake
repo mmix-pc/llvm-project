@@ -9,5 +9,5 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS AND
     set(${name}_source mmix/${name}.cpp)
   endforeach()
   set(mmix_credential_dependencies
-    libc.src.__support.threads.linux.mmix.process_operation_h)
+    libc.src.__support.threads.linux.mmix.credentials)
 endif()
