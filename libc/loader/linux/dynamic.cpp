@@ -17,10 +17,11 @@ namespace loader {
 DynamicInfo::DynamicInfo() { clear(); }
 
 static Address integer(const unsigned char *p, unsigned width, bool big) {
-  Address value = 0;
-  for (unsigned i = 0; i < width; ++i)
-    value = (value << 8) | p[big ? i : width - 1 - i];
-  return value;
+  if (width == 2)
+    return read_elf_integer<Elf64_Half>(p, big);
+  if (width == 4)
+    return read_elf_integer<Elf64_Word>(p, big);
+  return read_elf_integer<Address>(p, big);
 }
 
 static unsigned slot(DynamicTag tag) { return static_cast<unsigned>(tag); }
@@ -93,6 +94,9 @@ bool DynamicInfo::read_symbol(Address index, Elf64_Sym &out) const {
   if (index >= symbols.size() / 24)
     return false;
   const auto *p = symbols.data() + index * 24;
+  static_assert(sizeof(out) == 24);
+  if (copy_native_record(p, big, out))
+    return true;
   out.st_name = static_cast<Elf64_Word>(integer(p, 4, big));
   out.st_info = p[4];
   out.st_other = p[5];
@@ -106,6 +110,9 @@ bool DynamicInfo::read_relocation(Address index, DynamicRelocation &out) const {
   if (index >= relas.size() / 24)
     return false;
   const auto *p = relas.data() + index * 24;
+  static_assert(sizeof(out) == 24);
+  if (copy_native_record(p, big, out))
+    return true;
   out.offset = integer(p, 8, big);
   out.info = integer(p + 8, 8, big);
   out.addend = integer(p + 16, 8, big);
@@ -471,7 +478,7 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
   if ((!any_rela && has(DynamicTag::Relacount)) ||
       val(DynamicTag::Relacount) > relas.size() / 24)
     return DynamicError::Relocation;
-  Address highest_destination = 0;
+  Address highest_destination = 0, sorted_count = 0;
   // A Bloom filter can prove that neither octa touched by a destination has
   // appeared before. Collisions only select the exact check below. Keep storage
   // bounded and allocation-free for bootstrap and untrusted relocation tables.
@@ -532,7 +539,22 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
     if (i && (r.offset < highest_destination ||
               r.offset - highest_destination < 8) &&
         (visit(first_block, false) || visit(last_block, false))) {
-      for (Address j = 0; j < i; ++j) {
+      // Linkers commonly sort a large RELATIVE prefix, followed by symbolic
+      // destinations. Search that admitted prefix instead of rescanning it
+      // on every filter collision; arbitrary suffix order is still accepted.
+      Address first = 0, last = sorted_count;
+      while (first < last) {
+        Address middle = first + (last - first) / 2;
+        DynamicRelocation previous;
+        (void)read_relocation(middle, previous);
+        if (overlaps(r.offset, previous.offset, 8))
+          return DynamicError::Relocation;
+        if (previous.offset < r.offset)
+          first = middle + 1;
+        else
+          last = middle;
+      }
+      for (Address j = sorted_count; j < i; ++j) {
         DynamicRelocation previous;
         if (!read_relocation(j, previous) ||
             overlaps(r.offset, previous.offset, 8))
@@ -541,6 +563,8 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
     }
     visit(first_block, true);
     visit(last_block, true);
+    if (sorted_count == i && (!i || r.offset >= highest_destination))
+      ++sorted_count;
     if (!i || r.offset > highest_destination)
       highest_destination = r.offset;
   }
@@ -572,9 +596,10 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
 DynamicError DynamicInfo::open(const ElfImage &image, DynamicInfo &out) {
   out.clear();
   DynamicError error = out.parse(image);
-  if (error == DynamicError::None)
+  if (error == DynamicError::None) {
     out.valid = true;
-  else
+    out.source = &image;
+  } else
     out.clear();
   return error;
 }

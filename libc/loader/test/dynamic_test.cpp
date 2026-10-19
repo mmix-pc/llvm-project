@@ -27,6 +27,9 @@ extern "C" int main() {
   CHECK(ElfImage::open_file(f.view(), ImageRole::SharedObject, bias, page,
                             image) == ElfError::None);
   CHECK(DynamicInfo::open(image, info) == DynamicError::None);
+  CHECK(info.is_for(image));
+  ElfImage other_image = image;
+  CHECK(!info.is_for(other_image));
   CHECK(info.symbol_count() == 2 && info.needed_count() == 2 &&
         info.relocation_count() == 2);
   Bytes name;
@@ -76,6 +79,23 @@ extern "C" int main() {
   }
 
   // Permuted disjoint destinations and a late, non-neighbor collision.
+  for (unsigned invalid = 0; invalid != 4; ++invalid) {
+    DynamicFixture input;
+    input.put(ph(1, 32), 8, page);
+    input.put(ph(3, 40), 8, 0x100000);
+    input.set(DT_RELASZ, 65 * 24);
+    for (unsigned i = 0; i < 65; ++i) {
+      Address offset = i < 64 ? 0x10000 + i * 16 : 0x8000;
+      if (i == 64 && invalid)
+        offset = 0x10000 + (invalid == 1 ? 0 : invalid == 2 ? 32 : 63) * 16 + 7;
+      input.put(0xb00 + i * 24, 8, offset);
+      input.put(0xb08 + i * 24, 8, 41);
+    }
+    CHECK(ElfImage::open_file(input.view(), ImageRole::SharedObject, bias,
+                             page, image) == ElfError::None);
+    CHECK(DynamicInfo::open(image, info) ==
+          (invalid ? DynamicError::Relocation : DynamicError::None));
+  }
   for (unsigned invalid = 0; invalid != 3; ++invalid) {
     DynamicFixture input;
     input.put(ph(1, 32), 8, page);

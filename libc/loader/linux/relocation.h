@@ -33,18 +33,27 @@ struct StartupRelocationResult {
 using RelocationValue = StartupRelocationError (*)(void *, size_t,
                                                    const DynamicRelocation &,
                                                    Address &);
+struct RelocationWrite {
+  unsigned char *destination;
+  Address value;
+  bool relative;
+};
 // Reuse whole-batch preflight and RELATIVE-first writes with a caller-owned
 // binding policy. The callback must be deterministic and allocation-free.
+// Optional scratch has one entry per relocation and must not alias the images.
+// It retains preflight results, avoiding a second symbol-resolution pass.
 StartupRelocationResult
 relocate_objects(cpp::span<const SymbolObject> objects,
                  cpp::span<const cpp::span<const WritableRegion>> writable,
-                 RelocationValue resolve, void *context);
+                 RelocationValue resolve, void *context,
+                 cpp::span<RelocationWrite> scratch = {});
 
 class RelocatedTLS;
 StartupRelocationResult
 relocate_startup_tls(cpp::span<const SymbolObject> objects,
                      cpp::span<const cpp::span<const WritableRegion>> writable,
-                     const StartupTLSSet &layout, RelocatedTLS &out);
+                     const StartupTLSSet &layout, RelocatedTLS &out,
+                     cpp::span<RelocationWrite> scratch = {});
 
 // Borrows immutable descriptors and mapped images. Only complete whole-scope
 // relocation grants template-copy readiness; no startup/TP publication occurs.
@@ -53,7 +62,7 @@ class RelocatedTLS {
   friend StartupRelocationResult relocate_startup_tls(
       cpp::span<const SymbolObject>,
       cpp::span<const cpp::span<const WritableRegion>>, const StartupTLSSet &,
-      RelocatedTLS &);
+      RelocatedTLS &, cpp::span<RelocationWrite>);
 
 public:
   const StartupTLSSet *modules() const { return ready; }
@@ -65,7 +74,8 @@ public:
 // execution, protection changes or interpreter self-relocation is permitted.
 StartupRelocationResult
 relocate_startup(cpp::span<const SymbolObject> objects,
-                 cpp::span<const cpp::span<const WritableRegion>> writable);
+                 cpp::span<const cpp::span<const WritableRegion>> writable,
+                 cpp::span<RelocationWrite> scratch = {});
 
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

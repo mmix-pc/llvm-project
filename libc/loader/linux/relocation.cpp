@@ -32,8 +32,36 @@ static unsigned char *destination(const ElfImage &image,
   return nullptr;
 }
 
+// Bounded, transaction-local memoization. Scope snapshots are shared by readers
+// and must remain immutable; only this relocation call owns the cache.
+class RelocationSymbols {
+  const StartupSymbols &symbols;
+  struct Entry {
+    size_t requester = 0;
+    Address index = 0;
+    SymbolValue value;
+  } entries[64];
+
+public:
+  explicit RelocationSymbols(const StartupSymbols &symbols) : symbols(symbols) {}
+  SymbolError resolve(size_t requester, Address index, SymbolValue &out) {
+    auto &entry = entries[(index ^ requester) % 64];
+    if (index && entry.index == index && entry.requester == requester) {
+      __builtin_memcpy_inline(&out, &entry.value, sizeof(out));
+      return SymbolError::None;
+    }
+    SymbolError error = symbols.resolve(requester, index, out);
+    if (error == SymbolError::None) {
+      entry.requester = requester;
+      entry.index = index;
+      __builtin_memcpy_inline(&entry.value, &out, sizeof(out));
+    }
+    return error;
+  }
+};
+
 static StartupRelocationError value(const SymbolObject &object,
-                                    const StartupSymbols &symbols, size_t index,
+                                    RelocationSymbols &symbols, size_t index,
                                     const DynamicRelocation &r, Address &out,
                                     const StartupTLSSet *tls) {
   if (is_tls_relocation(r.info)) {
@@ -71,9 +99,11 @@ static StartupRelocationError value(const SymbolObject &object,
 StartupRelocationResult
 relocate_objects(cpp::span<const SymbolObject> objects,
                  cpp::span<const cpp::span<const WritableRegion>> writable,
-                 RelocationValue resolve, void *context) {
+                 RelocationValue resolve, void *context,
+                 cpp::span<RelocationWrite> scratch) {
   if (objects.size() != writable.size() || !resolve)
     return {StartupRelocationError::Image, 0, 0};
+  size_t used = 0;
   for (size_t i = 0; i < objects.size(); ++i) {
     const auto &object = objects[i];
     if (!object.image || !object.metadata || !object.image->is_mapped() ||
@@ -89,12 +119,35 @@ relocate_objects(cpp::span<const SymbolObject> objects,
       Address resolved;
       if (!object.metadata->relocation(j, r))
         return {StartupRelocationError::Metadata, i, j};
-      if (!destination(*object.image, writable[i], r.offset))
+      auto *target = destination(*object.image, writable[i], r.offset);
+      if (!target)
         return {StartupRelocationError::Destination, i, j};
       auto error = resolve(context, i, r, resolved);
       if (error != StartupRelocationError::None)
         return {error, i, j};
+      if (!scratch.empty()) {
+        if (used == scratch.size())
+          return {StartupRelocationError::Image, i, j};
+        scratch[used++] = {target, resolved, is_relative_relocation(r.info)};
+      }
     }
+  }
+  if (!scratch.empty()) {
+    for (unsigned phase = 0; phase < 2; ++phase)
+      for (const auto &write : scratch.first(used)) {
+        if (write.relative != (phase == 0))
+          continue;
+        Address encoded = write.value;
+        if constexpr (__BYTE_ORDER__ != __ORDER_BIG_ENDIAN__)
+          encoded = __builtin_bswap64(encoded);
+        if (!(reinterpret_cast<uintptr_t>(write.destination) % 8))
+          __builtin_memcpy_inline(
+              __builtin_assume_aligned(write.destination, 8), &encoded,
+              sizeof(encoded));
+        else
+          __builtin_memcpy_inline(write.destination, &encoded, sizeof(encoded));
+      }
+    return {StartupRelocationError::None, 0, 0};
   }
   // Metadata cannot overlap destinations, so resolving again is safe after
   // preflight. All objects' RELATIVE writes precede every symbolic write.
@@ -122,35 +175,38 @@ relocate_objects(cpp::span<const SymbolObject> objects,
 static StartupRelocationResult
 relocate(cpp::span<const SymbolObject> objects,
          cpp::span<const cpp::span<const WritableRegion>> writable,
-         const StartupTLSSet *tls) {
+         const StartupTLSSet *tls, cpp::span<RelocationWrite> scratch = {}) {
   StartupSymbols symbols;
   if (StartupSymbols::open(objects, symbols, tls != nullptr) !=
       SymbolError::None)
     return {StartupRelocationError::Image, 0, 0};
+  RelocationSymbols cached(symbols);
   struct Context {
     cpp::span<const SymbolObject> objects;
-    const StartupSymbols &symbols;
+    RelocationSymbols &symbols;
     const StartupTLSSet *tls;
-  } context{objects, symbols, tls};
+  } context{objects, cached, tls};
   return relocate_objects(
       objects, writable,
       [](void *opaque, size_t i, const DynamicRelocation &r, Address &out) {
         auto &c = *static_cast<Context *>(opaque);
         return value(c.objects[i], c.symbols, i, r, out, c.tls);
       },
-      &context);
+      &context, scratch);
 }
 
 StartupRelocationResult
 relocate_startup(cpp::span<const SymbolObject> objects,
-                 cpp::span<const cpp::span<const WritableRegion>> writable) {
-  return relocate(objects, writable, nullptr);
+                 cpp::span<const cpp::span<const WritableRegion>> writable,
+                 cpp::span<RelocationWrite> scratch) {
+  return relocate(objects, writable, nullptr, scratch);
 }
 
 StartupRelocationResult
 relocate_startup_tls(cpp::span<const SymbolObject> objects,
                      cpp::span<const cpp::span<const WritableRegion>> writable,
-                     const StartupTLSSet &layout, RelocatedTLS &out) {
+                     const StartupTLSSet &layout, RelocatedTLS &out,
+                     cpp::span<RelocationWrite> scratch) {
   out.ready = nullptr;
   if (objects.empty() || layout.generation != 1 || !layout.modules ||
       layout.module_count != objects.size())
@@ -185,7 +241,7 @@ relocate_startup_tls(cpp::span<const SymbolObject> objects,
   if (layout.tp_alignment != alignment || layout.tls_extent != cursor ||
       alignment - 1 > ~Address(0) - cursor)
     return {StartupRelocationError::Value, 0, 0};
-  auto result = relocate(objects, writable, &layout);
+  auto result = relocate(objects, writable, &layout, scratch);
   if (result.error == StartupRelocationError::None)
     out.ready = &layout;
   return result;

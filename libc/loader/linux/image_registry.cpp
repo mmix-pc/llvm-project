@@ -279,6 +279,8 @@ long ImageRegistry::prepare(Transaction &transaction,
           return -EEXIST;
     if (!discovery.empty()) {
       const auto &info = discovery[i];
+      if (info.metadata && !info.metadata->is_for(*image))
+        return -EINVAL;
       if ((!info.path.empty() && info.path[0] != '/') ||
           (info.parent != ~size_t(0) && info.parent >= old_count + i))
         return -EINVAL;
@@ -361,8 +363,12 @@ long ImageRegistry::prepare(Transaction &transaction,
     tls[i].module_id = first + i;
     tls[i].generation = generation;
     DynamicInfo dynamic;
-    bool nodelete = DynamicInfo::open(*images[i], dynamic) == DynamicError::None &&
-                    (dynamic.value(DynamicTag::Flags1) & DF_1_NODELETE);
+    if (!discovery.empty() && discovery[i].metadata) {
+      __builtin_memcpy_inline(&dynamic, discovery[i].metadata, sizeof(dynamic));
+    } else {
+      (void)DynamicInfo::open(*images[i], dynamic);
+    }
+    bool nodelete = dynamic.value(DynamicTag::Flags1) & DF_1_NODELETE;
     new (records + i) Image{*images[i], tls[i], !current,
                            {tls[i].module_id, tls[i].generation,
                             !current || nodelete, ~uint64_t(0), events}};

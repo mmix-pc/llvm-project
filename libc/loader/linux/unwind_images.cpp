@@ -43,10 +43,8 @@ static bool add_signed(Address base, Address raw, unsigned width,
 }
 
 static Address word(Bytes bytes, size_t at, unsigned width, bool big_endian) {
-  Address value = 0;
-  for (unsigned i = 0; i < width; ++i)
-    value = (value << 8) | bytes[at + (big_endian ? i : width - 1 - i)];
-  return value;
+  return width == 4 ? read_elf_integer<Elf64_Word>(bytes.data() + at, big_endian)
+                    : read_elf_integer<Address>(bytes.data() + at, big_endian);
 }
 
 static bool valid_index(const ElfImage &image, const Elf64_Phdr &header) {
@@ -128,18 +126,36 @@ long StartupUnwindImages::prepare(cpp::span<const ElfImage *const> images,
     return EBUSY;
   if (images.empty() || images.size() > __SIZE_MAX__ / sizeof(Record))
     return EINVAL;
-  // Validate the whole immutable scope before allocating registry storage.
+  // Build unpublished records once. The caller owns arena rollback on failure;
+  // no partial set becomes visible through records or publish().
+  void *storage;
+  long error =
+      arena.allocate(images.size() * sizeof(Record), alignof(Record), storage);
+  if (error)
+    return -error;
+  auto *result = static_cast<Record *>(storage);
   for (size_t i = 0; i < images.size(); ++i) {
-    if (!images[i] ||
+    if (!images[i] || !images[i]->header() ||
         (i == 0 ? images[i]->role() != ImageRole::MainExecutable &&
                       images[i]->role() != ImageRole::MainPIE
                 : images[i]->role() != ImageRole::SharedObject &&
                       images[i]->role() != ImageRole::Interpreter))
       return EINVAL;
-    UnwindImageView view;
-    long error = describe(*images[i], view, nullptr);
+    auto *record = new (result + i) Record;
+    record->image = images[i];
+    // Each readable range comes from one program header. Allocate an upper
+    // bound so describing the image need not revalidate the unwind index.
+    error = arena.allocate(images[i]->header()->e_phnum *
+                               sizeof(UnwindReadableRange),
+                           alignof(UnwindReadableRange), storage);
+    if (error)
+      return -error;
+    error = describe(*images[i], record->view,
+                     static_cast<UnwindReadableRange *>(storage));
     if (error)
       return error;
+    record->view.readable_ranges = reinterpret_cast<Address>(storage);
+    record->view.token = reinterpret_cast<Address>(record);
     // Disjoint LOAD ownership makes containing-image selection unambiguous.
     for (size_t j = 0; j < i; ++j)
       for (unsigned a = 0; a < images[i]->header()->e_phnum; ++a) {
@@ -158,26 +174,6 @@ long StartupUnwindImages::prepare(cpp::span<const ElfImage *const> images,
             return ENOEXEC;
         }
       }
-  }
-  void *storage;
-  long error =
-      arena.allocate(images.size() * sizeof(Record), alignof(Record), storage);
-  if (error)
-    return -error;
-  auto *result = static_cast<Record *>(storage);
-  for (size_t i = 0; i < images.size(); ++i) {
-    auto *record = new (result + i) Record;
-    record->image = images[i];
-    (void)describe(*images[i], record->view, nullptr);
-    error =
-        arena.allocate(record->view.range_count * sizeof(UnwindReadableRange),
-                       alignof(UnwindReadableRange), storage);
-    if (error)
-      return -error;
-    (void)describe(*images[i], record->view,
-                   static_cast<UnwindReadableRange *>(storage));
-    record->view.readable_ranges = reinterpret_cast<Address>(storage);
-    record->view.token = reinterpret_cast<Address>(record);
   }
   records = {result, images.size()};
   return 0;

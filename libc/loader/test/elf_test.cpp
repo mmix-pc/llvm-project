@@ -22,6 +22,25 @@ using namespace loader_test;
   } while (false)
 
 extern "C" int main() {
+  alignas(8) unsigned char words[16];
+  const bool byte_orders[] = {false, true};
+  for (bool big : byte_orders) {
+    for (unsigned offset = 0; offset < 8; ++offset) {
+      constexpr Address value = 0x123456789abcdef0;
+      for (unsigned i = 0; i < 8; ++i)
+        words[offset + i] =
+            static_cast<unsigned char>(value >> (8 * (big ? 7 - i : i)));
+      CHECK(read_elf_integer<Address>(words + offset, big) == value);
+      CHECK(read_elf_integer<Elf64_Word>(words + offset, big) ==
+            (big ? 0x12345678u : 0x9abcdef0u));
+      CHECK(read_elf_integer<Elf64_Half>(words + offset, big) ==
+            (big ? 0x1234u : 0xdef0u));
+      Address copy = 0;
+      bool native = copy_native_record(words + offset, big, copy);
+      CHECK(native == (!offset && big == (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)));
+      CHECK(copy == (native ? value : 0));
+    }
+  }
   ElfImage image;
   const ImageRole roles[] = {ImageRole::MainExecutable, ImageRole::MainPIE,
                              ImageRole::Interpreter, ImageRole::SharedObject};
@@ -234,6 +253,38 @@ extern "C" int main() {
   CHECK(ElfImage::open_file(Bytes(unaligned + 1, sizeof(f.bytes)),
                             ImageRole::MainPIE, bias, page,
                             image) == ElfError::None);
+
+  // Copies own their decoded layout; reopening/resetting one view cannot
+  // affect another. Revalidation must still detect changed borrowed headers.
+  ElfImage copy(image);
+  image.reset();
+  Address address;
+  CHECK(!image.runtime_address(0x2000, 4, PF_X, address));
+  CHECK(copy.runtime_address(0x2000, 4, PF_X, address));
+  CHECK(address == bias + 0x2000);
+  CHECK(copy.file_backed_bytes(0x5000, 1).empty());
+  CHECK(ElfImage::open_file(f.view(), ImageRole::MainPIE, bias, page, image) ==
+        ElfError::None);
+  f.put(ph(2, 4), 4, PF_R);
+  CHECK(image.revalidate_layout(page) == ElfError::Entry);
+  f.put(ph(2, 4), 4, PF_R | PF_X);
+  CHECK(image.revalidate_layout(page) == ElfError::None);
+
+  // A larger valid layout must use the same coverage rules, not become an
+  // unsupported input when it exceeds the bounded fast-path storage.
+  Fixture many;
+  many.put(56, 2, 10);
+  many.segment(0, PT_PHDR, PF_R, 64, 64, 10 * 56, 10 * 56, 8);
+  many.segment(8, PT_LOAD, PF_R, 0, 0x6000, 0x1000, page, page);
+  many.segment(9, PT_LOAD, PF_R | PF_W, 0, 0x8000, 0x1000, page, page);
+  CHECK(ElfImage::open_file(many.view(), ImageRole::MainPIE, bias, page,
+                           image) == ElfError::None);
+  CHECK(image.runtime_address(0x8000, 0x2000, PF_W, address));
+  CHECK(address == bias + 0x8000);
+  CHECK(!image.runtime_address(0x6000, 1, PF_W, address));
+  CHECK(image.file_backed_bytes(0x8000, 64).data() == many.bytes);
+  CHECK(image.file_backed_bytes(0x9000, 1).empty());
+
   // Deterministic byte mutations also run under native address/UB sanitizers.
   for (unsigned at = 0; at < 512; ++at) {
     unsigned char saved = f.bytes[at];

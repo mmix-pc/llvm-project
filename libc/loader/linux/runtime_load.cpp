@@ -137,7 +137,8 @@ long RuntimeLoad::prepare_records(const ImageRegistry::Image &caller,
                                                  node.identity(),
                                                  node.path(),
                                                  index(node.load_parent()),
-                                                 {dependencies, edges}};
+                                                 {dependencies, edges},
+                                                 node.metadata()};
     WritableRegion *regions;
     error = allocate(scratch, image.header()->e_phnum, regions);
     if (error)

@@ -68,6 +68,7 @@ class DynamicInfo {
   Bytes dynamic, strings, symbols, relas, sysv, gnu, arrays[3];
   bool big = true, valid = false;
   bool tls_required = false;
+  const ElfImage *source = nullptr;
 
   void clear();
   DynamicError parse(const ElfImage &image);
@@ -83,6 +84,9 @@ public:
   // and their pointer contents are not interpreted until after relocation.
   static DynamicError open(const ElfImage &image, DynamicInfo &out);
   bool is_valid() const { return valid; }
+  // Reuse only for the original immutable image view, not another mapping of
+  // the same file. Copying this metadata does not extend the backing lifetime.
+  bool is_for(const ElfImage &image) const { return valid && source == &image; }
   bool has(DynamicTag tag) const {
     return valid && (seen & (Address(1) << static_cast<unsigned>(tag)));
   }

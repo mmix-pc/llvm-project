@@ -19,6 +19,33 @@ namespace loader {
 using Bytes = cpp::span<const unsigned char>;
 using Address = Elf64_Addr;
 
+// Input bounds belong to the caller. Aligned words can use native loads even
+// when the ELF byte order differs; unaligned input never requires such a load.
+template <typename T>
+inline T read_elf_integer(const unsigned char *data, bool big) {
+  static_assert(sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+  T value;
+  if (!(reinterpret_cast<uintptr_t>(data) % alignof(T))) {
+    __builtin_memcpy_inline(&value,
+                            __builtin_assume_aligned(data, alignof(T)),
+                            sizeof(T));
+    if (big != (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)) {
+      if constexpr (sizeof(T) == 2)
+        value = __builtin_bswap16(value);
+      else if constexpr (sizeof(T) == 4)
+        value = __builtin_bswap32(value);
+      else
+        value = __builtin_bswap64(value);
+    }
+    return value;
+  }
+  value = 0;
+  for (unsigned i = 0; i < sizeof(T); ++i)
+    value = static_cast<T>((value << 8) |
+                          data[big ? i : sizeof(T) - 1 - i]);
+  return value;
+}
+
 enum class ImageRole { MainExecutable, MainPIE, Interpreter, SharedObject };
 enum class ElfError {
   None,
@@ -45,7 +72,20 @@ struct MappedRegion {
   Bytes bytes;
 };
 
-// Byte decoders accept either ELF64 byte order and never cast input to structs.
+// Copy aligned native-order records without aliasing input as a C++ object.
+// Callers establish the byte extent; other inputs use the byte decoders.
+template <typename T>
+inline bool copy_native_record(const unsigned char *data, bool big, T &out) {
+  static_assert(__is_trivially_copyable(T));
+  if (big != (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__) ||
+      reinterpret_cast<uintptr_t>(data) % alignof(T))
+    return false;
+  __builtin_memcpy_inline(&out, __builtin_assume_aligned(data, alignof(T)),
+                          sizeof(T));
+  return true;
+}
+
+// Decoders accept either ELF64 byte order and arbitrary input alignment.
 bool decode_elf_header(Bytes bytes, Elf64_Ehdr &header);
 bool decode_program_header(Bytes bytes, bool big_endian, Elf64_Phdr &header);
 
@@ -62,6 +102,17 @@ class ElfImage {
   bool tls_present = false;
   Elf64_Phdr tls;
   ImageRole image_role = ImageRole::SharedObject;
+
+  // Most images have only a few LOADs. This is an allocation-free query cache,
+  // not an admission limit; larger layouts retain the decoded-table path.
+  struct LoadRange {
+    Address address, file_size, memory_size, offset;
+    unsigned flags;
+  };
+  static constexpr unsigned LOAD_CACHE_SIZE = 4;
+  LoadRange load_cache[LOAD_CACHE_SIZE];
+  unsigned load_count = 0;
+  bool load_cache_ready = false;
 
   Bytes mapped_bytes(Address address, Address size) const;
   bool coverage(Address address, Address size, unsigned flags, bool file_backed,
@@ -80,6 +131,8 @@ public:
     regions = {};
     header_vaddr = table_vaddr = bias = 0;
     mapped = admitted = tls_present = false;
+    load_count = 0;
+    load_cache_ready = false;
   }
   ElfImage(const ElfImage &other) { *this = other; }
   ElfImage &operator=(const ElfImage &other) {
@@ -99,6 +152,10 @@ public:
     if (tls_present)
       __builtin_memcpy_inline(&tls, &other.tls, sizeof(tls));
     image_role = other.image_role;
+    load_count = other.load_count;
+    load_cache_ready = other.load_cache_ready;
+    if (load_cache_ready)
+      __builtin_memcpy_inline(load_cache, other.load_cache, sizeof(load_cache));
     return *this;
   }
   // A failed open invalidates out. ELF metadata must remain unchanged and all

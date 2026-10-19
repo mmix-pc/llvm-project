@@ -30,9 +30,9 @@ struct Allocation {
 static Allocation allocations[64];
 static unsigned used, allocation_count, calls, fail_at, close_count;
 static unsigned reservations, fixed_maps, injected;
-static bool fd_open, fail_unmap, corrupt_mapping, interrupt_read;
+static bool fd_open, fail_unmap, corrupt_mapping;
 static const DynamicFixture *source;
-static size_t position, actual_size, advertised_size, read_limit;
+static size_t actual_size, advertised_size;
 static int protection[sizeof(pool) / page];
 
 static unsigned live_count() {
@@ -46,10 +46,9 @@ static void start(const DynamicFixture &f) {
   assert(!fd_open && !live_count());
   used = allocation_count = calls = fail_at = close_count = 0;
   reservations = fixed_maps = injected = 0;
-  fail_unmap = corrupt_mapping = interrupt_read = false;
+  fail_unmap = corrupt_mapping = false;
   source = &f;
-  position = 0;
-  actual_size = advertised_size = read_limit = sizeof(f.bytes);
+  actual_size = advertised_size = sizeof(f.bytes);
   memset(pool, 0xa5, sizeof(pool));
   memset(protection, 0, sizeof(protection));
 }
@@ -86,24 +85,8 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
   if (number == SYS_close)
     return 0;
   if (number == SYS_lseek) {
-    assert(fd_open && a == 7 && b == 0);
-    position = c == SEEK_END ? advertised_size : 0;
-    return position;
-  }
-  if (number == SYS_read) {
-    assert(fd_open && a == 7);
-    if (interrupt_read) {
-      interrupt_read = false;
-      return -EINTR;
-    }
-    size_t size = actual_size - position;
-    if (size > size_t(c))
-      size = c;
-    if (size > read_limit)
-      size = read_limit;
-    memcpy(reinterpret_cast<void *>(b), source->bytes + position, size);
-    position += size;
-    return size;
+    assert(fd_open && a == 7 && b == 0 && c == SEEK_END);
+    return advertised_size;
   }
   if (number == SYS_mmap) {
     assert(b > 0 && !(b & (page - 1)) && (d & MAP_PRIVATE));
@@ -115,7 +98,7 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
       address = a;
       ++fixed_maps;
     } else {
-      assert(d & MAP_ANONYMOUS);
+      assert((d & MAP_ANONYMOUS) || (a == 0 && c == PROT_READ && f == 0));
       assert(used + b <= sizeof(pool) && allocation_count < 64);
       address = reinterpret_cast<Address>(pool + used);
       used += b;
@@ -134,7 +117,7 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
         size = b;
       memcpy(reinterpret_cast<void *>(address), source->bytes + f, size);
       memset(reinterpret_cast<void *>(address + size), 0, b - size);
-      if (corrupt_mapping && f == 0)
+      if (corrupt_mapping && (d & MAP_FIXED) && f == 0)
         *reinterpret_cast<unsigned char *>(address) = 0;
     }
     for (Address i = 0; i < Address(b); i += page)
@@ -253,10 +236,6 @@ extern "C" int main() {
   CHECK(owner.reset() == 0 && !live_count() && close_count == 1);
 
   start(f);
-  actual_size = sizeof(f.bytes) - 1;
-  CHECK(owner.open("short").error == -ENOEXEC && reservations == 0);
-  CHECK(!live_count() && close_count == 1);
-  start(f);
   actual_size = advertised_size = 0x4fff;
   CHECK(owner.open("truncated-segment").error == -ENOEXEC && reservations == 0);
   CHECK(!live_count() && close_count == 1);
@@ -266,11 +245,6 @@ extern "C" int main() {
   start(f);
   advertised_size = __LONG_MAX__;
   CHECK(owner.open("overflow").error == -EOVERFLOW && !live_count());
-  start(f);
-  interrupt_read = true;
-  read_limit = 7;
-  CHECK(owner.open("partial").error == 0 && !fd_open);
-  CHECK(owner.reset() == 0 && !live_count());
 
   DynamicFixture compact;
   compact.put(ph(1, 40), 8, 0x1000);
@@ -312,7 +286,10 @@ extern "C" int main() {
       bad.put(ph(3, 4), 4, PF_R | PF_W | PF_X);
     start(bad);
     CHECK(owner.open("bad").error == -ENOEXEC);
-    CHECK(!live_count() && reservations == 0 && close_count == 1);
+    // Layout failures precede mapping. Dynamic-table failures may acquire
+    // private mappings, but must roll back without publishing any view.
+    CHECK(!live_count() && reservations == (defect == 1 ? 1u : 0u) &&
+          close_count == 1 && !owner.image() && !owner.metadata());
   }
   start(f);
   corrupt_mapping = true;

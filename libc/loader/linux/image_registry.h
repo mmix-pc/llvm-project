@@ -66,6 +66,9 @@ public:
     Bytes path{};
     size_t parent = ~size_t(0);
     cpp::span<const size_t> dependencies{};
+    // Optional admitted metadata for the exact input ElfImage. The image's
+    // immutable backing must outlive the published registry record.
+    const DynamicInfo *metadata = nullptr;
   };
   struct Snapshot {
     uint64_t generation;

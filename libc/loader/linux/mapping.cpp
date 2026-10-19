@@ -150,22 +150,19 @@ long DsoMapping::populate() {
     return length;
   if (length < 64)
     return -ENOEXEC;
-  long error = raw_syscall(SYS_lseek, fd.get(), 0, SEEK_SET);
-  if (error < 0)
-    return error;
   Address stage_size;
   if (!round_up(length, page_size, stage_size) || stage_size > __LONG_MAX__)
     return -EOVERFLOW;
-  long result = raw_syscall(SYS_mmap, 0, stage_size, PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  // Borrow a read-only file view for preflight instead of copying the entire
+  // DSO, including code and debug sections that validation never reads. The
+  // input-stability requirement is the same as for the final file mappings.
+  long result = raw_syscall(SYS_mmap, 0, stage_size, PROT_READ, MAP_PRIVATE,
+                            fd.get(), 0);
   if (result < 0)
     return result;
   staging.address = result;
   staging.size = stage_size;
   auto *data = reinterpret_cast<unsigned char *>(result);
-  IOResult read = read_bytes(fd.get(), data, length);
-  if (read.error || read.transferred != static_cast<size_t>(length))
-    return read.error ? read.error : -ENOEXEC;
   Bytes file(data, length);
   Elf64_Ehdr header;
   if (!decode_elf_header(file, header) || header.e_phoff > file.size() ||
@@ -197,12 +194,10 @@ long DsoMapping::populate() {
     ++count;
   }
   ElfImage input;
-  DynamicInfo preflight;
   if (!count ||
       ElfImage::open_file(file, ImageRole::SharedObject,
                           first < page_size ? alignment : 0, page_size,
-                          input) != ElfError::None ||
-      DynamicInfo::open(input, preflight) != DynamicError::None)
+                          input) != ElfError::None)
     return -ENOEXEC;
 
   Address size;
@@ -222,14 +217,14 @@ long DsoMapping::populate() {
       bias + first < reservation.address ||
       bias + last > reservation.address + size)
     return -ENOEXEC;
-  // Bias affects symbol and relocation validity as well as segment ranges.
+  // Recheck rebased LOAD ranges. Dynamic metadata is fully validated on the
+  // final mapping below, before publication, relocation or execution.
   if (ElfImage::open_file(file, ImageRole::SharedObject, bias, page_size,
-                          input) != ElfError::None ||
-      DynamicInfo::open(input, preflight) != DynamicError::None)
+                          input) != ElfError::None)
     return -ENOEXEC;
   void *storage;
-  error = arena.allocate(count * sizeof(MappedRegion), alignof(MappedRegion),
-                         storage);
+  long error = arena.allocate(count * sizeof(MappedRegion),
+                             alignof(MappedRegion), storage);
   if (error)
     return error;
   arena_owned = true;

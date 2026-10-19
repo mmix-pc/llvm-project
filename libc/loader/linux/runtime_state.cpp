@@ -72,6 +72,7 @@ long RuntimeState::prepare(const StartupGraph &graph,
   for (i = 0; i < n; ++i) {
     auto &d = discovery[i];
     auto *node = nodes[i];
+    d.metadata = node->metadata();
     if (const auto *id = node->file_identity()) {
       d.identity_known = true;
       d.identity = *id;

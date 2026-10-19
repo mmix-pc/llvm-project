@@ -260,10 +260,14 @@ MapResult StartupGraph::relocate() {
   if (error)
     return {error, reset()};
   auto *writes = static_cast<cpp::span<const WritableRegion> *>(storage);
-  size_t index = 0;
+  size_t index = 0, relocation_count = 0;
   for (Node *node = head; node; node = node->scope_next, ++index) {
     const ElfImage *image = node->image();
     new (objects + index) SymbolObject{image, node->metadata()};
+    if (node->metadata()->relocation_count() >
+        __SIZE_MAX__ / sizeof(RelocationWrite) - relocation_count)
+      return {-EOVERFLOW, reset()};
+    relocation_count += node->metadata()->relocation_count();
     unsigned phnum = image->header()->e_phnum;
     error = arena.allocate(phnum * sizeof(WritableRegion),
                            alignof(WritableRegion), storage);
@@ -301,8 +305,17 @@ MapResult StartupGraph::relocate() {
                        {static_cast<StartupTLSModule *>(storage), count},
                        tls_set) != TLSLayoutError::None)
     return {-ENOEXEC, reset()};
+  storage = nullptr;
+  error = relocation_count
+              ? arena.allocate(relocation_count * sizeof(RelocationWrite),
+                               alignof(RelocationWrite), storage)
+              : 0;
+  if (error)
+    return {error, reset()};
   if (relocate_startup_tls({objects, count}, {writes, count}, tls_set,
-                           tls_ready).error !=
+                           tls_ready,
+                           {static_cast<RelocationWrite *>(storage),
+                            relocation_count}).error !=
       StartupRelocationError::None)
     return {-ENOEXEC, reset()};
   relocated = true;

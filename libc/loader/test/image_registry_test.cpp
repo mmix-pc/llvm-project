@@ -91,6 +91,13 @@ extern "C" int main() {
     ImageRegistry::Discovery discovery[] = {
         {true, {1, 1, 0}, {path, sizeof(path)}, ~size_t(0), edges},
         {true, {2, 1, 0}, {}, 0, {}}};
+    DynamicInfo admitted;
+    discovery[0].metadata = &admitted;
+    check(metadata.prepare(transaction, metadata_images, discovery) == -EINVAL);
+    check(DynamicInfo::open(parent_image, admitted) == DynamicError::None);
+    discovery[1].metadata = &admitted;
+    check(metadata.prepare(transaction, metadata_images, discovery) == -EINVAL);
+    discovery[1].metadata = nullptr;
     unsigned before = mappings;
     check(!metadata.prepare(transaction, metadata_images, discovery));
     unsigned required = mappings - before;

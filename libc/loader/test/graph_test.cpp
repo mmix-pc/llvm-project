@@ -241,7 +241,8 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
       memset(reinterpret_cast<void *>(address), 0, b);
     } else {
       assert(fd_live && e == 7 && f >= 0 && size_t(f) < sizeof(Library::bytes));
-      if (!f)
+      // Count installed image mappings, not temporary read-only file views.
+      if (!f && (d & MAP_FIXED))
         ++mapped_files;
       size_t size = sizeof(Library::bytes) - f;
       if (size > size_t(b))

@@ -27,10 +27,11 @@ static Bytes slice(Bytes bytes, Address offset, Address size) {
 }
 
 static Address integer(const unsigned char *p, unsigned size, bool big) {
-  Address value = 0;
-  for (unsigned i = 0; i < size; ++i)
-    value = (value << 8) | p[big ? i : size - i - 1];
-  return value;
+  if (size == 2)
+    return read_elf_integer<Elf64_Half>(p, big);
+  if (size == 4)
+    return read_elf_integer<Elf64_Word>(p, big);
+  return read_elf_integer<Address>(p, big);
 }
 
 bool decode_elf_header(Bytes bytes, Elf64_Ehdr &h) {
@@ -68,6 +69,9 @@ bool decode_program_header(Bytes bytes, bool big, Elf64_Phdr &h) {
   if (!bytes.data() || bytes.size() < 56)
     return false;
   const auto *p = bytes.data();
+  static_assert(sizeof(h) == 56);
+  if (copy_native_record(p, big, h))
+    return true;
   h.p_type = static_cast<Elf64_Word>(integer(p, 4, big));
   h.p_flags = static_cast<Elf64_Word>(integer(p + 4, 4, big));
   h.p_offset = integer(p + 8, 8, big);
@@ -140,6 +144,25 @@ bool ElfImage::coverage(Address address, Address size, unsigned flags,
   Address end;
   if (!add(address, size, end))
     return false;
+  if (load_cache_ready) {
+    for (unsigned i = 0; i < load_count && address < end; ++i) {
+      const auto &p = load_cache[i];
+      Address length = file_backed ? p.file_size : p.memory_size;
+      if ((p.flags & flags) != flags ||
+          !contains(p.address, length, address, 1))
+        continue;
+      Address delta = address - p.address;
+      if (check_offset && p.offset + delta != offset)
+        return false;
+      Address count = length - delta;
+      if (count > end - address)
+        count = end - address;
+      address += count;
+      if (check_offset && !add(offset, count, offset))
+        return false;
+    }
+    return address == end;
+  }
   for (unsigned i = 0; i < ehdr.e_phnum && address < end; ++i) {
     Elf64_Phdr p;
     if (!read_program_header(i, p))
@@ -263,6 +286,9 @@ ElfError ElfImage::open_mapped(cpp::span<const MappedRegion> mappings,
 }
 
 ElfError ElfImage::validate(ImageRole role, Address page_size) {
+  // Explicit revalidation must inspect borrowed bytes, not an older cache.
+  load_cache_ready = false;
+  load_count = 0;
   tls_present = false;
   if (!is_supported_target(ehdr) || !is_supported_page_size(page_size))
     return ElfError::Target;
@@ -278,6 +304,10 @@ ElfError ElfImage::validate(ImageRole role, Address page_size) {
     if (!read_program_header(i, p))
       return ElfError::Truncated;
     if (p.p_type == PT_LOAD) {
+      if (load_count < LOAD_CACHE_SIZE)
+        load_cache[load_count] = {p.p_vaddr, p.p_filesz, p.p_memsz, p.p_offset,
+                                  p.p_flags};
+      ++load_count;
       Address file_end, end, runtime, rounded_end;
       if (p.p_filesz > p.p_memsz || !add(p.p_offset, p.p_filesz, file_end) ||
           (!mapped && file_end > file.size()) ||
@@ -423,6 +453,7 @@ ElfError ElfImage::validate(ImageRole role, Address page_size) {
        !is_user_range(entry, 4) ||
        !coverage(ehdr.e_entry, 4, PF_R | PF_X, false, 0, false)))
     return ElfError::Entry;
+  load_cache_ready = load_count <= LOAD_CACHE_SIZE;
   return ElfError::None;
 }
 

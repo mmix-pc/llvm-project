@@ -14,6 +14,7 @@
 
 using namespace loader_test;
 namespace cpp = LIBC_NAMESPACE::cpp;
+static bool use_scratch;
 
 static void check(bool condition, int line = __builtin_LINE()) {
   if (!condition) {
@@ -51,7 +52,10 @@ struct Scope {
     }
   }
   StartupRelocationResult apply() {
-    return relocate_startup(objects, writable);
+    RelocationWrite scratch[4];
+    return relocate_startup(objects, writable,
+                            use_scratch ? cpp::span<RelocationWrite>(scratch)
+                                        : cpp::span<RelocationWrite>());
   }
   void unchanged() {
     for (auto &f : files) {
@@ -61,7 +65,7 @@ struct Scope {
   }
 };
 
-extern "C" int main() {
+static void test_relocations() {
   constexpr Address symbolic = (Address(1) << 32) | 42;
   Address value;
   check(runtime_relocation_value(41, 0x400000, 0x2000, value) &&
@@ -188,5 +192,36 @@ extern "C" int main() {
   }
   puts("startup relocation: arithmetic, binding, writes and whole-scope "
        "preflight passed");
+}
+
+extern "C" int main() {
+  test_relocations();
+  use_scratch = true;
+  test_relocations();
+  Scope short_scratch;
+  short_scratch.open();
+  RelocationWrite scratch[3];
+  check(relocate_startup(short_scratch.objects, short_scratch.writable, scratch)
+            .error == StartupRelocationError::Image);
+  short_scratch.unchanged();
+  // Native validation may borrow unaligned host storage for aligned target
+  // addresses. Prepared writes must not impose an extra host-alignment rule.
+  DynamicFixture input;
+  alignas(8) unsigned char bytes[sizeof(input.bytes) + 1];
+  for (size_t i = 0; i < sizeof(input.bytes); ++i)
+    bytes[i + 1] = input.bytes[i];
+  MappedRegion region{0, {bytes + 1, sizeof(input.bytes)}};
+  ElfImage image;
+  DynamicInfo info;
+  check(ElfImage::open_mapped({&region, 1}, 0, 64, ImageRole::SharedObject,
+                            bias, page, image) == ElfError::None);
+  check(DynamicInfo::open(image, info) == DynamicError::None);
+  SymbolObject object{&image, &info};
+  WritableRegion write{0x4000, {bytes + 0x4001, 0x2000}};
+  cpp::span<const WritableRegion> writes{&write, 1};
+  check(relocate_startup({&object, 1}, {&writes, 1}, scratch).error ==
+        StartupRelocationError::None);
+  check(octa(bytes + 0x4801) == bias + 0x2000);
+  check(octa(bytes + 0x4809) == bias + 0x2000);
   return 0;
 }
