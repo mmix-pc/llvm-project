@@ -183,6 +183,14 @@ class TestHeaderGenIntegration(unittest.TestCase):
                 self.assertTrue(all("__NOEXCEPT" not in line
                                     for line in declarations))
 
+    def test_minimal_fork_declaration(self):
+        output = self.output_dir / "minimal-fork.h"
+        self.run_script(self.source_dir.parents[2] / "include/unistd.yaml",
+                        output, ["_Fork"])
+        text = output.read_text()
+        self.assertIn("pid_t _Fork(void) __NOEXCEPT;", text)
+        self.assertNotIn("pid_t fork(", text)
+
     def test_generate_subdir_header(self):
         yaml_file = self.source_dir / "input" / "subdir" / "test.yaml"
         expected_output_file = self.source_dir / "expected_output" / "subdir" / "test.h"

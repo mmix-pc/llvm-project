@@ -237,6 +237,12 @@ functions:
     arguments:
       - type: int
       - type: int
+  - name: _Fork
+    standards:
+      - posix
+    return_type: pid_t
+    arguments:
+      - type: void
   - name: fork
     standards:
       - posix
