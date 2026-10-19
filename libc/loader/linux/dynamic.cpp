@@ -472,6 +472,24 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
       val(DynamicTag::Relacount) > relas.size() / 24)
     return DynamicError::Relocation;
   Address highest_destination = 0;
+  // A Bloom filter can prove that neither octa touched by a destination has
+  // appeared before. Collisions only select the exact check below. Keep storage
+  // bounded and allocation-free for bootstrap and untrusted relocation tables.
+  Address occupied[256];
+  __builtin_memset_inline(occupied, 0, sizeof(occupied));
+  auto visit = [&](Address block, bool insert) {
+    unsigned first = static_cast<unsigned>((block ^ (block >> 17)) & 16383);
+    unsigned second =
+        static_cast<unsigned>((block * Address(0x9e3779b97f4a7c15)) >> 50);
+    Address a = Address(1) << (first % 64);
+    Address b = Address(1) << (second % 64);
+    bool present = (occupied[first / 64] & a) && (occupied[second / 64] & b);
+    if (insert) {
+      occupied[first / 64] |= a;
+      occupied[second / 64] |= b;
+    }
+    return present;
+  };
   for (Address i = 0; i < relas.size() / 24; ++i) {
     DynamicRelocation r;
     Address ignored;
@@ -507,10 +525,13 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
         overlaps(r.offset, val(DynamicTag::GnuHash), gnu.size()) ||
         overlaps(r.offset, val(DynamicTag::Rela), relas.size()))
       return DynamicError::Relocation;
-    // Destinations beyond the highest previous octa cannot overlap. Keep the
-    // full check for unordered input; ELF does not require sorted destinations.
+    // An unaligned eight-byte destination touches two aligned octas. Any
+    // overlap must share at least one of them, irrespective of input order.
+    Address first_block = r.offset / 8;
+    Address last_block = first_block + (r.offset % 8 != 0);
     if (i && (r.offset < highest_destination ||
-              r.offset - highest_destination < 8)) {
+              r.offset - highest_destination < 8) &&
+        (visit(first_block, false) || visit(last_block, false))) {
       for (Address j = 0; j < i; ++j) {
         DynamicRelocation previous;
         if (!read_relocation(j, previous) ||
@@ -518,6 +539,8 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
           return DynamicError::Relocation;
       }
     }
+    visit(first_block, true);
+    visit(last_block, true);
     if (!i || r.offset > highest_destination)
       highest_destination = r.offset;
   }

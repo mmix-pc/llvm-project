@@ -75,6 +75,36 @@ extern "C" int main() {
     }
   }
 
+  // Permuted disjoint destinations and a late, non-neighbor collision.
+  for (unsigned invalid = 0; invalid != 3; ++invalid) {
+    DynamicFixture input;
+    input.put(ph(1, 32), 8, page);
+    input.put(ph(3, 40), 8, 0x100000);
+    input.set(DT_RELASZ, 192 * 24);
+    for (unsigned i = 0; i != 192; ++i) {
+      Address offset = 0x8000 + ((i * 71) % 192) * 16;
+      if (i == 191 && invalid)
+        offset = 0x8000 + (invalid == 2 ? 7 : 0);
+      input.put(0xb00 + i * 24, 8, offset);
+      input.put(0xb08 + i * 24, 8, 41);
+      input.put(0xb10 + i * 24, 8, 0x2000);
+    }
+    CHECK(ElfImage::open_file(input.view(), ImageRole::SharedObject, bias,
+                             page, image) == ElfError::None);
+    CHECK(DynamicInfo::open(image, info) ==
+          (invalid ? DynamicError::Relocation : DynamicError::None));
+  }
+
+  // These disjoint destinations collide in the filter: a positive filter
+  // result must select exact validation, never reject the table by itself.
+  DynamicFixture filter_collision;
+  filter_collision.put(ph(3, 40), 8, 0x100000);
+  filter_collision.put(0xb00, 8, 0x20908);
+  filter_collision.put(0xb18, 8, 0xf618);
+  CHECK(ElfImage::open_file(filter_collision.view(), ImageRole::SharedObject,
+                           bias, page, image) == ElfError::None);
+  CHECK(DynamicInfo::open(image, info) == DynamicError::None);
+
   MappedRegion partial[] = {{0, {f.bytes, 0xc00}},
                             {0x4000, {f.bytes + 0x4000, 0x1000}}};
   CHECK(ElfImage::open_mapped({partial, 2}, 0, 64, ImageRole::SharedObject,
