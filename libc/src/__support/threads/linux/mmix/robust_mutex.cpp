@@ -127,6 +127,22 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
         return MutexError::BUSY;
       if (is_error_checking())
         return MutexError::DEADLOCK;
+#ifdef LIBC_MMIX_PI_MUTEX
+      if (is_priority_inherit()) {
+        // NORMAL self-relock blocks; the kernel PI EDEADLK is not an
+        // ERRORCHECK result. Use a private wait without touching the PI word.
+        operation.pause();
+        Futex blocked(0);
+        for (;;) {
+          auto result = blocked.wait(0, timeout);
+          if (!result) {
+            operation.resume();
+            return result.error() == ETIMEDOUT ? MutexError::TIMEOUT
+                                              : MutexError::BAD_LOCK_STATE;
+          }
+        }
+      }
+#endif
     }
 #ifdef LIBC_MMIX_PI_MUTEX
     if (is_priority_inherit()) {
