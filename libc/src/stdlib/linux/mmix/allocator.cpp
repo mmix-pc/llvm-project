@@ -32,7 +32,7 @@ static_assert(alignof(Region) <= BlockRef::MIN_ALIGN);
 
 // One private, nonallocating lock protects both the list and each region's heap.
 // Allocation from signal handlers is unsupported. Coordinated fork takes this
-// lock after stream locks; child execution remains restricted to exec/_exit.
+// lock after callback and stream locks; snapshot eligibility governs child use.
 LIBC_CONSTINIT RawMutex regions_mutex;
 Region *regions = nullptr;
 

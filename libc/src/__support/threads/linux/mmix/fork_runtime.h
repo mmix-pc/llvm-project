@@ -17,6 +17,7 @@ class ForkOperation {
   bool serial = false, masked = false, suppressed = false;
   bool priority = false, streams = false, allocator = false, registry = false;
   bool helper_drained = false;
+  bool exit_callbacks = false, quick_callbacks = false;
   internal::ForkRecovery child_recovery = internal::ForkRecovery::child();
 #ifdef LIBC_MMIX_SHARED_STARTUP
   bool loader_locked = false;
@@ -24,6 +25,7 @@ class ForkOperation {
 #endif
   int error_code = 0;
   File *standard[3]{};
+  File *stream_stop = nullptr;
   bool standard_locked[3]{};
 
 public:

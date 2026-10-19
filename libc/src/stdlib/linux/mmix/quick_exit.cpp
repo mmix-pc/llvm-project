@@ -23,6 +23,10 @@
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
+namespace mmix {
+// Shared with the coordinated fork snapshot, never held across user code.
+Mutex quick_exit_mutex(false, false, false, false);
+}
 namespace {
 class RegistrationScope {
 #ifdef LIBC_MMIX_QUICK_EXIT_CANCELLATION
@@ -50,7 +54,6 @@ struct QuickCallback {
   uint64_t pin = 0;
 #endif
 };
-Mutex quick_mutex(false, false, false, false);
 QuickCallback *quick_head;
 bool quick_done;
 
@@ -82,7 +85,7 @@ LLVM_LIBC_FUNCTION(int, at_quick_exit, (__atexithandler_t function)) {
   node->pin = pin;
 #endif
   {
-    cpp::lock_guard lock(quick_mutex);
+    cpp::lock_guard lock(mmix::quick_exit_mutex);
     if (!quick_done) {
       node->next = quick_head;
       quick_head = node;
@@ -105,7 +108,7 @@ LLVM_LIBC_FUNCTION(int, at_quick_exit, (__atexithandler_t function)) {
   for (;;) {
     QuickCallback *node;
     {
-      cpp::lock_guard lock(quick_mutex);
+      cpp::lock_guard lock(mmix::quick_exit_mutex);
       node = quick_head;
       if (!node) {
         quick_done = true;

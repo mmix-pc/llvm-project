@@ -25,7 +25,10 @@
 #endif
 #include <sys/syscall.h>
 namespace LIBC_NAMESPACE_DECL {
+// Optional providers must not be pulled into a static link merely by fork.
+extern Mutex handler_list_mtx __attribute__((weak));
 namespace mmix {
+extern Mutex quick_exit_mutex __attribute__((weak));
 namespace {
 struct alignas(8) Serializer {
   RawMutex mutex;
@@ -85,7 +88,22 @@ int ForkOperation::prepare_runtime() {
   if (caller->priority_protection.guard.lock() != MutexError::NONE)
     __builtin_trap();
   priority = true;
-  File::lock_list();
+  // Generic static atexit can allocate while holding its list lock. Acquire
+  // callback locks before the allocator; callback invocation holds neither.
+  if (&handler_list_mtx) {
+    handler_list_mtx.lock();
+    exit_callbacks = true;
+  }
+  if (&quick_exit_mutex) {
+    quick_exit_mutex.lock();
+    quick_callbacks = true;
+  }
+  // A caller may already own a stream while another thread holds the list
+  // lock waiting for that stream. Never wait in this inverse ownership order.
+  if (File::list_lock.try_lock() != MutexError::NONE)
+    return EAGAIN;
+  streams = true;
+  stream_stop = File::get_first_file();
   standard[0] = reinterpret_cast<File *>(LIBC_NAMESPACE::stdin);
   standard[1] = reinterpret_cast<File *>(LIBC_NAMESPACE::stdout);
   standard[2] = reinterpret_cast<File *>(LIBC_NAMESPACE::stderr);
@@ -94,14 +112,18 @@ int ForkOperation::prepare_runtime() {
     for (unsigned j = 0; j < i; ++j)
       duplicate |= standard[j] == standard[i];
     if (standard[i] && !duplicate) {
-      standard[i]->lock();
+      if (!standard[i]->try_lock())
+        return EAGAIN;
       standard_locked[i] = true;
     }
   }
-  for (auto *file = File::get_first_file(); file; file = file->get_next())
-    if (file != standard[0] && file != standard[1] && file != standard[2])
-      file->lock();
-  streams = true;
+  for (auto *file = File::get_first_file(); file; file = file->get_next()) {
+    stream_stop = file;
+    if (file != standard[0] && file != standard[1] && file != standard[2] &&
+        !file->try_lock())
+      return EAGAIN;
+  }
+  stream_stop = nullptr;
   allocator_fork_prepare();
   allocator = true;
   return 0;
@@ -132,10 +154,25 @@ void ForkOperation::restore_runtime(bool child) {
     allocator_fork_release();
     allocator = false;
   }
-  if (streams) {
-    // Release recursive stream ownership using the snapshot's cached TID.
-    // Signals are blocked; publish the child's real identity only afterwards.
+  if (child) {
+    long tid = syscall_impl<long>(SYS_gettid);
+    if (tid <= 0 || tid > cpp::numeric_limits<int>::max())
+      internal::exit(127);
+    pid_t previous = caller->attributes.tid;
+    for (unsigned i = 0; i < 3; ++i)
+      if (standard_locked[i] &&
+          !standard[i]->rebind_owner_after_fork(previous, pid_t(tid)))
+        internal::exit(127);
     for (auto *file = File::get_first_file(); file; file = file->get_next())
+      if (file != standard[0] && file != standard[1] && file != standard[2] &&
+          !file->rebind_owner_after_fork(previous, pid_t(tid)))
+        internal::exit(127);
+    caller->attributes.tid = pid_t(tid);
+  }
+  if (streams) {
+    // Drop only our snapshot acquisition, retaining application recursion.
+    for (auto *file = File::get_first_file(); file && file != stream_stop;
+         file = file->get_next())
       if (file != standard[0] && file != standard[1] && file != standard[2])
         file->unlock();
     for (unsigned i = 3; i; --i)
@@ -143,6 +180,14 @@ void ForkOperation::restore_runtime(bool child) {
         standard[i - 1]->unlock();
     File::unlock_list();
     streams = false;
+  }
+  if (quick_callbacks) {
+    quick_exit_mutex.unlock();
+    quick_callbacks = false;
+  }
+  if (exit_callbacks) {
+    handler_list_mtx.unlock();
+    exit_callbacks = false;
   }
   if (priority) {
     if (child) {
@@ -153,10 +198,6 @@ void ForkOperation::restore_runtime(bool child) {
     priority = false;
   }
   if (child) {
-    long tid = syscall_impl<long>(SYS_gettid);
-    if (tid <= 0 || tid > cpp::numeric_limits<int>::max())
-      internal::exit(127);
-    caller->attributes.tid = int(tid);
     if (!child_recovery.allows_loader())
       caller->unwind_root.active = false;
     caller->cancellation.restore_after_fork();
