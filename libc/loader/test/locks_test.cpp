@@ -32,7 +32,7 @@ static_assert(!ForkRecovery::child(false, true).allows_loader());
 static_assert(ForkRecovery::child(true, true).allows_loader());
 static_assert(ForkRecovery::child(true, true).is_child());
 static_assert(ForkRecovery::child(true, true).allows_fork());
-static_assert(!ForkRecovery::child(true, true).allows_thread_creation());
+static_assert(ForkRecovery::child(true, true).allows_thread_creation());
 static thread_local unsigned disabled;
 static thread_local long wait_error, enter_error;
 static thread_local bool pending;

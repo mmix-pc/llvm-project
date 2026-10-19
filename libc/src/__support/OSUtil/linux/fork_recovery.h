@@ -15,7 +15,7 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
 // Recovery capability is independent of thread identity and resource ownership.
-// QuiescentChild permits loader use, not general child runtime continuation.
+// QuiescentChild permits recovered runtime use, not arbitrary copied snapshots.
 class ForkRecovery {
   enum class State : unsigned char { Original, ExecOnly, QuiescentChild };
   State state = State::Original;
@@ -32,7 +32,7 @@ public:
   constexpr bool is_child() const { return state != State::Original; }
   constexpr bool allows_fork() const { return state != State::ExecOnly; }
   constexpr bool allows_thread_creation() const {
-    return state == State::Original;
+    return state != State::ExecOnly;
   }
   constexpr bool allows_loader() const { return state != State::ExecOnly; }
 };

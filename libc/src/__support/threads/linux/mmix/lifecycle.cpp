@@ -29,13 +29,8 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
     mutex.value.unlock();
     return false;
   }
-  // A recovered quiescent child inherits the original never-threaded proof.
-  // Keep creation_started intact: unrelated process admission still uses it.
-  const bool inherited_quiescence =
-      fork_recovery.is_child() && fork_recovery.allows_fork();
   if (single_thread)
-    *single_thread = (!creation_started || inherited_quiescence) &&
-                     live == 1 && head == &caller &&
+    *single_thread = !creation_started && live == 1 && head == &caller &&
                      !caller.next && !reap_head && !reap_count;
   return true;
 }
@@ -53,11 +48,15 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   reap_count = reservations = 0;
   live = 1;
   exiting = process_cleanup_claimed = process_operation = false;
-  main_registered = creation_started = true;
+  main_registered = true;
+  // Only a proven never-threaded snapshot starts a fresh creation history.
+  // reserve/begin_helper_creation set it even if later preparation fails.
+  creation_started = !recovery.allows_thread_creation();
   fork_recovery = recovery;
   survivor.registry = this;
   survivor.next = survivor.reap_next = nullptr;
-  survivor.queued = survivor.creator_pin = survivor.leases_open = false;
+  survivor.queued = survivor.creator_pin = false;
+  survivor.leases_open = recovery.allows_thread_creation();
   survivor.listed = survivor.counted = survivor.lifecycle_pin = true;
   survivor.process_lifetime = true;
   survivor.internal_helper = survivor.callbacks_started = false;
@@ -114,6 +113,7 @@ bool ThreadRegistryLock::begin_process_operation(const ThreadControl &caller) {
   // Never reopen admission after a failed creation or retirement: a helper or
   // other runtime state may survive even when application accounting is one.
   if (!registry.main_registered || registry.creation_started ||
+      registry.fork_recovery.is_child() ||
       registry.process_operation || registry.exiting || registry.live != 1 ||
       registry.reservations || registry.head != &caller ||
       caller.execution != ThreadExecution::Running || caller.callbacks_started)
