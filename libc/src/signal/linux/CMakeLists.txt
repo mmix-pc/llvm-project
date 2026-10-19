@@ -4,12 +4,20 @@ set(signal_action_source sigaction.cpp)
 set(signal_action_deps .__restore .signal_utils)
 set(pthread_sigmask_source pthread_sigmask.cpp)
 set(pthread_sigmask_deps)
+set(signal_wait_source_dir "")
+set(signal_wait_deps)
+set(signal_send_source_dir "")
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(pthread_sigmask_source mmix/pthread_sigmask.cpp)
+  set(pthread_sigmask_deps .sigprocmask)
   if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
     set(pthread_sigmask_source mmix/cancellation_pthread_sigmask.cpp)
     set(pthread_sigmask_deps libc.src.__support.threads.linux.mmix.cancellation_point)
   endif()
   add_subdirectory(mmix)
+  set(signal_wait_source_dir "mmix/")
+  set(signal_send_source_dir "mmix/")
+  set(signal_wait_deps .mmix.private_signals)
   add_entrypoint_object(
     pthread_kill
     SRCS mmix/pthread_kill.cpp
@@ -21,7 +29,7 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   )
   # Keep mask operations independent of unprovided handler/vDSO machinery.
   set(signal_set_source_dir "mmix/")
-  set(signal_set_deps libc.hdr.signal_macros)
+  set(signal_set_deps libc.hdr.signal_macros .mmix.private_signals)
   set(signal_action_source mmix/sigaction.cpp)
   set(signal_action_deps .mmix.rt_sigaction .mmix.signal_trampoline)
   if(LIBC_MMIX_BUILD_SHARED_LIBC)
@@ -50,10 +58,11 @@ add_header_library(
 add_entrypoint_object(
   kill
   SRCS
-    kill.cpp
+    ${signal_send_source_dir}kill.cpp
   HDRS
     ../kill.h
   DEPENDS
+    ${signal_wait_deps}
     libc.hdr.types.pid_t
     libc.src.errno.errno
     libc.include.sys_syscall
@@ -63,10 +72,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   raise
   SRCS
-    raise.cpp
+    ${signal_send_source_dir}raise.cpp
   HDRS
     ../raise.h
   DEPENDS
+    ${signal_wait_deps}
     libc.src.__support.OSUtil.linux.syscall_wrappers.raise
     libc.src.errno.errno
 )
@@ -144,10 +154,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   sigsuspend
   SRCS
-    sigsuspend.cpp
+    ${signal_wait_source_dir}sigsuspend.cpp
   HDRS
     ../sigsuspend.h
   DEPENDS
+    ${signal_wait_deps}
     libc.hdr.signal_macros
     libc.hdr.types.sigset_t
     libc.include.sys_syscall
@@ -158,10 +169,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   sigtimedwait
   SRCS
-    sigtimedwait.cpp
+    ${signal_wait_source_dir}sigtimedwait.cpp
   HDRS
     ../sigtimedwait.h
   DEPENDS
+    ${signal_wait_deps}
     libc.hdr.limits_macros
     libc.hdr.signal_macros
     libc.hdr.types.siginfo_t

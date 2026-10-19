@@ -14,10 +14,9 @@
 #define SIGSTKSZ 65536
 #define SS_AUTODISARM (1U << 31)
 
-#if defined(LIBC_MMIX_CANCELLATION_WINDOWS) ||                                 \
-    defined(__LLVM_LIBC_MMIX_CANCELLATION_PROFILE)
+// Keep cancellation and process-credential notifications outside the public
+// range, including configurations that do not currently install either handler.
 #undef SIGRTMIN
-#define SIGRTMIN 33
-#endif
+#define SIGRTMIN 34
 
 #endif // LLVM_LIBC_MACROS_MMIX_LINUX_SIGNAL_MACROS_H

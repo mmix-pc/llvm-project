@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "thread_create.h"
+#include "credentials.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include "hdr/time_macros.h"
@@ -93,7 +94,8 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
                                                bool helper,
                                                ThreadControl **helper_control = nullptr) {
   ThreadPreparation input = request;
-  uint64_t blocked = UINT64_MAX, saved_mask = 0;
+  // Preparation may wait for a helper that is entering the credential gate.
+  uint64_t blocked = UINT64_MAX & ~CREDENTIAL_MASK, saved_mask = 0;
   long ret = syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
                           reinterpret_cast<long>(&blocked),
                           reinterpret_cast<long>(&saved_mask), sizeof(blocked));
@@ -153,10 +155,12 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
   constexpr unsigned long flags =
       CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD |
       CLONE_SYSVSEM | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
+  CredentialGate credentials;
   ret = __llvm_libc_mmix_clone_thread(
       flags, control->stack_top, &control->parent_tid.value.val,
       &control->clear_tid.value.val, control->tls.tp);
   if (ret < 0) {
+    credentials.release();
     ThreadResources resources = thread_resources(*control);
     prepared.rollback_error = release_thread_resources(resources);
     prepared.retained = resources;
@@ -177,6 +181,7 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
     }
     control->publish_decision(CreatorDecision::Abort);
     wake_decision(*control);
+    credentials.release();
     // The delegate consumes the creator pin. Copy all caller state first;
     // no control access is permitted after it returns.
     __llvm_libc_mmix_reclaim_failed_thread(control);
@@ -186,6 +191,7 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
   }
   if (control->attributes.tid != ret)
     __builtin_trap();
+  register_credentials(*control);
   {
     ThreadRegistryLock lock(thread_registry);
     if (!lock.insert(*control, input.detached, helper) || !lock.start(*control))
@@ -201,6 +207,7 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
     if (!lock.drop_creator(*control))
       __builtin_trap();
   }
+  credentials.release();
   restore_mask(saved_mask);
   return {};
 }

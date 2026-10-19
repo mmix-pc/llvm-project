@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "main_thread.h"
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+#include "credentials.h"
+#endif
 #include "src/__support/CPP/limits.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/libc_errno.h"
@@ -126,6 +129,8 @@ bool activate_main_thread(MainThreadState &state) {
   }
   active_attributes = &state.attributes;
   mmix::current_control = &state;
+  if (!mmix::initialize_credentials(state))
+    return false;
   phase = Phase::Active;
   return true;
 }

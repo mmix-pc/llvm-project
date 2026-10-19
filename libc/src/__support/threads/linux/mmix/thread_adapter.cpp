@@ -9,6 +9,7 @@
 #include "config/app.h"
 #include "hdr/signal_macros.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include "src/__support/threads/linux/mmix/thread_create.h"
 #include "src/__support/threads/linux/mmix/thread_finish.h"
 #include "src/__support/threads/linux/mmix/thread_join.h"
@@ -48,7 +49,8 @@ bool Thread::operator==(const Thread &other) const {
 }
 
 int Thread::join(ThreadReturnValue &retval) {
-  uint64_t blocked = UINT64_MAX, saved = 0;
+  // The joined thread may itself be coordinating a credential update.
+  uint64_t blocked = UINT64_MAX & ~mmix::CREDENTIAL_MASK, saved = 0;
   if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
                    reinterpret_cast<long>(&blocked),
                    reinterpret_cast<long>(&saved), sizeof(saved)) != 0)

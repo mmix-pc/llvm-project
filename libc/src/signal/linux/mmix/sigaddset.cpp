@@ -26,6 +26,9 @@ LLVM_LIBC_FUNCTION(int, sigaddset, (sigset_t * set, int signum)) {
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
       || signum == 32
 #endif
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+      || signum == 33
+#endif
   ) {
     libc_errno = EINVAL;
     return -1;

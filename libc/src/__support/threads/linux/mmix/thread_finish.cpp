@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "thread_finish.h"
+#include "credentials.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include "main_thread.h"
@@ -51,7 +52,8 @@ static Futex::Timeout lease_deadline() {
   // cancellation/forced-unwind admission is implied by this internal boundary.
   if (internal::self.attrib != &control.attributes)
     __builtin_trap();
-  set_mask(UINT64_MAX);
+  // Terminal waits still participate in process credential changes.
+  set_mask(UINT64_MAX & ~CREDENTIAL_MASK);
   {
     ThreadRegistryLock lock(thread_registry);
     if (!lock.close_leases(control))
@@ -91,6 +93,10 @@ static Futex::Timeout lease_deadline() {
   }
   // The registry lock is gone. The native leaf neither reads TLS nor releases
   // live mappings; only kernel clear plus later reference drain permits reuse.
+  {
+    CredentialGate credentials;
+    unregister_credentials(control);
+  }
   __llvm_libc_mmix_thread_exit();
 }
 
@@ -101,7 +107,7 @@ static void run_worker(void *argument) {
   if (control->cancellation.enabled())
     mask &= ~(uint64_t(1) << 31);
 #endif
-  set_mask(mask);
+  set_mask(mask & ~CREDENTIAL_MASK);
   ThreadReturnValue result;
   if (control->attributes.style == ThreadStyle::POSIX &&
       control->runner.posix_runner)

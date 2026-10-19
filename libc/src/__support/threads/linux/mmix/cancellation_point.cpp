@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "cancellation_point.h"
+#include "credentials.h"
 #include "cancellation.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
@@ -204,7 +205,8 @@ void initialize_cancellation_process() {
     __builtin_trap();
   // Normalize inherited caught actions before any enabled user code runs.
   for (int signal = 1; signal < NSIG; ++signal) {
-    if (signal == SIGKILL || signal == SIGSTOP || signal == CANCEL_SIGNAL)
+    if (signal == SIGKILL || signal == SIGSTOP || signal == CANCEL_SIGNAL ||
+        signal == CREDENTIAL_SIGNAL)
       continue;
     KernelSigaction action{};
     if (syscall_impl(SYS_rt_sigaction, signal, 0,
@@ -264,7 +266,7 @@ int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old) {
     return EINVAL;
   uint64_t previous = mask_all(), next = previous;
   if (set) {
-    uint64_t requested = *set & ~CANCEL_MASK;
+    uint64_t requested = *set & ~(CANCEL_MASK | CREDENTIAL_MASK);
     if (how == SIG_BLOCK)
       next |= requested;
     else if (how == SIG_UNBLOCK)
@@ -275,8 +277,8 @@ int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old) {
         cancellation_private_block() ? next | CANCEL_MASK : next & ~CANCEL_MASK;
   }
   if (old)
-    *old = previous & ~CANCEL_MASK;
-  restore_mask(next);
+    *old = previous & ~(CANCEL_MASK | CREDENTIAL_MASK);
+  restore_mask(next & ~CREDENTIAL_MASK);
   return 0;
 }
 

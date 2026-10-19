@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "fork_runtime.h"
+#include "credentials.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include "main_thread.h"
@@ -48,7 +49,7 @@ ForkOperation::ForkOperation() {
     return;
   }
   // Do not leave the serializer owned if async delivery interrupts admission.
-  uint64_t full = UINT64_MAX;
+  uint64_t full = UINT64_MAX & ~CREDENTIAL_MASK;
   long result = syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &full,
                                    &saved_mask, sizeof(saved_mask));
   if (result < 0) {
@@ -80,6 +81,9 @@ int ForkOperation::prepare_runtime() {
   // Helper TLS retirement can enter the loader and allocator. Complete it
   // before either subsystem is locked for the clone snapshot.
   helper_drained = retire_reaper_for_fork(*caller);
+  if (!prepare_credentials_fork())
+    return EAGAIN;
+  credentials = true;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (int error = prepare_loader_fork(&resume_loader))
     return error;
@@ -168,6 +172,7 @@ void ForkOperation::restore_runtime(bool child) {
           !file->rebind_owner_after_fork(previous, pid_t(tid)))
         internal::exit(127);
     caller->attributes.tid = pid_t(tid);
+    restore_credentials_after_fork(*caller);
   }
   if (streams) {
     // Drop only our snapshot acquisition, retaining application recursion.
@@ -220,6 +225,10 @@ void ForkOperation::restore_runtime(bool child) {
   if (child && child_recovery.allows_loader() && !restore_fork_unwind(*caller))
     internal::exit(127);
 #endif
+  if (credentials) {
+    finish_credentials_fork();
+    credentials = false;
+  }
 }
 
 ForkOperation::~ForkOperation() {

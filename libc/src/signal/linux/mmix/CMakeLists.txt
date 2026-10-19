@@ -8,6 +8,12 @@ add_object_library(
     libc.include.sys_syscall
 )
 
+add_header_library(
+  private_signals
+  HDRS private_signals.h
+  DEPENDS libc.src.__support.macros.config libc.src.__support.macros.attributes
+)
+
 add_object_library(
   signal_trampoline
   SRCS signal_trampoline.S

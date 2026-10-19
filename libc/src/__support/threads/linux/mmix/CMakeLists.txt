@@ -44,7 +44,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       fork_runtime
       SRCS fork_runtime.cpp atfork_callbacks.cpp
       HDRS fork_runtime.h atfork_callbacks.h
-      DEPENDS .lifecycle .once .main_thread .thread_create .robust_mutex
+      DEPENDS .lifecycle .once .main_thread .thread_create .robust_mutex .credentials
         libc.src.__support.File.file libc.src.stdlib.environ_internal
         libc.src.stdlib.linux.mmix.allocator libc.src.__support.OSUtil.osutil
         libc.src.stdio.stdin libc.src.stdio.stdout libc.src.stdio.stderr
@@ -139,6 +139,18 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   )
   if(LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_PLATFORM")
     add_object_library(
+      credentials
+      SRCS credentials.cpp
+      HDRS credentials.h
+      DEPENDS .lifecycle libc.src.errno.errno libc.hdr.errno_macros
+        libc.hdr.signal_macros libc.hdr.types.siginfo_t
+        libc.src.signal.linux.mmix.kernel_sigaction
+        libc.src.signal.linux.mmix.signal_trampoline
+        libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto
+    )
+    list(APPEND mmix_main_lifecycle_dependency .credentials)
+    add_object_library(
       process_operation
       SRCS process_operation.cpp
       HDRS process_operation.h
@@ -192,7 +204,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     SRCS thread_create.cpp thread_reaper.cpp
     HDRS thread_create.h thread_reaper.h
     DEPENDS
-      .thread_reaper_service
+      .thread_reaper_service .credentials
       ${mmix_scheduling_dependency}
       .thread_reclaim
       .resources
@@ -335,7 +347,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     DEPENDS
       ${mmix_once_dependency}
       ${mmix_root_dependency}
-      .thread_start
+      .thread_start .credentials
       .main_thread
       .lifecycle
       libc.src.__support.OSUtil.osutil

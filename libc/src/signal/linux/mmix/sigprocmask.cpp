@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/signal/sigprocmask.h"
+#include "private_signals.h"
 
 #include "hdr/signal_macros.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/rt_sigprocmask.h"
@@ -25,7 +26,17 @@ static_assert(NSIG == 65);
 LLVM_LIBC_FUNCTION(int, sigprocmask,
                    (int how, const sigset_t *__restrict set,
                     sigset_t *__restrict oldset)) {
+  sigset_t filtered{};
+  if constexpr (mmix::private_signal_mask != 0) {
+    if (set) {
+      filtered = *set;
+      filtered.__signals[0] &= ~mmix::private_signal_mask;
+      set = &filtered;
+    }
+  }
   auto result = linux_syscalls::rt_sigprocmask(how, set, oldset);
+  if (result && oldset)
+    oldset->__signals[0] &= ~mmix::private_signal_mask;
   if (result)
     return 0;
   libc_errno = result.error();

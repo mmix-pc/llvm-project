@@ -59,6 +59,11 @@ class ThreadRegistryLock;
 struct CancellationPoint;
 
 struct ThreadControl {
+  // Separate from the public handle registry: internal helpers participate too.
+  ThreadControl *credential_next = nullptr;
+  bool credential_registered = false;
+  alignas(8) Futex credential_pending{0};
+  long credential_result = 0;
   // Thread::attrib identifies this embedded object. Lookup compares addresses;
   // it must never use container_of on an unpinned caller-supplied handle.
   ThreadAttributes attributes;

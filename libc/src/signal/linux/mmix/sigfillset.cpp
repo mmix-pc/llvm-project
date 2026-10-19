@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/signal/sigfillset.h"
+#include "private_signals.h"
 
 #include "hdr/signal_macros.h"
 #include "src/__support/common.h"
@@ -26,7 +27,7 @@ LLVM_LIBC_FUNCTION(int, sigfillset, (sigset_t * set)) {
     libc_errno = EINVAL;
     return -1;
   }
-  *set = sigset_t{{~0UL}};
+  *set = sigset_t{{~mmix::private_signal_mask}};
   return 0;
 }
 

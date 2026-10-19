@@ -26,6 +26,9 @@ LLVM_LIBC_FUNCTION(int, sigaction,
                    (int signal, const struct sigaction *__restrict action,
                     struct sigaction *__restrict old_action)) {
   if (signal <= 0 || signal >= NSIG
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+      || signal == 33
+#endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
       || signal == 32
 #endif
@@ -36,6 +39,9 @@ LLVM_LIBC_FUNCTION(int, sigaction,
   struct sigaction prepared{};
   if (action) {
     prepared = *action;
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+    prepared.sa_mask.__signals[0] &= ~(uint64_t(1) << 32);
+#endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
     prepared.sa_mask.__signals[0] |= uint64_t(1) << 31;
 #endif
