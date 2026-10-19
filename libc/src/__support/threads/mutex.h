@@ -11,6 +11,7 @@
 
 #include "src/__support/macros/attributes.h"
 #include "src/__support/macros/config.h"
+#include "hdr/types/pid_t.h"
 
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
 
@@ -63,6 +64,7 @@ struct Mutex {
   LIBC_INLINE MutexError reset() { return MutexError::NONE; }
   LIBC_INLINE MutexError try_lock() { return MutexError::NONE; }
   LIBC_INLINE bool is_robust() const { return false; }
+  LIBC_INLINE bool rebind_owner_after_fork(pid_t, pid_t) { return true; }
 };
 
 } // namespace LIBC_NAMESPACE_DECL

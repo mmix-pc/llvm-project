@@ -97,6 +97,7 @@ if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.futex_utils)
       mutex.h
     DEPENDS
       .unix_mutex
+      libc.hdr.types.pid_t
   )
 
   add_object_library(
@@ -116,6 +117,7 @@ elseif(NOT (LIBC_CONF_THREAD_MODE STREQUAL LIBC_THREAD_MODE_PLATFORM))
       mutex.h
     DEPENDS
       .mutex_common
+      libc.hdr.types.pid_t
   )
 endif()
 

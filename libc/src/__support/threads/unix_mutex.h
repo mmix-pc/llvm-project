@@ -134,6 +134,15 @@ public:
   }
 
   LIBC_INLINE bool is_robust() const { return this->robust; }
+  // Child-only repair of a private libc lock whose acquisition was captured
+  // by the fork coordinator. Preserve the surviving caller's recursion depth.
+  LIBC_INLINE bool rebind_owner_after_fork(pid_t previous, pid_t survivor) {
+    if (previous <= 0 || survivor <= 0 || pshared || robust ||
+        (!is_recursive() && !is_error_checking()) || owner != previous)
+      return false;
+    owner.store(survivor, cpp::MemoryOrder::RELAXED);
+    return true;
+  }
   LIBC_INLINE bool is_recursive() const { return this->recursive; }
   LIBC_INLINE bool is_error_checking() const { return this->error_checking; }
 };

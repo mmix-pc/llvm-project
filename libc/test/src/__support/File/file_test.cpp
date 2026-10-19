@@ -115,6 +115,23 @@ StringFile *new_string_file(char *buffer, size_t buflen, int bufmode,
                              LIBC_NAMESPACE::File::mode_flags(mode));
 }
 
+TEST(LlvmLibcFileTest, ForkOwner) {
+  char buffer[8];
+  StringFile file(buffer, sizeof(buffer), _IOFBF, false, File::mode_flags("w"));
+  ASSERT_TRUE(file.try_lock());
+  ASSERT_TRUE(file.try_lock());
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  const pid_t current = LIBC_NAMESPACE::internal::gettid();
+  const pid_t previous = current == 1 ? 2 : 1;
+  EXPECT_FALSE(file.rebind_owner_after_fork(previous, current));
+  ASSERT_TRUE(file.rebind_owner_after_fork(current, previous));
+  EXPECT_FALSE(file.try_lock());
+  ASSERT_TRUE(file.rebind_owner_after_fork(previous, current));
+#endif
+  file.unlock();
+  file.unlock();
+}
+
 TEST(LlvmLibcFileTest, WriteOnly) {
   LocaleGuard locale;
   const char data[] = "hello, file";

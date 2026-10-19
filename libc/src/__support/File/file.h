@@ -339,7 +339,13 @@ public:
   int set_buffer(void *buffer, size_t size, int buffer_mode);
 
   void lock() { mutex.lock(); }
+  bool try_lock() { return mutex.try_lock() == MutexError::NONE; }
   void unlock() { mutex.unlock(); }
+  // The coordinator owns one acquisition in the child snapshot. Rebind before
+  // releasing it, leaving any caller-owned recursive acquisitions intact.
+  bool rebind_owner_after_fork(pid_t previous, pid_t survivor) {
+    return mutex.rebind_owner_after_fork(previous, survivor);
+  }
   bool has_file_descriptor() const { return has_descriptor; }
 
   bool error_unlocked() const { return err; }
