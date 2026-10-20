@@ -19,3 +19,16 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     ${initgroups_platform_deps}
 )
+
+add_entrypoint_object(
+  setgroups
+  SRCS setgroups.cpp
+  HDRS ../setgroups.h
+  DEPENDS
+    libc.hdr.types.gid_t
+    libc.hdr.types.size_t
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.linux.syscall_wrappers.setgroups
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+)

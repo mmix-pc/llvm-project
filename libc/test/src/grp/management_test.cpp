@@ -44,6 +44,28 @@ static void *group_realloc(void *ptr, size_t size) {
 #include "src/grp/linux/initgroups.cpp"
 #undef realloc
 #include "src/grp/endgrent.cpp"
+#include "src/grp/linux/setgroups.cpp"
+
+TEST(LlvmLibcGroupManagementTest, SetgroupsSyscallAndErrors) {
+  install_calls = 0;
+  install_error = 0;
+  gid_t groups[] = {7, 8, 9};
+  libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::setgroups(3, groups), 0);
+  EXPECT_EQ(installed_count, size_t(3));
+  EXPECT_EQ(installed_groups[2], gid_t(9));
+  EXPECT_EQ(int(libc_errno), EDOM);
+  EXPECT_EQ(LIBC_NAMESPACE::setgroups(0, nullptr), 0);
+  EXPECT_EQ(installed_count, size_t(0));
+  const int errors[] = {EPERM, EINVAL, EFAULT};
+  for (int error : errors) {
+    install_error = error;
+    EXPECT_EQ(LIBC_NAMESPACE::setgroups(1, groups), -1);
+    EXPECT_EQ(int(libc_errno), error);
+  }
+  EXPECT_EQ(install_calls, 5U);
+  install_error = 0;
+}
 
 TEST(LlvmLibcGroupManagementTest, MembershipAndLifetime) {
   const char *path = libc_make_test_file_path("group-management.test");

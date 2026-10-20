@@ -72,6 +72,13 @@ add_header_library(
     libc.src.__support.libc_errno
 )
 
+add_entrypoint_object(
+  getgrouplist
+  SRCS getgrouplist.cpp
+  HDRS getgrouplist.h
+  DEPENDS .supplementary_groups libc.src.__support.CPP.limits
+)
+
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${LIBC_TARGET_OS})
 endif()
@@ -80,4 +87,9 @@ add_entrypoint_object(
   initgroups
   ALIAS
   DEPENDS .${LIBC_TARGET_OS}.initgroups
+)
+add_entrypoint_object(
+  setgroups
+  ALIAS
+  DEPENDS .${LIBC_TARGET_OS}.setgroups
 )

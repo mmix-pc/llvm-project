@@ -113,7 +113,7 @@ class TestHeaderGenIntegration(unittest.TestCase):
         functions = ["getgrnam", "getgrgid", "getgrnam_r", "getgrgid_r",
                      "setgrent", "getgrent", "getgrent_r", "endgrent",
                      "fgetgrent", "fgetgrent_r", "putgrent",
-                     "initgroups"]
+                     "getgrouplist", "initgroups", "setgroups"]
         self.run_script(self.source_dir.parents[2] / "include/grp.yaml",
                         output_file, functions)
         content = output_file.read_text()
@@ -123,9 +123,12 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("struct group *fgetgrent(FILE *);", content)
         self.assertIn("int putgrent(const struct group *__restrict, "
                       "FILE *__restrict);", content)
+        self.assertIn("int getgrouplist(const char *, gid_t, gid_t *, int *);",
+                      content)
+        self.assertIn("int setgroups(size_t, const gid_t *) __NOEXCEPT;", content)
         for declaration in content.splitlines():
             if any(re.search(rf"\b{name}\(", declaration)
-                   for name in functions):
+                   for name in functions if name != "setgroups"):
                 self.assertNotIn("__NOEXCEPT", declaration)
 
     def test_directory_interfaces(self):

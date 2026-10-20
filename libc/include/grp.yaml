@@ -99,3 +99,18 @@ functions:
     arguments:
       - type: const struct group *__restrict
       - type: FILE *__restrict
+  - name: getgrouplist
+    noexcept: false
+    standards: [bsd]
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: gid_t
+      - type: gid_t *
+      - type: int *
+  - name: setgroups
+    standards: [bsd]
+    return_type: int
+    arguments:
+      - type: size_t
+      - type: const gid_t *

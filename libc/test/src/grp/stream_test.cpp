@@ -12,6 +12,7 @@
 #include "src/grp/getgrent.h"
 #include "src/grp/getgrent_r.h"
 #include "src/grp/getgrnam_r.h"
+#include "src/grp/getgrouplist.h"
 #include "src/grp/putgrent.h"
 #include "src/grp/setgrent.h"
 #include "src/grp/stream.h"
@@ -139,6 +140,44 @@ TEST(LlvmLibcGroupStream, LargeRecordAndPointerSpaceRetry) {
   EXPECT_EQ(shared->gr_mem[512], static_cast<char *>(nullptr));
   EXPECT_EQ(input.value()->close(), 0);
   endgrent();
+  EXPECT_EQ(LIBC_NAMESPACE::remove(path), 0);
+}
+
+TEST(LlvmLibcGroupStream, SupplementaryCapacityAndDeduplication) {
+  const char *path = libc_make_test_file_path("group-list");
+  auto output = openfile(path, "w");
+  ASSERT_TRUE(output.has_value());
+  constexpr char records[] =
+      "base:x:7:alice\nstaff:x:8:alice,bob\nduplicate:x:8:alice\n"
+      "other:x:9:bob\nlast:x:10:alice\n";
+  ASSERT_EQ(output.value()->write(records, sizeof(records) - 1).value,
+            sizeof(records) - 1);
+  ASSERT_EQ(output.value()->close(), 0);
+  group_db::TESTONLY_set_lookup_path(path);
+  int count = 0;
+  libc_errno = EDOM;
+  EXPECT_EQ(getgrouplist("alice", 7, nullptr, &count), -1);
+  EXPECT_EQ(count, 3);
+  EXPECT_EQ(int(libc_errno), EDOM);
+  gid_t groups[4] = {99, 99, 99, 99};
+  count = 2;
+  EXPECT_EQ(getgrouplist("alice", 7, groups, &count), -1);
+  EXPECT_EQ(count, 3);
+  EXPECT_EQ(groups[0], gid_t(7));
+  EXPECT_EQ(groups[1], gid_t(8));
+  EXPECT_EQ(groups[2], gid_t(99));
+  count = 4;
+  EXPECT_EQ(getgrouplist("alice", 7, groups, &count), 3);
+  EXPECT_EQ(count, 3);
+  EXPECT_EQ(groups[2], gid_t(10));
+  EXPECT_EQ(groups[3], gid_t(99));
+  EXPECT_EQ(getgrouplist("unknown", 42, groups, &count), 1);
+  EXPECT_EQ(count, 1);
+  EXPECT_EQ(groups[0], gid_t(42));
+  count = -1;
+  EXPECT_EQ(getgrouplist("alice", 7, groups, &count), -1);
+  EXPECT_EQ(int(libc_errno), EINVAL);
+  group_db::TESTONLY_set_lookup_path(nullptr);
   EXPECT_EQ(LIBC_NAMESPACE::remove(path), 0);
 }
 

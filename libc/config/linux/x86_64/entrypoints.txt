@@ -1682,7 +1682,7 @@ if(LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.grp.setgrent libc.src.grp.getgrent libc.src.grp.getgrent_r
     libc.src.grp.fgetgrent libc.src.grp.fgetgrent_r libc.src.grp.putgrent
-  )
+    libc.src.grp.getgrouplist libc.src.grp.setgroups)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.dirent.alphasort
     libc.src.dirent.posix_getdents

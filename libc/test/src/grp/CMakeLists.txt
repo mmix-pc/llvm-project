@@ -47,9 +47,11 @@ add_libc_test(
     ${LIBC_SOURCE_DIR}/src/grp/fgetgrent.cpp
     ${LIBC_SOURCE_DIR}/src/grp/fgetgrent_r.cpp
     ${LIBC_SOURCE_DIR}/src/grp/putgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrouplist.cpp
     ${LIBC_SOURCE_DIR}/src/grp/getgrnam_r.cpp
   DEPENDS
     libc.src.grp.stream
+    libc.src.grp.supplementary_groups
     libc.src.__support.integer_to_string
     libc.src.__support.char_vector
     libc.src.stdio.remove
