@@ -111,12 +111,18 @@ class TestHeaderGenIntegration(unittest.TestCase):
     def test_group_interfaces(self):
         output_file = self.output_dir / "grp.h"
         functions = ["getgrnam", "getgrgid", "getgrnam_r", "getgrgid_r",
-                     "initgroups", "endgrent"]
+                     "setgrent", "getgrent", "getgrent_r", "endgrent",
+                     "fgetgrent", "fgetgrent_r", "putgrent",
+                     "initgroups"]
         self.run_script(self.source_dir.parents[2] / "include/grp.yaml",
                         output_file, functions)
         content = output_file.read_text()
         for name in functions:
             self.assertRegex(content, rf"\b{name}\(")
+        self.assertIn("struct group *getgrent(void);", content)
+        self.assertIn("struct group *fgetgrent(FILE *);", content)
+        self.assertIn("int putgrent(const struct group *__restrict, "
+                      "FILE *__restrict);", content)
         for declaration in content.splitlines():
             if any(re.search(rf"\b{name}\(", declaration)
                    for name in functions):

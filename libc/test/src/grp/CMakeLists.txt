@@ -26,6 +26,7 @@ if(LIBC_TARGET_OS STREQUAL "linux")
       ${LIBC_SOURCE_DIR}/src/grp/getgrnam_r.cpp
     DEPENDS
       libc.src.grp.lookup
+      libc.src.grp.stream
       libc.src.grp.supplementary_groups
       libc.src.__support.common
       libc.src.__support.error_or
@@ -34,3 +35,22 @@ if(LIBC_TARGET_OS STREQUAL "linux")
       libc.src.stdio.remove
   )
 endif()
+
+add_libc_test(
+  stream_test
+  SUITE libc_grp_unittests
+  SRCS stream_test.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/setgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrent_r.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/endgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/fgetgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/fgetgrent_r.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/putgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrnam_r.cpp
+  DEPENDS
+    libc.src.grp.stream
+    libc.src.__support.integer_to_string
+    libc.src.__support.char_vector
+    libc.src.stdio.remove
+)

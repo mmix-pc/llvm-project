@@ -37,7 +37,32 @@ add_entrypoint_object(
   endgrent
   SRCS endgrent.cpp
   HDRS endgrent.h
-  DEPENDS .lookup libc.hdr.func.free libc.src.__support.common
+  DEPENDS .lookup .stream libc.hdr.func.free libc.src.__support.common
+)
+
+add_object_library(
+  stream
+  SRCS stream.cpp
+  HDRS stream.h
+  DEPENDS .lookup libc.hdr.func.free libc.hdr.func.realloc
+    libc.hdr.stdio_macros libc.src.__support.char_vector
+    libc.src.string.memory_utils.inline_memcpy
+)
+foreach(name getgrent getgrent_r setgrent fgetgrent fgetgrent_r)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .stream libc.hdr.types.FILE libc.src.__support.common
+  )
+endforeach()
+add_entrypoint_object(
+  putgrent
+  SRCS putgrent.cpp
+  HDRS putgrent.h
+  DEPENDS libc.hdr.types.FILE libc.hdr.types.struct_group
+    libc.src.__support.File.file libc.src.__support.char_vector
+    libc.src.__support.integer_to_string libc.src.__support.libc_errno
 )
 
 add_header_library(

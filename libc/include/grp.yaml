@@ -2,6 +2,7 @@ header: grp.h
 standards:
   - posix
 types:
+  - type_name: FILE
   - type_name: struct_group
   - type_name: gid_t
   - type_name: size_t
@@ -56,3 +57,45 @@ functions:
     return_type: struct group *
     arguments:
       - type: gid_t
+  - name: setgrent
+    noexcept: false
+    standards: [posix]
+    return_type: void
+    arguments: []
+  - name: getgrent
+    noexcept: false
+    standards: [posix]
+    return_type: struct group *
+    arguments: []
+  - name: getgrent_r
+    noexcept: false
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: struct group *__restrict
+      - type: char *__restrict
+      - type: size_t
+      - type: struct group **__restrict
+  - name: fgetgrent
+    noexcept: false
+    standards: [gnu]
+    return_type: struct group *
+    arguments:
+      - type: FILE *
+  - name: fgetgrent_r
+    noexcept: false
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: FILE *__restrict
+      - type: struct group *__restrict
+      - type: char *__restrict
+      - type: size_t
+      - type: struct group **__restrict
+  - name: putgrent
+    noexcept: false
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: const struct group *__restrict
+      - type: FILE *__restrict
