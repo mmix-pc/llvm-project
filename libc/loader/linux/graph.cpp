@@ -186,6 +186,9 @@ MapResult StartupGraph::discover(const SearchEnvironment &environment) {
                                     environment, candidate, &request);
       if (result.error || result.cleanup_error)
         return result;
+      if (!node->metadata()->accepts_dependency(name,
+                                                *request.found->metadata()))
+        return {-ENOEXEC, 0};
       void *storage;
       long error = arena.allocate(sizeof(Edge), alignof(Edge), storage);
       if (error)

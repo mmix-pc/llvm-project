@@ -63,6 +63,11 @@ static bool tag_field(Address tag, DynamicTag &out) {
     FIELD(DT_BIND_NOW, BindNow);
     FIELD(DT_DEBUG, Debug);
     FIELD(DT_CHECKSUM, Checksum);
+    FIELD(DT_VERSYM, Versym);
+    FIELD(DT_VERDEF, Verdef);
+    FIELD(DT_VERDEFNUM, Verdefnum);
+    FIELD(DT_VERNEED, Verneed);
+    FIELD(DT_VERNEEDNUM, Verneednum);
 #undef FIELD
   default:
     return false;
@@ -164,9 +169,24 @@ static bool lookup_definition(const Elf64_Sym &symbol) {
          (symbol.st_other == STV_DEFAULT || symbol.st_other == STV_PROTECTED);
 }
 
-bool DynamicInfo::find_definition(Bytes name, Address &out) const {
+static bool equal(Bytes a, Bytes b) {
+  if (a.size() != b.size())
+    return false;
+  for (size_t i = 0; i < a.size(); ++i)
+    if (a[i] != b[i])
+      return false;
+  return true;
+}
+
+bool DynamicInfo::find_definition(Bytes name, Address &out,
+                                  Bytes version) const {
   out = 0;
-  if (!valid || name.empty())
+  return valid && find_definition_impl(name, out, version);
+}
+
+bool DynamicInfo::find_definition_impl(Bytes name, Address &out,
+                                       Bytes version) const {
+  if (name.empty())
     return false;
   auto matches = [&](Address index) {
     Elf64_Sym symbol;
@@ -178,6 +198,19 @@ bool DynamicInfo::find_definition(Bytes name, Address &out) const {
     for (size_t i = 0; i < name.size(); ++i)
       if (candidate[i] != name[i])
         return false;
+    Address vi = versym.empty() ? VER_NDX_GLOBAL
+                                : integer(versym.data() + index * 2, 2, big);
+    if ((vi & 0x7fff) == VER_NDX_LOCAL)
+      return false;
+    if (version.empty()) {
+      if (vi & 0x8000)
+        return false;
+    } else {
+      Bytes offered;
+      if ((vi & 0x7fff) <= VER_NDX_GLOBAL ||
+          !version_name(vi & 0x7fff, true, offered) || !equal(version, offered))
+        return false;
+    }
     out = index;
     return true;
   };
@@ -196,7 +229,7 @@ bool DynamicInfo::find_definition(Bytes name, Address &out) const {
     Address index = integer(gnu.data() + table + (hash % buckets) * 4, 4, big);
     if (index < start)
       return false;
-    for (; index < symbol_count(); ++index) {
+    for (; index < symbols.size() / 24; ++index) {
       Address chain = integer(
           gnu.data() + table + buckets * 4 + (index - start) * 4, 4, big);
       if ((chain | 1) == (Address(hash) | 1) && matches(index))
@@ -209,7 +242,7 @@ bool DynamicInfo::find_definition(Bytes name, Address &out) const {
   Address buckets = integer(sysv.data(), 4, big);
   Address index =
       integer(sysv.data() + 8 + (name_hash(name, false) % buckets) * 4, 4, big);
-  for (Address steps = 0; index && steps < symbol_count(); ++steps) {
+  for (Address steps = 0; index && steps < symbols.size() / 24; ++steps) {
     if (matches(index))
       return true;
     index = integer(sysv.data() + 8 + (buckets + index) * 4, 4, big);
@@ -330,6 +363,274 @@ DynamicError DynamicInfo::validate_hashes(const ElfImage &image) {
   return DynamicError::None;
 }
 
+bool DynamicInfo::version_name(Address index, bool definition,
+                               Bytes &out) const {
+  out = {};
+  Bytes table = definition ? verdef : verneed;
+  Address count =
+      values[slot(definition ? DynamicTag::Verdefnum : DynamicTag::Verneednum)];
+  Address at = 0;
+  for (Address i = 0; i < count; ++i) {
+    const auto *p = table.data() + at;
+    if (definition) {
+      if (integer(p + 4, 2, big) == index) {
+        Address aux = at + integer(p + 12, 4, big);
+        return read_string(integer(table.data() + aux, 4, big), out);
+      }
+      at += integer(p + 16, 4, big);
+    } else {
+      Address aux = at + integer(p + 8, 4, big);
+      for (Address j = 0; j < integer(p + 2, 2, big); ++j) {
+        const auto *a = table.data() + aux;
+        if ((integer(a + 6, 2, big) & 0x7fff) == index)
+          return read_string(integer(a + 8, 4, big), out);
+        aux += integer(a + 12, 4, big);
+      }
+      at += integer(p + 12, 4, big);
+    }
+  }
+  return false;
+}
+
+bool DynamicInfo::symbol_version(Address index, Bytes &name) const {
+  name = {};
+  Elf64_Sym symbol;
+  if (!valid || !read_symbol(index, symbol))
+    return false;
+  if (versym.empty())
+    return true;
+  Address vi = integer(versym.data() + index * 2, 2, big) & 0x7fff;
+  return vi <= VER_NDX_GLOBAL ||
+         version_name(vi, symbol.st_shndx != SHN_UNDEF, name);
+}
+
+bool DynamicInfo::symbol_is_local(Address index) const {
+  return valid && index < symbol_count() && !versym.empty() &&
+         (integer(versym.data() + index * 2, 2, big) & 0x7fff) == VER_NDX_LOCAL;
+}
+
+bool DynamicInfo::defines_version(Bytes name) const {
+  if (!valid)
+    return false;
+  Address at = 0;
+  for (Address i = 0; i < value(DynamicTag::Verdefnum); ++i) {
+    const auto *p = verdef.data() + at;
+    Bytes candidate;
+    Address aux = at + integer(p + 12, 4, big);
+    if (integer(p + 4, 2, big) > VER_NDX_GLOBAL &&
+        read_string(integer(verdef.data() + aux, 4, big), candidate) &&
+        equal(name, candidate))
+      return true;
+    at += integer(p + 16, 4, big);
+  }
+  return false;
+}
+
+bool DynamicInfo::accepts_dependency(Bytes needed,
+                                     const DynamicInfo &provider) const {
+  if (!valid || !provider.valid)
+    return false;
+  Address at = 0;
+  for (Address i = 0; i < value(DynamicTag::Verneednum); ++i) {
+    const auto *p = verneed.data() + at;
+    Bytes file;
+    read_string(integer(p + 4, 4, big), file);
+    if (equal(file, needed)) {
+      Address aux = at + integer(p + 8, 4, big);
+      for (Address j = 0; j < integer(p + 2, 2, big); ++j) {
+        const auto *a = verneed.data() + aux;
+        Bytes name;
+        read_string(integer(a + 8, 4, big), name);
+        if (!(integer(a + 4, 2, big) & VER_FLG_WEAK) &&
+            !provider.defines_version(name))
+          return false;
+        aux += integer(a + 12, 4, big);
+      }
+    }
+    at += integer(p + 12, 4, big);
+  }
+  return true;
+}
+
+DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
+  auto has = [this](DynamicTag t) {
+    return (seen & (Address(1) << slot(t))) != 0;
+  };
+  auto val = [this](DynamicTag t) { return values[slot(t)]; };
+  if (has(DynamicTag::Verdef) != has(DynamicTag::Verdefnum) ||
+      has(DynamicTag::Verneed) != has(DynamicTag::Verneednum) ||
+      ((has(DynamicTag::Verdef) || has(DynamicTag::Verneed)) &&
+       !has(DynamicTag::Versym)))
+    return DynamicError::Version;
+  if (has(DynamicTag::Versym)) {
+    versym = image.file_backed_bytes(val(DynamicTag::Versym),
+                                     symbols.size() / 24 * 2);
+    if (val(DynamicTag::Versym) % 2 || versym.size() != symbols.size() / 24 * 2)
+      return DynamicError::Version;
+  }
+  // ELF version indices are 15 bits. These bounded bitsets reject ambiguous
+  // indices without allocation, even during bootstrap of an untrusted image.
+  Address definitions[512], requirements[512];
+  __builtin_memset_inline(definitions, 0, sizeof(definitions));
+  __builtin_memset_inline(requirements, 0, sizeof(requirements));
+  const bool kinds[] = {true, false};
+  for (bool def : kinds) {
+    DynamicTag tag = def ? DynamicTag::Verdef : DynamicTag::Verneed;
+    DynamicTag num = def ? DynamicTag::Verdefnum : DynamicTag::Verneednum;
+    if (!has(tag))
+      continue;
+    Address count = val(num);
+    Bytes &table = def ? verdef : verneed;
+    table = image.file_backed_tail(val(tag));
+    Address header = def ? 20 : 16, aux_size = def ? 8 : 16;
+    if (!count || count > 32767 || val(tag) % 4 ||
+        count > table.size() / header)
+      return DynamicError::Version;
+    Address at = 0, used = 0;
+    for (Address i = 0; i < count; ++i) {
+      if (at > table.size() || table.size() - at < header)
+        return DynamicError::Version;
+      const auto *p = table.data() + at;
+      Address aux_count = integer(p + (def ? 6 : 2), 2, big);
+      Address offset = integer(p + (def ? 12 : 8), 4, big);
+      Address next = integer(p + (def ? 16 : 12), 4, big);
+      if (integer(p, 2, big) != 1 || !aux_count || offset < header ||
+          offset % 4 || offset > table.size() - at ||
+          aux_count > (table.size() - at - offset) / aux_size)
+        return DynamicError::Version;
+      Address aux = at + offset;
+      Address index = def ? integer(p + 4, 2, big) : 0;
+      if (def) {
+        Address flags = integer(p + 2, 2, big);
+        if (!index || index > 0x7fff ||
+            (flags & ~(VER_FLG_BASE | VER_FLG_WEAK)) ||
+            ((flags & VER_FLG_BASE) != 0) != (index == VER_NDX_GLOBAL) ||
+            ((definitions[index / 64] | requirements[index / 64]) &
+             (Address(1) << (index % 64))))
+          return DynamicError::Version;
+        definitions[index / 64] |= Address(1) << (index % 64);
+      } else {
+        Bytes file;
+        if (!read_string(integer(p + 4, 4, big), file) || file.empty())
+          return DynamicError::Version;
+        bool found = false;
+        for (Address d = 0; d < dynamic.size(); d += 16) {
+          Address entry_tag = integer(dynamic.data() + d, 8, big);
+          if (entry_tag == DT_NULL)
+            break;
+          Bytes name;
+          if (entry_tag == DT_NEEDED &&
+              read_string(integer(dynamic.data() + d + 8, 8, big), name) &&
+              equal(file, name))
+            found = true;
+        }
+        if (!found)
+          return DynamicError::Version;
+      }
+      for (Address j = 0; j < aux_count; ++j) {
+        if (aux > table.size() || table.size() - aux < aux_size)
+          return DynamicError::Version;
+        const auto *a = table.data() + aux;
+        Bytes name;
+        if (!read_string(integer(a + (def ? 0 : 8), 4, big), name) ||
+            name.empty())
+          return DynamicError::Version;
+        if ((!def || !j) &&
+            name_hash(name, false) != integer(def ? p + 8 : a, 4, big))
+          return DynamicError::Version;
+        if (!def) {
+          index = integer(a + 6, 2, big) & 0x7fff;
+          if (index <= VER_NDX_GLOBAL ||
+              (integer(a + 4, 2, big) & ~Address(VER_FLG_WEAK)) ||
+              ((definitions[index / 64] | requirements[index / 64]) &
+               (Address(1) << (index % 64))))
+            return DynamicError::Version;
+          requirements[index / 64] |= Address(1) << (index % 64);
+        }
+        used = aux + aux_size;
+        Address advance = integer(a + (def ? 4 : 12), 4, big);
+        if (j + 1 == aux_count) {
+          if (advance)
+            return DynamicError::Version;
+        } else {
+          if (advance < aux_size || advance % 4 || advance > table.size() - aux)
+            return DynamicError::Version;
+          aux += advance;
+        }
+      }
+      if (i + 1 == count) {
+        if (next)
+          return DynamicError::Version;
+      } else {
+        if (next < used - at || next % 4 || next > table.size() - at)
+          return DynamicError::Version;
+        at += next;
+      }
+    }
+    table = table.first(used);
+  }
+  Address def_at = 0;
+  for (Address i = 0; i < val(DynamicTag::Verdefnum); ++i) {
+    const auto *p = verdef.data() + def_at;
+    Address aux = def_at + integer(p + 12, 4, big);
+    Bytes own_name;
+    read_string(integer(verdef.data() + aux, 4, big), own_name);
+    for (Address j = 0; j < integer(p + 6, 2, big); ++j) {
+      const auto *a = verdef.data() + aux;
+      Bytes name;
+      read_string(integer(a, 4, big), name);
+      Address other = 0, matches = 0;
+      for (Address k = 0; k < val(DynamicTag::Verdefnum); ++k) {
+        const auto *q = verdef.data() + other;
+        Address name_at = other + integer(q + 12, 4, big);
+        Bytes candidate;
+        read_string(integer(verdef.data() + name_at, 4, big), candidate);
+        matches += equal(name, candidate);
+        other += integer(q + 16, 4, big);
+      }
+      // A definition name is unique; parent records refer to another node.
+      // They never substitute for an exact requested symbol version.
+      if (matches != 1 || (j && equal(own_name, name)))
+        return DynamicError::Version;
+      aux += integer(a + 4, 4, big);
+    }
+    def_at += integer(p + 16, 4, big);
+  }
+  for (Address i = 0; i < versym.size() / 2; ++i) {
+    Address raw = integer(versym.data() + i * 2, 2, big);
+    Address index = raw & 0x7fff;
+    Elf64_Sym symbol;
+    read_symbol(i, symbol);
+    if ((!i && raw) || (index <= VER_NDX_GLOBAL && (raw & 0x8000)))
+      return DynamicError::Version;
+    if (index <= VER_NDX_GLOBAL)
+      continue;
+    auto *set = symbol.st_shndx == SHN_UNDEF ? requirements : definitions;
+    if (!(set[index / 64] & (Address(1) << (index % 64))))
+      return DynamicError::Version;
+  }
+  // Hash-chain lookup detects ambiguous defaults or duplicate exact versions
+  // without comparing every pair of dynamic symbols.
+  for (Address i = 1; i < versym.size() / 2; ++i) {
+    Elf64_Sym symbol;
+    read_symbol(i, symbol);
+    Address raw = integer(versym.data() + i * 2, 2, big);
+    Address index = raw & 0x7fff;
+    if (!lookup_definition(symbol) || index == VER_NDX_LOCAL)
+      continue;
+    Bytes name, version;
+    read_string(symbol.st_name, name);
+    if (index > VER_NDX_GLOBAL)
+      version_name(index, true, version);
+    Address found = 0;
+    if (!find_definition_impl(name, found, version) || found != i ||
+        (!(raw & 0x8000) &&
+         (!find_definition_impl(name, found, {}) || found != i)))
+      return DynamicError::Version;
+  }
+  return DynamicError::None;
+}
+
 DynamicError DynamicInfo::parse(const ElfImage &image) {
   const auto *header = image.header();
   if (!header)
@@ -415,6 +716,9 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
     }
   }
   DynamicError error = validate_hashes(image);
+  if (error != DynamicError::None)
+    return error;
+  error = validate_versions(image);
   if (error != DynamicError::None)
     return error;
   for (Address i = 0; i < symbols.size() / 24; ++i) {
@@ -530,6 +834,9 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
         overlaps(r.offset, val(DynamicTag::Symtab), symbols.size()) ||
         overlaps(r.offset, val(DynamicTag::Hash), sysv.size()) ||
         overlaps(r.offset, val(DynamicTag::GnuHash), gnu.size()) ||
+        overlaps(r.offset, val(DynamicTag::Versym), versym.size()) ||
+        overlaps(r.offset, val(DynamicTag::Verdef), verdef.size()) ||
+        overlaps(r.offset, val(DynamicTag::Verneed), verneed.size()) ||
         overlaps(r.offset, val(DynamicTag::Rela), relas.size()))
       return DynamicError::Relocation;
     // An unaligned eight-byte destination touches two aligned octas. Any

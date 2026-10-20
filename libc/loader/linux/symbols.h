@@ -38,7 +38,7 @@ struct SymbolFailure {
 
 // Borrows immutable admitted image/metadata pairs in main-first BFS order.
 // The graph and supplied descriptor arena must outlive every use. This is
-// startup-only binding, not a public dlsym/handle or symbol-version interface.
+// binding shared by startup and runtime scopes, not a public handle API.
 class StartupSymbols {
   cpp::span<const SymbolObject> objects;
   SymbolError definition(size_t object, Address index, SymbolValue &out) const;
@@ -50,7 +50,7 @@ public:
                           StartupSymbols &out, bool allow_tls = false);
   static long open(const StartupGraph &graph, Arena &arena,
                    StartupSymbols &out);
-  SymbolError lookup(Bytes name, SymbolValue &out) const;
+  SymbolError lookup(Bytes name, SymbolValue &out, Bytes version = {}) const;
   SymbolError resolve(size_t requester, Address index, SymbolValue &out) const;
   // Validate all symbolic relocation references before relocation/initializers.
   // Unreferenced undefined dynamic symbols do not create a startup obligation.

@@ -225,8 +225,13 @@ MapResult RuntimeGraph::resolve(Bytes name, Node *parent,
       name, object, ancestors, environment, candidate, &request);
   if (request.not_loaded)
     result.error = -ENOENT;
-  if (!result.error && !result.cleanup_error && parent)
-    result.error = edge(*parent, *request.found);
+  if (!result.error && !result.cleanup_error && parent) {
+    if (!parent->metadata()->accepts_dependency(name,
+                                                *request.found->metadata()))
+      result.error = -ENOEXEC;
+    else
+      result.error = edge(*parent, *request.found);
+  }
   return result;
 }
 

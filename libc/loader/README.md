@@ -83,8 +83,21 @@ file-backed storage. Hash checks cover indexes, termination/cycles, bucket and
 name agreement, GNU bloom bits, reachable definitions and agreement when both
 formats are present. Contiguous readable loads can cover a table, while holes,
 BSS and bytes beyond a supplied mapped region cannot extend it. The parser
-rejects TLSDESC, version, IFUNC, GNU_UNIQUE, PLT and unknown semantics.
+rejects TLSDESC, IFUNC, GNU_UNIQUE, PLT and unknown semantics.
 It does not resolve symbols across images or call lifecycle functions.
+
+GNU version metadata is admitted through VERSYM, VERDEF/VERDEFNUM and
+VERNEED/VERNEEDNUM. The parser validates bounded chains, counts, indices,
+names, hashes and dependency records before relocation. Exact version requests
+match names rather than provider-local indices; unversioned definitions are not
+fallback providers. Ordinary lookup and dlsym select public defaults. Hidden
+version bits do not change ELF symbol visibility. Required dependency versions
+are checked on the actual selected NEEDED image before initialization, including
+late loading. A weak dependency-version flag does not weaken a strong symbol
+reference. Parent version nodes are metadata, not alternative symbol versions.
+Validated tables borrow their image's immutable storage and cannot outlive it.
+The loader does not provide dlvsym or historical unversioned interposition
+exceptions.
 
 Main/DSO TLS admission preserves one checked PT_TLS header, including empty
 templates, alignment residue and file/memory extents. Defined TLS symbols are

@@ -9,7 +9,6 @@
 # RUN: not ld.lld -m elf64mmix_linux -shared --filter=other.so %t/good.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=SEMANTICS
 # RUN: not ld.lld -m elf64mmix_linux -shared -z origin %t/good.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=SEMANTICS
 # RUN: not ld.lld -m elf64mmix_linux -shared -e 0 %t/good.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=ENTRY
-# RUN: not ld.lld -m elf64mmix_linux -shared --version-script=%t/versions %t/good.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=VERSION
 # RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/readonly.s -o %t/readonly.o
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/readonly.o -o /dev/null 2>&1 | FileCheck %s --check-prefix=READONLY
 # RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/tls.s -o %t/tls.o
@@ -33,7 +32,6 @@
 # TEXT: does not support text relocations
 # SEMANTICS: requests unsupported dynamic semantics
 # ENTRY: entry is not in a loaded executable section
-# VERSION: does not support symbol versions
 # READONLY: relocation R_MMIX_64 cannot be used against
 # TLS: R_MMIX_64 against TLS symbol tls requires a non-allocated debug section
 # DUPLICATE: overlapping MMIX Linux dynamic relocation targets
@@ -53,8 +51,6 @@ _start: SWYM 0,0,0
 .p2align 3
 .globl object
 object: .quad object
-#--- versions
-VERSION { global: object; };
 #--- readonly.s
 .section .rodata,"a",@progbits
 .quad external

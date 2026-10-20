@@ -10,6 +10,16 @@ enable_testing()
 find_package(Threads REQUIRED)
 include(../CompileOptions.cmake)
 
+add_executable(loader-versions-test versions_test.cpp
+  ../linux/dynamic.cpp ../linux/symbols.cpp ../linux/elf.cpp
+  ../linux/mmix/target.cpp)
+target_include_directories(loader-versions-test PRIVATE ../..)
+target_compile_definitions(loader-versions-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
+target_compile_options(loader-versions-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-versions-test PRIVATE cxx_std_17)
+add_test(NAME loader-versions COMMAND loader-versions-test)
+set_tests_properties(loader-versions PROPERTIES TIMEOUT 30)
+
 add_executable(loader-cancellation-hooks-test cancellation_hooks_test.cpp)
 target_include_directories(loader-cancellation-hooks-test PRIVATE
   Inputs/cancellation ../..)

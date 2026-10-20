@@ -50,13 +50,14 @@ SymbolError StartupSymbols::definition(size_t object, Address index,
   return SymbolError::None;
 }
 
-SymbolError StartupSymbols::lookup(Bytes name, SymbolValue &out) const {
+SymbolError StartupSymbols::lookup(Bytes name, SymbolValue &out,
+                                   Bytes version) const {
   out = {};
   if (objects.empty())
     return SymbolError::Scope;
   for (size_t i = 0; i < objects.size(); ++i) {
     Address index;
-    if (objects[i].metadata->find_definition(name, index))
+    if (objects[i].metadata->find_definition(name, index, version))
       return definition(i, index, out);
   }
   return SymbolError::Undefined;
@@ -71,15 +72,21 @@ SymbolError StartupSymbols::resolve(size_t requester, Address index,
     return SymbolError::Index;
   const auto &object = objects[requester];
   Elf64_Sym symbol;
-  Bytes name;
+  Bytes name, version;
   if (!object.metadata->symbol(index, symbol) ||
-      !object.metadata->string(symbol.st_name, name))
+      !object.metadata->string(symbol.st_name, name) ||
+      !object.metadata->symbol_version(index, version))
     return SymbolError::Index;
   unsigned binding = symbol.st_info >> 4;
-  bool internal = binding == STB_LOCAL || symbol.st_other != STV_DEFAULT;
+  // lld also uses index zero for unresolved unversioned imports. Only
+  // definitions are localized by the version table.
+  bool internal =
+      binding == STB_LOCAL || symbol.st_other != STV_DEFAULT ||
+      (symbol.st_shndx != SHN_UNDEF && object.metadata->symbol_is_local(index));
   if (symbol.st_shndx != SHN_UNDEF && internal)
     return definition(requester, index, out);
-  SymbolError error = internal ? SymbolError::Undefined : lookup(name, out);
+  SymbolError error =
+      internal ? SymbolError::Undefined : lookup(name, out, version);
   if (error == SymbolError::None &&
       out.tls != ((symbol.st_info & 15) == STT_TLS))
     return SymbolError::Type;

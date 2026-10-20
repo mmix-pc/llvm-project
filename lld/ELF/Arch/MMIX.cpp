@@ -495,8 +495,6 @@ MMIX::MMIX(Ctx &ctx) : TargetInfo(ctx) {
         !ctx.arg.auxiliaryList.empty())
       ErrAlways(ctx)
           << "MMIX Linux dynamic image requests unsupported dynamic semantics";
-    if (ctx.arg.versionDefinitions.size() > 2)
-      ErrAlways(ctx) << "MMIX Linux does not support symbol versions";
     for (SharedFile *file : ctx.sharedFiles)
       validateSharedInput(*file);
   }
@@ -525,20 +523,42 @@ void MMIX::validateSharedInput(SharedFile &file) const {
       ErrAlways(ctx) << &file
                      << ": MMIX Linux does not support loader-initialized "
                         "register contents";
-    if (shdr.sh_type == SHT_GNU_versym || shdr.sh_type == SHT_GNU_verdef ||
-        shdr.sh_type == SHT_GNU_verneed)
-      ErrAlways(ctx) << &file
-                     << ": MMIX Linux does not support symbol versions";
   }
   auto entries = obj.dynamicEntries();
   if (!entries) {
     ErrAlways(ctx) << &file << ": " << toString(entries.takeError());
     return;
   }
+  std::optional<uint64_t> versym, verdef, verdefnum, verneed, verneednum;
+  auto recordVersion = [&](std::optional<uint64_t> &tag, uint64_t value) {
+    if (tag)
+      ErrAlways(ctx) << &file << ": duplicate MMIX Linux version tag";
+    tag = value;
+  };
   for (const ELF64BE::Dyn &entry : *entries) {
     switch (entry.d_tag) {
     case DT_NULL:
+      if (verdef.has_value() != verdefnum.has_value() ||
+          verneed.has_value() != verneednum.has_value() ||
+          ((verdef || verneed) && !versym) || (verdefnum && !*verdefnum) ||
+          (verneednum && !*verneednum))
+        ErrAlways(ctx) << &file << ": incomplete MMIX Linux version metadata";
       return;
+    case DT_VERSYM:
+      recordVersion(versym, entry.d_un.d_val);
+      break;
+    case DT_VERDEF:
+      recordVersion(verdef, entry.d_un.d_val);
+      break;
+    case DT_VERDEFNUM:
+      recordVersion(verdefnum, entry.d_un.d_val);
+      break;
+    case DT_VERNEED:
+      recordVersion(verneed, entry.d_un.d_val);
+      break;
+    case DT_VERNEEDNUM:
+      recordVersion(verneednum, entry.d_un.d_val);
+      break;
     case DT_FLAGS:
       if (entry.d_un.d_val & ~uint64_t(DF_BIND_NOW | DF_STATIC_TLS))
         ErrAlways(ctx) << &file << ": unsupported MMIX Linux DT_FLAGS";
@@ -1795,10 +1815,20 @@ void MMIX::validateLinuxLayout() const {
                  << ": MMIX dynamic metadata requires readable file-backed "
                     "PT_LOAD storage";
     }
+    SyntheticSection *versions[] = {ctx.in.verSym.get(), ctx.in.verDef.get(),
+                                    ctx.in.verNeed.get()};
+    for (SyntheticSection *sec : versions) {
+      if (!sec || !sec->isNeeded())
+        continue;
+      const OutputSection *out = sec->getParent();
+      if (!out || !out->ptLoad || !(out->ptLoad->p_flags & PF_R) ||
+          (out->ptLoad->p_flags & PF_W) || out->type == SHT_NOBITS)
+        Err(ctx) << sec
+                 << ": MMIX symbol versions require read-only "
+                    "file-backed PT_LOAD storage";
+    }
     for (Symbol *sym : ctx.symtab->getSymbols())
-      if (sym->versionId > VER_NDX_GLOBAL)
-        Err(ctx) << "MMIX Linux does not support symbol versions: " << sym;
-      else if (sym->binding == STB_GNU_UNIQUE)
+      if (sym->binding == STB_GNU_UNIQUE)
         Err(ctx) << "MMIX Linux does not support GNU_UNIQUE symbols: " << sym;
     validateDynamicRelocations();
     if (ctx.arg.shared && ctx.arg.entry.empty())

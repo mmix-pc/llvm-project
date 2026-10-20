@@ -29,7 +29,7 @@
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/ifunc.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=IFUNC
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/unique.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=UNIQUE
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/semantic.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=SEMANTICS
-# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/version.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=TAG
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/version.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=VERSION
 # RUN: not ld.lld -m elf64mmix_linux -shared %t/empty.o %t/no-null.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=NULL
 # NEEDED: NEEDED {{.*}}libprovider.so
 # NEEDED-NOT: libunused.so
@@ -52,6 +52,7 @@
 # UNIQUE: MMIX Linux does not support GNU_UNIQUE symbols
 # SEMANTICS: unsupported MMIX Linux DT_FLAGS
 # TAG: unsupported MMIX Linux dynamic tag
+# VERSION: incomplete MMIX Linux version metadata
 # FLAGS1: unsupported MMIX Linux DT_FLAGS_1
 # NULL: dynamic sections must be DT_NULL terminated
 
@@ -120,5 +121,5 @@ for i in range(shnum):
                 change("flags1", p + 8, ">Q", value | 0x80)
             if tag == 30:
                 change("semantic", p + 8, ">Q", value | 4)
-                # DT_VERNEEDNUM advertises unsupported symbol-version semantics.
+                # A version count without a table is malformed.
                 change("version", p, ">q", 0x6fffffff)

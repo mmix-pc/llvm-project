@@ -24,7 +24,8 @@ enum class DynamicError {
   Symbol,
   Hash,
   Relocation,
-  Lifecycle
+  Lifecycle,
+  Version
 };
 
 // NEEDED is repeated and ordered; all entries represented here are singletons.
@@ -55,8 +56,14 @@ enum class DynamicTag {
   BindNow,
   Debug,
   Checksum,
+  Versym,
+  Verdef,
+  Verdefnum,
+  Verneed,
+  Verneednum,
   Count
 };
+static_assert(static_cast<unsigned>(DynamicTag::Count) <= 64);
 
 struct DynamicRelocation {
   Address offset, info, addend; // addend retains the signed ELF bit pattern.
@@ -66,6 +73,7 @@ class DynamicInfo {
   Address values[static_cast<unsigned>(DynamicTag::Count)];
   Address seen = 0, needed_size = 0;
   Bytes dynamic, strings, symbols, relas, sysv, gnu, arrays[3];
+  Bytes versym, verdef, verneed;
   bool big = true, valid = false;
   bool tls_required = false;
   const ElfImage *source = nullptr;
@@ -73,6 +81,9 @@ class DynamicInfo {
   void clear();
   DynamicError parse(const ElfImage &image);
   DynamicError validate_hashes(const ElfImage &image);
+  DynamicError validate_versions(const ElfImage &image);
+  bool version_name(Address index, bool definition, Bytes &out) const;
+  bool find_definition_impl(Bytes name, Address &index, Bytes version) const;
   bool read_string(Address offset, Bytes &out) const;
   bool read_symbol(Address index, Elf64_Sym &out) const;
   bool read_relocation(Address index, DynamicRelocation &out) const;
@@ -107,8 +118,14 @@ public:
     return valid && read_relocation(index, out);
   }
   bool needed(Address index, Bytes &out) const;
-  // First externally visible definition in the validated hash chain.
-  bool find_definition(Bytes name, Address &index) const;
+  // Empty version selects only public defaults. Nonempty versions match
+  // exactly; an unversioned definition is never a compatibility fallback.
+  bool find_definition(Bytes name, Address &index, Bytes version = {}) const;
+  bool symbol_version(Address index, Bytes &name) const;
+  bool symbol_is_local(Address index) const;
+  // Check the actual dependency selected for DT_NEEDED, before relocation.
+  bool accepts_dependency(Bytes needed, const DynamicInfo &provider) const;
+  bool defines_version(Bytes name) const;
   Bytes sysv_hash() const { return valid ? sysv : Bytes(); }
   Bytes gnu_hash() const { return valid ? gnu : Bytes(); }
   Bytes lifecycle_array(DynamicTag tag) const;

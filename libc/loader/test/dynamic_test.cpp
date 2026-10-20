@@ -213,10 +213,10 @@ extern "C" int main() {
                               image) == ElfError::None);
     CHECK(DynamicInfo::open(image, info) != DynamicError::None);
   }
-  const Address unsupported[] = {
-      DT_SYMBOLIC, DT_TEXTREL,  DT_REL,         DT_RELR,        DT_JMPREL,
-      DT_PLTREL,   DT_PLTRELSZ, DT_VERSYM,      DT_VERDEF,      DT_VERNEED,
-      DT_AUDIT,    DT_DEPAUDIT, DT_TLSDESC_PLT, DT_TLSDESC_GOT, 0x70000001};
+  const Address unsupported[] = {DT_SYMBOLIC,    DT_TEXTREL,     DT_REL,
+                                 DT_RELR,        DT_JMPREL,      DT_PLTREL,
+                                 DT_PLTRELSZ,    DT_AUDIT,       DT_DEPAUDIT,
+                                 DT_TLSDESC_PLT, DT_TLSDESC_GOT, 0x70000001};
   for (Address tag : unsupported) {
     DynamicFixture input;
     input.put(input.at(DT_CHECKSUM), 8, tag);
