@@ -41,6 +41,14 @@ add_libc_test(
 # Concurrent file allocation requires the host allocator and pthread runtime.
 if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPILING)
   add_libc_test(
+    inheritance_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc_shadow_unittests
+    SRCS inheritance_test.cpp
+    DEPENDS libc.src.shadow.lookup libc.src.pwd.flat_file_db
+    LINK_LIBRARIES pthread
+  )
+  add_libc_test(
     concurrency_test
     OVERLAY_BUILD_ONLY
     SUITE libc_shadow_unittests

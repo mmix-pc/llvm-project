@@ -113,7 +113,7 @@ public:
   // Opens or rewinds the database file stream.
   LIBC_INLINE ErrorOr<void> setdb() {
     if (!file) {
-      auto result = openfile(file_path, "r");
+      auto result = openfile(file_path, "r", /*close_on_exec=*/true);
       if (!result.has_value())
         return Error(result.error());
       file = result.value();

@@ -12,11 +12,14 @@
 namespace {
 int open_error;
 unsigned open_count;
+bool requested_cloexec;
 } // namespace
 
 namespace LIBC_NAMESPACE_DECL {
-ErrorOr<File *> shadow_test_openfile(const char *, const char *) {
+ErrorOr<File *> shadow_test_openfile(const char *, const char *,
+                                    bool close_on_exec) {
   ++open_count;
+  requested_cloexec = close_on_exec;
   libc_errno = EBADF;
   return Error(open_error);
 }
@@ -43,6 +46,7 @@ TEST(LlvmLibcShadowFailureTest, PermissionAndOpenAllocationErrors) {
   for (int error : errors) {
     open_error = error;
     open_count = 0;
+    requested_cloexec = false;
     spwd entry{}, *result = &entry;
     char buffer[128];
     libc_errno = EDOM;
@@ -52,6 +56,7 @@ TEST(LlvmLibcShadowFailureTest, PermissionAndOpenAllocationErrors) {
     EXPECT_EQ(result, static_cast<spwd *>(nullptr));
     EXPECT_EQ(int(libc_errno), EDOM);
     EXPECT_EQ(open_count, 1U);
+    EXPECT_TRUE(requested_cloexec);
     EXPECT_EQ(LIBC_NAMESPACE::injected_getspnam("alice"),
               static_cast<spwd *>(nullptr));
     EXPECT_EQ(int(libc_errno), error);

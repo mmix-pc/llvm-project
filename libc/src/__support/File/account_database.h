@@ -30,7 +30,7 @@ int lookup_account(const char *path, Entry *entry, char *buffer, size_t size,
     int saved = libc_errno;
     ~ErrnoGuard() { libc_errno = saved; }
   } errno_guard;
-  auto opened = openfile(path, "r");
+  auto opened = openfile(path, "r", /*close_on_exec=*/true);
   if (!opened)
     return opened.error();
   struct FileGuard {
