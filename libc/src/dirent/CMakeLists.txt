@@ -124,3 +124,18 @@ foreach(name scandir scandirat)
     DEPENDS .scandir_utils
   )
 endforeach()
+
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_entrypoint_object(
+    posix_getdents
+    SRCS linux/posix_getdents.cpp
+    HDRS posix_getdents.h
+    DEPENDS
+      libc.include.dirent
+      libc.hdr.types.size_t
+      libc.hdr.types.ssize_t
+      libc.src.__support.CPP.limits
+      libc.src.__support.File.platform_dir
+      libc.src.errno.errno
+  )
+endif()

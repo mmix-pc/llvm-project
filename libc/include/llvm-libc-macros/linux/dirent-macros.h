@@ -23,4 +23,9 @@
 #define DT_LNK 10
 #define DT_SOCK 12
 
+// Linux does not return distinct directory types for these objects.
+#define DT_MQ 16
+#define DT_SEM 17
+#define DT_SHM 18
+
 #endif // LLVM_LIBC_MACROS_LINUX_DIRENT_MACROS_H

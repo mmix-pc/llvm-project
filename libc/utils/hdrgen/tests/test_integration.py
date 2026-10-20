@@ -107,6 +107,25 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("void __fpurge(FILE *) __NOEXCEPT;", content)
         self.assertIn("void _flushlbf(void);", content)
 
+    def test_directory_interfaces(self):
+        output_file = self.output_dir / "dirent.h"
+        functions = ["opendir", "fdopendir", "closedir", "dirfd", "readdir",
+                     "readdir_r", "rewinddir", "seekdir", "telldir", "scandir",
+                     "scandirat", "alphasort", "versionsort", "posix_getdents"]
+        self.run_script(self.source_dir.parents[2] / "include/dirent.yaml",
+                        output_file, functions)
+        content = output_file.read_text()
+        for name in functions:
+            self.assertRegex(content, rf"\b{name}\(")
+        self.assertIn("int scandir(const char *, struct dirent ***, "
+                      "__dirent_filter_t, __dirent_compare_t);", content)
+        self.assertIn("int scandirat(int, const char *, struct dirent ***, "
+                      "__dirent_filter_t, __dirent_compare_t);", content)
+        self.assertIn("ssize_t posix_getdents(int, void *, size_t, int);", content)
+        self.assertIn("void seekdir(DIR *, long) __NOEXCEPT;", content)
+        self.assertIn("long telldir(DIR *) __NOEXCEPT;", content)
+        self.assertNotIn("struct_dirent_struct_dirent.h", content)
+
     def test_readv_exception_specification(self):
         output_file = self.output_dir / "readv.h"
         self.run_script(self.source_dir.parents[2] / "include/sys/uio.yaml",

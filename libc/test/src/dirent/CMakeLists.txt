@@ -38,6 +38,7 @@ add_libc_test(
     libc.src.dirent.dirfd
     libc.src.dirent.fdopendir
     libc.src.dirent.opendir
+    libc.src.dirent.posix_getdents
     libc.src.dirent.readdir
     libc.src.dirent.readdir_r
     libc.src.dirent.rewinddir

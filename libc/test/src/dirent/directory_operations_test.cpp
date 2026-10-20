@@ -13,6 +13,7 @@
 #include "src/dirent/dirfd.h"
 #include "src/dirent/fdopendir.h"
 #include "src/dirent/opendir.h"
+#include "src/dirent/posix_getdents.h"
 #include "src/dirent/readdir.h"
 #include "src/dirent/readdir_r.h"
 #include "src/dirent/rewinddir.h"
@@ -176,5 +177,49 @@ TEST(LlvmLibcDirectoryOperations, ScanErrorsDoNotPublish) {
   EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOTDIR);
   EXPECT_EQ(LIBC_NAMESPACE::scandirat(-1, ".", &list, nullptr, nullptr), -1);
   EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EBADF);
+  LIBC_NAMESPACE::libc_errno = 0;
+}
+
+TEST(LlvmLibcDirectoryOperations, BulkReadAndFdPosition) {
+  int fd = LIBC_NAMESPACE::open("testdata", O_RDONLY | O_DIRECTORY);
+  ASSERT_GE(fd, 0);
+  alignas(dirent) unsigned char buffer[4096];
+  auto bytes = LIBC_NAMESPACE::posix_getdents(fd, buffer, sizeof(buffer), 0);
+  ASSERT_GT(bytes, ssize_t(0));
+  size_t position = 0, count = 0;
+  while (position < size_t(bytes)) {
+    auto *entry = reinterpret_cast<dirent *>(buffer + position);
+    ASSERT_GT(size_t(entry->d_reclen), offsetof(dirent, d_name));
+    ASSERT_LE(position + entry->d_reclen, size_t(bytes));
+    EXPECT_EQ(size_t(entry->d_reclen) % alignof(dirent), size_t(0));
+    ++count;
+    position += entry->d_reclen;
+  }
+  EXPECT_GE(count, size_t(6));
+  off_t offset = LIBC_NAMESPACE::lseek(fd, 0, SEEK_CUR);
+  ASSERT_GT(offset, off_t(0));
+  DIR *dir = LIBC_NAMESPACE::fdopendir(fd);
+  ASSERT_NE(dir, static_cast<DIR *>(nullptr));
+  EXPECT_EQ(LIBC_NAMESPACE::telldir(dir), long(offset));
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::posix_getdents(fd, buffer, sizeof(buffer), 0),
+            ssize_t(0));
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
+  LIBC_NAMESPACE::rewinddir(dir);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_getdents(fd, buffer, 1, 0), ssize_t(-1));
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EINVAL);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_getdents(fd, buffer, sizeof(buffer), 1),
+            ssize_t(-1));
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EOPNOTSUPP);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_getdents(-1, buffer, sizeof(buffer), 0),
+            ssize_t(-1));
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EBADF);
+  EXPECT_EQ(LIBC_NAMESPACE::closedir(dir), 0);
+  fd = LIBC_NAMESPACE::open("testdata/file1.txt", O_RDONLY);
+  ASSERT_GE(fd, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_getdents(fd, buffer, sizeof(buffer), 0),
+            ssize_t(-1));
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOTDIR);
+  EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
   LIBC_NAMESPACE::libc_errno = 0;
 }

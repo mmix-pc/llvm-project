@@ -18,6 +18,12 @@ macros:
     macro_header: dirent-macros.h
   - macro_name: DT_SOCK
     macro_header: dirent-macros.h
+  - macro_name: DT_MQ
+    macro_header: dirent-macros.h
+  - macro_name: DT_SEM
+    macro_header: dirent-macros.h
+  - macro_name: DT_SHM
+    macro_header: dirent-macros.h
 types:
   - type_name: __dirent_filter_t
   - type_name: __dirent_compare_t
@@ -118,3 +124,12 @@ functions:
     arguments:
       - type: const struct dirent **
       - type: const struct dirent **
+  - name: posix_getdents
+    noexcept: false
+    standards: [posix]
+    return_type: ssize_t
+    arguments:
+      - type: int
+      - type: void *
+      - type: size_t
+      - type: int
