@@ -18,6 +18,7 @@
 #include "src/wchar/getwc.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcGetwcTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
@@ -49,6 +50,7 @@ TEST_F(LlvmLibcGetwcTest, ReadValidCharacters) {
 }
 
 TEST_F(LlvmLibcGetwcTest, ReadUtf8) {
+  LocaleGuard locale;
   auto FILENAME = libc_make_test_file_path("getwc_utf8.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(FILENAME, "w");
   ASSERT_FALSE(file == nullptr);

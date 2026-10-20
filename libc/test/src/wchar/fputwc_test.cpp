@@ -23,6 +23,7 @@
 #include "src/wchar/fwide.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcFputwcTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
@@ -50,6 +51,7 @@ TEST_F(LlvmLibcFputwcTest, WriteASCII) {
 }
 
 TEST_F(LlvmLibcFputwcTest, WriteUtf8) {
+  LocaleGuard locale;
   const auto FILENAME = libc_make_test_file_path("fputwc_utf8.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(FILENAME, "w");
   ASSERT_FALSE(file == nullptr);

@@ -18,6 +18,7 @@
 #include "src/wchar/putwchar.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcPutwcharTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
@@ -57,6 +58,7 @@ TEST_F(LlvmLibcPutwcharTest, WriteASCII) {
 }
 
 TEST_F(LlvmLibcPutwcharTest, WriteUtf8) {
+  LocaleGuard locale;
   auto FILENAME = libc_make_test_file_path("putwchar_utf8.test");
 
   // Redirect stdout
@@ -160,6 +162,7 @@ TEST_F(LlvmLibcPutwcharTest, ByteModeFailure) {
 }
 
 TEST_F(LlvmLibcPutwcharTest, RealStdoutNoRedirection) {
+  LocaleGuard locale;
   // This test writes directly to the real un-redirected stdout.
   // While it cannot be programmatically verified by the test runner,
   // it is extremely useful for developers running tests manually in a terminal

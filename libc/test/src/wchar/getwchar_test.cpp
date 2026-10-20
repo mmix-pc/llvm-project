@@ -25,6 +25,7 @@
 #include "src/wchar/ungetwc.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcGetwcharTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
@@ -60,6 +61,7 @@ TEST_F(LlvmLibcGetwcharTest, ReadValidWideCharacters) {
 }
 
 TEST_F(LlvmLibcGetwcharTest, ReadUtf8) {
+  LocaleGuard locale;
   const auto FILENAME = libc_make_test_file_path("getwchar_utf8.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(FILENAME, "w");
   ASSERT_FALSE(file == nullptr);

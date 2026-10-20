@@ -19,6 +19,7 @@
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/RoundingModeUtils.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 #include <inttypes.h>
 
 // TODO: Add a comment here explaining the printf format string.
@@ -3812,6 +3813,7 @@ TEST(LlvmLibcSPrintfTest, IndexModeParsing) {
 #if !defined(LIBC_COPT_PRINTF_DISABLE_WIDE) &&                                 \
     !defined(LIBC_TARGET_ARCH_IS_GPU) // llvm.org/pr214433
 TEST(LlvmLibcSprintfTest, WideCharConversion) {
+  LocaleGuard locale;
   char buff[16];
   int written;
 
@@ -3901,6 +3903,7 @@ TEST(LlvmLibcSprintfTest, WideCharConversion) {
 }
 
 TEST(LlvmLibcSprintfTest, WideCharStringConversion) {
+  LocaleGuard locale;
   char buff[64];
   int written;
 

@@ -18,6 +18,7 @@
 #include "src/wchar/fwide.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcFgetwcTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
@@ -44,6 +45,7 @@ TEST_F(LlvmLibcFgetwcTest, ReadASCII) {
 }
 
 TEST_F(LlvmLibcFgetwcTest, ReadUtf8) {
+  LocaleGuard locale;
   auto FILENAME = libc_make_test_file_path("fgetwc_utf8.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(FILENAME, "w");
   ASSERT_FALSE(file == nullptr);
@@ -105,6 +107,7 @@ TEST_F(LlvmLibcFgetwcTest, EOFAndInvalidStream) {
 }
 
 TEST_F(LlvmLibcFgetwcTest, EncodingErrorEILSEQ) {
+  LocaleGuard locale;
   auto FILENAME = libc_make_test_file_path("fgetwc_eilseq.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(FILENAME, "w");
   ASSERT_FALSE(file == nullptr);

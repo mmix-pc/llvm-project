@@ -17,6 +17,7 @@
 #include "src/wchar/vfwprintf.h"
 #include "src/wchar/vswprintf.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
+#include "test/src/locale/LocaleGuard.h"
 #include <stdarg.h>
 
 static int format(wchar_t *buffer, size_t size, const wchar_t *fmt, ...) {
@@ -41,6 +42,7 @@ TEST(LlvmLibcWideFormatTest, BufferAndVaList) {
 }
 
 TEST(LlvmLibcWideFormatTest, StreamOutput) {
+  LocaleGuard locale;
   auto name = libc_make_test_file_path("wide-format.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(name, "w+");
   ASSERT_NE(file, nullptr);

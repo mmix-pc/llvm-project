@@ -11,6 +11,7 @@
 #include "src/wchar/mbrtowc.h"
 #include "src/wchar/mbsinit.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 TEST(LlvmLibcMBSInitTest, EmptyState) {
   const mbstate_t initial = {};
@@ -22,6 +23,7 @@ TEST(LlvmLibcMBSInitTest, EmptyState) {
 }
 
 TEST(LlvmLibcMBSInitTest, ConversionTest) {
+  LocaleGuard locale;
   const char *src = "\xf0\x9f\xa4\xa3"; // 4 byte emoji
   wchar_t dest[2];
   mbstate_t ps;

@@ -24,8 +24,10 @@
 #include "src/wchar/ungetwc.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 TEST(LlvmLibcFposTest, WideBufferedPosition) {
+  LocaleGuard locale;
   auto name = libc_make_test_file_path("fpos-wide.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(name, "w+");
   ASSERT_NE(file, nullptr);

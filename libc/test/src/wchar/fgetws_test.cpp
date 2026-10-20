@@ -23,6 +23,7 @@
 #include "src/wchar/wcscmp.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcFgetwsTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
@@ -30,6 +31,7 @@ using LlvmLibcFgetwsTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 // assert macros (e.g., EXPECT_STREQ for wchar_t) once they are supported
 // natively by the LLVM-libc test framework, instead of calling wcscmp.
 TEST_F(LlvmLibcFgetwsTest, ReadWideString) {
+  LocaleGuard locale;
   const auto FILENAME = libc_make_test_file_path("fgetws_string.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(FILENAME, "w");
   ASSERT_FALSE(file == nullptr);
@@ -146,6 +148,7 @@ TEST_F(LlvmLibcFgetwsTest, InvalidStream) {
 }
 
 TEST_F(LlvmLibcFgetwsTest, EncodingErrorEILSEQ) {
+  LocaleGuard locale;
   const auto FILENAME = libc_make_test_file_path("fgetws_eilseq.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(FILENAME, "w");
   ASSERT_FALSE(file == nullptr);

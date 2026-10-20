@@ -26,10 +26,12 @@
 #include "src/wchar/ungetwc.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcUngetwcTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST_F(LlvmLibcUngetwcTest, MultibyteBufferBoundaryAndPosition) {
+  LocaleGuard locale;
   auto filename = libc_make_test_file_path("ungetwc_boundary.test");
   constexpr char content[] = "123\xe2\x82\xac!";
   auto *file = LIBC_NAMESPACE::fopen(filename, "w");
@@ -250,6 +252,7 @@ TEST_F(LlvmLibcUngetwcTest, PushbackAtStartOfFile) {
 }
 
 TEST_F(LlvmLibcUngetwcTest, PushbackMultibyteChars) {
+  LocaleGuard locale;
   auto FILENAME = libc_make_test_file_path("ungetwc_multibyte.test");
   ::FILE *file = LIBC_NAMESPACE::fopen(FILENAME, "w");
   ASSERT_FALSE(file == nullptr);

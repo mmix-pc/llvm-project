@@ -26,6 +26,7 @@
 #include "src/wchar/vwscanf.h"
 #include "src/wchar/wscanf.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
+#include "test/src/locale/LocaleGuard.h"
 #include <stdarg.h>
 
 static int scan(const wchar_t *buffer, const wchar_t *fmt, ...) {
@@ -162,6 +163,7 @@ TEST(LlvmLibcWideScanTest, Pointers) {
 }
 
 TEST(LlvmLibcWideScanTest, WideLiteralsAndStrings) {
+  LocaleGuard locale;
   wchar_t wide[8] = {};
   char bytes[16] = {};
   int n = -1;
@@ -218,6 +220,7 @@ TEST(LlvmLibcWideScanTest, InputAndMatchingFailures) {
 }
 
 TEST(LlvmLibcWideScanTest, StreamLookaheadAndCount) {
+  LocaleGuard locale;
   ::FILE *file = input_file("\xe2\x82\xac 42!", 7);
   ASSERT_NE(file, nullptr);
   wchar_t c = 0;
@@ -234,6 +237,7 @@ TEST(LlvmLibcWideScanTest, StreamLookaheadAndCount) {
 }
 
 TEST(LlvmLibcWideScanTest, LookaheadAcrossBufferBoundary) {
+  LocaleGuard locale;
   ::FILE *file = input_file("123\xe2\x82\xac!", 7);
   ASSERT_NE(file, nullptr);
   char buffer[4];
@@ -295,6 +299,7 @@ TEST_F(LlvmLibcWideScanErrorTest, ByteOrientationRejected) {
 }
 
 TEST_F(LlvmLibcWideScanErrorTest, EncodingError) {
+  LocaleGuard locale;
   ::FILE *file = input_file("\xff", 1);
   ASSERT_NE(file, nullptr);
   wchar_t c;
