@@ -6,6 +6,7 @@ types:
   - type_name: ssize_t
 functions:
   - name: writev
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t
@@ -14,6 +15,7 @@ functions:
       - type: const struct iovec *
       - type: int
   - name: readv
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t

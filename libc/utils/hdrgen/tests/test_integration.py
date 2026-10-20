@@ -96,11 +96,25 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn('#include "llvm-libc-macros/stdio-ext-macros.h"', content)
         self.assertIn("int __fsetlocking(FILE *, int) __NOEXCEPT;", content)
 
+    def test_readv_exception_specification(self):
+        output_file = self.output_dir / "readv.h"
+        self.run_script(self.source_dir.parents[2] / "include/sys/uio.yaml",
+                        output_file, ["readv"])
+        self.assertIn("ssize_t readv(int, const struct iovec *, int);",
+                      output_file.read_text())
+
     def test_system_exception_specification(self):
         output_file = self.output_dir / "system.h"
         self.run_script(self.source_dir.parents[2] / "include/stdlib.yaml",
                         output_file, ["system"])
         self.assertIn("int system(const char *);", output_file.read_text())
+
+    def test_writev_exception_specification(self):
+        output_file = self.output_dir / "writev.h"
+        self.run_script(self.source_dir.parents[2] / "include/sys/uio.yaml",
+                        output_file, ["writev"])
+        self.assertIn("ssize_t writev(int, const struct iovec *, int);",
+                      output_file.read_text())
 
     def test_exception_specifications(self):
         output_file = self.output_dir / "noexcept.h"
