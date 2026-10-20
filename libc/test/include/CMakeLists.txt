@@ -49,6 +49,26 @@ if(LIBC_TARGET_OS_IS_LINUX)
     HDRS sys_stat_classification_test.h
     DEPENDS libc.include.sys_stat
   )
+  foreach(language IN ITEMS c cpp)
+    set(mman_test_options)
+    if(language STREQUAL "c")
+      list(APPEND mman_test_options C_TEST)
+    endif()
+    add_libc_test(
+      mman_types_${language}_test
+      ${mman_test_options}
+      FULL_BUILD_ONLY
+      SUITE libc_include_tests
+      SRCS mman_types_test.${language}
+      HDRS mman_types_test.h
+      COMPILE_OPTIONS -D_GNU_SOURCE
+      DEPENDS
+        libc.include.sys_mman
+        libc.src.sys.mman.mlock
+        libc.src.sys.mman.mlock2
+        libc.src.sys.mman.munlock
+    )
+  endforeach()
   foreach(mode IN ITEMS posix gnu)
     if(mode STREQUAL "gnu")
       set(statvfs_macro_options -D_GNU_SOURCE)
