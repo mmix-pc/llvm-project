@@ -1,0 +1,189 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+names = ('accept', 'accept4', 'connect', 'recv', 'recvfrom', 'recvmsg',
+         'recvmmsg', 'send', 'sendto', 'sendmsg', 'sendmmsg')
+sources = [libc / ('src/sys/socket/linux/mmix/cancellation_' + name + '.cpp')
+           for name in names]
+subprocess.run(['cmake', '-DLIBC_SOURCE_DIR=' + str(libc),
+                '-P', str(root / 'selection.cmake')], check=True)
+for opt in ('0', '2'):
+    for source in sources:
+        obj = root / (source.stem + opt + '.o')
+        subprocess.run(['clang', '--target=mmix-unknown-linux', '-O' + opt,
+                        '-std=c++17', '-ffreestanding', '-fexceptions',
+                        '-funwind-tables', '-DLIBC_FULL_BUILD',
+                        '-DLIBC_NAMESPACE=socket_test', '-I', str(root),
+                        '-I', str(libc), '-c', str(source), '-o', str(obj)], check=True)
+        undefined = subprocess.check_output(['llvm-nm', '-u', str(obj)], text=True)
+        assert 'cancellation_syscall' in undefined, undefined
+        assert '__llvm_libc_mmix_syscall' not in undefined, undefined
+        sections = subprocess.check_output(['llvm-readobj', '--sections', str(obj)], text=True)
+        assert '.eh_frame' in sections, sections
+    if len(sys.argv) == 4:
+        binary = root / ('native-' + opt)
+        subprocess.run([sys.argv[3], '--no-default-config', '-O' + opt, '-std=c++17',
+                        '-DLIBC_NAMESPACE=socket_test', '-DLIBC_ERRNO_MODE=6',
+                        '-I', str(libc), *map(str, sources), str(root / 'native.cpp'),
+                        '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=10)
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+include("${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake")
+set(cancellable accept accept4 connect recv recvfrom recvmsg recvmmsg
+                send sendto sendmsg sendmmsg)
+set(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS OFF)
+foreach(name IN LISTS cancellable)
+  set(${name}_source ${name}.cpp)
+endforeach()
+mmix_select_cancellation_points(${cancellable})
+foreach(name IN LISTS cancellable)
+  if(NOT "${${name}_source}" STREQUAL "${name}.cpp")
+    message(FATAL_ERROR "Disabled cancellation changed ${name}")
+  endif()
+endforeach()
+set(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS ON)
+mmix_select_cancellation_points(${cancellable})
+foreach(name IN LISTS cancellable)
+  if(NOT "${${name}_source}" STREQUAL "mmix/cancellation_${name}.cpp")
+    message(FATAL_ERROR "Missing cancellation provider for ${name}")
+  endif()
+endforeach()
+set(LIBC_MMIX_BUILD_SOCKETS ON)
+include("${LIBC_SOURCE_DIR}/config/linux/mmix/Sockets.cmake")
+foreach(name IN ITEMS accept accept4 bind connect getpeername getsockname
+                     getsockopt listen recv recvfrom recvmmsg recvmsg send
+                     sendmmsg sendmsg sendto setsockopt shutdown sockatmark
+                     socket socketpair)
+  if(NOT "libc.src.sys.socket.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "Missing socket provider for ${name}")
+  endif()
+endforeach()
+
+#--- sys/syscall.h
+#define SYS_accept4 242
+#define SYS_connect 203
+#define SYS_sendto 206
+#define SYS_recvfrom 207
+#define SYS_sendmsg 211
+#define SYS_recvmsg 212
+#define SYS_recvmmsg 243
+#define SYS_sendmmsg 269
+
+#--- linux/errno.h
+// This compile-only fixture does not inspect errno constants.
+
+#--- native.cpp
+#include "src/__support/threads/linux/mmix/cancellation_point.h"
+#include "src/sys/socket/accept.h"
+#include "src/sys/socket/accept4.h"
+#include "src/sys/socket/connect.h"
+#include "src/sys/socket/recv.h"
+#include "src/sys/socket/recvfrom.h"
+#include "src/sys/socket/recvmsg.h"
+#include "src/sys/socket/recvmmsg.h"
+#include "src/sys/socket/send.h"
+#include "src/sys/socket/sendto.h"
+#include "src/sys/socket/sendmsg.h"
+#include "src/sys/socket/sendmmsg.h"
+#include <assert.h>
+#include <errno.h>
+#include <sys/syscall.h>
+
+static long returned, expected_args[6];
+static unsigned long expected_number;
+static int calls;
+static bool cancel;
+namespace socket_test { namespace mmix {
+long cancellation_syscall(unsigned long nr, long a1, long a2, long a3,
+                          long a4, long a5, long a6) {
+  ++calls;
+  assert(nr == expected_number);
+  const long args[] = {a1, a2, a3, a4, a5, a6};
+  for (unsigned i = 0; i < 6; ++i)
+    assert(args[i] == expected_args[i]);
+  if (cancel)
+    throw 42;
+  return returned;
+}
+} }
+
+template <class F>
+void check(F call, long success, unsigned long nr, long a1 = 0, long a2 = 0,
+           long a3 = 0, long a4 = 0, long a5 = 0, long a6 = 0) {
+  expected_number = nr;
+  const long args[] = {a1, a2, a3, a4, a5, a6};
+  for (unsigned i = 0; i < 6; ++i)
+    expected_args[i] = args[i];
+  // Success (including partial data/batch counts) must not be replayed.
+  const long results[] = {success, 0L, -long(EBADF), -long(EINTR), -long(EAGAIN)};
+  for (long result : results) {
+    returned = result;
+    calls = 0;
+    errno = EDOM;
+    assert(call() == (result < 0 ? -1 : result));
+    assert(calls == 1 && errno == (result < 0 ? -result : EDOM));
+  }
+  cancel = true;
+  calls = 0;
+  bool cleaned = false;
+  struct Guard {
+    bool &cleaned;
+    ~Guard() { cleaned = true; }
+  };
+  try {
+    Guard guard{cleaned};
+    call();
+    assert(false);
+  } catch (int value) {
+    assert(value == 42 && cleaned && calls == 1);
+  }
+  cancel = false;
+}
+
+int main() {
+  sockaddr address{};
+  socklen_t size = sizeof(address);
+  const long addr = reinterpret_cast<long>(&address);
+  const long addr_size = reinterpret_cast<long>(&size);
+  char buffer[16]{};
+  long buf = reinterpret_cast<long>(buffer);
+  iovec iov[] = {{buffer, 2}, {nullptr, 0}, {buffer + 2, 14}};
+  msghdr message{};
+  message.msg_iov = iov;
+  message.msg_iovlen = 3;
+  mmsghdr messages[2]{};
+  messages[0].msg_hdr = messages[1].msg_hdr = message;
+  timespec timeout{1, 0};
+  check([&] { return socket_test::accept(7, &address, &size); },
+        8, SYS_accept4, 7, addr, addr_size);
+  check([&] { return socket_test::accept4(7, &address, &size, 3); },
+        8, SYS_accept4, 7, addr, addr_size, 3);
+  check([&] { return socket_test::connect(7, &address, size); },
+        0, SYS_connect, 7, addr, size);
+  check([&] { return socket_test::send(7, buffer, 16, 3); },
+        4, SYS_sendto, 7, buf, 16, 3);
+  check([&] { return socket_test::sendto(7, buffer, 16, 3, &address, size); },
+        4, SYS_sendto, 7, buf, 16, 3, addr, size);
+  check([&] { return socket_test::recv(7, buffer, 16, 3); },
+        32, SYS_recvfrom, 7, buf, 16, 3);
+  check([&] { return socket_test::recvfrom(7, buffer, 16, 3, &address, &size); },
+        32, SYS_recvfrom, 7, buf, 16, 3, addr, addr_size);
+  check([&] { return socket_test::sendmsg(7, &message, 3); },
+        4, SYS_sendmsg, 7, reinterpret_cast<long>(&message), 3);
+  check([&] { return socket_test::recvmsg(7, &message, 3); },
+        32, SYS_recvmsg, 7, reinterpret_cast<long>(&message), 3);
+  check([&] { return socket_test::sendmmsg(7, messages, 2, 3); },
+        1, SYS_sendmmsg, 7, reinterpret_cast<long>(messages), 2, 3);
+  check([&] { return socket_test::recvmmsg(7, messages, 2, 3, &timeout); },
+        1, SYS_recvmmsg, 7, reinterpret_cast<long>(messages), 2, 3,
+        reinterpret_cast<long>(&timeout));
+}

@@ -1,7 +1,11 @@
-set(recvfrom_source recvfrom.cpp)
+set(cancellable_sockets
+  accept accept4 connect recv recvfrom recvmsg recvmmsg send sendto sendmsg sendmmsg)
+foreach(name IN LISTS cancellable_sockets)
+  set(${name}_source ${name}.cpp)
+endforeach()
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
-  mmix_select_cancellation_points(recvfrom)
+  mmix_select_cancellation_points(${cancellable_sockets})
 endif()
 
 add_entrypoint_object(
@@ -35,35 +39,41 @@ add_entrypoint_object(
 add_entrypoint_object(
   accept
   SRCS
-    accept.cpp
+    ${accept_source}
   HDRS
     ../accept.h
   DEPENDS
     libc.include.sys_socket
+    libc.src.__support.macros.sanitizer
     libc.src.__support.OSUtil.osutil
     libc.hdr.types.struct_sockaddr
     libc.hdr.types.socklen_t
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   accept4
   SRCS
-    accept4.cpp
+    ${accept4_source}
   HDRS
     ../accept4.h
   DEPENDS
     libc.include.sys_socket
+    libc.src.__support.macros.sanitizer
     libc.src.__support.OSUtil.osutil
     libc.hdr.types.struct_sockaddr
     libc.hdr.types.socklen_t
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   connect
   SRCS
-    connect.cpp
+    ${connect_source}
   HDRS
     ../connect.h
   DEPENDS
@@ -72,6 +82,8 @@ add_entrypoint_object(
     libc.hdr.types.struct_sockaddr
     libc.hdr.types.socklen_t
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
@@ -147,7 +159,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   send
   SRCS
-    send.cpp
+    ${send_source}
   HDRS
     ../send.h
   DEPENDS
@@ -156,12 +168,14 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.OSUtil.linux.syscall_wrappers.sendto
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   sendto
   SRCS
-    sendto.cpp
+    ${sendto_source}
   HDRS
     ../sendto.h
   DEPENDS
@@ -171,6 +185,8 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.OSUtil.linux.syscall_wrappers.sendto
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
@@ -190,20 +206,23 @@ add_entrypoint_object(
 add_entrypoint_object(
   sendmmsg
   SRCS
-    sendmmsg.cpp
+    ${sendmmsg_source}
   HDRS
     ../sendmmsg.h
   DEPENDS
     libc.hdr.types.struct_mmsghdr
+    libc.src.__support.macros.sanitizer
     libc.src.__support.common
     libc.src.__support.OSUtil.linux.syscall_wrappers.sendmmsg
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   sendmsg
   SRCS
-    sendmsg.cpp
+    ${sendmsg_source}
   HDRS
     ../sendmsg.h
   DEPENDS
@@ -212,11 +231,13 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.OSUtil.linux.syscall_wrappers.sendmsg
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 add_entrypoint_object(
   recv
   SRCS
-    recv.cpp
+    ${recv_source}
   HDRS
     ../recv.h
   DEPENDS
@@ -226,6 +247,8 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.OSUtil.linux.syscall_wrappers.recvfrom
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
@@ -249,7 +272,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   recvmmsg
   SRCS
-    recvmmsg.cpp
+    ${recvmmsg_source}
   HDRS
     ../recvmmsg.h
   DEPENDS
@@ -258,12 +281,14 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.OSUtil.linux.syscall_wrappers.recvmmsg
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   recvmsg
   SRCS
-    recvmsg.cpp
+    ${recvmsg_source}
   HDRS
     ../recvmsg.h
   DEPENDS
@@ -273,6 +298,8 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.OSUtil.linux.syscall_wrappers.recvmsg
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
