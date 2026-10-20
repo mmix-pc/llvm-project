@@ -1,0 +1,7 @@
+option(LIBC_MMIX_BUILD_FTS "Build the public file hierarchy traversal interfaces" OFF)
+if(NOT LIBC_MMIX_BUILD_FTS)
+  return()
+endif()
+foreach(name open read children set close)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.fts.fts_${name})
+endforeach()

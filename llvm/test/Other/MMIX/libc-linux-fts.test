@@ -1,0 +1,28 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libc/config/linux/mmix/FileTraversal.cmake)
+if(TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "standalone file traversal must be opt-in")
+endif()
+unset(LIBC_MMIX_BUILD_FTS CACHE)
+set(LIBC_MMIX_BUILD_THREADED_LIBC ON)
+include(${SOURCE}/libc/config/linux/mmix/UnixComponents.cmake)
+include(${SOURCE}/libc/config/linux/mmix/FileTraversal.cmake)
+foreach(name open read children set close)
+  if(NOT libc.src.fts.fts_${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing traversal provider ${name}")
+  endif()
+endforeach()
+set(LIBC_MMIX_BUILD_COMMAND_ENVIRONMENT_RUNTIME OFF)
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT libc.include.fts IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing traversal header")
+endif()
+include(${SOURCE}/libc/config/linux/mmix/CommandEnvironmentComponents.cmake)
+if(NOT FTS IN_LIST MMIX_COMMAND_ENVIRONMENT_COMPONENTS)
+  message(FATAL_ERROR "command environment omitted traversal")
+endif()
