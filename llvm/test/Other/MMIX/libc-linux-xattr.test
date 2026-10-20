@@ -1,0 +1,31 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libc/config/linux/mmix/ExtendedAttributes.cmake)
+if(TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "standalone extended attributes must be opt-in")
+endif()
+unset(LIBC_MMIX_BUILD_EXTENDED_ATTRIBUTES CACHE)
+set(LIBC_MMIX_BUILD_THREADED_LIBC ON)
+include(${SOURCE}/libc/config/linux/mmix/UnixComponents.cmake)
+include(${SOURCE}/libc/config/linux/mmix/ExtendedAttributes.cmake)
+foreach(name getxattr setxattr listxattr removexattr
+    lgetxattr lsetxattr llistxattr lremovexattr
+    fgetxattr fsetxattr flistxattr fremovexattr)
+  if(NOT libc.src.sys.xattr.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing extended attribute provider ${name}")
+  endif()
+endforeach()
+# Avoid requiring unrelated signal-runtime targets in this selection check.
+set(LIBC_MMIX_BUILD_COMMAND_ENVIRONMENT_RUNTIME OFF)
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+if(NOT libc.include.sys_xattr IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing extended attribute header")
+endif()
+include(${SOURCE}/libc/config/linux/mmix/CommandEnvironmentComponents.cmake)
+if(NOT EXTENDED_ATTRIBUTES IN_LIST MMIX_COMMAND_ENVIRONMENT_COMPONENTS)
+  message(FATAL_ERROR "command environment omitted extended attributes")
+endif()
