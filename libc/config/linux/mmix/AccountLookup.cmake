@@ -16,6 +16,14 @@ set(MMIX_ACCOUNT_LOOKUP_ENTRYPOINTS
   libc.src.grp.getgrgid_r
   libc.src.grp.getgrnam
   libc.src.grp.getgrgid
+  libc.src.grp.setgrent
+  libc.src.grp.getgrent
+  libc.src.grp.getgrent_r
+  libc.src.grp.endgrent
+  libc.src.grp.fgetgrent
+  libc.src.grp.fgetgrent_r
+  libc.src.grp.putgrent
+  libc.src.grp.getgrouplist
   libc.src.shadow.getspnam
   libc.src.shadow.getspnam_r
 )

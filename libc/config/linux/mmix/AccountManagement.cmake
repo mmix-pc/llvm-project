@@ -19,4 +19,4 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.unistd.setegid
   libc.src.unistd.getgroups
   libc.src.grp.initgroups
-  libc.src.grp.endgrent)
+  libc.src.grp.setgroups)

@@ -1,0 +1,38 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/selection.cmake
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+set(group_queries getgrnam getgrgid getgrnam_r getgrgid_r setgrent getgrent
+    getgrent_r endgrent fgetgrent fgetgrent_r putgrent getgrouplist)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+foreach(name IN LISTS group_queries)
+  if("libc.src.grp.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "disabled account lookup selected ${name}")
+  endif()
+endforeach()
+set(LIBC_MMIX_BUILD_ACCOUNT_LOOKUP ON CACHE BOOL "" FORCE)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+foreach(name IN LISTS group_queries)
+  if(NOT "libc.src.grp.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing group provider ${name}")
+  endif()
+endforeach()
+foreach(name initgroups setgroups)
+  if("libc.src.grp.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "lookup alone enabled credential setter ${name}")
+  endif()
+endforeach()
+set(LIBC_CONF_THREAD_MODE LIBC_THREAD_MODE_SINGLE)
+set(LIBC_MMIX_BUILD_ACCOUNT_MANAGEMENT ON CACHE BOOL "" FORCE)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+foreach(name initgroups setgroups)
+  if(NOT "libc.src.grp.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing credential provider ${name}")
+  endif()
+endforeach()
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+if(NOT libc.include.grp IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing group header")
+endif()
