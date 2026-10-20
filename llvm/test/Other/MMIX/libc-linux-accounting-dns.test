@@ -1,0 +1,37 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DSOURCE=%S/../../../.. -P %t/check.cmake
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/libc/config/linux/mmix/UserAccounting.cmake)
+include(${SOURCE}/libc/config/linux/mmix/NameResolution.cmake)
+if(TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "standalone providers must be opt-in")
+endif()
+set(LIBC_MMIX_BUILD_USER_ACCOUNTING ON)
+set(LIBC_MMIX_BUILD_NAME_RESOLUTION ON)
+include(${SOURCE}/libc/config/linux/mmix/UserAccounting.cmake)
+include(${SOURCE}/libc/config/linux/mmix/NameResolution.cmake)
+foreach(name setutent getutent endutent getutid getutline pututline utmpname updwtmp)
+  if(NOT libc.src.utmp.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing accounting provider ${name}")
+  endif()
+endforeach()
+foreach(name setutxent getutxent endutxent getutxid getutxline pututxline utmpxname updwtmpx)
+  if(NOT libc.src.utmpx.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing accounting provider ${name}")
+  endif()
+endforeach()
+foreach(name res_mkquery dn_expand dn_skipname ns_get16 ns_get32 ns_initparse
+             ns_parserr ns_skiprr ns_name_uncompress)
+  if(NOT libc.src.resolv.${name} IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing packet provider ${name}")
+  endif()
+endforeach()
+include(${SOURCE}/libc/config/linux/mmix/headers.txt)
+foreach(name utmp utmpx resolv arpa_nameser)
+  if(NOT libc.include.${name} IN_LIST TARGET_PUBLIC_HEADERS)
+    message(FATAL_ERROR "missing header ${name}")
+  endif()
+endforeach()

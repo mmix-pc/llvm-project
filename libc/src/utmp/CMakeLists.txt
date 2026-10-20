@@ -12,7 +12,15 @@ endif()
 set(utmp_cancellation_source cancellation_scope.cpp)
 set(utmp_cancellation_deps)
 set(utmp_cancellation_options)
-
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX AND
+   TARGET libc.src.__support.threads.linux.mmix.cancellation)
+  set(utmp_cancellation_source linux/mmix/cancellation_scope.cpp)
+  set(utmp_cancellation_deps
+    libc.src.__support.threads.linux.mmix.cancellation
+    libc.hdr.errno_macros
+    libc.include.pthread)
+  set(utmp_cancellation_options -fexceptions -funwind-tables)
+endif()
 
 add_object_library(
   cancellation_scope

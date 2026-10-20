@@ -16,6 +16,8 @@ set(MMIX_ACCOUNT_LOOKUP_ENTRYPOINTS
   libc.src.grp.getgrgid_r
   libc.src.grp.getgrnam
   libc.src.grp.getgrgid
+  libc.src.shadow.getspnam
+  libc.src.shadow.getspnam_r
 )
 foreach(entry IN LISTS MMIX_ACCOUNT_LOOKUP_ENTRYPOINTS)
   if(NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
