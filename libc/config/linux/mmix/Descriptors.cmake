@@ -10,7 +10,9 @@ set(MMIX_DESCRIPTORS_ENTRYPOINTS
   libc.src.fcntl.fcntl
   libc.src.unistd.close
   libc.src.unistd.read
+  libc.src.sys.uio.readv
   libc.src.unistd.write
+  libc.src.sys.uio.writev
   libc.src.unistd.lseek
   libc.src.unistd.pread
   libc.src.unistd.pwrite

@@ -1,0 +1,125 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+source = libc / 'src/sys/uio/linux/mmix/cancellation_writev.cpp'
+subprocess.run(['cmake', '-DLIBC_SOURCE_DIR=' + str(libc),
+                '-P', str(root / 'selection.cmake')], check=True)
+for opt in ('0', '2'):
+    obj = root / ('writev-' + opt + '.o')
+    subprocess.run(['clang', '--target=mmix-unknown-linux', '-O' + opt,
+                    '-std=c++17', '-ffreestanding', '-fexceptions',
+                    '-funwind-tables', '-DLIBC_FULL_BUILD',
+                    '-DLIBC_NAMESPACE=writev_test', '-I', str(root),
+                    '-I', str(libc), '-c', str(source), '-o', str(obj)], check=True)
+    undefined = subprocess.check_output(['llvm-nm', '-u', str(obj)], text=True)
+    assert 'cancellation_syscall' in undefined, undefined
+    assert '__llvm_libc_mmix_syscall' not in undefined, undefined
+    sections = subprocess.check_output(['llvm-readobj', '--sections', str(obj)], text=True)
+    assert '.eh_frame' in sections, sections
+    if len(sys.argv) == 4:
+        binary = root / ('native-' + opt)
+        subprocess.run([sys.argv[3], '--no-default-config', '-O' + opt, '-std=c++17',
+                        '-DLIBC_NAMESPACE=writev_test', '-DLIBC_ERRNO_MODE=6',
+                        '-I', str(libc), str(source), str(root / 'native.cpp'),
+                        '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=10)
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+include("${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake")
+set(writev_source writev.cpp)
+set(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS OFF)
+mmix_select_cancellation_points(writev)
+if(NOT writev_source STREQUAL "writev.cpp" OR mmix_cancellation_dependency)
+  message(FATAL_ERROR "Disabled cancellation must keep the generic provider")
+endif()
+set(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS ON)
+mmix_select_cancellation_points(writev)
+if(NOT writev_source STREQUAL "mmix/cancellation_writev.cpp" OR
+   NOT mmix_cancellation_dependency STREQUAL
+       "libc.src.__support.threads.linux.mmix.cancellation_point")
+  message(FATAL_ERROR "Cancellation must select the wrapper and its dependency")
+endif()
+set(LIBC_MMIX_BUILD_DESCRIPTORS ON)
+include("${LIBC_SOURCE_DIR}/config/linux/mmix/Descriptors.cmake")
+if(NOT "libc.src.sys.uio.writev" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+  message(FATAL_ERROR "The descriptor profile must export writev")
+endif()
+
+#--- sys/syscall.h
+#define SYS_writev 102
+
+#--- linux/errno.h
+// This compile-only fixture does not inspect errno constants.
+
+#--- native.cpp
+#include "src/__support/threads/linux/mmix/cancellation_point.h"
+#include "src/sys/uio/writev.h"
+#include <assert.h>
+#include <errno.h>
+#include <sys/syscall.h>
+
+static long result;
+static int calls, expected_fd, expected_count;
+static const iovec *expected_iov;
+static bool cancel;
+namespace writev_test { namespace mmix {
+long cancellation_syscall(unsigned long number, long fd, long iov, long count,
+                          long a4, long a5, long a6) {
+  ++calls;
+  assert(number == SYS_writev && fd == expected_fd);
+  assert(reinterpret_cast<const struct iovec *>(iov) == expected_iov);
+  assert(count == expected_count && !a4 && !a5 && !a6);
+  if (cancel)
+    throw 42;
+  return result;
+}
+} }
+
+static void check(int fd, const iovec *iov, int count, long syscall_result,
+                  ssize_t expected, int expected_errno) {
+  expected_fd = fd;
+  expected_iov = iov;
+  expected_count = count;
+  result = syscall_result;
+  calls = 0;
+  errno = EDOM;
+  assert(writev_test::writev(fd, iov, count) == expected);
+  assert(errno == expected_errno && calls == 1);
+}
+
+int main() {
+  char a[] = "abc", b[] = "defgh";
+  const iovec iov[] = {{a, 3}, {nullptr, 0}, {b, 5}};
+  check(7, iov, 3, 8, 8, EDOM);
+  // A short write must not replay any submitted bytes.
+  check(7, iov, 3, 4, 4, EDOM);
+  check(7, nullptr, 0, 0, 0, EDOM);
+  check(-1, iov, 3, -EBADF, -1, EBADF);
+  check(7, iov, -1, -EINVAL, -1, EINVAL);
+  check(7, nullptr, 1, -EFAULT, -1, EFAULT);
+  check(7, iov, 3, -EINTR, -1, EINTR);
+  check(7, iov, 3, -EAGAIN, -1, EAGAIN);
+  cancel = true;
+  calls = 0;
+  bool cleaned = false;
+  struct Guard {
+    bool &cleaned;
+    ~Guard() { cleaned = true; }
+  };
+  try {
+    Guard guard{cleaned};
+    writev_test::writev(7, iov, 3);
+    assert(false);
+  } catch (int value) {
+    assert(value == 42 && cleaned && calls == 1);
+  }
+  assert(a[0] == 'a' && b[0] == 'd');
+}
