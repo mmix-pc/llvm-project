@@ -27,8 +27,40 @@ all_flags = base + list(extensions) + ["ROBUST_MUTEX"]
 options = ["THREADS", "THREAD_ATTR_STACKADDR", "THREAD_ATTR_STACKSIZE",
            *extensions.values(), "THREAD_ROBUST_PRIO_INHERIT",
            "THREAD_ROBUST_PRIO_PROTECT"]
+providers = {
+    "MAPPED_FILES": {"sys.mman.mmap", "sys.mman.munmap"},
+    "MEMORY_PROTECTION": {"sys.mman.mprotect"},
+    "SHARED_MEMORY_OBJECTS": {"sys.mman.shm_open", "sys.mman.shm_unlink"},
+    "SPAWN": {"spawn.posix_spawn", "spawn.posix_spawnp"},
+    "FSYNC": {"unistd.fsync", "unistd.fdatasync"},
+    "SYNCHRONIZED_IO": {"unistd.fsync", "unistd.fdatasync"},
+    "MEMLOCK": {"sys.mman.mlockall", "sys.mman.munlockall"},
+    "MEMLOCK_RANGE": {"sys.mman.mlock", "sys.mman.munlock"},
+    "SEMAPHORES": {"semaphore." + name for name in (
+        "sem_init", "sem_open", "sem_wait", "sem_post", "sem_close",
+        "sem_unlink", "sem_destroy", "sem_getvalue", "sem_trywait",
+        "sem_timedwait")},
+    "MONOTONIC_CLOCK": {"time.clock_gettime", "time.clock_getres"},
+    "CLOCK_SELECTION": {"time.clock_nanosleep",
+                        "pthread.pthread_condattr_setclock",
+                        "pthread.pthread_condattr_getclock"},
+    "CPUTIME": {"time.clock_getcpuclockid", "time.clock_gettime",
+                "time.clock_getres"},
+    "REALTIME_SIGNALS": {"signal.sigqueue", "signal.sigtimedwait",
+                        "signal.sigwaitinfo"},
+    "PRIORITY_SCHEDULING": {"sched.sched_setscheduler",
+                           "sched.sched_getscheduler",
+                           "sched.sched_setparam", "sched.sched_getparam"},
+    "SAVED_IDS": {"unistd.setuid", "unistd.setgid"},
+    "JOB_CONTROL": {"unistd.tcsetpgrp", "unistd.tcgetpgrp", "unistd.setsid"},
+    "REGEXP": {"regex.regcomp", "regex.regexec", "regex.regerror",
+               "regex.regfree"},
+    "TIMEOUTS": {"semaphore.sem_timedwait", "pthread.pthread_mutex_timedlock",
+                 "pthread.pthread_rwlock_timedrdlock",
+                 "pthread.pthread_rwlock_timedwrlock"},
+}
 
-def check(name, enabled):
+def check(name, enabled, entries=()):
     directory = work / name
     header = directory / "llvm-libc-macros/mmix/unistd-options.h"
     header.parent.mkdir(parents=True, exist_ok=True)
@@ -36,10 +68,15 @@ def check(name, enabled):
     script.write_text(
         'include("' + str(libc / "include/llvm-libc-macros/mmix/UnistdOptions.cmake") + '")\n' +
         "".join("set(LIBC_MMIX_BUILD_" + flag + " ON)\n" for flag in enabled) +
+        'set(TARGET_LIBC_ENTRYPOINTS ' +
+        " ".join("libc.src." + entry for entry in entries) + ')\n' +
         'mmix_configure_unistd_options("' + str(header) + '")\n')
     subprocess.run(["cmake", "-P", script], check=True)
     public = set(base) <= set(enabled)
     expected = {option: -1 for option in options}
+    for option, required in providers.items():
+        value = 1 if option in {"REGEXP", "SAVED_IDS", "JOB_CONTROL"} else 200809
+        expected[option] = value if required <= set(entries) else -1
     if public:
         for option in ("THREADS", "THREAD_ATTR_STACKADDR", "THREAD_ATTR_STACKSIZE"):
             expected[option] = 200809
@@ -65,3 +102,8 @@ check("minimal", [])
 check("full", all_flags)
 for flag in all_flags:
     check("without-" + flag, [f for f in all_flags if f != flag])
+
+entries = sorted(set.union(*providers.values()))
+check("selected-providers", [], entries)
+for entry in entries:
+    check("without-provider-" + entry, [], [e for e in entries if e != entry])

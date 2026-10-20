@@ -28,6 +28,8 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.unistd.chdir
   libc.src.unistd.getcwd
   libc.src.unistd.pathconf
+  libc.src.unistd.fpathconf
+  libc.src.unistd.confstr
   libc.src.unistd.readlink
   libc.src.unistd.readlinkat
   libc.src.unistd.unlink
