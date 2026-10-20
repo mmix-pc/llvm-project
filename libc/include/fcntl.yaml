@@ -10,6 +10,42 @@ macros:
     macro_header: fcntl-macros.h
   - macro_name: AT_EACCESS
     macro_header: fcntl-macros.h
+  - macro_name: SEEK_SET
+    macro_header: file-seek-macros.h
+  - macro_name: SEEK_CUR
+    macro_header: file-seek-macros.h
+  - macro_name: SEEK_END
+    macro_header: file-seek-macros.h
+  - macro_name: S_IRWXU
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IRUSR
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IWUSR
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IXUSR
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IRWXG
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IRGRP
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IWGRP
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IXGRP
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IRWXO
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IROTH
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IWOTH
+    macro_header: sys-stat-macros.h
+  - macro_name: S_IXOTH
+    macro_header: sys-stat-macros.h
+  - macro_name: S_ISUID
+    macro_header: sys-stat-macros.h
+  - macro_name: S_ISGID
+    macro_header: sys-stat-macros.h
+  - macro_name: S_ISVTX
+    macro_header: sys-stat-macros.h
 types:
   - type_name: mode_t
   - type_name: off_t
