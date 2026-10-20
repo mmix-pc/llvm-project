@@ -1,6 +1,9 @@
 header: sys/statvfs.h
 standards:
   - posix
+macros:
+  - macro_name: ST_RDONLY
+    macro_header: sys-statvfs-macros.h
 types:
   - type_name: struct_statvfs
   - type_name: fsblkcnt_t

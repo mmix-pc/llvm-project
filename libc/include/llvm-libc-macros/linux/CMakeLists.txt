@@ -119,6 +119,12 @@ add_header(
 )
 
 add_header(
+  sys_statvfs_macros
+  HDR
+    sys-statvfs-macros.h
+)
+
+add_header(
   sys_statfs_macros
   HDR
     sys-statfs-macros.h

@@ -1003,6 +1003,7 @@ add_header_macro(
   sys/statvfs.h
   DEPENDS
     .llvm_libc_common_h
+    .llvm-libc-macros.sys_statvfs_macros
     .llvm-libc-types.struct_statvfs
 )
 

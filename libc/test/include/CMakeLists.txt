@@ -49,6 +49,22 @@ if(LIBC_TARGET_OS_IS_LINUX)
     HDRS sys_stat_classification_test.h
     DEPENDS libc.include.sys_stat
   )
+  foreach(mode IN ITEMS posix gnu)
+    if(mode STREQUAL "gnu")
+      set(statvfs_macro_options -D_GNU_SOURCE)
+    else()
+      set(statvfs_macro_options -U_GNU_SOURCE -D_POSIX_C_SOURCE=200809L)
+    endif()
+    add_libc_test(
+      statvfs_macros_${mode}_test
+      C_TEST
+      FULL_BUILD_ONLY
+      SUITE libc_include_tests
+      SRCS statvfs_macros_test.c
+      COMPILE_OPTIONS ${statvfs_macro_options}
+      DEPENDS libc.include.sys_statvfs
+    )
+  endforeach()
   add_libc_test(
     sys_stat_classification_cpp_test
     FULL_BUILD_ONLY

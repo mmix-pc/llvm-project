@@ -327,6 +327,12 @@ add_macro_header(
 )
 
 add_macro_header(
+  sys_statvfs_macros
+  HDR
+    sys-statvfs-macros.h
+)
+
+add_macro_header(
   sys_mman_macros
   HDR
     sys-mman-macros.h
