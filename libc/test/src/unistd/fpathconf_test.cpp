@@ -33,3 +33,15 @@ TEST_F(LlvmLibcFpathconfTest, SmokeTest) {
 }
 
 // TODO: Functionality tests
+
+TEST_F(LlvmLibcFpathconfTest, ErrorsAndIndeterminateValue) {
+  EXPECT_THAT(LIBC_NAMESPACE::fpathconf(-1, _PC_NAME_MAX), Fails(EBADF, -1L));
+  int fd = LIBC_NAMESPACE::open(".", O_RDONLY | O_DIRECTORY);
+  ASSERT_GE(fd, 0);
+  libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::fpathconf(fd, _PC_SOCK_MAXBUF), -1L);
+  EXPECT_EQ(int(libc_errno), EDOM);
+  libc_errno = 0;
+  EXPECT_THAT(LIBC_NAMESPACE::fpathconf(fd, -1), Fails(EINVAL, -1L));
+  ASSERT_THAT(LIBC_NAMESPACE::close(fd), Succeeds(0));
+}

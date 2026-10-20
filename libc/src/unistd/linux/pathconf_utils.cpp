@@ -115,6 +115,10 @@ long pathconfig(const struct statfs &s, int name) {
   case _PC_REC_INCR_XFER_SIZE:
   case _PC_REC_MAX_XFER_SIZE:
   case _PC_SYMLINK_MAX:
+  case _PC_SOCK_MAXBUF:
+#ifdef _PC_TIMESTAMP_RESOLUTION
+  case _PC_TIMESTAMP_RESOLUTION:
+#endif
   case _PC_SYNC_IO:
     return -1;
 

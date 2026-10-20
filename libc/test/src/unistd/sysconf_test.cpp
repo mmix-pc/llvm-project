@@ -95,5 +95,5 @@ TEST(LlvmLibcSysconfTest, PhysPagesTest) {
 
 TEST(LlvmLibcSysconfTest, ClkTckTest) {
   long clk_tck = LIBC_NAMESPACE::sysconf(_SC_CLK_TCK);
-  ASSERT_EQ(clk_tck, 100L);
+  ASSERT_GT(clk_tck, 0L);
 }

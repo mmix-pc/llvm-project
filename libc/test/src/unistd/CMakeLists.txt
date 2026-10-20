@@ -807,6 +807,7 @@ add_libc_test(
   SRCS
     confstr_test.cpp
   DEPENDS
+    libc.hdr.unistd_macros
     libc.hdr.errno_macros
     libc.hdr.types.size_t
     libc.src.unistd.confstr
@@ -860,6 +861,10 @@ if(LIBC_TARGET_OS_IS_LINUX)
           libc.hdr.stdint_proxy
           libc.hdr.sys_resource_macros
           libc.hdr.unistd_macros
+          libc.hdr.limits_macros
+          libc.hdr.pthread_macros
+          libc.hdr.signal_macros
+          libc.hdr.types.off_t
           libc.src.errno.errno
           libc.src.__support.macros.attributes
           libc.src.__support.OSUtil.linux.auxv

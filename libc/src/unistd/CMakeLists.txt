@@ -64,6 +64,7 @@ add_entrypoint_object(
     libc.hdr.errno_macros
     libc.hdr.types.size_t
     libc.hdr.unistd_macros
+    libc.hdr.types.off_t
     libc.src.__support.common
     libc.src.__support.libc_errno
     libc.src.__support.macros.config
