@@ -9,6 +9,7 @@ enums: []
 objects: []
 functions:
   - name: initgroups
+    noexcept: false
     standards:
       - bsd
     return_type: int
@@ -16,9 +17,11 @@ functions:
       - type: const char *
       - type: gid_t
   - name: endgrent
+    noexcept: false
     return_type: void
     arguments: []
   - name: getgrnam_r
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -29,12 +32,14 @@ functions:
       - type: size_t
       - type: struct group **__restrict
   - name: getgrnam
+    noexcept: false
     standards:
       - posix
     return_type: struct group *
     arguments:
       - type: const char *
   - name: getgrgid_r
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -45,6 +50,7 @@ functions:
       - type: size_t
       - type: struct group **__restrict
   - name: getgrgid
+    noexcept: false
     standards:
       - posix
     return_type: struct group *

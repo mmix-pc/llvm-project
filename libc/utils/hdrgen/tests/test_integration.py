@@ -1,4 +1,5 @@
 import argparse
+import re
 import subprocess
 import sys
 import unittest
@@ -106,6 +107,20 @@ class TestHeaderGenIntegration(unittest.TestCase):
             self.assertIn(f"size_t {name}(FILE *) __NOEXCEPT;", content)
         self.assertIn("void __fpurge(FILE *) __NOEXCEPT;", content)
         self.assertIn("void _flushlbf(void);", content)
+
+    def test_group_interfaces(self):
+        output_file = self.output_dir / "grp.h"
+        functions = ["getgrnam", "getgrgid", "getgrnam_r", "getgrgid_r",
+                     "initgroups", "endgrent"]
+        self.run_script(self.source_dir.parents[2] / "include/grp.yaml",
+                        output_file, functions)
+        content = output_file.read_text()
+        for name in functions:
+            self.assertRegex(content, rf"\b{name}\(")
+        for declaration in content.splitlines():
+            if any(re.search(rf"\b{name}\(", declaration)
+                   for name in functions):
+                self.assertNotIn("__NOEXCEPT", declaration)
 
     def test_directory_interfaces(self):
         output_file = self.output_dir / "dirent.h"
