@@ -78,7 +78,7 @@ if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL expected OR
 endif()
 include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
 foreach(header libc.include.features libc.include.limits libc.include.stdint
-               libc.include.string libc.include.strings libc.include.stdlib
+               libc.include.string libc.include.memory libc.include.strings libc.include.stdlib
                libc.include.unistd libc.include.errno libc.include.sys_types
                libc.include.sys_syscall libc.include.sys_mman)
   if(NOT header IN_LIST TARGET_PUBLIC_HEADERS)
