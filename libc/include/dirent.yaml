@@ -19,6 +19,8 @@ macros:
   - macro_name: DT_SOCK
     macro_header: dirent-macros.h
 types:
+  - type_name: __dirent_filter_t
+  - type_name: __dirent_compare_t
   - type_name: struct_dirent
   - type_name: struct_posix_dent
   - type_name: DIR
@@ -91,3 +93,28 @@ functions:
     return_type: long
     arguments:
       - type: DIR *
+  - name: scandir
+    noexcept: false
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: struct dirent ***
+      - type: __dirent_filter_t
+      - type: __dirent_compare_t
+  - name: scandirat
+    noexcept: false
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: int
+      - type: const char *
+      - type: struct dirent ***
+      - type: __dirent_filter_t
+      - type: __dirent_compare_t
+  - name: versionsort
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: const struct dirent **
+      - type: const struct dirent **

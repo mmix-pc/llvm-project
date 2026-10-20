@@ -54,6 +54,8 @@ add_header_macro(
     .llvm-libc-types.ino_t
     .llvm-libc-types.DIR
     .llvm-libc-types.struct_dirent
+    .llvm-libc-types.__dirent_filter_t
+    .llvm-libc-types.__dirent_compare_t
     .llvm-libc-types.struct_posix_dent
     .llvm-libc-types.reclen_t
     .llvm-libc-types.size_t

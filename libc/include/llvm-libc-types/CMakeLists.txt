@@ -170,6 +170,8 @@ add_header(sighandler_t HDR sighandler_t.h)
 add_header(stack_t HDR stack_t.h DEPENDS .size_t)
 add_header(suseconds_t HDR suseconds_t.h)
 add_header(struct_dirent HDR struct_dirent.h DEPENDS .ino_t .off_t .reclen_t)
+add_header(__dirent_filter_t HDR __dirent_filter_t.h DEPENDS .struct_dirent)
+add_header(__dirent_compare_t HDR __dirent_compare_t.h DEPENDS .struct_dirent)
 add_header(struct_posix_dent HDR struct_posix_dent.h DEPENDS .ino_t .off_t .reclen_t)
 add_header(struct_dl_phdr_info HDR struct_dl_phdr_info.h DEPENDS .size_t libc.include.llvm-libc-macros.link_macros)
 add_header(

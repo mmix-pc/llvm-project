@@ -85,3 +85,42 @@ foreach(name rewinddir seekdir telldir readdir_r)
       libc.src.errno.errno
   )
 endforeach()
+
+add_entrypoint_object(
+  alphasort
+  SRCS alphasort.cpp
+  HDRS alphasort.h
+  DEPENDS libc.hdr.types.struct_dirent libc.src.string.strcoll
+)
+add_entrypoint_object(
+  versionsort
+  SRCS versionsort.cpp
+  HDRS versionsort.h
+  DEPENDS libc.hdr.types.struct_dirent libc.src.string.strverscmp
+)
+
+add_header_library(
+  scandir_utils
+  HDRS scandir_utils.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fcntl_macros
+    libc.hdr.func.free
+    libc.hdr.func.malloc
+    libc.hdr.func.realloc
+    libc.src.__support.CPP.limits
+    libc.src.__support.File.dir
+    libc.src.__support.File.platform_dir
+    libc.src.__support.libc_errno
+    libc.src.fcntl.openat
+    libc.src.stdlib.qsort_util
+    libc.src.string.memory_utils.inline_memcpy
+)
+foreach(name scandir scandirat)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .scandir_utils
+  )
+endforeach()

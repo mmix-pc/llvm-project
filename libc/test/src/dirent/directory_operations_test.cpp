@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/libc_errno.h"
+#include "src/dirent/alphasort.h"
 #include "src/dirent/closedir.h"
 #include "src/dirent/dirfd.h"
 #include "src/dirent/fdopendir.h"
@@ -15,8 +16,11 @@
 #include "src/dirent/readdir.h"
 #include "src/dirent/readdir_r.h"
 #include "src/dirent/rewinddir.h"
+#include "src/dirent/scandir.h"
+#include "src/dirent/scandirat.h"
 #include "src/dirent/seekdir.h"
 #include "src/dirent/telldir.h"
+#include "src/dirent/versionsort.h"
 #include "src/fcntl/open.h"
 #include "src/string/strcpy.h"
 #include "src/unistd/close.h"
@@ -103,4 +107,74 @@ TEST(LlvmLibcDirectoryOperations, RefillAndMaximumName) {
     EXPECT_STREQ(entry->d_name, names[count]);
   }
   EXPECT_EQ(LIBC_NAMESPACE::closedir(dir), 0);
+}
+
+static int files_only(const dirent *entry) {
+  // A callback may change errno without making directory enumeration fail.
+  LIBC_NAMESPACE::libc_errno = EINVAL;
+  return entry->d_name[0] == 'f';
+}
+static int exclude_all(const dirent *) { return 0; }
+static void free_list(dirent **list, int count) {
+  for (int i = 0; i < count; ++i)
+    free(list[i]);
+  free(list);
+}
+
+TEST(LlvmLibcDirectoryOperations, ScanAndSort) {
+  dirent **list = nullptr;
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  int count = LIBC_NAMESPACE::scandir("testdata", &list, files_only,
+                                      LIBC_NAMESPACE::alphasort);
+  ASSERT_EQ(count, 2);
+  EXPECT_STREQ(list[0]->d_name, "file1.txt");
+  EXPECT_STREQ(list[1]->d_name, "file2.txt");
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
+  free_list(list, count);
+  list = nullptr;
+  count = LIBC_NAMESPACE::scandir("testdata", &list, exclude_all, nullptr);
+  EXPECT_EQ(count, 0);
+  free_list(list, count);
+  int fd = LIBC_NAMESPACE::open("testdata", O_RDONLY | O_DIRECTORY);
+  ASSERT_GE(fd, 0);
+  count = LIBC_NAMESPACE::scandirat(fd, ".", &list, files_only,
+                                    LIBC_NAMESPACE::versionsort);
+  ASSERT_EQ(count, 2);
+  free_list(list, count);
+  count = LIBC_NAMESPACE::scandirat(fd, ".", &list, files_only, nullptr);
+  ASSERT_EQ(count, 2);
+  free_list(list, count);
+  EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
+  LIBC_NAMESPACE::libc_errno = 0;
+}
+
+TEST(LlvmLibcDirectoryOperations, VersionAndCollationOrder) {
+  alignas(dirent) char a_storage[sizeof(dirent) + 32] = {};
+  alignas(dirent) char b_storage[sizeof(dirent) + 32] = {};
+  auto *a = reinterpret_cast<dirent *>(a_storage);
+  auto *b = reinterpret_cast<dirent *>(b_storage);
+  LIBC_NAMESPACE::strcpy(a->d_name, "file2");
+  LIBC_NAMESPACE::strcpy(b->d_name, "file10");
+  const dirent *left = a, *right = b;
+  EXPECT_GT(LIBC_NAMESPACE::alphasort(&left, &right), 0);
+  EXPECT_LT(LIBC_NAMESPACE::versionsort(&left, &right), 0);
+  LIBC_NAMESPACE::strcpy(a->d_name, "file01");
+  LIBC_NAMESPACE::strcpy(b->d_name, "file1");
+  EXPECT_LT(LIBC_NAMESPACE::versionsort(&left, &right), 0);
+}
+
+TEST(LlvmLibcDirectoryOperations, ScanErrorsDoNotPublish) {
+  dirent *sentinel = nullptr;
+  dirent **list = &sentinel;
+  EXPECT_EQ(LIBC_NAMESPACE::scandir("testdata/absent", &list, nullptr, nullptr),
+            -1);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOENT);
+  EXPECT_EQ(list, &sentinel);
+  EXPECT_EQ(
+      LIBC_NAMESPACE::scandir("testdata/file1.txt", &list, nullptr, nullptr),
+      -1);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOTDIR);
+  EXPECT_EQ(LIBC_NAMESPACE::scandirat(-1, ".", &list, nullptr, nullptr), -1);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EBADF);
+  LIBC_NAMESPACE::libc_errno = 0;
 }
