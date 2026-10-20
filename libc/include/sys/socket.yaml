@@ -24,6 +24,7 @@ enums: []
 objects: []
 functions:
   - name: accept
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -32,6 +33,7 @@ functions:
       - type: struct sockaddr *__restrict
       - type: socklen_t *__restrict
   - name: accept4
+    noexcept: false
     standards:
       - linux
     return_type: int
@@ -49,6 +51,7 @@ functions:
       - type: const struct sockaddr *
       - type: socklen_t
   - name: connect
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -90,6 +93,7 @@ functions:
       - type: int
       - type: int
   - name: recv
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t
@@ -111,6 +115,7 @@ functions:
       - type: struct sockaddr *__restrict
       - type: socklen_t *__restrict
   - name: recvmmsg
+    noexcept: false
     standards:
       - linux
     return_type: int
@@ -121,6 +126,7 @@ functions:
       - type: int
       - type: struct timespec *
   - name: recvmsg
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t
@@ -129,6 +135,7 @@ functions:
       - type: struct msghdr *
       - type: int
   - name: send
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t
@@ -138,6 +145,7 @@ functions:
       - type: size_t
       - type: int
   - name: sendmmsg
+    noexcept: false
     standards:
       - linux
     return_type: int
@@ -147,6 +155,7 @@ functions:
       - type: unsigned int
       - type: int
   - name: sendmsg
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t
@@ -155,6 +164,7 @@ functions:
       - type: const struct msghdr *
       - type: int
   - name: sendto
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t

@@ -116,6 +116,26 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("ssize_t writev(int, const struct iovec *, int);",
                       output_file.read_text())
 
+    def test_sendmsg_exception_specification(self):
+        output_file = self.output_dir / "sendmsg.h"
+        self.run_script(self.source_dir.parents[2] / "include/sys/socket.yaml",
+                        output_file, ["sendmsg"])
+        declaration = next(line for line in output_file.read_text().splitlines()
+                           if "sendmsg(" in line)
+        self.assertNotIn("__NOEXCEPT", declaration)
+
+    def test_socket_cancellation_exception_specifications(self):
+        functions = ("accept", "accept4", "connect", "recv", "recvfrom",
+                     "recvmsg", "recvmmsg", "send", "sendto", "sendmsg",
+                     "sendmmsg")
+        output_file = self.output_dir / "socket-cancellation.h"
+        self.run_script(self.source_dir.parents[2] / "include/sys/socket.yaml",
+                        output_file, list(functions))
+        lines = output_file.read_text().splitlines()
+        for function in functions:
+            declaration = next(line for line in lines if function + "(" in line)
+            self.assertNotIn("__NOEXCEPT", declaration)
+
     def test_exception_specifications(self):
         output_file = self.output_dir / "noexcept.h"
         self.run_script(self.source_dir / "input/noexcept.yaml", output_file)
