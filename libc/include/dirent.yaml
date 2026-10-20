@@ -67,3 +67,27 @@ functions:
     return_type: struct dirent *
     arguments:
       - type: DIR *
+  - name: readdir_r
+    noexcept: false
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: DIR *__restrict
+      - type: struct dirent *__restrict
+      - type: struct dirent **__restrict
+  - name: rewinddir
+    standards: [posix]
+    return_type: void
+    arguments:
+      - type: DIR *
+  - name: seekdir
+    standards: [posix]
+    return_type: void
+    arguments:
+      - type: DIR *
+      - type: long
+  - name: telldir
+    standards: [posix]
+    return_type: long
+    arguments:
+      - type: DIR *

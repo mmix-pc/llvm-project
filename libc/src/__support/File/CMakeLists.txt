@@ -50,6 +50,10 @@ add_object_library(
   HDRS
     dir.h
   DEPENDS
+    libc.hdr.stdio_macros
+    libc.hdr.types.off_t
+    libc.src.__support.CPP.limits
+    libc.src.string.memory_utils.inline_memcpy
     libc.src.__support.CPP.mutex
     libc.src.__support.CPP.new
     libc.src.__support.CPP.span

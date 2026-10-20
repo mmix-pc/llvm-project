@@ -19,6 +19,7 @@
 #include "src/__support/macros/config.h"
 #include "src/__support/threads/mutex.h"
 
+#include "hdr/types/off_t.h"
 #include "hdr/types/struct_dirent.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -43,6 +44,9 @@ int platform_check_dir(int fd);
 
 // Platform specific function to get the size of the directory entry record.
 size_t platform_dir_reclen(struct dirent *d);
+// The cookie for the next entry, independent of userspace read-ahead.
+off_t platform_dir_offset(const struct dirent *d);
+ErrorOr<off_t> platform_seekdir(int fd, off_t offset, int whence);
 
 // This class is designed to allow implementation of the POSIX dirent.h API.
 // By itself, it is platform independent but calls platform specific
@@ -52,6 +56,7 @@ class Dir {
   int fd;
   size_t readptr = 0;  // The current read pointer.
   size_t fillsize = 0; // The number of valid bytes availabe in the buffer.
+  off_t position = 0;
 
   // This is a buffer of struct dirent values which will be fetched
   // from the OS. Since the d_name of struct dirent can be of a variable
@@ -75,11 +80,16 @@ class Dir {
 
   LIBC_INLINE Dir &operator=(const Dir &) = delete;
 
+  ErrorOr<struct dirent *> read_unlocked();
+
 public:
   static ErrorOr<Dir *> open(const char *path);
   static ErrorOr<Dir *> fdopen(int fd);
 
   ErrorOr<struct dirent *> read();
+  ErrorOr<struct dirent *> read_copy(struct dirent *entry);
+  ErrorOr<long> tell();
+  int seek(long position);
 
   // Returns 0 on success or the error number on failure. By default, errors
   // retain storage. Backends that consume the descriptor even on failure may

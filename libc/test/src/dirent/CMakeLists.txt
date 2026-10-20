@@ -2,7 +2,30 @@ add_subdirectory(testdata)
 add_custom_target(libc_dirent_unittests)
 
 add_libc_test(
+  directory_operations_test
+  FULL_BUILD_ONLY
+  SUITE libc_dirent_unittests
+  SRCS directory_operations_test.cpp
+  DEPENDS
+    libc.src.dirent.closedir
+    libc.src.dirent.dirfd
+    libc.src.dirent.fdopendir
+    libc.src.dirent.opendir
+    libc.src.dirent.readdir
+    libc.src.dirent.readdir_r
+    libc.src.dirent.rewinddir
+    libc.src.dirent.seekdir
+    libc.src.dirent.telldir
+    libc.src.fcntl.open
+    libc.src.string.strcpy
+    libc.src.unistd.close
+    libc.src.unistd.lseek
+    libc.src.errno.errno
+)
+
+add_libc_test(
   dirent_test
+  FULL_BUILD_ONLY
   SUITE
     libc_dirent_unittests
   SRCS
@@ -19,6 +42,7 @@ add_libc_test(
 
 add_libc_test(
   fdopendir_test
+  FULL_BUILD_ONLY
   SUITE
     libc_dirent_unittests
   SRCS

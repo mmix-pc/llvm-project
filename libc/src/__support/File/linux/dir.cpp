@@ -18,6 +18,7 @@
 #include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/fcntl.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/lseek.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/statx.h"
 #include "src/__support/OSUtil/syscall.h" // For internal syscall function.
 #include "src/__support/error_or.h"
@@ -49,5 +50,9 @@ int platform_check_dir(int fd) {
 }
 
 size_t platform_dir_reclen(struct dirent *d) { return d->d_reclen; }
+off_t platform_dir_offset(const struct dirent *d) { return d->d_off; }
+ErrorOr<off_t> platform_seekdir(int fd, off_t offset, int whence) {
+  return linux_syscalls::lseek(fd, offset, whence);
+}
 
 } // namespace LIBC_NAMESPACE_DECL

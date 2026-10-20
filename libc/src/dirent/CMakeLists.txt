@@ -71,3 +71,17 @@ add_entrypoint_object(
     libc.src.__support.File.dir
     libc.src.errno.errno
 )
+
+foreach(name rewinddir seekdir telldir readdir_r)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS
+      libc.hdr.types.DIR
+      libc.hdr.types.struct_dirent
+      libc.src.__support.File.dir
+      libc.src.__support.File.platform_dir
+      libc.src.errno.errno
+  )
+endforeach()

@@ -1679,6 +1679,12 @@ if(LLVM_LIBC_FULL_BUILD)
 endif()
 
 if(LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.dirent.readdir_r
+    libc.src.dirent.rewinddir
+    libc.src.dirent.seekdir
+    libc.src.dirent.telldir
+  )
   foreach(name csqrt csqrtf clog clogf cexp cexpf csin csinf ccos ccosf
       ctan ctanf csinh csinhf ccosh ccoshf ctanh ctanhf
       casin casinf cacos cacosf catan catanf casinh casinhf cacosh cacoshf
