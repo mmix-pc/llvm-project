@@ -774,3 +774,5 @@ add_header(__action_fn_t
     .VISIT
 )
 add_header(__free_fn_t HDR __free_fn_t.h)
+
+add_header(struct_spwd HDR struct_spwd.h)

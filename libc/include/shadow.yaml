@@ -1,0 +1,21 @@
+header: shadow.h
+standards:
+  - gnu
+types:
+  - type_name: struct_spwd
+  - type_name: size_t
+functions:
+  - name: getspnam
+    noexcept: false
+    return_type: struct spwd *
+    arguments:
+      - type: const char *
+  - name: getspnam_r
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: const char *__restrict
+      - type: struct spwd *__restrict
+      - type: char *__restrict
+      - type: size_t
+      - type: struct spwd **__restrict
