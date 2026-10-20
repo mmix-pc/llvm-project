@@ -100,9 +100,12 @@ public:
     File *file;
 
   public:
-    explicit FileLock(File *f) : file(f) { file->lock(); }
+    explicit FileLock(File *f) : file(f->lock_implicit() ? f : nullptr) {}
 
-    ~FileLock() { file->unlock(); }
+    ~FileLock() {
+      if (file)
+        file->unlock();
+    }
 
     FileLock(const FileLock &) = delete;
     FileLock(FileLock &&) = delete;
@@ -123,6 +126,7 @@ private:
   bool close_on_flush_error;
 
   Mutex mutex;
+  bool internal_locking = true;
 
   // For files which are readable, we should be able to support one ungetc
   // operation even if |buf| is nullptr. So, in the constructor of File, we
@@ -339,6 +343,15 @@ public:
   int set_buffer(void *buffer, size_t size, int buffer_mode);
 
   void lock() { mutex.lock(); }
+  // Changing the locking policy requires exclusive access to the stream.
+  bool uses_internal_locking() const { return internal_locking; }
+  void set_internal_locking(bool enabled) { internal_locking = enabled; }
+  bool lock_implicit() {
+    if (!internal_locking)
+      return false;
+    lock();
+    return true;
+  }
   bool try_lock() { return mutex.try_lock() == MutexError::NONE; }
   void unlock() { mutex.unlock(); }
   // The coordinator owns one acquisition in the child snapshot. Rebind before

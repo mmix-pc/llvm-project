@@ -29,8 +29,8 @@ LIBC_INLINE int ferror_unlocked(FILE *f) {
   return reinterpret_cast<LIBC_NAMESPACE::File *>(f)->error_unlocked();
 }
 
-LIBC_INLINE void flockfile(FILE *f) {
-  reinterpret_cast<LIBC_NAMESPACE::File *>(f)->lock();
+LIBC_INLINE bool flockfile(FILE *f) {
+  return reinterpret_cast<LIBC_NAMESPACE::File *>(f)->lock_implicit();
 }
 
 LIBC_INLINE void funlockfile(FILE *f) {
@@ -45,7 +45,10 @@ LIBC_INLINE FileIOResult fwrite_unlocked(const void *ptr, size_t size,
 #else  // defined(LIBC_COPT_STDIO_USE_SYSTEM_FILE)
 LIBC_INLINE int ferror_unlocked(::FILE *f) { return ::ferror_unlocked(f); }
 
-LIBC_INLINE void flockfile(::FILE *f) { ::flockfile(f); }
+LIBC_INLINE bool flockfile(::FILE *f) {
+  ::flockfile(f);
+  return true;
+}
 
 LIBC_INLINE void funlockfile(::FILE *f) { ::funlockfile(f); }
 
@@ -90,8 +93,11 @@ LIBC_INLINE ErrorOr<size_t> vfprintf_internal(::FILE *__restrict stream,
   printf_core::FlushingBuffer wb(buffer, BUFF_SIZE, &file_write_hook,
                                  reinterpret_cast<void *>(stream));
   Writer writer(wb);
-  internal::flockfile(stream);
-  cpp::scope_exit unlock([&] { internal::funlockfile(stream); });
+  bool locked = internal::flockfile(stream);
+  cpp::scope_exit unlock([&] {
+    if (locked)
+      internal::funlockfile(stream);
+  });
   auto retval = printf_main(&writer, format, args);
   if (!retval.has_value())
     return retval;

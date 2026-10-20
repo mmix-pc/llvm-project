@@ -529,6 +529,16 @@ add_header_macro(
 )
 
 add_header_macro(
+  stdio_ext
+  ../libc/include/stdio_ext.yaml
+  stdio_ext.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-macros.stdio_ext_macros
+    .llvm-libc-types.FILE
+)
+
+add_header_macro(
   stdlib
   ../libc/include/stdlib.yaml
   stdlib.h

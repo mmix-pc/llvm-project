@@ -1,0 +1,20 @@
+header: stdio_ext.h
+standards:
+  - gnu
+macros:
+  - macro_name: FSETLOCKING_QUERY
+    macro_header: stdio-ext-macros.h
+  - macro_name: FSETLOCKING_INTERNAL
+    macro_header: stdio-ext-macros.h
+  - macro_name: FSETLOCKING_BYCALLER
+    macro_header: stdio-ext-macros.h
+types:
+  - type_name: FILE
+functions:
+  - name: __fsetlocking
+    standards:
+      - gnu
+    return_type: int
+    arguments:
+      - type: FILE *
+      - type: int

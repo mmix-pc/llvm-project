@@ -88,6 +88,14 @@ class TestHeaderGenIntegration(unittest.TestCase):
         for name in ("fcntl-macros.h", "file-seek-macros.h", "sys-stat-macros.h"):
             self.assertIn('#include "llvm-libc-macros/' + name + '"', content)
 
+    def test_stdio_locking_extension(self):
+        output_file = self.output_dir / "stdio_ext.h"
+        self.run_script(self.source_dir.parents[2] / "include/stdio_ext.yaml",
+                        output_file, ["__fsetlocking"])
+        content = output_file.read_text()
+        self.assertIn('#include "llvm-libc-macros/stdio-ext-macros.h"', content)
+        self.assertIn("int __fsetlocking(FILE *, int) __NOEXCEPT;", content)
+
     def test_system_exception_specification(self):
         output_file = self.output_dir / "system.h"
         self.run_script(self.source_dir.parents[2] / "include/stdlib.yaml",

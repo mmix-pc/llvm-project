@@ -34,7 +34,7 @@ namespace internal {
 // library. So here we simply use the public entrypoints like in the SYSTEM_FILE
 // interface. Entrypoints should normally not call others, this is an exception.
 // FIXME: We do not acquire any locks here, so this is not thread safe.
-LIBC_INLINE void flockfile(::FILE *) { return; }
+LIBC_INLINE bool flockfile(::FILE *) { return false; }
 
 LIBC_INLINE void funlockfile(::FILE *) { return; }
 
@@ -44,8 +44,8 @@ LIBC_INLINE void ungetc(int c, ::FILE *f) { LIBC_NAMESPACE::ungetc(c, f); }
 
 #elif !defined(LIBC_COPT_STDIO_USE_SYSTEM_FILE)
 
-LIBC_INLINE void flockfile(FILE *f) {
-  reinterpret_cast<LIBC_NAMESPACE::File *>(f)->lock();
+LIBC_INLINE bool flockfile(FILE *f) {
+  return reinterpret_cast<LIBC_NAMESPACE::File *>(f)->lock_implicit();
 }
 
 LIBC_INLINE void funlockfile(FILE *f) {
@@ -71,7 +71,7 @@ LIBC_INLINE void ungetc(int c, FILE *f) {
 
 // Since ungetc_unlocked isn't always available, we don't acquire the lock for
 // system files.
-LIBC_INLINE void flockfile(::FILE *) { return; }
+LIBC_INLINE bool flockfile(::FILE *) { return false; }
 
 LIBC_INLINE void funlockfile(::FILE *) { return; }
 
@@ -102,8 +102,11 @@ public:
 LIBC_INLINE int vfscanf_internal(::FILE *__restrict stream,
                                  const char *__restrict format,
                                  internal::ArgList &args) {
-  internal::flockfile(stream);
-  cpp::scope_exit unlock([&] { internal::funlockfile(stream); });
+  bool locked = internal::flockfile(stream);
+  cpp::scope_exit unlock([&] {
+    if (locked)
+      internal::funlockfile(stream);
+  });
   scanf_core::StreamReader reader(stream);
   return scanf_core::scanf_main(&reader, format, args);
 }
