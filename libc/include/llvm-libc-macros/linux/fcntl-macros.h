@@ -91,6 +91,9 @@
 #define F_OFD_SETLK 37
 #define F_OFD_SETLKW 38
 
+// Duplicate a descriptor with close-on-exec set atomically.
+#define F_DUPFD_CLOEXEC 1030
+
 // Close on succesful
 #define F_CLOEXEC 1
 

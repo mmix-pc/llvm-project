@@ -93,6 +93,23 @@ TEST_F(LlvmLibcFcntlArgsTest, NotificationUsesLong) {
   EXPECT_EQ(last_arg, reinterpret_cast<void *>(mask));
 }
 
+TEST_F(LlvmLibcFcntlArgsTest, DuplicateCloseOnExecUsesOneSyscall) {
+  static_assert(F_DUPFD_CLOEXEC == 1030, "Linux UAPI command number");
+  reply = 42;
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(7, F_DUPFD_CLOEXEC, 20), 42);
+  EXPECT_EQ(calls, 1U);
+  EXPECT_EQ(last_fd, 7);
+  EXPECT_EQ(last_cmd, 1030);
+  EXPECT_EQ(last_arg, reinterpret_cast<void *>(intptr_t(20)));
+  ASSERT_ERRNO_SUCCESS();
+
+  reply = -EINVAL;
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(7, F_DUPFD_CLOEXEC, -1), -1);
+  EXPECT_EQ(calls, 2U);
+  EXPECT_EQ(last_arg, reinterpret_cast<void *>(intptr_t(-1)));
+  ASSERT_ERRNO_EQ(EINVAL);
+}
+
 TEST_F(LlvmLibcFcntlArgsTest, LockPointers) {
   struct flock lock = {};
   const int commands[] = {F_GETLK, F_SETLK, F_SETLKW};

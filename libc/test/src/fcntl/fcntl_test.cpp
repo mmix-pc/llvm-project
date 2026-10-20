@@ -58,19 +58,34 @@ TEST_F(LlvmLibcFcntlTest, UnknownCommandPassthrough) {
   EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
 }
 
-#ifdef F_DUPFD_CLOEXEC
 TEST_F(LlvmLibcFcntlTest, DuplicateCloseOnExec) {
   int fd = LIBC_NAMESPACE::open("/dev/null", O_RDONLY);
   ASSERT_GE(fd, 0);
-  int copy = LIBC_NAMESPACE::fcntl(fd, F_DUPFD_CLOEXEC, 0);
-  EXPECT_GE(copy, 0);
+  int copy = LIBC_NAMESPACE::fcntl(fd, F_DUPFD_CLOEXEC, fd + 1);
+  EXPECT_GE(copy, fd + 1);
   if (copy >= 0) {
     EXPECT_EQ(LIBC_NAMESPACE::fcntl(copy, F_GETFD), FD_CLOEXEC);
+    EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_GETFD), 0);
     EXPECT_EQ(LIBC_NAMESPACE::close(copy), 0);
+    int reused = LIBC_NAMESPACE::fcntl(fd, F_DUPFD_CLOEXEC, copy);
+    EXPECT_EQ(reused, copy);
+    if (reused >= 0) {
+      EXPECT_EQ(LIBC_NAMESPACE::fcntl(reused, F_GETFD), FD_CLOEXEC);
+      int plain = LIBC_NAMESPACE::fcntl(reused, F_DUPFD, reused + 1);
+      EXPECT_GE(plain, reused + 1);
+      if (plain >= 0) {
+        EXPECT_EQ(LIBC_NAMESPACE::fcntl(plain, F_GETFD), 0);
+        EXPECT_EQ(LIBC_NAMESPACE::close(plain), 0);
+      }
+      EXPECT_EQ(LIBC_NAMESPACE::close(reused), 0);
+    }
   }
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_DUPFD_CLOEXEC, -1), -1);
+  ASSERT_ERRNO_EQ(EINVAL);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(-1, F_DUPFD_CLOEXEC, 0), -1);
+  ASSERT_ERRNO_EQ(EBADF);
   EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
 }
-#endif
 
 TEST_F(LlvmLibcFcntlTest, FcntlDupfd) {
   using LIBC_NAMESPACE::testing::ErrnoSetterMatcher::Succeeds;
