@@ -1,0 +1,87 @@
+header: sys/xattr.h
+standards:
+  - linux
+macros:
+  - macro_name: XATTR_CREATE
+    macro_header: sys-xattr-macros.h
+  - macro_name: XATTR_REPLACE
+    macro_header: sys-xattr-macros.h
+functions:
+  - name: getxattr
+    return_type: ssize_t
+    arguments:
+      - type: const char *
+      - type: const char *
+      - type: void *
+      - type: size_t
+  - name: setxattr
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: const char *
+      - type: const void *
+      - type: size_t
+      - type: int
+  - name: listxattr
+    return_type: ssize_t
+    arguments:
+      - type: const char *
+      - type: char *
+      - type: size_t
+  - name: removexattr
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: const char *
+  - name: lgetxattr
+    return_type: ssize_t
+    arguments:
+      - type: const char *
+      - type: const char *
+      - type: void *
+      - type: size_t
+  - name: lsetxattr
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: const char *
+      - type: const void *
+      - type: size_t
+      - type: int
+  - name: llistxattr
+    return_type: ssize_t
+    arguments:
+      - type: const char *
+      - type: char *
+      - type: size_t
+  - name: lremovexattr
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: const char *
+  - name: fgetxattr
+    return_type: ssize_t
+    arguments:
+      - type: int
+      - type: const char *
+      - type: void *
+      - type: size_t
+  - name: fsetxattr
+    return_type: int
+    arguments:
+      - type: int
+      - type: const char *
+      - type: const void *
+      - type: size_t
+      - type: int
+  - name: flistxattr
+    return_type: ssize_t
+    arguments:
+      - type: int
+      - type: char *
+      - type: size_t
+  - name: fremovexattr
+    return_type: int
+    arguments:
+      - type: int
+      - type: const char *

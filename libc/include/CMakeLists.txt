@@ -934,6 +934,17 @@ add_header_macro(
 )
 
 add_header_macro(
+  sys_xattr
+  ../libc/include/sys/xattr.yaml
+  sys/xattr.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-macros.sys_xattr_macros
+    .llvm-libc-types.size_t
+    .llvm-libc-types.ssize_t
+)
+
+add_header_macro(
   sys_socket
   ../libc/include/sys/socket.yaml
   sys/socket.h
