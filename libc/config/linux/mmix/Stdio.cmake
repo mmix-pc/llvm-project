@@ -5,6 +5,15 @@ endif()
 
 set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio_ext.__fsetlocking
+  libc.src.stdio_ext.__freadable
+  libc.src.stdio_ext.__fwritable
+  libc.src.stdio_ext.__freading
+  libc.src.stdio_ext.__fwriting
+  libc.src.stdio_ext.__flbf
+  libc.src.stdio_ext.__fbufsize
+  libc.src.stdio_ext.__fpending
+  libc.src.stdio_ext.__fpurge
+  libc.src.stdio_ext._flushlbf
   libc.src.stdlib.atexit
   libc.src.stdlib.at_quick_exit
   libc.src.stdlib.quick_exit
