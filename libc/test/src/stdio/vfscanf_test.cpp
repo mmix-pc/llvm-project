@@ -85,7 +85,9 @@ TEST(LlvmLibcVFScanfTest, WriteToFile) {
 
   // The format string starts with a space to handle the fact that the %s leaves
   // a trailing \n and %c doesn't strip leading whitespace.
-  read = call_vfscanf(file, " %50c", data);
+  // %c must fill its entire field width for the conversion to succeed.
+  static_assert(sizeof(numbers_and_more) - 1 == 14);
+  read = call_vfscanf(file, " %14c", data);
   ASSERT_EQ(read, 1);
   ASSERT_EQ(
       LIBC_NAMESPACE::cpp::string_view(numbers_and_more),

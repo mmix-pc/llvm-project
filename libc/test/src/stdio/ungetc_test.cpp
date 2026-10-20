@@ -47,10 +47,11 @@ TEST(LlvmLibcUngetcTest, UngetAndReadBack) {
   // ungetc should not fail after a seek operation.
   int unget_char = 'z';
   ASSERT_EQ(unget_char, LIBC_NAMESPACE::ungetc(unget_char, file));
-#ifndef LIBC_TARGET_ARCH_IS_GPU // Behavior varies between libc implementations.
-  // Another unget should fail.
-  ASSERT_EQ(EOF, LIBC_NAMESPACE::ungetc(unget_char, file));
-#endif
+  // Only one pushback is guaranteed; consume an optional second one if offered.
+  if (LIBC_NAMESPACE::ungetc(unget_char, file) != EOF) {
+    ASSERT_EQ(LIBC_NAMESPACE::fread(&c, 1, 1, file), size_t(1));
+    ASSERT_EQ(int(c), unget_char);
+  }
   // ungetting a char at the beginning of the file will allow us to fetch
   // one additional character.
   char new_data[CONTENT_SIZE + 1];
