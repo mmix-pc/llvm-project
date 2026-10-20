@@ -1191,6 +1191,13 @@ add_header_macro(utmp ../libc/include/utmp.yaml utmp.h
 add_header_macro(utmpx ../libc/include/utmpx.yaml utmpx.h
   DEPENDS .llvm_libc_common_h .llvm-libc-types.struct_utmpx
     .llvm-libc-macros.utmpx_macros)
+add_header_macro(arpa_nameser ../libc/include/arpa/nameser.yaml arpa/nameser.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-macros.arpa_nameser_macros
+    .llvm-libc-types.size_t .llvm-libc-types.ns_class .llvm-libc-types.ns_flag
+    .llvm-libc-types.ns_header .llvm-libc-types.ns_msg .llvm-libc-types.ns_opcode
+    .llvm-libc-types.ns_rr .llvm-libc-types.ns_sect .llvm-libc-types.ns_type)
+add_header_macro(resolv ../libc/include/resolv.yaml resolv.h
+  DEPENDS .llvm_libc_common_h .arpa_nameser .llvm-libc-macros.resolv_macros)
 
 add_header_macro(
   arpa_inet

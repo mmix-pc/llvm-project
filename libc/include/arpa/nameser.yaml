@@ -1,0 +1,55 @@
+header: arpa/nameser.h
+standards:
+  - bsd
+macros:
+  - macro_name: NS_MAXDNAME
+    macro_header: arpa-nameser-macros.h
+types:
+  - type_name: size_t
+  - type_name: ns_class
+  - type_name: ns_flag
+  - type_name: ns_header
+  - type_name: ns_msg
+  - type_name: ns_opcode
+  - type_name: ns_rr
+  - type_name: ns_sect
+  - type_name: ns_type
+enums: []
+objects: []
+functions:
+  - name: ns_get16
+    return_type: unsigned int
+    arguments:
+      - type: const unsigned char *
+  - name: ns_get32
+    return_type: unsigned long
+    arguments:
+      - type: const unsigned char *
+  - name: ns_initparse
+    return_type: int
+    arguments:
+      - type: const unsigned char *
+      - type: int
+      - type: ns_msg *
+  - name: ns_name_uncompress
+    return_type: int
+    arguments:
+      - type: const unsigned char *
+      - type: const unsigned char *
+      - type: const unsigned char *
+      - type: char *
+      - type: size_t
+  - name: ns_parserr
+    return_type: int
+    arguments:
+      - type: ns_msg *
+      - type: ns_sect
+      - type: int
+      - type: ns_rr *
+  - name: ns_skiprr
+    return_type: int
+    arguments:
+      - type: const unsigned char *
+      - type: const unsigned char *
+      - type: ns_sect
+      - type: int

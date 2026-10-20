@@ -1,0 +1,52 @@
+add_custom_target(libc_resolv_unittests)
+
+add_libc_test(
+  packet_test
+  SUITE
+    libc_resolv_unittests
+  SRCS
+    packet_test.cpp
+    public_header_test.cpp
+    ${LIBC_SOURCE_DIR}/src/resolv/dn_expand.cpp
+    ${LIBC_SOURCE_DIR}/src/resolv/dn_skipname.cpp
+    ${LIBC_SOURCE_DIR}/src/resolv/ns_get16.cpp
+    ${LIBC_SOURCE_DIR}/src/resolv/ns_get32.cpp
+    ${LIBC_SOURCE_DIR}/src/resolv/ns_initparse.cpp
+    ${LIBC_SOURCE_DIR}/src/resolv/ns_name_uncompress.cpp
+    ${LIBC_SOURCE_DIR}/src/resolv/ns_parserr.cpp
+    ${LIBC_SOURCE_DIR}/src/resolv/ns_skiprr.cpp
+  DEPENDS
+    libc.hdr.resolv_macros
+    libc.hdr.types.ns_header
+    libc.hdr.types.ns_flag
+    libc.hdr.types.ns_msg
+    libc.hdr.types.ns_rr
+    libc.src.resolv.dns_utils
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+)
+
+if(LIBC_TARGET_OS STREQUAL "linux")
+  add_libc_test(
+    query_test
+    SUITE
+      libc_resolv_unittests
+    SRCS
+      query_test.cpp
+      ${LIBC_SOURCE_DIR}/src/resolv/res_mkquery.cpp
+      ${LIBC_SOURCE_DIR}/src/resolv/ns_initparse.cpp
+      ${LIBC_SOURCE_DIR}/src/resolv/ns_parserr.cpp
+      ${LIBC_SOURCE_DIR}/src/resolv/ns_name_uncompress.cpp
+    DEPENDS
+      libc.hdr.resolv_macros
+      libc.hdr.types.ns_flag
+      libc.hdr.types.ns_msg
+      libc.hdr.types.ns_rr
+      libc.hdr.types.ssize_t
+      libc.src.__support.common
+      libc.src.__support.error_or
+      libc.src.__support.libc_errno
+      libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
+      libc.src.resolv.query
+  )
+endif()

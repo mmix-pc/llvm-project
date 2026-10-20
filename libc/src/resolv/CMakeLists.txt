@@ -1,0 +1,138 @@
+add_header_library(
+  dns_utils
+  HDRS
+    dns_utils.h
+  DEPENDS
+    libc.hdr.arpa_nameser_macros
+    libc.hdr.errno_macros
+    libc.hdr.types.ns_sect
+    libc.hdr.types.size_t
+    libc.src.__support.libc_errno
+    libc.src.__support.macros.config
+)
+
+add_header_library(
+  query
+  HDRS
+    query.h
+  DEPENDS
+    .dns_utils
+    libc.hdr.types.ns_opcode
+)
+
+add_entrypoint_object(
+  ns_get16
+  SRCS
+    ns_get16.cpp
+  HDRS
+    ns_get16.h
+  DEPENDS
+    .dns_utils
+    libc.include.arpa_nameser
+    libc.src.__support.common
+)
+
+add_entrypoint_object(
+  ns_get32
+  SRCS
+    ns_get32.cpp
+  HDRS
+    ns_get32.h
+  DEPENDS
+    .dns_utils
+    libc.include.arpa_nameser
+    libc.src.__support.common
+)
+
+add_entrypoint_object(
+  ns_name_uncompress
+  SRCS
+    ns_name_uncompress.cpp
+  HDRS
+    ns_name_uncompress.h
+  DEPENDS
+    .dns_utils
+    libc.include.arpa_nameser
+    libc.src.__support.common
+    libc.hdr.types.size_t
+)
+
+add_entrypoint_object(
+  dn_skipname
+  SRCS
+    dn_skipname.cpp
+  HDRS
+    dn_skipname.h
+  DEPENDS
+    .dns_utils
+    libc.include.resolv
+    libc.src.__support.common
+)
+
+add_entrypoint_object(
+  dn_expand
+  SRCS
+    dn_expand.cpp
+  HDRS
+    dn_expand.h
+  DEPENDS
+    .dns_utils
+    libc.include.resolv
+    libc.src.__support.common
+)
+
+add_entrypoint_object(
+  ns_skiprr
+  SRCS
+    ns_skiprr.cpp
+  HDRS
+    ns_skiprr.h
+  DEPENDS
+    .dns_utils
+    libc.include.arpa_nameser
+    libc.src.__support.common
+    libc.hdr.types.ns_sect
+)
+
+add_entrypoint_object(
+  ns_initparse
+  SRCS
+    ns_initparse.cpp
+  HDRS
+    ns_initparse.h
+  DEPENDS
+    .dns_utils
+    libc.include.arpa_nameser
+    libc.src.__support.common
+    libc.hdr.types.ns_msg
+)
+
+add_entrypoint_object(
+  ns_parserr
+  SRCS
+    ns_parserr.cpp
+  HDRS
+    ns_parserr.h
+  DEPENDS
+    .dns_utils
+    libc.include.arpa_nameser
+    libc.src.__support.common
+    libc.hdr.types.ns_msg
+    libc.hdr.types.ns_rr
+    libc.hdr.types.ns_sect
+)
+
+if(LIBC_TARGET_OS STREQUAL "linux")
+  add_entrypoint_object(
+    res_mkquery
+    SRCS
+      res_mkquery.cpp
+    HDRS
+      res_mkquery.h
+    DEPENDS
+      .query
+      libc.include.resolv
+      libc.src.__support.common
+      libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
+  )
+endif()

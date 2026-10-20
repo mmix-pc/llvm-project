@@ -411,7 +411,7 @@ add_proxy_header_library(
 )
 add_subdirectory(func)
 
-foreach(header IN ITEMS utmp utmpx)
+foreach(header IN ITEMS utmp utmpx resolv arpa_nameser)
   add_proxy_header_library(${header}_macros
     HDRS ${header}_macros.h
     FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.${header}_macros)

@@ -1,0 +1,37 @@
+header: resolv.h
+standards:
+  - bsd
+public_includes:
+  - arpa/nameser.h
+macros:
+  - macro_name: QUERY
+    macro_header: resolv-macros.h
+types: []
+enums: []
+objects: []
+functions:
+  - name: dn_expand
+    return_type: int
+    arguments:
+      - type: const unsigned char *
+      - type: const unsigned char *
+      - type: const unsigned char *
+      - type: char *
+      - type: int
+  - name: dn_skipname
+    return_type: int
+    arguments:
+      - type: const unsigned char *
+      - type: const unsigned char *
+  - name: res_mkquery
+    return_type: int
+    arguments:
+      - type: int
+      - type: const char *
+      - type: int
+      - type: int
+      - type: const unsigned char *
+      - type: int
+      - type: const unsigned char *
+      - type: unsigned char *
+      - type: int
