@@ -1,0 +1,91 @@
+header: utmp.h
+standards:
+  - gnu
+macros:
+  - macro_name: _PATH_UTMP
+    macro_header: utmp-macros.h
+  - macro_name: _PATH_WTMP
+    macro_header: utmp-macros.h
+  - macro_name: UTMP_FILE
+    macro_header: utmp-macros.h
+  - macro_name: UTMP_FILENAME
+    macro_header: utmp-macros.h
+  - macro_name: WTMP_FILE
+    macro_header: utmp-macros.h
+  - macro_name: WTMP_FILENAME
+    macro_header: utmp-macros.h
+  - macro_name: UT_LINESIZE
+    macro_header: utmp-macros.h
+  - macro_name: UT_NAMESIZE
+    macro_header: utmp-macros.h
+  - macro_name: UT_HOSTSIZE
+    macro_header: utmp-macros.h
+  - macro_name: EMPTY
+    macro_header: utmp-macros.h
+  - macro_name: RUN_LVL
+    macro_header: utmp-macros.h
+  - macro_name: BOOT_TIME
+    macro_header: utmp-macros.h
+  - macro_name: NEW_TIME
+    macro_header: utmp-macros.h
+  - macro_name: OLD_TIME
+    macro_header: utmp-macros.h
+  - macro_name: INIT_PROCESS
+    macro_header: utmp-macros.h
+  - macro_name: LOGIN_PROCESS
+    macro_header: utmp-macros.h
+  - macro_name: USER_PROCESS
+    macro_header: utmp-macros.h
+  - macro_name: DEAD_PROCESS
+    macro_header: utmp-macros.h
+  - macro_name: ACCOUNTING
+    macro_header: utmp-macros.h
+  - macro_name: ut_name
+    macro_header: utmp-macros.h
+  - macro_name: ut_time
+    macro_header: utmp-macros.h
+  - macro_name: ut_xtime
+    macro_header: utmp-macros.h
+  - macro_name: ut_addr
+    macro_header: utmp-macros.h
+types:
+  - type_name: struct_utmp
+functions:
+  - name: setutent
+    noexcept: false
+    return_type: void
+    arguments: []
+  - name: getutent
+    noexcept: false
+    return_type: struct utmp *
+    arguments: []
+  - name: endutent
+    noexcept: false
+    return_type: void
+    arguments: []
+  - name: getutid
+    noexcept: false
+    return_type: struct utmp *
+    arguments:
+      - type: const struct utmp *
+  - name: getutline
+    noexcept: false
+    return_type: struct utmp *
+    arguments:
+      - type: const struct utmp *
+  - name: pututline
+    noexcept: false
+    return_type: struct utmp *
+    arguments:
+      - type: const struct utmp *
+  - name: utmpname
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: const char *
+  - name: updwtmp
+    noexcept: false
+    return_type: void
+    arguments:
+      - type: const char *
+      - type: const struct utmp *

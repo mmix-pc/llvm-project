@@ -558,3 +558,5 @@ add_macro_header(
 )
 add_header(mntent_macros HDR mntent-macros.h)
 add_macro_header(sys_reboot_macros HDR sys-reboot-macros.h)
+add_macro_header(utmpx_macros HDR utmpx-macros.h)
+add_macro_header(utmp_macros HDR utmp-macros.h DEPENDS .utmpx_macros)

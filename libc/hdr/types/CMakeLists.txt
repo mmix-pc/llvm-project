@@ -1435,7 +1435,7 @@ add_proxy_header_library(
   FULL_BUILD_DEPENDS libc.include.llvm-libc-types.struct_mntent
 )
 
-foreach(type IN ITEMS struct_spwd)
+foreach(type IN ITEMS struct_spwd struct_utmp struct_utmpx)
   add_proxy_header_library(${type}
     HDRS ${type}.h
     FULL_BUILD_DEPENDS libc.include.llvm-libc-types.${type})

@@ -1185,6 +1185,12 @@ file(MAKE_DIRECTORY ${LIBC_INCLUDE_DIR}/arpa)
 
 add_header_macro(shadow ../libc/include/shadow.yaml shadow.h
   DEPENDS .llvm_libc_common_h .llvm-libc-types.struct_spwd .llvm-libc-types.size_t)
+add_header_macro(utmp ../libc/include/utmp.yaml utmp.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-types.struct_utmp
+    .llvm-libc-macros.utmp_macros)
+add_header_macro(utmpx ../libc/include/utmpx.yaml utmpx.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-types.struct_utmpx
+    .llvm-libc-macros.utmpx_macros)
 
 add_header_macro(
   arpa_inet

@@ -776,3 +776,5 @@ add_header(__action_fn_t
 add_header(__free_fn_t HDR __free_fn_t.h)
 
 add_header(struct_spwd HDR struct_spwd.h)
+add_header(struct_utmp HDR struct_utmp.h DEPENDS .pid_t .struct_timeval)
+add_header(struct_utmpx HDR struct_utmpx.h DEPENDS .struct_utmp)

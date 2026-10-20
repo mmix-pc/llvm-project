@@ -1,0 +1,75 @@
+header: utmpx.h
+standards:
+  - posix
+macros:
+  - macro_name: _PATH_UTMPX
+    macro_header: utmpx-macros.h
+  - macro_name: _PATH_WTMPX
+    macro_header: utmpx-macros.h
+  - macro_name: UT_LINESIZE
+    macro_header: utmpx-macros.h
+  - macro_name: UT_NAMESIZE
+    macro_header: utmpx-macros.h
+  - macro_name: UT_HOSTSIZE
+    macro_header: utmpx-macros.h
+  - macro_name: EMPTY
+    macro_header: utmpx-macros.h
+  - macro_name: RUN_LVL
+    macro_header: utmpx-macros.h
+  - macro_name: BOOT_TIME
+    macro_header: utmpx-macros.h
+  - macro_name: NEW_TIME
+    macro_header: utmpx-macros.h
+  - macro_name: OLD_TIME
+    macro_header: utmpx-macros.h
+  - macro_name: INIT_PROCESS
+    macro_header: utmpx-macros.h
+  - macro_name: LOGIN_PROCESS
+    macro_header: utmpx-macros.h
+  - macro_name: USER_PROCESS
+    macro_header: utmpx-macros.h
+  - macro_name: DEAD_PROCESS
+    macro_header: utmpx-macros.h
+  - macro_name: ACCOUNTING
+    macro_header: utmpx-macros.h
+types:
+  - type_name: struct_utmpx
+functions:
+  - name: setutxent
+    noexcept: false
+    return_type: void
+    arguments: []
+  - name: getutxent
+    noexcept: false
+    return_type: struct utmpx *
+    arguments: []
+  - name: endutxent
+    noexcept: false
+    return_type: void
+    arguments: []
+  - name: getutxid
+    noexcept: false
+    return_type: struct utmpx *
+    arguments:
+      - type: const struct utmpx *
+  - name: getutxline
+    noexcept: false
+    return_type: struct utmpx *
+    arguments:
+      - type: const struct utmpx *
+  - name: pututxline
+    noexcept: false
+    return_type: struct utmpx *
+    arguments:
+      - type: const struct utmpx *
+  - name: utmpxname
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: const char *
+  - name: updwtmpx
+    noexcept: false
+    return_type: void
+    arguments:
+      - type: const char *
+      - type: const struct utmpx *

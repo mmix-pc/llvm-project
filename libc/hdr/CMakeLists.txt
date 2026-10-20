@@ -410,3 +410,9 @@ add_proxy_header_library(
   FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.syslog_macros
 )
 add_subdirectory(func)
+
+foreach(header IN ITEMS utmp utmpx)
+  add_proxy_header_library(${header}_macros
+    HDRS ${header}_macros.h
+    FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.${header}_macros)
+endforeach()
