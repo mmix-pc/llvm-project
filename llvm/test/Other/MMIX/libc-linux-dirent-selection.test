@@ -1,0 +1,31 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/selection.cmake
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+set(directory_functions opendir fdopendir readdir closedir dirfd
+    rewinddir seekdir telldir readdir_r scandir alphasort scandirat
+    versionsort posix_getdents)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+foreach(name IN LISTS directory_functions)
+  if("libc.src.dirent.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "disabled filesystem selected ${name}")
+  endif()
+endforeach()
+set(LIBC_MMIX_BUILD_FILESYSTEM ON CACHE BOOL "" FORCE)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+foreach(name IN LISTS directory_functions)
+  if(NOT "libc.src.dirent.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing directory provider ${name}")
+  endif()
+endforeach()
+foreach(name strcoll strverscmp)
+  if(NOT "libc.src.string.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing directory sorting dependency ${name}")
+  endif()
+endforeach()
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+if(NOT libc.include.dirent IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing directory header")
+endif()

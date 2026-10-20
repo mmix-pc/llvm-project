@@ -45,6 +45,17 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.dirent.readdir
   libc.src.dirent.closedir
   libc.src.dirent.dirfd
+  libc.src.dirent.rewinddir
+  libc.src.dirent.seekdir
+  libc.src.dirent.telldir
+  libc.src.dirent.readdir_r
+  libc.src.dirent.scandir
+  libc.src.dirent.alphasort
+  libc.src.dirent.scandirat
+  libc.src.dirent.versionsort
+  libc.src.dirent.posix_getdents
+  libc.src.string.strcoll
+  libc.src.string.strverscmp
   libc.src.sys.statfs.statfs
   libc.src.sys.statfs.fstatfs
   libc.src.sys.statvfs.statvfs
