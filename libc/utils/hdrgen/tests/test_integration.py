@@ -74,6 +74,12 @@ class TestHeaderGenIntegration(unittest.TestCase):
             output_file.read_text(),
         )
 
+    def test_mkdtemp_declaration(self):
+        output_file = self.output_dir / "mkdtemp.h"
+        self.run_script(self.source_dir.parents[2] / "include/stdlib.yaml",
+                        output_file, ["mkdtemp"])
+        self.assertIn("char *mkdtemp(char *) __NOEXCEPT;", output_file.read_text())
+
     def test_system_exception_specification(self):
         output_file = self.output_dir / "system.h"
         self.run_script(self.source_dir.parents[2] / "include/stdlib.yaml",
