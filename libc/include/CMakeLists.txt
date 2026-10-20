@@ -536,6 +536,7 @@ add_header_macro(
     .llvm_libc_common_h
     .llvm-libc-macros.stdio_ext_macros
     .llvm-libc-types.FILE
+    .llvm-libc-types.size_t
 )
 
 add_header_macro(

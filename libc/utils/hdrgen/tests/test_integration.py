@@ -90,11 +90,22 @@ class TestHeaderGenIntegration(unittest.TestCase):
 
     def test_stdio_locking_extension(self):
         output_file = self.output_dir / "stdio_ext.h"
+        predicates = ("__freadable", "__fwritable", "__freading",
+                      "__fwriting", "__flbf")
+        counts = ("__fbufsize", "__fpending")
         self.run_script(self.source_dir.parents[2] / "include/stdio_ext.yaml",
-                        output_file, ["__fsetlocking"])
+                        output_file, [*predicates, *counts, "__fsetlocking",
+                                      "__fpurge", "_flushlbf"])
         content = output_file.read_text()
         self.assertIn('#include "llvm-libc-macros/stdio-ext-macros.h"', content)
         self.assertIn("int __fsetlocking(FILE *, int) __NOEXCEPT;", content)
+        self.assertIn('#include "llvm-libc-types/size_t.h"', content)
+        for name in predicates:
+            self.assertIn(f"int {name}(FILE *) __NOEXCEPT;", content)
+        for name in counts:
+            self.assertIn(f"size_t {name}(FILE *) __NOEXCEPT;", content)
+        self.assertIn("void __fpurge(FILE *) __NOEXCEPT;", content)
+        self.assertIn("void _flushlbf(void);", content)
 
     def test_readv_exception_specification(self):
         output_file = self.output_dir / "readv.h"

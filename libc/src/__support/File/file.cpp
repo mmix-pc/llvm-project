@@ -76,7 +76,7 @@ FileIOResult File::write_unlocked_impl(const void *data, size_t len) {
     return {0, EBADF};
   }
 
-  prev_op = FileOp::WRITE;
+  begin_output();
 
   if (bufmode == _IONBF) { // unbuffered.
     FileIOResult ret_val =
@@ -86,6 +86,9 @@ FileIOResult File::write_unlocked_impl(const void *data, size_t len) {
       ret_val.error = flush_error;
     return ret_val;
   }
+  // The fallback array guarantees input pushback; it is not an output buffer.
+  if (buf == ungetc_buf)
+    return write_unlocked_nbf(static_cast<const uint8_t *>(data), len);
   if (bufmode == _IOFBF) // fully buffered
     return write_unlocked_fbf(static_cast<const uint8_t *>(data), len);
   return write_unlocked_lbf(static_cast<const uint8_t *>(data),
@@ -409,7 +412,7 @@ ErrorOr<int> File::seek(off_t offset, int whence) {
 }
 
 ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
-  if (prev_op == FileOp::WRITE && pos > 0) {
+  if (prev_op == FileOp::WRITE && (pos || wide_size)) {
     int error = flush_unlocked();
     if (error)
       return Error(error);
@@ -443,7 +446,7 @@ ErrorOr<off_t> File::tell() {
 }
 
 ErrorOr<off_t> File::tell_unlocked() {
-  auto seek_target = prev_op == FileOp::WRITE && pos > 0 &&
+  auto seek_target = prev_op == FileOp::WRITE && (pos || wide_size) &&
                              (mode & ModeFlags(OpenMode::APPEND))
                          ? SEEK_END
                          : SEEK_CUR;
@@ -455,7 +458,7 @@ ErrorOr<off_t> File::tell_unlocked() {
     return platform_offset - (read_limit - pos) - wide_pushback_bytes -
            (byte_pushback != EOF);
   if (prev_op == FileOp::WRITE)
-    return platform_offset + pos;
+    return platform_offset + pos + pending_wide_bytes();
   return platform_offset;
 }
 
@@ -476,6 +479,11 @@ ErrorOr<int> File::set_position(const Position &position) {
 }
 
 int File::flush_unlocked() {
+  if (prev_op == FileOp::WRITE && wide_size) {
+    int error = flush_wide_unlocked();
+    if (error)
+      return error;
+  }
   if (prev_op == FileOp::WRITE && pos > 0) {
     FileIOResult buf_result = platform_write(this, buf, pos);
     const size_t consumed = buf_result.value < pos ? buf_result.value : pos;
@@ -487,7 +495,8 @@ int File::flush_unlocked() {
       return buf_result.error ? buf_result.error : EIO;
     }
   } else if (prev_op == FileOp::READ) {
-    size_t unread = read_limit - pos + (byte_pushback != EOF);
+    size_t unread =
+        read_limit - pos + wide_pushback_bytes + (byte_pushback != EOF);
     if (unread > 0) {
       if (!platform_seek(this, -static_cast<off_t>(unread), SEEK_CUR)
                .has_value()) {
@@ -497,6 +506,8 @@ int File::flush_unlocked() {
     }
     pos = read_limit = 0;
     byte_pushback = EOF;
+    wide_pushback_bytes = 0;
+    mbstate = internal::mbstate();
   }
   if (platform_flush) {
     int error = platform_flush(this);
@@ -555,6 +566,9 @@ int File::set_buffer(void *buffer, size_t size, int buffer_mode) {
     own_buf = false;
   }
   bufmode = buffer_mode;
+  delete[] wide_output;
+  wide_output = nullptr;
+  wide_capacity = wide_size = wide_prefix = 0;
   adjust_buf();
   return 0;
 }
@@ -604,6 +618,65 @@ File::ModeFlags File::mode_flags(const char *mode) {
   return flags;
 }
 
+ErrorOr<size_t> File::encode_wide(wchar_t wc, uint8_t *bytes) const {
+  internal::mbstate state;
+  internal::CharacterConverter converter(&state, wide_utf8);
+  int error = converter.push(static_cast<char32_t>(wc));
+  if (error)
+    return Error(error);
+  size_t size = 0;
+  while (!converter.isEmpty()) {
+    auto byte = converter.pop<char8_t>();
+    if (!byte.has_value())
+      return Error(byte.error());
+    bytes[size++] = byte.value();
+  }
+  return size;
+}
+
+size_t File::pending_wide_bytes() const {
+  size_t size = 0;
+  for (size_t i = 0; i < wide_size; ++i) {
+    uint8_t bytes[4];
+    size += encode_wide(wide_output[i], bytes).value();
+  }
+  return size - wide_prefix;
+}
+
+int File::flush_wide_unlocked() {
+  while (wide_size) {
+    uint8_t bytes[256];
+    size_t ends[256];
+    size_t length = 0, characters = 0;
+    while (characters < wide_size && length <= sizeof(bytes) - 4) {
+      uint8_t encoded[4];
+      size_t size = encode_wide(wide_output[characters], encoded).value();
+      size_t skip = characters == 0 ? wide_prefix : 0;
+      inline_memcpy(bytes + length, encoded + skip, size - skip);
+      length += size - skip;
+      ends[characters++] = length;
+    }
+    auto result = platform_write(this, bytes, length);
+    size_t consumed = result.value < length ? result.value : length;
+    size_t complete = 0;
+    while (complete < characters && ends[complete] <= consumed)
+      ++complete;
+    // Keep the first incomplete character, without replaying its written prefix.
+    wide_prefix = complete ? consumed - ends[complete - 1]
+                           : wide_prefix + consumed;
+    for (size_t i = complete; i < wide_size; ++i)
+      wide_output[i - complete] = wide_output[i];
+    wide_size -= complete;
+    if (!wide_size)
+      wide_prefix = 0;
+    if (result.has_error() || consumed != length) {
+      err = true;
+      return result.has_error() ? result.error : EIO;
+    }
+  }
+  return 0;
+}
+
 FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
   switch (orientation) {
   case Orientation::BYTE:
@@ -615,34 +688,55 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
   case Orientation::WIDE:
     break;
   }
+  if (!len)
+    return size_t(0);
+  if (!write_allowed()) {
+    err = true;
+    return {0, EBADF};
+  }
+  if (bufmode != _IONBF && !wide_output) {
+    size_t capacity = bufsize / sizeof(wchar_t);
+    if (!capacity)
+      capacity = 1;
+    AllocChecker ac;
+    wchar_t *storage = new (ac) wchar_t[capacity];
+    if (!ac) {
+      err = true;
+      return {0, ENOMEM};
+    }
+    wide_output = storage;
+    wide_capacity = capacity;
+  }
+  begin_output();
 
   size_t written = 0;
   for (size_t i = 0; i < len; ++i) {
-    internal::CharacterConverter cr(&mbstate, wide_utf8);
-    int push_err = cr.push(static_cast<char32_t>(ws[i]));
-    if (push_err != 0) {
+    uint8_t buffer[4];
+    auto encoded = encode_wide(ws[i], buffer);
+    if (!encoded.has_value()) {
       err = true;
-      return {written, push_err};
+      return {written, encoded.error()};
     }
-    // buffer the whole wchar to save on calls to write.
-    char buffer[4];
-    size_t char_size = 0;
-    while (!cr.isEmpty()) {
-      auto pop_res = cr.pop<char8_t>();
-      if (!pop_res.has_value()) {
+    if (bufmode == _IONBF) {
+      auto result = write_unlocked_impl(buffer, encoded.value());
+      if (result.has_error())
+        return {written, result.error};
+      if (result.value != encoded.value()) {
         err = true;
-        return {written, pop_res.error()};
+        return {written, EIO};
       }
-      char8_t byte = pop_res.value();
-      buffer[char_size] = byte;
-      ++char_size;
-    }
-    auto write_res = write_unlocked_impl(buffer, char_size);
-    if (write_res.has_error())
-      return {written, write_res.error};
-    if (write_res.value < char_size) {
-      err = true;
-      return {written, EIO};
+    } else {
+      if (wide_size == wide_capacity) {
+        int error = flush_wide_unlocked();
+        if (error)
+          return {written, error};
+      }
+      wide_output[wide_size++] = ws[i];
+      if (bufmode == _IOLBF && ws[i] == L'\n') {
+        int error = flush_unlocked();
+        if (error)
+          return {written, error};
+      }
     }
     ++written;
   }

@@ -13,6 +13,7 @@
 #include "src/stdio/vfprintf.h"
 #include "src/stdio/vfscanf.h"
 #include "src/stdio_ext/__fsetlocking.h"
+#include "src/stdio_ext/_flushlbf.h"
 #include "test/UnitTest/Test.h"
 #include <stdarg.h>
 #ifdef LIBC_FULL_BUILD
@@ -159,4 +160,25 @@ TEST(LlvmLibcFsetlockingTest, GuardRemembersAcquisition) {
         FSETLOCKING_BYCALLER);
   }
   EXPECT_TRUE(available(stream));
+}
+
+TEST(LlvmLibcFsetlockingTest, WideAndGlobalOperations) {
+  const int policies[] = {FSETLOCKING_INTERNAL, FSETLOCKING_BYCALLER};
+  for (int policy : policies) {
+    Stream wide;
+    LIBC_NAMESPACE::__fsetlocking(wide.handle(), policy);
+    EXPECT_EQ(wide.write(L"x", 1).value, size_t(1));
+    EXPECT_EQ(wide.observed_unlocked, policy == FSETLOCKING_BYCALLER);
+    EXPECT_TRUE(available(wide));
+    Stream line;
+    uint8_t buffer[8];
+    ASSERT_EQ(line.set_buffer(buffer, sizeof(buffer), _IOLBF), 0);
+    LIBC_NAMESPACE::__fsetlocking(line.handle(), policy);
+    EXPECT_EQ(line.write("x", 1).value, size_t(1));
+    File::add_file(&line);
+    LIBC_NAMESPACE::_flushlbf();
+    EXPECT_EQ(line.observed_unlocked, policy == FSETLOCKING_BYCALLER);
+    EXPECT_TRUE(available(line));
+    File::remove_file(&line);
+  }
 }

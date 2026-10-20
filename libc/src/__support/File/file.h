@@ -168,6 +168,11 @@ private:
   // Wide pushback must survive byte-buffer refills, including partial UTF-8.
   wchar_t wide_pushback = 0;
   size_t wide_pushback_bytes = 0;
+  // Wide output retains characters, including an incompletely written encoding.
+  wchar_t *wide_output = nullptr;
+  size_t wide_capacity = 0;
+  size_t wide_size = 0;
+  size_t wide_prefix = 0;
 
 protected:
   constexpr bool write_allowed() const {
@@ -193,6 +198,7 @@ protected:
     mbstate = internal::mbstate();
     wide_pushback_bytes = 0;
     byte_pushback = EOF;
+    wide_size = wide_prefix = 0;
     adjust_buf();
   }
 
@@ -301,11 +307,13 @@ public:
       // Memory streams must publish even empty buffers. Their close callback
       // also releases owned state after flush failure; legacy backends retain
       // the existing retryable-close contract unless they opt in.
-      bool need_flush = platform_flush || (prev_op == FileOp::WRITE && pos > 0);
+      bool need_flush =
+          platform_flush || (prev_op == FileOp::WRITE && (pos || wide_size));
       flush_error = flush_buffer && need_flush ? flush_unlocked() : 0;
       if (flush_error && !close_on_flush_error)
         return flush_error;
       pos = read_limit = 0;
+      wide_size = wide_prefix = 0;
       prev_op = FileOp::NONE;
     }
 
@@ -319,6 +327,7 @@ public:
     // and we need to clean it up before the entire structure is removed.
     if (own_buf)
       delete[] buf;
+    delete[] wide_output;
 
     // Platform close may destroy the file data structure, including its mutex.
     // Hence, we call platform_close after releasing
@@ -341,6 +350,38 @@ public:
   // For cases 1 and 2, the error returned in EINVAL. For case 3, error returned
   // is ENOMEM.
   int set_buffer(void *buffer, size_t size, int buffer_mode);
+
+  bool readable() const { return read_allowed(); }
+  bool writable() const { return write_allowed(); }
+  bool reading() const {
+    return read_allowed() &&
+           (!write_allowed() || prev_op == FileOp::READ ||
+            prev_op == FileOp::SEEK);
+  }
+  bool writing() const {
+    return write_allowed() && (!read_allowed() || prev_op == FileOp::WRITE);
+  }
+  bool line_buffered() const { return bufmode == _IOLBF; }
+  size_t buffer_capacity() const {
+    if (bufmode == _IONBF)
+      return 0;
+    if (orientation == Orientation::WIDE)
+      return wide_capacity;
+    return buf == ungetc_buf ? 0 : bufsize;
+  }
+  size_t pending_output() const {
+    if (prev_op != FileOp::WRITE)
+      return 0;
+    return orientation == Orientation::WIDE ? wide_size : pos;
+  }
+  // Caller synchronization is required, as for the unlocked GNU extensions.
+  void purge_unlocked() {
+    pos = read_limit = 0;
+    wide_size = wide_prefix = 0;
+    byte_pushback = EOF;
+    wide_pushback_bytes = 0;
+    mbstate = internal::mbstate();
+  }
 
   void lock() { mutex.lock(); }
   // Changing the locking policy requires exclusive access to the stream.
@@ -417,6 +458,18 @@ public:
   static ModeFlags mode_flags(const char *mode);
 
 private:
+  void begin_output() {
+    // Reading through EOF permits a following write without positioning.
+    if (prev_op == FileOp::READ) {
+      pos = read_limit = 0;
+      byte_pushback = EOF;
+      wide_pushback_bytes = 0;
+    }
+    prev_op = FileOp::WRITE;
+  }
+  ErrorOr<size_t> encode_wide(wchar_t wc, uint8_t *bytes) const;
+  size_t pending_wide_bytes() const;
+  int flush_wide_unlocked();
   FileIOResult write_unlocked_impl(const void *data, size_t len);
   ErrorOr<int> seek_unlocked(off_t offset, int whence);
   ErrorOr<off_t> tell_unlocked();

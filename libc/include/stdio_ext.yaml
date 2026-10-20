@@ -10,6 +10,7 @@ macros:
     macro_header: stdio-ext-macros.h
 types:
   - type_name: FILE
+  - type_name: size_t
 functions:
   - name: __fsetlocking
     standards:
@@ -18,3 +19,48 @@ functions:
     arguments:
       - type: FILE *
       - type: int
+  - name: __freadable
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: FILE *
+  - name: __fwritable
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: FILE *
+  - name: __freading
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: FILE *
+  - name: __fwriting
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: FILE *
+  - name: __flbf
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: FILE *
+  - name: __fbufsize
+    standards: [gnu]
+    return_type: size_t
+    arguments:
+      - type: FILE *
+  - name: __fpending
+    standards: [gnu]
+    return_type: size_t
+    arguments:
+      - type: FILE *
+  - name: __fpurge
+    standards: [gnu]
+    return_type: void
+    arguments:
+      - type: FILE *
+  - name: _flushlbf
+    standards: [gnu]
+    return_type: void
+    noexcept: false
+    arguments: []

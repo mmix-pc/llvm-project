@@ -91,11 +91,13 @@ if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPI
       ${LIBC_SOURCE_DIR}/src/stdio/generic/vfprintf.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/generic/vfscanf.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/generic/fflush.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio_ext/_flushlbf.cpp
       ${LIBC_SOURCE_DIR}/src/__support/File/file.cpp
     DEPENDS
       libc.src.__support.File.file
       libc.src.__support.printf_core.vfprintf_internal
       libc.src.stdio.scanf_core.vfscanf_internal
+      libc.src.__support.CPP.atomic
       libc.src.__support.CPP.scope
       libc.src.errno.errno
     # Compile the production File with unwind metadata without changing the
