@@ -446,6 +446,8 @@ private:
 // The implementation of this function is provided by the platform_file
 // library.
 ErrorOr<File *> openfile(const char *path, const char *mode);
+// Internal descriptors must acquire close-on-exec atomically with opening.
+ErrorOr<File *> openfile(const char *path, const char *mode, bool close_on_exec);
 // Reopens a file stream.
 // Note: On failure, `reopenfile` will place the file stream in an invalid state
 // (closing the underlying file descriptor) but will not deallocate the `File`

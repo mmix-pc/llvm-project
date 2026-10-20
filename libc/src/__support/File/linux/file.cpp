@@ -77,11 +77,17 @@ static int mode_flags_to_open_flags(File::ModeFlags modeflags) {
 }
 
 ErrorOr<File *> openfile(const char *path, const char *mode) {
+  return openfile(path, mode, false);
+}
+
+ErrorOr<File *> openfile(const char *path, const char *mode, bool close_on_exec) {
   auto modeflags = File::mode_flags(mode);
   if (modeflags == 0) {
     return Error(EINVAL);
   }
   int open_flags = mode_flags_to_open_flags(modeflags);
+  if (close_on_exec)
+    open_flags |= O_CLOEXEC;
 
   // File created will have 0666 permissions.
   constexpr mode_t OPEN_MODE =

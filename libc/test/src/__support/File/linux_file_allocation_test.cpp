@@ -20,6 +20,8 @@ void *allocations[4];
 LIBC_NAMESPACE::File *closing_file;
 bool published_at_reclamation;
 unsigned reclamation_checks;
+int opening_fd = -1;
+int flags_at_allocation = -1;
 
 void start_tracking(unsigned failure) {
   allocation_count = live_allocations = 0;
@@ -43,6 +45,9 @@ extern "C" void __real_free(void *);
 // Intercept only allocation, leaving the actual LinuxFile and kernel I/O paths
 // intact. Assertions run with failure injection disabled.
 extern "C" void *__wrap_malloc(size_t size) {
+  // The first allocation follows the open syscall, before File publication.
+  if (opening_fd >= 0 && flags_at_allocation < 0)
+    flags_at_allocation = ::fcntl(opening_fd, F_GETFD);
   if (tracking && ++allocation_count == fail_at)
     return nullptr;
   void *result = __real_malloc(size);
@@ -86,17 +91,35 @@ extern "C" void __wrap_free(void *ptr) {
 }
 
 TEST(LlvmLibcLinuxFileAllocationTest, OpenFailureClosesDescriptor) {
-  for (unsigned failure = 1; failure <= 2; ++failure) {
-    int expected_fd = next_descriptor();
-    ASSERT_GE(expected_fd, 0);
-    start_tracking(failure);
-    auto result = LIBC_NAMESPACE::openfile("/dev/null", "r");
-    tracking = false;
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), ENOMEM);
-    EXPECT_EQ(allocation_count, failure);
-    EXPECT_EQ(live_allocations, 0U);
-    EXPECT_EQ(next_descriptor(), expected_fd);
+  const bool modes[] = {false, true};
+  for (bool cloexec : modes) {
+    for (unsigned failure = 1; failure <= 2; ++failure) {
+      int expected_fd = next_descriptor();
+      ASSERT_GE(expected_fd, 0);
+      start_tracking(failure);
+      auto result = LIBC_NAMESPACE::openfile("/dev/null", "r", cloexec);
+      tracking = false;
+      ASSERT_FALSE(result.has_value());
+      EXPECT_EQ(result.error(), ENOMEM);
+      EXPECT_EQ(allocation_count, failure);
+      EXPECT_EQ(live_allocations, 0U);
+      EXPECT_EQ(next_descriptor(), expected_fd);
+    }
+  }
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, CloseOnExecAtFirstAllocation) {
+  const bool modes[] = {false, true};
+  for (bool cloexec : modes) {
+    opening_fd = next_descriptor();
+    ASSERT_GE(opening_fd, 0);
+    flags_at_allocation = -1;
+    auto result = LIBC_NAMESPACE::openfile("/dev/null", "r", cloexec);
+    opening_fd = -1;
+    ASSERT_TRUE(result.has_value());
+    ASSERT_GE(flags_at_allocation, 0);
+    EXPECT_EQ(flags_at_allocation & FD_CLOEXEC, cloexec ? FD_CLOEXEC : 0);
+    EXPECT_EQ(result.value()->close(), 0);
   }
 }
 
