@@ -99,7 +99,7 @@ if(LIBC_MMIX_BUILD_TERMIOS)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.termios)
 endif()
 if(LIBC_MMIX_BUILD_STDIO)
-  list(APPEND TARGET_PUBLIC_HEADERS libc.include.stdio)
+  list(APPEND TARGET_PUBLIC_HEADERS libc.include.stdio libc.include.stdio_ext)
 endif()
 if(LIBC_MMIX_BUILD_WIDE)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.wchar libc.include.wctype

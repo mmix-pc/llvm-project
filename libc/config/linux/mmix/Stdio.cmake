@@ -4,6 +4,7 @@ if(NOT LIBC_MMIX_BUILD_STDIO)
 endif()
 
 set(MMIX_STDIO_ENTRYPOINTS
+  libc.src.stdio_ext.__fsetlocking
   libc.src.stdlib.atexit
   libc.src.stdlib.at_quick_exit
   libc.src.stdlib.quick_exit
