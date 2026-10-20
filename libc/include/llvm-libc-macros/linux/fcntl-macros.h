@@ -28,7 +28,8 @@
 #define O_DIRECT 000200000
 #define O_DIRECTORY 000040000
 #define O_NOFOLLOW 000100000
-#define O_LARGEFILE 000040000
+// Native AArch64 file offsets are always 64-bit.
+#define O_LARGEFILE 0
 #define O_TMPFILE 020040000
 #else
 #define O_DIRECT 000040000
@@ -80,9 +81,17 @@
 #define F_GETOWN 9
 #define F_SETSIG 10
 #define F_GETSIG 11
+// Native 64-bit kernels (including x86-64's x32 ABI) use the ordinary
+// commands for 64-bit locks. The separate commands belong to 32-bit kernels.
+#if __SIZEOF_POINTER__ == 8 || defined(__x86_64__)
+#define F_GETLK64 F_GETLK
+#define F_SETLK64 F_SETLK
+#define F_SETLKW64 F_SETLKW
+#else
 #define F_GETLK64 12
 #define F_SETLK64 13
 #define F_SETLKW64 14
+#endif
 #define F_SETOWN_EX 15
 #define F_GETOWN_EX 16
 
@@ -103,12 +112,5 @@
 #define F_RDLCK 0
 #define F_WRLCK 1
 #define F_UNLCK 2
-
-// For Large File Support
-#if defined(_LARGEFILE64_SOURCE)
-#define F_GETLK F_GETLK64
-#define F_SETLK F_SETLK64
-#define F_SETLKW F_SETLKW64
-#endif
 
 #endif // LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H

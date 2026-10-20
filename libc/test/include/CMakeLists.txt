@@ -22,6 +22,24 @@ add_libc_test(
 )
 
 if(LIBC_TARGET_OS_IS_LINUX)
+  foreach(mode default largefile64 file_offset64)
+    set(fcntl_macro_options -std=c17 -pedantic-errors)
+    if(mode STREQUAL "largefile64")
+      list(APPEND fcntl_macro_options -D_LARGEFILE64_SOURCE)
+    elseif(mode STREQUAL "file_offset64")
+      list(APPEND fcntl_macro_options -D_FILE_OFFSET_BITS=64)
+    endif()
+    add_libc_test(
+      fcntl_macros_${mode}_test
+      C_TEST
+      FULL_BUILD_ONLY
+      SUITE libc_include_tests
+      SRCS fcntl_macros_test.c
+      COMPILE_OPTIONS ${fcntl_macro_options}
+      DEPENDS libc.include.fcntl
+    )
+  endforeach()
+
   add_libc_test(
     sys_stat_classification_c_test
     C_TEST

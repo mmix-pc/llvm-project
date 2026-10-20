@@ -257,6 +257,9 @@ public:
   static_assert(true, "Require semicolon.")
 
 COMMON_LOCK_TESTS(LlvmLibcFcntlProcessAssociatedLockTest, F_GETLK, F_SETLK);
+#if __SIZEOF_POINTER__ == 8 || defined(__x86_64__)
+COMMON_LOCK_TESTS(LlvmLibcFcntlNativeLargeFileLockTest, F_GETLK64, F_SETLK64);
+#endif
 COMMON_LOCK_TESTS(LlvmLibcFcntlOpenFileDescriptionLockTest, F_OFD_GETLK,
                   F_OFD_SETLK);
 
