@@ -787,3 +787,6 @@ add_header(ns_type HDR ns_type.h)
 add_header(ns_msg HDR ns_msg.h DEPENDS .ns_sect .ns_flag)
 add_header(ns_rr HDR ns_rr.h DEPENDS .ns_class .ns_type
   libc.include.llvm-libc-macros.arpa_nameser_macros)
+add_header(FTS HDR FTS.h DEPENDS .size_t .dev_t .ino_t .nlink_t)
+add_header(FTSENT HDR FTSENT.h DEPENDS .FTS)
+add_header(__fts_compare_t HDR __fts_compare_t.h DEPENDS .FTS)

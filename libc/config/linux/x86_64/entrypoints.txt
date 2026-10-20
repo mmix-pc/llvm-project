@@ -1,4 +1,9 @@
 set(TARGET_LIBC_ENTRYPOINTS
+    libc.src.fts.fts_open
+    libc.src.fts.fts_read
+    libc.src.fts.fts_children
+    libc.src.fts.fts_set
+    libc.src.fts.fts_close
     # sys/xattr.h entrypoints
     libc.src.sys.xattr.getxattr
     libc.src.sys.xattr.setxattr

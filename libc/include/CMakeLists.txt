@@ -945,6 +945,14 @@ add_header_macro(
 )
 
 add_header_macro(
+  fts
+  ../libc/include/fts.yaml
+  fts.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-types.FTS .llvm-libc-types.FTSENT
+    .llvm-libc-types.__fts_compare_t .llvm-libc-types.struct_stat
+)
+
+add_header_macro(
   sys_socket
   ../libc/include/sys/socket.yaml
   sys/socket.h

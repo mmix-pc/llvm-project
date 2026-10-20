@@ -1,0 +1,34 @@
+header: fts.h
+standards:
+  - bsd
+types:
+  - type_name: struct_stat
+  - type_name: FTS
+  - type_name: FTSENT
+  - type_name: __fts_compare_t
+functions:
+  - name: fts_open
+    return_type: FTS *
+    arguments:
+      - type: char *const *
+      - type: int
+      - type: __fts_compare_t
+  - name: fts_read
+    return_type: FTSENT *
+    arguments:
+      - type: FTS *
+  - name: fts_children
+    return_type: FTSENT *
+    arguments:
+      - type: FTS *
+      - type: int
+  - name: fts_set
+    return_type: int
+    arguments:
+      - type: FTS *
+      - type: FTSENT *
+      - type: int
+  - name: fts_close
+    return_type: int
+    arguments:
+      - type: FTS *
