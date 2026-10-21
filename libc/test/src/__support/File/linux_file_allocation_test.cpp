@@ -139,6 +139,115 @@ TEST(LlvmLibcLinuxFileAllocationTest, FdopenFailurePreservesDescriptor) {
   }
 }
 
+TEST(LlvmLibcLinuxFileAllocationTest, ModeCloseOnExecBeforePublication) {
+  const char *modes[] = {"re", "rbe", "r+e", "we", "ae"};
+  for (const char *mode : modes) {
+    opening_fd = next_descriptor();
+    ASSERT_GE(opening_fd, 0);
+    flags_at_allocation = -1;
+    auto result = LIBC_NAMESPACE::openfile("/dev/null", mode);
+    opening_fd = -1;
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(flags_at_allocation & FD_CLOEXEC, FD_CLOEXEC);
+    EXPECT_EQ(result.value()->close(), 0);
+  }
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, ReopenPreservesCloseOnExec) {
+  auto result = LIBC_NAMESPACE::openfile("/dev/null", "r");
+  ASSERT_TRUE(result.has_value());
+  auto *file = result.value();
+  int fd = LIBC_NAMESPACE::get_fileno(file);
+  ASSERT_GE(fd, 0);
+  EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, 0);
+  ASSERT_EQ(LIBC_NAMESPACE::reopenfile(file, "/dev/null", "re"), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::get_fileno(file), fd);
+  EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, FD_CLOEXEC);
+  ASSERT_EQ(LIBC_NAMESPACE::reopenfile(file, "/dev/null", "r"), 0);
+  EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, 0);
+  ASSERT_EQ(LIBC_NAMESPACE::reopenfile(file, nullptr, "re"), 0);
+  EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, FD_CLOEXEC);
+  ASSERT_EQ(LIBC_NAMESPACE::reopenfile(file, nullptr, "r"), 0);
+  EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, 0);
+  ASSERT_EQ(LIBC_NAMESPACE::reopenfile(file, nullptr, "rbe"), 0);
+  EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, FD_CLOEXEC);
+  EXPECT_EQ(file->close(), 0);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, ExclusiveCreatePreservesExistingFile) {
+  char path[] = "testdata/exclusive-create-XXXXXX";
+  int fd = ::mkstemp(path);
+  ASSERT_GE(fd, 0);
+  ASSERT_EQ(::write(fd, "keep", 4), ssize_t(4));
+  ASSERT_EQ(::close(fd), 0);
+
+  const char *modes[] = {"wx", "w+x", "wbx", "w+bx", "wb+x", "wxe"};
+  for (const char *mode : modes) {
+    auto existing = LIBC_NAMESPACE::openfile(path, mode);
+    ASSERT_FALSE(existing.has_value());
+    EXPECT_EQ(existing.error(), EEXIST);
+    fd = ::open(path, O_RDONLY);
+    ASSERT_GE(fd, 0);
+    char contents[5] = {};
+    ASSERT_EQ(::read(fd, contents, sizeof(contents)), ssize_t(4));
+    EXPECT_STREQ(contents, "keep");
+    ASSERT_EQ(::close(fd), 0);
+
+    ASSERT_EQ(::unlink(path), 0);
+    auto created = LIBC_NAMESPACE::openfile(path, mode);
+    ASSERT_TRUE(created.has_value());
+    EXPECT_EQ(created.value()->write("keep", 4).value, size_t(4));
+    EXPECT_EQ(created.value()->close(), 0);
+  }
+  EXPECT_EQ(::unlink(path), 0);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, ExclusiveReopen) {
+  char path[] = "testdata/exclusive-reopen-XXXXXX";
+  int fd = ::mkstemp(path);
+  ASSERT_GE(fd, 0);
+  ASSERT_EQ(::write(fd, "keep", 4), ssize_t(4));
+  ASSERT_EQ(::close(fd), 0);
+
+  const char *modes[] = {"wx", "w+x", "wb+x", "wxe"};
+  for (const char *mode : modes) {
+    // Both pathname and NULL-path reopening must fail without truncation.
+    const char *paths[] = {path, nullptr};
+    for (const char *name : paths) {
+      auto stream = LIBC_NAMESPACE::openfile(path, "r+");
+      ASSERT_TRUE(stream.has_value());
+      fd = LIBC_NAMESPACE::get_fileno(stream.value());
+      EXPECT_EQ(LIBC_NAMESPACE::reopenfile(stream.value(), name, mode), EEXIST);
+      EXPECT_EQ(LIBC_NAMESPACE::get_fileno(stream.value()), -1);
+      EXPECT_EQ(::fcntl(fd, F_GETFD), -1);
+      // Dispose of the internal object whose descriptor has already closed.
+      EXPECT_EQ(stream.value()->close(), EBADF);
+      fd = ::open(path, O_RDONLY);
+      ASSERT_GE(fd, 0);
+      char contents[5] = {};
+      ASSERT_EQ(::read(fd, contents, sizeof(contents)), ssize_t(4));
+      EXPECT_STREQ(contents, "keep");
+      ASSERT_EQ(::close(fd), 0);
+    }
+    auto stream = LIBC_NAMESPACE::openfile("/dev/null", "r");
+    ASSERT_TRUE(stream.has_value());
+    ASSERT_EQ(::unlink(path), 0);
+    ASSERT_EQ(LIBC_NAMESPACE::reopenfile(stream.value(), path, mode), 0);
+    EXPECT_EQ(stream.value()->write("keep", 4).value, size_t(4));
+    EXPECT_EQ(stream.value()->close(), 0);
+  }
+  EXPECT_EQ(::unlink(path), 0);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, FdopenIgnoresCloseOnExecMode) {
+  int fd = ::open("/dev/null", O_RDONLY);
+  ASSERT_GE(fd, 0);
+  auto result = LIBC_NAMESPACE::create_file_from_fd(fd, "re");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, 0);
+  EXPECT_EQ(result.value()->close(), 0);
+}
+
 TEST(LlvmLibcLinuxFileAllocationTest, SeekFailureReleasesBufferAndObject) {
   int descriptors[2];
   ASSERT_EQ(::pipe(descriptors), 0);

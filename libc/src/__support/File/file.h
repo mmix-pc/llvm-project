@@ -82,6 +82,7 @@ public:
     WRITE = 0x2,
     APPEND = 0x4,
     PLUS = 0x8,
+    CLOEXEC = 0x20,
   };
 
   // Denotes a file opened in binary mode (which is specified by including

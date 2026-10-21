@@ -607,6 +607,9 @@ File::ModeFlags File::mode_flags(const char *mode) {
     case 'x':
       flags |= static_cast<ModeFlags>(CreateType::EXCLUSIVE);
       break;
+    case 'e':
+      flags |= static_cast<ModeFlags>(OpenMode::CLOEXEC);
+      break;
     default:
       return 0;
     }

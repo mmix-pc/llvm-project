@@ -15,7 +15,7 @@
 #include "src/__support/CPP/new.h"
 #include "src/__support/File/file.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
-#include "src/__support/OSUtil/linux/syscall_wrappers/dup2.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/dup3.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/fcntl.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/lseek.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
@@ -73,6 +73,10 @@ static int mode_flags_to_open_flags(File::ModeFlags modeflags) {
     else
       open_flags |= O_RDONLY;
   }
+  if (modeflags & ModeFlags(File::OpenMode::CLOEXEC))
+    open_flags |= O_CLOEXEC;
+  if (modeflags & ModeFlags(File::CreateType::EXCLUSIVE))
+    open_flags |= O_EXCL;
   return open_flags;
 }
 
@@ -227,7 +231,9 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
     // Else the new file successfully opened, so we move it into the fd the old
     // file was using if the old fd exists.
     if (old_fd >= 0) {
-      auto dup_result = linux_syscalls::dup2(new_fd.value(), old_fd);
+      // Preserve the requested descriptor flag atomically across replacement.
+      auto dup_result = linux_syscalls::dup3(new_fd.value(), old_fd,
+                                           open_flags & O_CLOEXEC);
       if (!dup_result) {
         linux_syscalls::close(new_fd.value());
         reset_stream_state_unlocked(modeflags);
@@ -257,6 +263,15 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
     return EBADF;
   int fd_flags = result.value();
 
+  // Reusing an existing file cannot satisfy an exclusive-create request.
+  int open_flags = mode_flags_to_open_flags(modeflags);
+  if ((open_flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
+    linux_syscalls::close(fd);
+    set_fd(-1);
+    reset_stream_state_unlocked(modeflags);
+    return EEXIST;
+  }
+
   using OpenMode = File::OpenMode;
   using ModeFlags = File::ModeFlags;
 
@@ -271,6 +286,19 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
   if (((fd_flags & O_ACCMODE) == O_RDONLY && (modeflags & REQUIRES_WRITE)) ||
       ((fd_flags & O_ACCMODE) == O_WRONLY && (modeflags & REQUIRES_READ))) {
     return EBADF;
+  }
+
+  auto descriptor_flags = linux_syscalls::fcntl(fd, F_GETFD);
+  if (!descriptor_flags)
+    return descriptor_flags.error();
+  int new_descriptor_flags = descriptor_flags.value() & ~FD_CLOEXEC;
+  if (modeflags & static_cast<ModeFlags>(OpenMode::CLOEXEC))
+    new_descriptor_flags |= FD_CLOEXEC;
+  if (new_descriptor_flags != descriptor_flags.value()) {
+    auto set_flags = linux_syscalls::fcntl(
+        fd, F_SETFD, reinterpret_cast<void *>(new_descriptor_flags));
+    if (!set_flags)
+      return set_flags.error();
   }
 
   bool do_seek = false;
