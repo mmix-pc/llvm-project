@@ -197,5 +197,54 @@ extern "C" int main() {
   Bytes version;
   CHECK(infos[1].symbol_version(1, version));
   CHECK(version.size() == 2 && version[0] == 'V' && version[1] == '1');
+
+  // lld groups Verneed headers before the auxiliary records. Both orders of
+  // the independent lists are valid; neither makes the other list padding.
+  const bool orders[] = {false, true};
+  for (bool reversed : orders) {
+    VersionFixture grouped(false);
+    unsigned first = reversed ? 0xe50 : 0xe40;
+    unsigned second = reversed ? 0xe40 : 0xe50;
+    for (unsigned i = 0; i < 16; ++i) {
+      grouped.bytes[first + i] = grouped.bytes[0xe10 + i];
+      grouped.bytes[0xe10 + i] = 0;
+    }
+    grouped.set(DT_VERNEEDNUM, 2);
+    grouped.put(0xe08, 4, first - 0xe00);
+    grouped.put(0xe0c, 4, 16);
+    grouped.put(0xe10, 2, 1);
+    grouped.put(0xe12, 2, 1);
+    grouped.put(0xe14, 4, 5);
+    grouped.put(0xe18, 4, second - 0xe10);
+    grouped.put(second, 4, 0x592);
+    grouped.put(second + 6, 2, 8);
+    grouped.put(second + 8, 4, 0x44);
+    CHECK(open(grouped, 1) == DynamicError::None);
+    CHECK(infos[1].symbol_version(1, version));
+    CHECK(version.size() == 2 && version[1] == '1');
+    VersionFixture complete_provider(true);
+    CHECK(open(complete_provider, 0) == DynamicError::None);
+    CHECK(infos[1].accepts_dependency(text("libx.so"), infos[0]));
+    CHECK(!infos[1].accepts_dependency(text("libx.so"), infos[2]));
+    // Separate records still cannot alias an earlier auxiliary list.
+    grouped.put(0xe18, 4, first - 0xe10);
+    CHECK(open(grouped, 1) == DynamicError::Version);
+  }
+
+  VersionFixture grouped_def(true);
+  for (unsigned i = 0; i < 8; ++i) {
+    grouped_def.bytes[0xc40 + i] = grouped_def.bytes[0xc14 + i];
+    grouped_def.bytes[0xc48 + i] = grouped_def.bytes[0xc30 + i];
+  }
+  for (unsigned i = 0; i < 20; ++i)
+    grouped_def.bytes[0xc14 + i] = grouped_def.bytes[0xc1c + i];
+  grouped_def.put(0xc0c, 4, 0x40);
+  grouped_def.put(0xc10, 4, 20);
+  grouped_def.put(0xc20, 4, 0x48 - 0x14);
+  CHECK(open(grouped_def, 0) == DynamicError::None);
+  CHECK(infos[0].find_definition(text("foo"), index, text("V2")) && index == 2);
+  // Relocations cannot overwrite a separately placed auxiliary record.
+  grouped_def.put(0xb00, 8, 0xc48);
+  CHECK(open(grouped_def, 0) == DynamicError::Relocation);
   return 0;
 }

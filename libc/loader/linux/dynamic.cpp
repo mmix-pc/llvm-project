@@ -487,8 +487,32 @@ DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
         count > table.size() / header)
       return DynamicError::Version;
     Address at = 0, used = 0;
+    // Headers and auxiliary records need not be interleaved. In particular,
+    // lld places all Verneed headers before their Vernaux lists. Compare actual
+    // records against previously checked lists, not their enclosing ranges.
+    auto disjoint_from_prior = [&](Address start, Address size,
+                                   Address prior_count) {
+      auto overlaps = [&](Address other, Address length) {
+        return start < other + length && other < start + size;
+      };
+      Address prior = 0;
+      for (Address k = 0; k < prior_count; ++k) {
+        const auto *p = table.data() + prior;
+        if (overlaps(prior, header))
+          return false;
+        Address aux = prior + integer(p + (def ? 12 : 8), 4, big);
+        for (Address j = 0; j < integer(p + (def ? 6 : 2), 2, big); ++j) {
+          if (overlaps(aux, aux_size))
+            return false;
+          aux += integer(table.data() + aux + (def ? 4 : 12), 4, big);
+        }
+        prior += integer(p + (def ? 16 : 12), 4, big);
+      }
+      return true;
+    };
     for (Address i = 0; i < count; ++i) {
-      if (at > table.size() || table.size() - at < header)
+      if (at > table.size() || table.size() - at < header ||
+          !disjoint_from_prior(at, header, i))
         return DynamicError::Version;
       const auto *p = table.data() + at;
       Address aux_count = integer(p + (def ? 6 : 2), 2, big);
@@ -528,7 +552,8 @@ DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
           return DynamicError::Version;
       }
       for (Address j = 0; j < aux_count; ++j) {
-        if (aux > table.size() || table.size() - aux < aux_size)
+        if (aux > table.size() || table.size() - aux < aux_size ||
+            !disjoint_from_prior(aux, aux_size, i))
           return DynamicError::Version;
         const auto *a = table.data() + aux;
         Bytes name;
@@ -547,7 +572,8 @@ DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
             return DynamicError::Version;
           requirements[index / 64] |= Address(1) << (index % 64);
         }
-        used = aux + aux_size;
+        if (aux + aux_size > used)
+          used = aux + aux_size;
         Address advance = integer(a + (def ? 4 : 12), 4, big);
         if (j + 1 == aux_count) {
           if (advance)
@@ -562,7 +588,7 @@ DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
         if (next)
           return DynamicError::Version;
       } else {
-        if (next < used - at || next % 4 || next > table.size() - at)
+        if (next < header || next % 4 || next > table.size() - at)
           return DynamicError::Version;
         at += next;
       }
