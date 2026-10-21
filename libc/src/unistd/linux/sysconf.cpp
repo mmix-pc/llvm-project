@@ -18,6 +18,7 @@
 #include "hdr/limits_macros.h"
 #include "hdr/pthread_macros.h"
 #include "hdr/signal_macros.h"
+#include "hdr/stdio_macros.h"
 #include "hdr/sys_auxv_macros.h"
 #include "hdr/sys_resource_macros.h"
 #include "hdr/types/off_t.h"
@@ -33,8 +34,8 @@
 #include <linux/limits.h>
 
 // In overlay mode, system headers (like glibc's <bits/local_lim.h>) may
-// explicitly undefine ARG_MAX to indicate it is dynamic. We define a fallback
-// here using the standard Linux kernel minimum floor of 128KB.
+// explicitly undefine ARG_MAX. Linux preserves this argument-space floor
+// independently of RLIMIT_STACK; report it rather than a changing quota.
 #ifndef ARG_MAX
 #define ARG_MAX 131072
 #endif
@@ -43,34 +44,12 @@ namespace LIBC_NAMESPACE_DECL {
 
 namespace { // Anonymous namespace for internal helpers
 
-// Linux caps argument space at 3/4 of the default stack limit (_STK_LIM),
-// including when RLIMIT_STACK is finite.
-constexpr long DEFAULT_STACK_LIMIT = 8 * 1024 * 1024;          // 8MB
-constexpr long ARG_MAX_FALLBACK = DEFAULT_STACK_LIMIT / 4 * 3; // 6MB
-
 // We define a local structure for prlimit64 to avoid type mismatches
 // and stack corruption on 32-bit systems when in overlay mode.
 struct rlimit64 {
   uint64_t rlim_cur;
   uint64_t rlim_max;
 };
-
-long get_arg_max() {
-  struct rlimit64 limits;
-  ErrorOr<int> ret = linux_syscalls::prlimit(
-      0, RLIMIT_STACK, nullptr, reinterpret_cast<struct rlimit *>(&limits));
-  if (!ret) {
-    libc_errno = ret.error();
-    return -1;
-  }
-  if (limits.rlim_cur == ~0ULL)
-    return ARG_MAX_FALLBACK;
-
-  uint64_t val = limits.rlim_cur / 4;
-  if (val > ARG_MAX_FALLBACK)
-    val = ARG_MAX_FALLBACK;
-  return static_cast<long>(val > ARG_MAX ? val : ARG_MAX);
-}
 
 long get_limit(int resource) {
   struct rlimit64 limits;
@@ -133,7 +112,7 @@ long get_phys_pages(bool available) {
 LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
   switch (name) {
   case _SC_ARG_MAX:
-    return get_arg_max();
+    return ARG_MAX;
   case _SC_CLK_TCK:
     if (auto ticks = auxv::get(AT_CLKTCK))
       return static_cast<long>(*ticks);
@@ -604,12 +583,16 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
     // indeterminate value, unlike an invalid configuration name.
     return -1;
   case _SC_OPEN_MAX:
-  case _SC_STREAM_MAX:
     return get_limit(RLIMIT_NOFILE);
+  case _SC_STREAM_MAX:
+    // Report the stable stdio guarantee, not the current descriptor quota.
+    return FOPEN_MAX;
   case _SC_CHILD_MAX:
-    return get_limit(RLIMIT_NPROC);
   case _SC_SIGQUEUE_MAX:
-    return get_limit(RLIMIT_SIGPENDING);
+    // Linux enforces mutable per-user/resource quotas, not a stable limit on
+    // these capabilities. An indeterminate limit preserves errno; callers
+    // needing their current resource quotas must use getrlimit instead.
+    return -1;
   case _SC_PHYS_PAGES:
     return get_phys_pages(false);
   case _SC_AVPHYS_PAGES:

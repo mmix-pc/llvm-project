@@ -217,18 +217,18 @@ int main() {
   require(service_test::sysconf(_SC_PAGESIZE) == 8192);
   libc_errno = EDOM;
   require(service_test::sysconf(_SC_THREADS) == -1 && libc_errno == EDOM);
-  require(service_test::sysconf(_SC_ARG_MAX) == -1 && libc_errno == EBADF);
+  require(service_test::sysconf(_SC_ARG_MAX) == 131072 && libc_errno == EDOM);
   require(service_test::sysconf(_SC_OPEN_MAX) == -1 && libc_errno == EBADF);
   require(service_test::sysconf(_SC_PHYS_PAGES) == -1 && libc_errno == EBADF);
   reply = 0;
   stack_limit = 1;
   require(service_test::sysconf(_SC_ARG_MAX) == 131072);
   stack_limit = 4 * 1024 * 1024;
-  require(service_test::sysconf(_SC_ARG_MAX) == 1024 * 1024);
+  require(service_test::sysconf(_SC_ARG_MAX) == 131072);
   stack_limit = ~0UL;
-  require(service_test::sysconf(_SC_ARG_MAX) == 6 * 1024 * 1024);
+  require(service_test::sysconf(_SC_ARG_MAX) == 131072);
   stack_limit = 64 * 1024 * 1024;
-  require(service_test::sysconf(_SC_ARG_MAX) == 6 * 1024 * 1024);
+  require(service_test::sysconf(_SC_ARG_MAX) == 131072);
 
   timespec now{};
   require(internal::clock_gettime(CLOCK_MONOTONIC, &now).has_value());

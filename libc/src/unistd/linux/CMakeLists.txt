@@ -779,6 +779,7 @@ add_entrypoint_object(
     libc.hdr.limits_macros
     libc.hdr.pthread_macros
     libc.hdr.signal_macros
+    libc.hdr.stdio_macros
     libc.hdr.types.off_t
     libc.hdr.sys_auxv_macros
     libc.hdr.sys_resource_macros

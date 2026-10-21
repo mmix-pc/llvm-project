@@ -864,6 +864,7 @@ if(LIBC_TARGET_OS_IS_LINUX)
           libc.hdr.limits_macros
           libc.hdr.pthread_macros
           libc.hdr.signal_macros
+          libc.hdr.stdio_macros
           libc.hdr.types.off_t
           libc.src.errno.errno
           libc.src.__support.macros.attributes
