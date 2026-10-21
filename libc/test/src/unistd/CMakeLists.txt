@@ -906,6 +906,19 @@ add_libc_test(
 )
 
 add_libc_test(
+  pathconf_utils_test
+  SUITE
+    libc_unistd_unittests
+  SRCS
+    pathconf_utils_test.cpp
+  DEPENDS
+    libc.hdr.limits_macros
+    libc.hdr.unistd_macros
+    libc.src.unistd.linux.pathconf_utils
+    libc.test.UnitTest.ErrnoCheckingTest
+)
+
+add_libc_test(
   pathconf_test
   SUITE
     libc_unistd_unittests

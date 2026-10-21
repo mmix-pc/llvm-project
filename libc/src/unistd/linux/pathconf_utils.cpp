@@ -68,6 +68,38 @@ long symlinks(const struct statfs &s) {
   return 1;
 }
 
+long checked_timestamp_resolution(unsigned long long nanoseconds) {
+  if (nanoseconds > static_cast<unsigned long long>(LONG_MAX)) {
+    libc_errno = EOVERFLOW;
+    return -1;
+  }
+  return static_cast<long>(nanoseconds);
+}
+
+#ifdef _PC_TIMESTAMP_RESOLUTION
+static long timestamp_resolution(const struct statfs &s) {
+  switch (static_cast<unsigned long>(s.f_type)) {
+  case RAMFS_MAGIC:
+  case TMPFS_MAGIC:
+  case BTRFS_SUPER_MAGIC:
+  case XFS_SUPER_MAGIC:
+    return checked_timestamp_resolution(1);
+  case MINIX_SUPER_MAGIC:
+  case MINIX_SUPER_MAGIC2:
+  case MINIX2_SUPER_MAGIC:
+  case MINIX2_SUPER_MAGIC2:
+  case MINIX3_SUPER_MAGIC:
+    return checked_timestamp_resolution(1000000000);
+  default:
+    // FIXME: Linux does not expose timestamp granularity through statfs.
+    // ext4 inode formats, FUSE servers and overlay backing stores can differ;
+    // do not infer their resolution from the filesystem magic alone.
+    libc_errno = ENOTSUP;
+    return -1;
+  }
+}
+#endif
+
 long pathconfig(const struct statfs &s, int name) {
   switch (name) {
   case _PC_LINK_MAX:
@@ -110,15 +142,17 @@ long pathconfig(const struct statfs &s, int name) {
   case _PC_VDISABLE:
     return _POSIX_VDISABLE;
 
+#ifdef _PC_TIMESTAMP_RESOLUTION
+  case _PC_TIMESTAMP_RESOLUTION:
+    return timestamp_resolution(s);
+#endif
+
   case _PC_ASYNC_IO:
   case _PC_PRIO_IO:
   case _PC_REC_INCR_XFER_SIZE:
   case _PC_REC_MAX_XFER_SIZE:
   case _PC_SYMLINK_MAX:
   case _PC_SOCK_MAXBUF:
-#ifdef _PC_TIMESTAMP_RESOLUTION
-  case _PC_TIMESTAMP_RESOLUTION:
-#endif
   case _PC_SYNC_IO:
     return -1;
 

@@ -16,6 +16,9 @@ namespace LIBC_NAMESPACE_DECL {
 
 long pathconfig(const struct statfs &s, int name);
 
+// Convert a filesystem's nanosecond resolution to the pathconf result type.
+long checked_timestamp_resolution(unsigned long long nanoseconds);
+
 } // namespace LIBC_NAMESPACE_DECL
 
 #endif // LLVM_LIBC_SRC_UNISTD_PATHCONF_UTILS_H
