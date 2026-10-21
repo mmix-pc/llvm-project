@@ -36,4 +36,9 @@ function(mmix_install_shared_libc image)
   file(CREATE_LINK "libc.so.1" "${directory}/libm.so" SYMBOLIC)
   install(FILES "${directory}/libm.so" DESTINATION lib
     COMPONENT mmix-shared-libc EXCLUDE_FROM_ALL)
+  # The loader API belongs to libc, not a separate runtime DSO. Keep the
+  # reference relative so the sysroot remains relocatable.
+  file(WRITE "${directory}/libdl.so" "INPUT ( libc.so.1 )\n")
+  install(FILES "${directory}/libdl.so" DESTINATION lib
+    COMPONENT mmix-shared-libc EXCLUDE_FROM_ALL)
 endfunction()

@@ -62,6 +62,8 @@ if(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)
 endif()
 include(${CMAKE_CURRENT_LIST_DIR}/CxxRuntimeDependencies.cmake)
 if(LIBC_MMIX_BUILD_SHARED_LIBC)
+  # Dynamic-loading entrypoints live in libc; keep explicit -ldl linkable.
+  list(APPEND libc_empty_archive_names dl)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.dlfcn.dlopen libc.src.dlfcn.dlsym libc.src.dlfcn.dlerror
     libc.src.dlfcn.dlclose libc.src.dlfcn.dladdr libc.src.dlfcn.dlinfo
@@ -126,6 +128,9 @@ function(mmix_configure_threaded_libc)
   endforeach()
   add_custom_target(mmix_libc_threaded
     DEPENDS libc libc-headers libc.startup.linux.mmix.crt1)
+  if(LIBC_MMIX_BUILD_SHARED_LIBC AND LLVM_LIBC_FULL_BUILD)
+    add_dependencies(libc empty-dl)
+  endif()
   if(LIBC_MMIX_INSTALL_THREADED_RUNTIME)
     # The package builder publishes a profile only after all runtime audits.
     # Do not install the internal state archive or a C++ marker from libc alone.
@@ -136,6 +141,11 @@ function(mmix_configure_threaded_libc)
     install(FILES ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/libm.ld
       DESTINATION lib${LLVM_LIBDIR_SUFFIX} RENAME libm.a
       COMPONENT mmix-libc-threaded-runtime)
+    if(LIBC_MMIX_BUILD_SHARED_LIBC AND LLVM_LIBC_FULL_BUILD)
+      install(FILES ${LIBC_LIBRARY_DIR}/libdl.a
+        DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+        COMPONENT mmix-libc-threaded-runtime)
+    endif()
   endif()
   set(manifest "{}")
   foreach(pair "archive|$<TARGET_FILE:libc>"

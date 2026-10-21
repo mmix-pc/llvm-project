@@ -45,7 +45,7 @@ for component in ("mmix-shared-libc", "mmix-shared-cxx"):
     paths = set((build / ("install_manifest_" + component + ".txt")).read_text().splitlines())
     assert not ownership & paths, "duplicate owner"
     ownership |= paths
-assert len(ownership) == 11
+assert len(ownership) == 12
 (prefix / "lib/libc.a").write_text("retained static archive")
 (prefix / "lib/libm.a").write_text("INPUT ( libc.a )\n")
 moved = root / "moved prefix"
@@ -57,6 +57,7 @@ for name in ("libc", "libc++", "libc++abi", "libunwind"):
 assert (moved / "lib/mmix-shared-cxx-profile").read_text() == "mmix-linux-shared-pthread-cxx\n"
 assert (moved / "lib/libm.so").readlink() == Path("libc.so.1")
 assert (moved / "lib/libm.so").read_text() == "provider libc"
+assert (moved / "lib/libdl.so").read_text() == "INPUT ( libc.so.1 )\n"
 run("cmake", "--install", build, "--prefix", moved, "--component", "mmix-shared-libc")
 assert (moved / "lib/libm.a").read_text() == "INPUT ( libc.a )\n"
 run("cmake", "--install", build, "--prefix", moved, "--component", "mmix-shared-cxx")
@@ -66,6 +67,7 @@ run("cmake", "--install", build, "--prefix", "/usr", "--component", "mmix-shared
 assert (root / "destdir/usr/lib/libc++.so").readlink() == Path("libc++.so.1")
 run("cmake", "--install", build, "--prefix", "/usr", "--component", "mmix-shared-libc", env=env)
 assert (root / "destdir/usr/lib/libm.so").readlink() == Path("libc.so.1")
+assert (root / "destdir/usr/lib/libdl.so").read_text() == "INPUT ( libc.so.1 )\n"
 (inputs / "libunwind.so.1").unlink()
 p = run("cmake", "--install", build, "--prefix", root / "missing",
         "--component", "mmix-shared-cxx", ok=False)

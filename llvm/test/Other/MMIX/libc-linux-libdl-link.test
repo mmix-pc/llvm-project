@@ -1,0 +1,45 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/provider.s -o %t/provider.o
+# RUN: ld.lld -m elf64mmix_linux -shared -soname libc.so.1 %t/provider.o -o %t/libc.so.1
+# RUN: cmake -S %t -B %t/build -DMODULES=%S/../../../../libcxx/cmake/Modules/MMIX -DIMAGE=%t/libc.so.1
+# RUN: cmake --install %t/build --prefix %t/prefix --component mmix-shared-libc
+# RUN: mv %t/prefix %t/moved
+# RUN: llvm-ar cqs %t/moved/lib/libdl.a
+# RUN: llvm-ar t %t/moved/lib/libdl.a | count 0
+# RUN: llvm-ar cqs %t/moved/lib/libc.a %t/provider.o
+# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/caller.s -o %t/caller.o
+# RUN: ld.lld -m elf64mmix_linux -shared -z defs -L%t/moved/lib %t/caller.o -ldl -o %t/consumer.so
+# RUN: llvm-readelf -d %t/consumer.so | FileCheck %s --check-prefix=DYNAMIC
+# RUN: ld.lld -m elf64mmix_linux -static -e caller -L%t/moved/lib %t/caller.o -ldl -lc -o %t/static
+# RUN: llvm-nm --undefined-only %t/static | count 0
+# RUN: rm %t/moved/lib/libc.so.1
+# RUN: not ld.lld -m elf64mmix_linux -shared -z defs -L%t/moved/lib %t/caller.o -ldl -o %t/missing 2>&1 | FileCheck %s --check-prefix=MISSING
+# RUN: llvm-ar d %t/moved/lib/libc.a provider.o
+# RUN: not ld.lld -m elf64mmix_linux -static -e caller -L%t/moved/lib %t/caller.o -ldl -lc -o %t/absent 2>&1 | FileCheck %s --check-prefix=ABSENT
+# DYNAMIC: (NEEDED) {{.*}}[libc.so.1]
+# DYNAMIC-NOT: [libdl.so
+# MISSING: unable to find libc.so.1
+# ABSENT: undefined symbol: dlopen
+
+#--- CMakeLists.txt
+cmake_minimum_required(VERSION 3.20)
+project(DynamicLoadingCompatibility NONE)
+include(${MODULES}/SharedInstallation.cmake)
+mmix_install_shared_libc(${IMAGE})
+
+#--- provider.s
+.text
+.globl dlopen
+dlopen:
+  POP 0, 0
+
+#--- caller.s
+.text
+.globl caller
+caller:
+  POP 0, 0
+.data
+.p2align 3
+  .quad dlopen
