@@ -1720,6 +1720,8 @@ if(LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
     list(APPEND TARGET_LIBC_ENTRYPOINTS
       # fnmatch.h entrypoints
       libc.src.fnmatch.fnmatch
+      libc.src.glob.glob
+      libc.src.glob.globfree
 
       # net/if.h entrypoints
       libc.src.net.if_freenameindex

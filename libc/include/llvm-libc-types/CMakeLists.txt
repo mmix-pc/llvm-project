@@ -792,3 +792,5 @@ add_header(ns_rr HDR ns_rr.h DEPENDS .ns_class .ns_type
 add_header(FTS HDR FTS.h DEPENDS .size_t .dev_t .ino_t .nlink_t)
 add_header(FTSENT HDR FTSENT.h DEPENDS .FTS)
 add_header(__fts_compare_t HDR __fts_compare_t.h DEPENDS .FTS)
+add_header(glob_t HDR glob_t.h DEPENDS .size_t)
+add_header(__glob_errfunc_t HDR __glob_errfunc_t.h)

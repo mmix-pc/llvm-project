@@ -32,6 +32,7 @@ add_subdirectory(locale)
 
 if(${LIBC_TARGET_OS} STREQUAL "linux")
   add_subdirectory(dirent)
+  add_subdirectory(glob)
   add_subdirectory(fts)
   add_subdirectory(err)
   add_subdirectory(fcntl)

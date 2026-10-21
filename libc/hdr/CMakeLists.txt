@@ -405,6 +405,11 @@ add_proxy_header_library(
 
 add_subdirectory(types)
 add_proxy_header_library(
+  glob_macros
+  HDRS glob_macros.h
+  FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.glob_macros
+)
+add_proxy_header_library(
   syslog_macros
   HDRS syslog_macros.h
   FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.syslog_macros

@@ -89,6 +89,18 @@ class TestHeaderGenIntegration(unittest.TestCase):
         for name in ("fcntl-macros.h", "file-seek-macros.h", "sys-stat-macros.h"):
             self.assertIn('#include "llvm-libc-macros/' + name + '"', content)
 
+    def test_glob_declarations(self):
+        output_file = self.output_dir / "glob.h"
+        self.run_script(self.source_dir.parents[2] / "include/glob.yaml",
+                        output_file, ["glob", "globfree"])
+        content = output_file.read_text()
+        self.assertIn('#include "llvm-libc-types/glob_t.h"', content)
+        self.assertIn('#include "llvm-libc-macros/glob-macros.h"', content)
+        self.assertIn(
+            "int glob(const char *__restrict, int, __glob_errfunc_t, "
+            "glob_t *__restrict);", content)
+        self.assertIn("void globfree(glob_t *) __NOEXCEPT;", content)
+
     def test_stdio_locking_extension(self):
         output_file = self.output_dir / "stdio_ext.h"
         predicates = ("__freadable", "__fwritable", "__freading",

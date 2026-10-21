@@ -133,6 +133,17 @@ add_header_macro(
 )
 
 add_header_macro(
+  glob
+  ../libc/include/glob.yaml
+  glob.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-macros.glob_macros
+    .llvm-libc-types.glob_t
+    .llvm-libc-types.__glob_errfunc_t
+)
+
+add_header_macro(
   fnmatch
   ../libc/include/fnmatch.yaml
   fnmatch.h

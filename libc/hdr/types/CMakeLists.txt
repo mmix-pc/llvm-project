@@ -1447,3 +1447,8 @@ foreach(type IN ITEMS struct_spwd struct_utmp struct_utmpx ns_class ns_flag
     HDRS ${type}.h
     FULL_BUILD_DEPENDS libc.include.llvm-libc-types.${type})
 endforeach()
+add_proxy_header_library(
+  glob_t
+  HDRS glob_t.h
+  FULL_BUILD_DEPENDS libc.include.llvm-libc-types.glob_t
+)
