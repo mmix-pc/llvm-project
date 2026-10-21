@@ -235,6 +235,17 @@ add_libc_test(
 )
 
 add_libc_test(
+  xpg_strerror_r_test
+  SUITE libc-string-tests
+  SRCS xpg_strerror_r_test.cpp
+  DEPENDS
+    libc.src.string.__xpg_strerror_r
+    libc.hdr.errno_macros
+    libc.hdr.limits_macros
+    libc.test.UnitTest.ErrnoCheckingTest
+)
+
+add_libc_test(
   strlcat_test
   SUITE
     libc-string-tests

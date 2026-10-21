@@ -81,6 +81,22 @@ class TestHeaderGenIntegration(unittest.TestCase):
                         output_file, ["mkdtemp"])
         self.assertIn("char *mkdtemp(char *) __NOEXCEPT;", output_file.read_text())
 
+    def test_strerror_r_declaration_routing(self):
+        output_file = self.output_dir / "strerror_r.h"
+        self.run_script(self.source_dir.parents[2] / "include/string.yaml",
+                        output_file, ["strerror_r", "__xpg_strerror_r"])
+        content = output_file.read_text()
+        self.assertIn('#include "llvm-libc-macros/strerror-r-macros.h"', content)
+        self.assertIn("#ifdef _GNU_SOURCE\nchar *strerror_r(int, char *, size_t) __NOEXCEPT;", content)
+        self.assertIn("#ifdef __LIBC_USE_POSIX_STRERROR_R", content)
+        self.assertIn('int strerror_r(int, char *, size_t) __NOEXCEPT __asm__("__xpg_strerror_r");', content)
+        self.assertIn('int strerror_r(int, char *, size_t) __asm__("__xpg_strerror_r") __NOEXCEPT;', content)
+        self.assertNotIn("#define strerror_r", content)
+        self.assertNotIn("int __xpg_strerror_r(", content)
+        self.run_script(self.source_dir.parents[2] / "include/string.yaml",
+                        output_file, ["strerror_r"])
+        self.assertNotIn('__asm__("__xpg_strerror_r")', output_file.read_text())
+
     def test_fcntl_macro_headers(self):
         output_file = self.output_dir / "fcntl.h"
         self.run_script(self.source_dir.parents[2] / "include/fcntl.yaml",

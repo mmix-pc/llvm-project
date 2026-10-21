@@ -344,7 +344,19 @@ class HeaderFile:
             self.emit_guard(content, current_guard, function.guard)
             current_guard = function.guard
             exception_spec = " __NOEXCEPT" if function.noexcept else ""
-            content.append(str(function) + exception_spec + ";")
+            if function.public_name != function.name:
+                label = f' __asm__("{function.name}")'
+                # C++ exception specifications precede the asm label; C's
+                # nothrow attribute follows it for GCC compatibility.
+                content.extend([
+                    "#ifdef __cplusplus",
+                    str(function) + exception_spec + label + ";",
+                    "#else",
+                    str(function) + label + exception_spec + ";",
+                    "#endif",
+                ])
+            else:
+                content.append(str(function) + exception_spec + ";")
             content.append("")
             last_name = function.name_without_underscores()
         self.emit_guard(content, current_guard, None)

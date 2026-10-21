@@ -70,7 +70,7 @@ cpp::string_view get_error_string(int err_num) {
 }
 
 cpp::string_view get_error_string(int err_num, cpp::span<char> buffer) {
-  auto opt_str = ERROR_MAPPER.get_str(err_num);
+  auto opt_str = try_get_error_string(err_num);
   if (opt_str)
     return *opt_str;
   else
@@ -79,6 +79,10 @@ cpp::string_view get_error_string(int err_num, cpp::span<char> buffer) {
 
 cpp::optional<cpp::string_view> try_get_errno_name(int err_num) {
   return ERRNO_NAME_MAPPER.get_str(err_num);
+}
+
+cpp::optional<cpp::string_view> try_get_error_string(int err_num) {
+  return ERROR_MAPPER.get_str(err_num);
 }
 
 } // namespace LIBC_NAMESPACE_DECL

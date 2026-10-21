@@ -57,7 +57,8 @@ endforeach()
 foreach(name strftime clock_gettime timespec_get)
   list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.time.${name})
 endforeach()
-list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.string.strerror_r)
+list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.string.strerror_r
+  libc.src.string.__xpg_strerror_r)
 foreach(name isatty sysconf close read write chdir ftruncate getcwd link
              readlink symlink truncate unlink rmdir pathconf unlinkat)
   list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.unistd.${name})

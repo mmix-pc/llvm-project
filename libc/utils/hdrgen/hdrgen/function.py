@@ -47,6 +47,7 @@ class Function(Symbol):
         guard=None,
         attributes=[],
         noexcept=True,
+        public_name=None,
     ):
         super().__init__(name)
         assert return_type
@@ -61,6 +62,7 @@ class Function(Symbol):
         if not isinstance(noexcept, bool):
             raise ValueError("Function noexcept must be a boolean")
         self.noexcept = noexcept
+        self.public_name = public_name or name
 
     def signature_types(self):
         def collapse(type_string):
@@ -89,4 +91,4 @@ class Function(Symbol):
         type_str = str(self.return_type)
         if type_str[-1].isalnum() or type_str[-1] == "_":
             type_str += " "
-        return attrs_str + type_str + self.name + "(" + arguments_str + ")"
+        return attrs_str + type_str + self.public_name + "(" + arguments_str + ")"

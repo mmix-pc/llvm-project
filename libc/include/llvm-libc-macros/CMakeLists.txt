@@ -47,6 +47,12 @@ add_macro_header(
 )
 
 add_macro_header(
+  strerror_r_macros
+  HDR
+    strerror-r-macros.h
+)
+
+add_macro_header(
   assert_macros
   HDR
     assert-macros.h

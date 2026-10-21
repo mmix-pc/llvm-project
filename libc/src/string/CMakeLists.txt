@@ -227,6 +227,17 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  __xpg_strerror_r
+  SRCS __xpg_strerror_r.cpp
+  HDRS __xpg_strerror_r.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.src.__support.StringUtil.error_to_string
+    libc.src.__support.integer_to_string
+    libc.src.__support.common
+)
+
+add_entrypoint_object(
   strlcat
   SRCS
     strlcat.cpp

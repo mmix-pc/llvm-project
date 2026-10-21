@@ -70,5 +70,6 @@ set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio.vsscanf
   libc.src.string.strerror
   libc.src.string.strerror_r
+  libc.src.string.__xpg_strerror_r
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_STDIO_ENTRYPOINTS})
