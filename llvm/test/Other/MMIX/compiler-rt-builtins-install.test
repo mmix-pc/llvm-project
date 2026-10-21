@@ -44,7 +44,7 @@
 # RUN:   | FileCheck %s --check-prefix=SYMBOL
 # RUN: llvm-ar t \
 # RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.builtins.a \
-# RUN:   | count 21
+# RUN:   | count 27
 # RUN: llvm-readobj --file-headers \
 # RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.atomic.a \
 # RUN:   | FileCheck %s --check-prefix=ATOMIC-ELF
@@ -76,7 +76,7 @@
 # RUN: ld.lld -static -e _start %t.dir/int128.o \
 # RUN:   %t.dir/resource/lib/mmix-unknown-unknown/libclang_rt.builtins.a -o %t.dir/int128.elf
 # RUN: llvm-nm --undefined-only %t.dir/int128.elf | count 0
-# ELF-COUNT-21: Format: elf64-mmix
+# ELF-COUNT-27: Format: elf64-mmix
 # ELF: Arch: mmix
 # ELF: DataEncoding: BigEndian
 # ELF: Type: Relocatable
@@ -86,6 +86,12 @@
 # SYMBOL-DAG: T __ffsdi2
 # SYMBOL-DAG: T __muldc3
 # SYMBOL-DAG: T __mulsc3
+# SYMBOL-DAG: T atomic_flag_clear
+# SYMBOL-DAG: T atomic_flag_clear_explicit
+# SYMBOL-DAG: T atomic_flag_test_and_set
+# SYMBOL-DAG: T atomic_flag_test_and_set_explicit
+# SYMBOL-DAG: T atomic_signal_fence
+# SYMBOL-DAG: T atomic_thread_fence
 # ATOMIC-ELF: Format: elf64-mmix
 # ATOMIC-ELF: Arch: mmix
 # ATOMIC-ELF: DataEncoding: BigEndian

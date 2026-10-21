@@ -1,0 +1,33 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t.dir
+# RUN: mkdir -p %t.dir
+# RUN: cd %t.dir && clang --target=mmix-unknown-linux -std=c17 -ffreestanding -fPIC -O2 -c \
+# RUN:   %S/../../../../compiler-rt/lib/builtins/atomic_flag_clear.c \
+# RUN:   %S/../../../../compiler-rt/lib/builtins/atomic_flag_clear_explicit.c \
+# RUN:   %S/../../../../compiler-rt/lib/builtins/atomic_flag_test_and_set.c \
+# RUN:   %S/../../../../compiler-rt/lib/builtins/atomic_flag_test_and_set_explicit.c \
+# RUN:   %S/../../../../compiler-rt/lib/builtins/atomic_signal_fence.c \
+# RUN:   %S/../../../../compiler-rt/lib/builtins/atomic_thread_fence.c
+# RUN: llvm-ar cr %t.dir/providers.a %t.dir/atomic*.o
+# RUN: llvm-nm --undefined-only %t.dir/providers.a | not grep ' U '
+# RUN: clang --target=mmix-unknown-linux -std=c17 -ffreestanding -fPIC -O2 -c \
+# RUN:   %S/Inputs/compiler-runtime/standard-atomics.c -o %t.dir/caller.o
+# RUN: llvm-nm --undefined-only %t.dir/caller.o | FileCheck %s --check-prefix=CALLS
+# RUN: ld.lld -m elf64mmix_linux -static -e main %t.dir/caller.o %t.dir/providers.a -o %t.dir/static
+# RUN: llvm-nm --undefined-only %t.dir/static | count 0
+# RUN: ld.lld -m elf64mmix_linux -shared --no-undefined %t.dir/caller.o %t.dir/providers.a -o %t.dir/shared.so
+# RUN: llvm-nm --undefined-only %t.dir/shared.so | count 0
+# RUN: llvm-objdump -d %t.dir/atomic_thread_fence.o | FileCheck %s --check-prefix=FENCE
+# RUN: llvm-objdump -d %t.dir/atomic_signal_fence.o | FileCheck %s --check-prefix=SIGNAL
+# CALLS-DAG: U atomic_flag_clear{{$}}
+# CALLS-DAG: U atomic_flag_clear_explicit{{$}}
+# CALLS-DAG: U atomic_flag_test_and_set{{$}}
+# CALLS-DAG: U atomic_flag_test_and_set_explicit{{$}}
+# CALLS-DAG: U atomic_signal_fence{{$}}
+# CALLS-DAG: U atomic_thread_fence{{$}}
+# FENCE: <atomic_thread_fence>:
+# FENCE: SYNC
+# SIGNAL: <atomic_signal_fence>:
+# SIGNAL-NOT: SYNC
+# SIGNAL: POP
+# SIGNAL-NOT: SYNC

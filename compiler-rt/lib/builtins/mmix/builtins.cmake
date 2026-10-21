@@ -1,5 +1,12 @@
 # clzti2 and udivmodti4 close the wide conversion and division dependencies.
+# Reuse the ordinary C atomic providers with Clang's stdatomic.h flag ABI.
 set(mmix_SOURCES
+  atomic_flag_clear.c
+  atomic_flag_clear_explicit.c
+  atomic_flag_test_and_set.c
+  atomic_flag_test_and_set_explicit.c
+  atomic_signal_fence.c
+  atomic_thread_fence.c
   clzti2.c
   divdc3.c
   divsc3.c
