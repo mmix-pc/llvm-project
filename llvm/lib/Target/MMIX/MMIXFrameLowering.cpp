@@ -160,10 +160,6 @@ static void validateFrame(const MachineFunction &MF) {
     reportFatalUsageError(
         Twine("MMIX does not support stack probing in function '") +
         MF.getName() + "'");
-  if (MF.getFunction().getUWTableKind() == UWTableKind::Async)
-    reportFatalUsageError(
-        Twine("MMIX does not support asynchronous unwind tables in function '") +
-        MF.getName() + "'");
   if (needsRuntimeCFI(MF) && MFI.hasOpaqueSPAdjustment())
     reportFatalUsageError(
         Twine("MMIX cannot unwind opaque stack adjustments in function '") +

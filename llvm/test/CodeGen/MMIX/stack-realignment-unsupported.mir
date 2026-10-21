@@ -3,8 +3,6 @@
 # ASM: MMIX inline assembly cannot use r29 in a realigned dynamic frame
 # RUN: not llc -mtriple=mmix -run-pass=prolog-epilog %t/opaque.mir -o /dev/null 2>&1 | FileCheck %s --check-prefix=OPAQUE
 # OPAQUE: MMIX does not support stack realignment with opaque stack adjustments
-# RUN: not llc -mtriple=mmix -run-pass=prolog-epilog %t/unwind.mir -o /dev/null 2>&1 | FileCheck %s --check-prefix=UNWIND
-# UNWIND: MMIX does not support asynchronous unwind tables
 
 #--- asm.mir
 --- |
@@ -29,19 +27,6 @@ body: |
 name: opaque
 frameInfo:
   hasOpaqueSPAdjustment: true
-stack:
-  - { id: 0, size: 16, alignment: 16 }
-body: |
-  bb.0:
-    POP 0, 0
-...
-
-#--- unwind.mir
---- |
-  define void @unwind() uwtable { ret void }
-...
----
-name: unwind
 stack:
   - { id: 0, size: 16, alignment: 16 }
 body: |
