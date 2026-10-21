@@ -14,7 +14,9 @@
 // RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-cxx-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fno-unwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fignore-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
-// RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fasynchronous-unwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
+// RUN: %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fasynchronous-unwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=ASYNC --implicit-check-not=-funwind-tables=1
+// RUN: %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fasynchronous-unwind-tables -fno-asynchronous-unwind-tables -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=CC1 --implicit-check-not=-funwind-tables=2
+// RUN: %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fasynchronous-unwind-tables -flto=full -O2 -S -emit-llvm %t/input.c -o - | FileCheck %s --check-prefix=ASYNC-IR
 // RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread --unwindlib=none -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fsjlj-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
 // RUN: not %clang -static --target=mmix-unknown-linux --sysroot=%t/root -resource-dir %t/resource -pthread -fseh-exceptions -### -c %t/input.c 2>&1 | FileCheck %s --check-prefix=REJECT
@@ -61,6 +63,9 @@
 // CC1: "-cc1"
 // CC1-SAME: "-ftls-model=local-exec" "-fexceptions" "-funwind-tables=1"
 // CC1-SAME: "-pthread"
+// ASYNC: "-ftls-model=local-exec" "-fexceptions" "-funwind-tables=2"
+// ASYNC-IR: attributes #{{[0-9]+}} = { {{.*}}uwtable{{( |\()}}
+// ASYNC-IR-NOT: uwtable(sync)
 // LINK: "-m" "elf64mmix_linux" "-static" "--no-dynamic-linker"
 // LINK-SAME: "/{{.*}}/root/usr/lib/crt1.o" "/{{.*}}/resource/lib/mmix-unknown-linux/clang_rt.crtbegin.o"
 // LINK-SAME: "--start-group" "/{{.*}}/root/usr/lib/libc++.a" "/{{.*}}/root/usr/lib/libc++abi.a" "/{{.*}}/root/usr/lib/libm.a" "/{{.*}}/root/usr/lib/libunwind.a" "/{{.*}}/root/usr/lib/libc.a"

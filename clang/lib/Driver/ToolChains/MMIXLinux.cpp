@@ -409,9 +409,6 @@ MMIXLinuxToolChain::MMIXLinuxToolChain(const Driver &D,
           Reject(A);
       if (const Arg *A = Args.getLastArg(options::OPT_fignore_exceptions))
         Reject(A);
-      if (Args.hasFlag(options::OPT_fasynchronous_unwind_tables,
-                       options::OPT_fno_asynchronous_unwind_tables, false))
-        Reject(Args.getLastArg(options::OPT_fasynchronous_unwind_tables));
       if (const Arg *A = Args.getLastArg(options::OPT_unwindlib_EQ))
         if (StringRef(A->getValue()) == "none")
           Reject(A);
@@ -450,7 +447,13 @@ void MMIXLinuxToolChain::addClangTargetOptions(
     // C callbacks may be traversed by forced C++ cleanup, including under LTO.
     // Unwind tables alone do not prevent inferred nounwind from deleting it.
     CC1Args.push_back("-fexceptions");
-    CC1Args.push_back("-funwind-tables=1");
+    // The cleanup minimum is synchronous; do not downgrade an explicit async
+    // request when supplying the runtime profile's required unwind tables.
+    CC1Args.push_back(
+        Args.hasFlag(options::OPT_fasynchronous_unwind_tables,
+                     options::OPT_fno_asynchronous_unwind_tables, false)
+            ? "-funwind-tables=2"
+            : "-funwind-tables=1");
   }
 }
 
