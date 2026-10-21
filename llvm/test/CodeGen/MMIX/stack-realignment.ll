@@ -6,7 +6,7 @@ declare void @observe(ptr, ptr) nounwind
 ; CHECK-LABEL: aligned_16:
 ; CHECK: ANDN r254, r254, 15
 ; CHECK: PUSHGO
-; CHECK: OR r254, r253, 0
+; CHECK: SUBU r254, r253,
 ; CHECK: POP
 define i64 @aligned_16(i64 %x) nounwind {
   %p = alloca [16 x i8], align 16
@@ -20,7 +20,7 @@ define i64 @aligned_16(i64 %x) nounwind {
 ; CHECK-LABEL: incoming_and_spills:
 ; CHECK: ANDN r254, r254, 63
 ; CHECK: PUSHGO
-; CHECK: OR r254, r253, 0
+; CHECK: SUBU r254, r253,
 define i64 @incoming_and_spills(i64 %a0, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64 %a5, i64 %a6, i64 %a7, i64 %a8, i64 %a9, i64 %a10, i64 %a11, i64 %a12, i64 %a13, i64 %a14, i64 %a15, i64 %a16, i64 %a17, i64 %a18, i64 %a19, i64 %a20, i64 %a21, i64 %a22, i64 %a23, i64 %a24, i64 %a25, i64 %a26, i64 %a27, i64 %a28, i64 %a29, i64 %a30, i64 %a31, i64 %a32, i64 %a33, i64 %a34, i64 %a35, i64 %a36, i64 %a37, i64 %a38, i64 %a39) nounwind {
   %p = alloca [64 x i8], align 64
   %q = alloca i64, align 8
@@ -74,7 +74,7 @@ define i64 @incoming_and_spills(i64 %a0, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64
 ; CHECK-LABEL: aligned_32:
 ; CHECK: ANDN r254, r254, 31
 ; CHECK: PUSHGO
-; CHECK: OR r254, r253, 0
+; CHECK: SUBU r254, r253,
 ; CHECK: POP
 define i64 @aligned_32(i64 %x) nounwind {
   %p = alloca [32 x i8], align 32
@@ -88,7 +88,7 @@ define i64 @aligned_32(i64 %x) nounwind {
 ; CHECK-LABEL: aligned_64:
 ; CHECK: ANDN r254, r254, 63
 ; CHECK: PUSHGO
-; CHECK: OR r254, r253, 0
+; CHECK: SUBU r254, r253,
 ; CHECK: POP
 define i64 @aligned_64(i64 %x) nounwind {
   %p = alloca [64 x i8], align 64
@@ -102,7 +102,7 @@ define i64 @aligned_64(i64 %x) nounwind {
 ; CHECK-LABEL: aligned_4096:
 ; CHECK: ANDN r254, r254, r255
 ; CHECK: PUSHGO
-; CHECK: OR r254, r253, 0
+; CHECK: SUBU r254, r253,
 ; CHECK: POP
 define i64 @aligned_4096(i64 %x) nounwind {
   %p = alloca [4096 x i8], align 4096

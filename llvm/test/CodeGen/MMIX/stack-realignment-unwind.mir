@@ -3,8 +3,12 @@
 
 # CHECK: frame-setup CFI_INSTRUCTION def_cfa $r253, 0
 # CHECK: $r254 = frame-setup ANDNI $r254, 15
-# CHECK: $r254 = frame-destroy ORI $r253, 0
-# CHECK: frame-destroy CFI_INSTRUCTION def_cfa $r254, 0
+# CHECK: $r254 = frame-destroy SUBUI $r253, [[SIZE:[0-9]+]]
+# CHECK-NEXT: frame-destroy CFI_INSTRUCTION def_cfa $r254, [[SIZE]]
+# CHECK: $r253 = LDOU
+# CHECK-NEXT: frame-destroy CFI_INSTRUCTION same_value $r253
+# CHECK-NEXT: $r254 = frame-destroy ADDUI $r254, [[SIZE]]
+# CHECK-NEXT: frame-destroy CFI_INSTRUCTION def_cfa_offset 0
 
 --- |
   define void @overaligned_object() {

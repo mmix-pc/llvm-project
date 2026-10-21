@@ -34,8 +34,9 @@
 // FRAME: Return address column: 35
 // FRAME: CFA=R254
 // FRAME: CFA=R253: R253=[CFA-{{[0-9]+}}], RJ=[CFA-{{[0-9]+}}]
-// The epilogue keeps rJ in the preserved local while freeing the memory frame.
-// FRAME: CFA=R254: R253=[CFA-{{[0-9]+}}], RJ=R30
+// Restore FP before releasing its save area; rJ remains in a preserved local.
+// FRAME: CFA=R254+[[SIZE:[0-9]+]]: R253=[CFA-{{[0-9]+}}], RJ=R30
+// FRAME: CFA=R254+[[SIZE]]: R253=same, RJ=R30
 // FRAME: CFA=R254: R253=same, RJ=R30
 // FRAME: CFA=R254: R253=same, RJ=same
 

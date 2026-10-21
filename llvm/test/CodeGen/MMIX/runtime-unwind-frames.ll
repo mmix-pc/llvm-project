@@ -41,10 +41,12 @@ define void @fixed_fp() uwtable(sync) "frame-pointer"="all" {
 ; CHECK-LABEL: dynamic:
 ; CHECK: .cfi_def_cfa r253, 0
 ; CHECK: PUSH{{J|GO}}
-; CHECK: OR r254, r253, 0
-; CHECK: .cfi_def_cfa r254, 0
+; CHECK: SUBU r254, r253, [[FRAME:[0-9]+]]
+; CHECK: .cfi_def_cfa r254, [[FRAME]]
 ; CHECK: LDOU r253,
 ; CHECK: .cfi_same_value r253
+; CHECK: ADDU r254, r254, [[FRAME]]
+; CHECK: .cfi_def_cfa_offset 0
 define void @dynamic(i64 %n) uwtable(sync) {
   %p = alloca i8, i64 %n, align 8
   call void @use(ptr %p)

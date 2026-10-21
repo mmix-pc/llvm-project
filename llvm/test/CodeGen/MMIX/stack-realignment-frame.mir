@@ -14,9 +14,12 @@
 # CHECK: $r250 = LDOUI $r254, 56
 # CHECK: $r255 = SETL 4064
 # CHECK: $r250 = LDOU $r254, killed $r255
-# CHECK: $r254 = frame-destroy ORI $r253, 0
+# CHECK: $r255 = frame-destroy SETL 4224
+# CHECK-NEXT: $r254 = frame-destroy SUBU $r253, killed $r255
 # CHECK-NEXT: $r255 = NEGUI 0, 8
 # CHECK-NEXT: $r253 = LDOU $r253, killed $r255
+# CHECK-NEXT: $r255 = frame-destroy SETL 4224
+# CHECK-NEXT: $r254 = frame-destroy ADDU $r254, killed $r255
 # CHECK-NEXT: POP 0, 0
 
 --- |

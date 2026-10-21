@@ -14,7 +14,7 @@ declare i64 @consume17(i64, i64, i64, i64, i64, i64, i64, i64, i64,
 ; ASM:       ADDU r253, r254
 ; ASM:       SUBU [[OBJECT:r[0-9]+]], {{r[0-9]+}}, {{r[0-9]+}}
 ; ASM-NEXT:  OR r254, [[OBJECT]], 0
-; ASM:       OR r254, r253, 0
+; ASM:       SUBU r254, r253,
 ; ASM-NEXT:  NEGU r255, 0, 8
 ; ASM-NEXT:  LDOU r253, r253, r255
 define i64 @dynamic_alloca(i64 %count) nounwind {
@@ -35,7 +35,9 @@ define i64 @dynamic_alloca(i64 %count) nounwind {
 ; PEI:       $r254 = COPY
 ; PEI:       $r254 = COPY {{(killed )?}}[[INNER]]
 ; PEI:       $r254 = COPY {{(killed )?}}[[OUTER]]
-; PEI:       $r254 = frame-destroy ORI $r253, 0
+; PEI:       $r254 = frame-destroy SUBUI $r253, 16
+; PEI:       $r253 = LDOU $r253,
+; PEI:       $r254 = frame-destroy ADDUI $r254, 16
 define i64 @nested_restore(i64 %outer_count, i64 %inner_count) {
   %fixed = alloca i64, align 8
   store volatile i64 11, ptr %fixed
@@ -63,7 +65,7 @@ define i64 @nested_restore(i64 %outer_count, i64 %inner_count) {
 ; ASM:       PUSHGO
 ; ASM:       ADDU r254, r254, 8
 ; ASM:       LDOU {{r[0-9]+}}, {{r[0-9]+}}, 0
-; ASM:       OR r254, r253, 0
+; ASM:       SUBU r254, r253,
 ; PEI-LABEL: name: dynamic_call
 ; PEI:       maxCallFrameSize: 8
 ; PEI:       $r254 = SUBUI $r254, 8

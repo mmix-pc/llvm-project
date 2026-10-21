@@ -15,9 +15,10 @@
 # CHECK: $r254 = SUBUI $r254, 24
 # CHECK-NEXT: CALL_STATE @callee, csr_mmix
 # CHECK-NEXT: $r254 = ADDUI $r254, 24
-# CHECK: $r254 = frame-destroy ORI $r253, 0
+# CHECK: $r254 = frame-destroy SUBUI $r253, 16
 # CHECK-NEXT: $r255 = NEGUI 0, 8
 # CHECK-NEXT: $r253 = LDOU $r253, killed $r255
+# CHECK-NEXT: $r254 = frame-destroy ADDUI $r254, 16
 # CHECK-NEXT: $rj = frame-destroy PUT $r30
 # CHECK-NEXT: POP 0, 0
 

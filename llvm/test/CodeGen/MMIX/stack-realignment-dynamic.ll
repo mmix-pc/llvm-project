@@ -30,8 +30,12 @@ declare i64 @stack_callee(i64, i64, i64, i64, i64, i64, i64, i64,
 ; CHECK-NEXT: OR r29, r254, 0
 ; CHECK: STOU {{.*}}, r29,
 ; CHECK: PUSHGO
-; CHECK: OR r254, r253, 0
-; CHECK: .cfi_def_cfa r254, 0
+; CHECK: SUBU r254, r253,
+; CHECK: .cfi_def_cfa r254,
+; CHECK: LDOU r253,
+; CHECK: .cfi_same_value r253
+; CHECK: ADDU r254, r254,
+; CHECK: .cfi_def_cfa_offset 0
 ; CHECK: .cfi_restore_state
 ; CHECK: %geta(inspect_cleanup)
 define i64 @realigned_dynamic(i64 %n, i64 %throws) uwtable(sync)
@@ -63,7 +67,7 @@ cleanup:
 ; CHECK: .cfi_def_cfa r253, 0
 ; CHECK: ANDN r254, r254, 31
 ; CHECK: PUSHGO
-; CHECK: OR r254, r253, 0
+; CHECK: SUBU r254, r253,
 define i64 @realigned_wrapper(i64 %n, i64 %throws) uwtable(sync) {
   %fixed = alloca i64, align 32
   store volatile i64 7, ptr %fixed, align 32

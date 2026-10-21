@@ -311,23 +311,20 @@ void MMIXFrameLowering::emitCallerStateRestore(
                 TRI->getDwarfRegNum(MMIX::R30, true)),
             MachineInstr::FrameDestroy);
   if (MF.getFrameInfo().hasVarSizedObjects() || TRI->hasStackRealignment(MF)) {
-    MMIXII.adjustReg(MBB, FirstRestore, DL, MMIX::R254, MMIX::R253, 0,
-                     MachineInstr::FrameDestroy);
+    // Retain the fixed save area until its registers have been restored. An
+    // interrupt must not find CFI referring to memory below the current SP.
+    MMIXII.adjustReg(MBB, FirstRestore, DL, MMIX::R254, MMIX::R253,
+                    -int64_t(StackSize), MachineInstr::FrameDestroy);
     if (NeedsCFI)
       emitCFI(MF, MBB, FirstRestore,
               MCCFIInstruction::cfiDefCfa(
-                  nullptr, TRI->getDwarfRegNum(MMIX::R254, true), 0),
+                  nullptr, TRI->getDwarfRegNum(MMIX::R254, true), StackSize),
               MachineInstr::FrameDestroy);
   } else {
     if (NeedsCFI && hasFP(MF))
       emitCFI(MF, MBB, FirstRestore,
               MCCFIInstruction::cfiDefCfa(
                   nullptr, TRI->getDwarfRegNum(MMIX::R254, true), StackSize),
-              MachineInstr::FrameDestroy);
-    MMIXII.adjustReg(MBB, MBBI, DL, MMIX::R254, MMIX::R254,
-                     int64_t(StackSize), MachineInstr::FrameDestroy);
-    if (NeedsCFI)
-      emitCFI(MF, MBB, MBBI, MCCFIInstruction::cfiDefCfaOffset(nullptr, 0),
               MachineInstr::FrameDestroy);
   }
   if (NeedsCFI)
@@ -336,6 +333,11 @@ void MMIXFrameLowering::emitCallerStateRestore(
               MCCFIInstruction::createSameValue(
                   nullptr, TRI->getDwarfRegNum(CSI.getReg(), true)),
               MachineInstr::FrameDestroy);
+  MMIXII.adjustReg(MBB, MBBI, DL, MMIX::R254, MMIX::R254,
+                   int64_t(StackSize), MachineInstr::FrameDestroy);
+  if (NeedsCFI)
+    emitCFI(MF, MBB, MBBI, MCCFIInstruction::cfiDefCfaOffset(nullptr, 0),
+            MachineInstr::FrameDestroy);
   if (MF.getFrameInfo().hasCalls())
     BuildMI(MBB, MBBI, DL, MMIXII.get(MMIX::PUT), MMIX::RJ)
         .addReg(MMIX::R30)
