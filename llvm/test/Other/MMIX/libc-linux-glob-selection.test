@@ -1,0 +1,36 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/selection.cmake
+# RUN: not cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/missing-dependency.cmake 2>&1 | FileCheck %s
+# CHECK: MMIX glob requires filename matching and filesystem providers
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+foreach(name glob globfree)
+  if("libc.src.glob.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "minimal configuration selected ${name}")
+  endif()
+endforeach()
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+if(libc.include.glob IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "minimal configuration exported glob.h")
+endif()
+set(LIBC_MMIX_BUILD_FILESYSTEM ON CACHE BOOL "" FORCE)
+set(LIBC_MMIX_BUILD_FNMATCH ON CACHE BOOL "" FORCE)
+set(LIBC_MMIX_BUILD_GLOB ON CACHE BOOL "" FORCE)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+foreach(name glob globfree)
+  if(NOT "libc.src.glob.${name}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing glob provider ${name}")
+  endif()
+endforeach()
+if(NOT libc.include.glob IN_LIST TARGET_PUBLIC_HEADERS)
+  message(FATAL_ERROR "missing glob.h")
+endif()
+
+#--- missing-dependency.cmake
+cmake_minimum_required(VERSION 3.20)
+set(LIBC_MMIX_BUILD_GLOB ON CACHE BOOL "" FORCE)
+include(${LIBC_SOURCE}/config/linux/mmix/FilenameMatching.cmake)
