@@ -48,9 +48,12 @@
 #define _POSIX2_LINE_MAX 2048
 #define _POSIX2_RE_DUP_MAX 255
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XOPEN) ||        \
+    defined(__LIBC_USE_DEFAULT)
 #define _XOPEN_IOV_MAX 16
 #define _XOPEN_NAME_MAX 255
 #define _XOPEN_PATH_MAX 1024
+#endif
 
 // Portable utility bounds; providing these does not provide the utilities.
 #ifndef BC_BASE_MAX
@@ -102,8 +105,11 @@
 #ifndef NL_ARGMAX
 #define NL_ARGMAX 4096
 #endif
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XOPEN) ||        \
+    defined(__LIBC_USE_DEFAULT)
 #ifndef NL_LANGMAX
 #define NL_LANGMAX _POSIX2_LINE_MAX
+#endif
 #endif
 #ifndef NL_MSGMAX
 #define NL_MSGMAX __INT_MAX__

@@ -14,7 +14,9 @@
 #ifndef LLVM_LIBC_MACROS_LIMITS_MACROS_H
 #define LLVM_LIBC_MACROS_LIMITS_MACROS_H
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX)
 #include "posix-limits-macros.h"
+#endif
 
 // Define all C23 macro constants of limits.h
 
@@ -32,6 +34,8 @@
 #endif // MB_LEN_MAX
 
 // *_WIDTH macros
+
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_C23_EXTENSIONS)
 
 #ifndef CHAR_WIDTH
 #define CHAR_WIDTH CHAR_BIT
@@ -104,6 +108,8 @@
 #define BOOL_WIDTH 1
 #endif // __BOOL_WIDTH__
 #endif // BOOL_WIDTH
+
+#endif // C23 widths
 
 // *_MAX macros
 
@@ -186,9 +192,11 @@
 #define SCHAR_MIN (-SCHAR_MAX - 1)
 #endif // SCHAR_MIN
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #ifndef UCHAR_MIN
 #define UCHAR_MIN 0
 #endif // UCHAR_MIN
+#endif
 
 #ifndef CHAR_MIN
 #ifdef __CHAR_UNSIGNED__
@@ -202,33 +210,43 @@
 #define SHRT_MIN (-SHRT_MAX - 1)
 #endif // SHRT_MIN
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #ifndef USHRT_MIN
 #define USHRT_MIN 0U
 #endif // USHRT_MIN
+#endif
 
 #ifndef INT_MIN
 #define INT_MIN (-INT_MAX - 1)
 #endif // INT_MIN
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #ifndef UINT_MIN
 #define UINT_MIN 0U
 #endif // UINT_MIN
+#endif
 
 #ifndef LONG_MIN
 #define LONG_MIN (-LONG_MAX - 1L)
 #endif // LONG_MIN
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #ifndef ULONG_MIN
 #define ULONG_MIN 0UL
 #endif // ULONG_MIN
+#endif
 
 #ifndef LLONG_MIN
 #define LLONG_MIN (-LLONG_MAX - 1LL)
 #endif // LLONG_MIN
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #ifndef ULLONG_MIN
 #define ULLONG_MIN 0ULL
 #endif // ULLONG_MIN
+#endif
+
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX)
 
 #ifndef _POSIX_MAX_CANON
 #define _POSIX_MAX_CANON 255
@@ -269,8 +287,16 @@
 
 #ifdef __linux__
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XOPEN) ||        \
+    defined(__LIBC_USE_DEFAULT)
 #ifndef NZERO
 #define NZERO 20
+#endif
+#endif
+
+#ifdef __LIBC_USE_POSIX2024
+// Linux getentropy rejects requests larger than 256 bytes.
+#define GETENTROPY_MAX 256
 #endif
 
 #ifndef PATH_MAX
@@ -291,9 +317,12 @@
 #define _POSIX_ARG_MAX 4096
 #endif
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XOPEN) ||        \
+    defined(__LIBC_USE_DEFAULT)
 #ifndef IOV_MAX
 #define IOV_MAX 1024
 #endif // IOV_MAX
+#endif
 
 #ifndef SSIZE_MAX
 #ifdef __PTRDIFF_MAX__
@@ -301,5 +330,7 @@
 #define SSIZE_MAX __PTRDIFF_MAX__
 #endif
 #endif
+
+#endif // POSIX limits
 
 #endif // LLVM_LIBC_MACROS_LIMITS_MACROS_H

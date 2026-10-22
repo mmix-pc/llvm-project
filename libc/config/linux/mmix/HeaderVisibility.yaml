@@ -1,0 +1,5 @@
+# MMIX Linux installed namespace policy. This does not select runtime providers.
+errno.h:
+  objects:
+    program_invocation_name: __LIBC_USE_GNU
+    program_invocation_short_name: __LIBC_USE_GNU

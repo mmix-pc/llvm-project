@@ -9,9 +9,26 @@
 #define LLVM_LIBC_MACROS_INTTYPES_MACROS_H
 
 // fprintf/scanf format macros.
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_C23_EXTENSIONS)
 #define __STDC_VERSION_INTTYPES_H__ 202311L
+#endif
 
-// clang provides these macros, so we don't need to define them.
+#ifdef __clang__
+// Clang does not provide the binary-format macros in every version.
+#if __INT64_MAX__ == __LONG_MAX__
+#define __PRI64 "l"
+#else
+#define __PRI64 "ll"
+#endif
+#if __INTPTR_MAX__ == __LONG_MAX__
+#define __PRIPTR "l"
+#elif __INTPTR_MAX__ == __INT_MAX__
+#define __PRIPTR ""
+#elif __INTPTR_MAX__ == __LONG_LONG_MAX__
+#define __PRIPTR "ll"
+#endif
+#endif
+// Clang provides the remaining format macros.
 #ifndef __clang__
 #if __UINTPTR_MAX__ == __UINT64_MAX__
 #define __PRI64 "l"
@@ -295,6 +312,7 @@
 #define PRIXMAX __UINTMAX_FMTX__
 #define PRIXPTR __UINTPTR_FMTX__
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_C23_EXTENSIONS)
 #define PRIb8 __UINT8_FMTb__
 #define PRIb16 __UINT16_FMTb__
 #define PRIb32 __UINT32_FMTb__
@@ -324,6 +342,7 @@
 #define PRIBFAST64 __UINT_FAST64_FMTB__
 #define PRIBMAX __UINTMAX_FMTB__
 #define PRIBPTR __UINTPTR_FMTB__
+#endif
 
 // The fscanf() macros for signed integers.
 #define SCNd8 __INT8_FMTd__
@@ -402,6 +421,7 @@
 #define SCNxMAX __UINTMAX_FMTx__
 #define SCNxPTR __UINTPTR_FMTx__
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_C23_EXTENSIONS)
 #define SCNb8 __UINT8_FMTb__
 #define SCNb16 __UINT16_FMTb__
 #define SCNb32 __UINT32_FMTb__
@@ -416,5 +436,6 @@
 #define SCNbFAST64 __UINT_FAST64_FMTb__
 #define SCNbMAX __UINTMAX_FMTb__
 #define SCNbPTR __UINTPTR_FMTb__
+#endif
 
 #endif // LLVM_LIBC_MACROS_INTTYPES_MACROS_H

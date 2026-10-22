@@ -1,0 +1,68 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+include = out / "include"
+target = include / "llvm-libc-macros/mmix"
+target.mkdir(parents=True, exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h", target / "common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-features.h",
+                target / "linux-features.h")
+
+cases = [
+    ("c", "c17", [], 0, 0, False, False),
+    ("c", "gnu17", [], 202405, 0, False, True),
+    ("c", "c17", ["-D_POSIX_C_SOURCE=200809L"], 200809, 0, False, False),
+    ("c", "c17", ["-D_POSIX_C_SOURCE=202405L"], 202405, 0, False, False),
+    ("c", "c17", ["-D_XOPEN_SOURCE=700"], 200809, 700, False, False),
+    ("c", "c17", ["-D_XOPEN_SOURCE=800", "-D_POSIX_C_SOURCE=200809L"],
+     202405, 800, False, False),
+    ("c", "gnu17", ["-D_POSIX_C_SOURCE=200809L"], 200809, 0, False, False),
+    ("c", "c17", ["-D_GNU_SOURCE", "-D_POSIX_C_SOURCE=199506L", "-D_XOPEN_SOURCE=500"],
+     202405, 800, True, True),
+    ("c", "c17", ["-D_DEFAULT_SOURCE"], 202405, 0, False, True),
+    ("c", "c17", ["-D_POSIX_C_SOURCE=199309L"], 199309, 0, False, False),
+    ("c", "c17", ["-D_XOPEN_SOURCE=500"], 199506, 500, False, False),
+    ("c", "c17", ["-D_XOPEN_SOURCE=900", "-D_POSIX_C_SOURCE=209901L"],
+     202405, 800, False, False),
+    ("c++", "c++17", ["-U_GNU_SOURCE"], 0, 0, False, False),
+    ("c++", "c++17", ["-U_GNU_SOURCE", "-D_POSIX_C_SOURCE=202405L"],
+     202405, 0, False, False),
+    ("c++", "c++17", ["-D_GNU_SOURCE"], 202405, 800, True, True),
+]
+
+for language, standard, flags, posix, xsi, gnu, default in cases:
+    source = '#include "__llvm-libc-common.h"\n' * 2
+    source += f"#if __LIBC_POSIX_LEVEL != {posix}L || __LIBC_XOPEN_LEVEL != {xsi}\n#error levels\n#endif\n"
+    for name, enabled in (("__LIBC_USE_GNU", gnu), ("__LIBC_USE_DEFAULT", default),
+                          ("__LIBC_USE_POSIX2008", posix >= 200809),
+                          ("__LIBC_USE_POSIX2024", posix >= 202405),
+                          ("__LIBC_USE_XSI8", xsi >= 800)):
+        source += ("#ifndef " if enabled else "#ifdef ") + name + "\n#error selection\n#endif\n"
+    source += "#if defined(_POSIX_VERSION) || defined(_XOPEN_VERSION)\n#error false claim\n#endif\n"
+    if language == "c" and not gnu:
+        source += "#ifdef _GNU_SOURCE\n#error implicit GNU selection\n#endif\n"
+    command = [clang, "--no-default-config", "--target=mmix-unknown-linux",
+               "-nostdinc", "-I", str(include), "-x", language, "-std=" + standard,
+               *flags, "-Werror", "-fsyntax-only", "-"]
+    result = subprocess.run(command, input=source, text=True, capture_output=True)
+    assert result.returncode == 0, (command, result.stderr)
+
+# The unchanged common header does not select Linux namespaces for other targets.
+for triple in ("mmix-unknown-unknown", "x86_64-unknown-linux-gnu"):
+    source = '#include "__llvm-libc-common.h"\n#ifdef __LIBC_POSIX_LEVEL\n#error leaked policy\n#endif\n'
+    result = subprocess.run([clang, "--no-default-config", "--target=" + triple,
+                             "-nostdinc", "-I", str(libc / "include"),
+                             "-x", "c", "-std=c17", "-fsyntax-only", "-"],
+                            input=source, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr

@@ -1,0 +1,55 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+include = out / "include"
+shutil.copytree(libc / "include/llvm-libc-macros", include / "llvm-libc-macros",
+                dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+
+for language in ("c", "c++"):
+    for defines, posix, xsi, gnu in (
+        ([], False, False, False),
+        (["-D_POSIX_C_SOURCE=200809L"], True, False, False),
+        (["-D_POSIX_C_SOURCE=202405L"], True, False, False),
+        (["-D_XOPEN_SOURCE=800"], True, True, False),
+        (["-D_GNU_SOURCE"], True, True, True),
+    ):
+        source = '#include "__llvm-libc-common.h"\n'
+        for header in ("limits-macros.h", "inttypes-macros.h", "assert-macros.h"):
+            source += '#include "llvm-libc-macros/' + header + '"\n'
+        for macro, present in (("PATH_MAX", posix), ("NZERO", xsi),
+                               ("NL_LANGMAX", xsi), ("IOV_MAX", xsi),
+                               ("INT_WIDTH", gnu), ("UINT_MIN", gnu),
+                               ("PRIbMAX", gnu), ("SCNbPTR", gnu)):
+            source += ("#ifndef " if present else "#ifdef ") + macro + "\n#error namespace\n#endif\n"
+        source += 'const char *ordinary = PRId64 " " SCNuPTR;\n'
+        if gnu:
+            source += 'const char *binary = PRIb64 " " PRIBMAX " " SCNbPTR;\n'
+        source += '#if CHAR_BIT != 8 || INT_MAX != 2147483647\n#error limits\n#endif\n'
+        command = [clang, "--no-default-config", "--target=mmix-unknown-linux",
+                   "-nostdinc", "-I", str(include), "-x", language,
+                   "-std=c17" if language == "c" else "-std=c++17",
+                   "-U_GNU_SOURCE", *defines, "-fsyntax-only", "-Werror", "-"]
+        result = subprocess.run(command, input=source, text=True, capture_output=True)
+        assert result.returncode == 0, (command, result.stderr)
+
+# Without an explicit namespace policy, other targets retain their old macros.
+source = '#include "llvm-libc-macros/limits-macros.h"\n'
+source += '#ifndef INT_WIDTH\n#error changed generic visibility\n#endif\n'
+result = subprocess.run([clang, "--no-default-config", "--target=x86_64-linux-gnu",
+                         "-nostdinc", "-I", str(libc / "include"),
+                         "-x", "c", "-std=c17", "-fsyntax-only", "-"],
+                        input=source, text=True, capture_output=True)
+assert result.returncode == 0, result.stderr

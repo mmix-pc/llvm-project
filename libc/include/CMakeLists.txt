@@ -15,11 +15,15 @@ endif()
 add_subdirectory(llvm-libc-macros)
 add_subdirectory(llvm-libc-types)
 
-add_header(
-  llvm_libc_common_h
-  HDR
-    __llvm-libc-common.h
-)
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX AND LIBC_TARGET_OS_IS_LINUX)
+  add_header(llvm_libc_common_h
+    HDR llvm-libc-macros/mmix/linux-common.h
+    DEST_HDR __llvm-libc-common.h
+    DEPENDS .llvm-libc-macros.mmix.linux_features
+            .llvm-libc-macros.mmix.common_base)
+else()
+  add_header(llvm_libc_common_h HDR __llvm-libc-common.h)
+endif()
 
 # Has to be after common since elf_proxy depends on common.
 add_subdirectory(llvm-libc-proxy)
@@ -27,10 +31,16 @@ add_subdirectory(llvm-libc-proxy)
 # TODO: Can we simplify this macro expansion?
 # https://github.com/llvm/llvm-project/issues/117254
 macro(add_header_macro TARGET_NAME YAML_FILE GEN_HDR DEPENDS)
+  set(header_visibility "")
+  if(LIBC_TARGET_ARCHITECTURE_IS_MMIX AND LIBC_TARGET_OS_IS_LINUX)
+    set(header_visibility VISIBILITY_FILE
+      ${LIBC_SOURCE_DIR}/config/linux/mmix/HeaderVisibility.yaml)
+  endif()
   add_gen_header(
     ${TARGET_NAME}
     YAML_FILE ${YAML_FILE}
     GEN_HDR ${GEN_HDR}
+    ${header_visibility}
     ${DEPENDS}
     ${ARGN}
   )
