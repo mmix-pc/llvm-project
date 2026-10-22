@@ -1,0 +1,123 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"],
+                                   text=True).strip()
+include = out / "include"
+include.mkdir(exist_ok=True)
+# Isolate the loff_t namespace check from host Linux headers. The generated
+# target-header audit separately uses the actual MMIX UAPI.
+(include / "asm").mkdir(exist_ok=True)
+(include / "asm/posix_types.h").write_text("typedef long long __kernel_loff_t;\n")
+for name in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(libc / "include" / name, include / name, dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+headers = "tar ftw dirent fcntl poll sys/stat sys/statvfs sys/types sys/select sys/uio"
+for name in headers.split():
+    target = include / (name + ".h")
+    target.parent.mkdir(exist_ok=True)
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include" / (name + ".yaml")), "--visibility",
+                    str(libc / "config/linux/mmix/HeaderVisibility.yaml"),
+                    "-o", str(target)], check=True)
+
+modes = [([], 0, 0, False, False),
+         (["-D_POSIX_C_SOURCE=200809L"], 200809, 0, False, False),
+         (["-D_POSIX_C_SOURCE=202405L"], 202405, 0, False, False),
+         (["-D_XOPEN_SOURCE=700"], 200809, 700, False, False),
+         (["-D_XOPEN_SOURCE=800"], 202405, 800, False, False),
+         (["-D_DEFAULT_SOURCE"], 202405, 0, False, True),
+         (["-D_GNU_SOURCE"], 202405, 800, True, True)]
+for language in ("c", "c++"):
+    command = [clang, "--no-default-config", "--target=mmix-unknown-linux",
+               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+               "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+               "-U_GNU_SOURCE", "-fsyntax-only", "-Werror", "-"]
+    for defines, posix, xsi, gnu, default in modes:
+        def compile(source):
+            return subprocess.run(command + defines, input=source, text=True,
+                                  capture_output=True)
+        for name in headers.split():
+            result = compile('#include <' + name + '.h>\n')
+            assert result.returncode == 0, (language, defines, name, result.stderr)
+        for header, name, active in (
+                ("dirent", "posix_getdents", posix >= 202405),
+                ("dirent", "readdir_r", default or 199506 <= posix < 202405),
+                ("dirent", "scandirat", gnu),
+                ("fcntl", "openat", posix >= 200809),
+                ("fcntl", "posix_fadvise", posix >= 200112),
+                ("fcntl", "posix_fallocate", posix >= 200112),
+                ("ftw", "ftw", default or 0 < xsi < 800),
+                ("ftw", "nftw", True),
+                ("poll", "ppoll", posix >= 202405),
+                ("sys/select", "pselect", posix >= 200112),
+                ("sys/stat", "fstatat", posix >= 200809)):
+            prefix = '#include <' + header + '.h>\n'
+            result = compile(prefix + 'void probe(void) { (void)&' + name + '; }\n')
+            if active:
+                assert result.returncode == 0, (defines, name, result.stderr)
+            else:
+                assert result.returncode != 0 and name in result.stderr and "undeclared" in result.stderr, (defines, name, result.stderr)
+        abi = (out / "abi.c").read_text()
+        result = compile(abi)
+        assert result.returncode == 0, (language, defines, result.stderr)
+        result = compile(''.join('#include <' + name + '.h>\n'
+                                 for name in reversed(headers.split())) + abi)
+        assert result.returncode == 0, (language, defines, result.stderr)
+        prefix = '#include <ftw.h>\n'
+        check = '#ifndef' if posix >= 202405 else '#ifdef'
+        result = compile(prefix + check + ' FTW_XDEV\n#error wrong namespace\n#endif\n')
+        assert result.returncode == 0, (defines, result.stderr)
+        if posix >= 202405:
+            result = compile('#include <fcntl.h>\n'
+                             'int *owner_type(struct f_owner_ex *p) { return &p->type; }\n'
+                             '#if F_OWNER_PID != 1 || F_OWNER_PGRP != 2\n#error owner constants\n#endif\n')
+            assert result.returncode == 0, (defines, result.stderr)
+
+#--- abi.c
+#include <ftw.h>
+#include <tar.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/select.h>
+#include <sys/uio.h>
+#include <poll.h>
+#ifdef __cplusplus
+#define CHECK static_assert
+#else
+#define CHECK _Static_assert
+#endif
+CHECK(sizeof(struct FTW) == 8, "FTW size");
+CHECK(__builtin_offsetof(struct FTW, base) == 0, "base offset");
+CHECK(__builtin_offsetof(struct FTW, level) == 4, "level offset");
+CHECK(FTW_F == 0 && FTW_D == 1 && FTW_DNR == 2 && FTW_NS == 3 &&
+      FTW_SL == 4 && FTW_DP == 5 && FTW_SLN == 6, "walk kinds");
+CHECK(FTW_PHYS == 1 && FTW_MOUNT == 2 && FTW_CHDIR == 4 && FTW_DEPTH == 8,
+      "walk flags");
+CHECK(sizeof(clock_t) == 8 && sizeof(fsblkcnt_t) == 8 && sizeof(fsfilcnt_t) == 8,
+      "imported types");
+CHECK(sizeof(reclen_t) == 2, "record length");
+CHECK(sizeof(struct iovec) == 16 && sizeof(struct pollfd) == 8, "I/O records");
+CHECK(TMAGLEN == 6 && sizeof(TMAGIC) == 6 && TVERSLEN == 2 && sizeof(TVERSION) == 3,
+      "archive fields");
+CHECK(REGTYPE == '0' && AREGTYPE == '\0' && LNKTYPE == '1' && SYMTYPE == '2' &&
+      CHRTYPE == '3' && BLKTYPE == '4' && DIRTYPE == '5' && FIFOTYPE == '6' &&
+      CONTTYPE == '7', "archive types");
+CHECK(TSUID == 04000 && TSGID == 02000 && TSVTX == 01000 && TUREAD == 00400 &&
+      TUWRITE == 00200 && TUEXEC == 00100 && TGREAD == 00040 && TGWRITE == 00020 &&
+      TGEXEC == 00010 && TOREAD == 00004 && TOWRITE == 00002 && TOEXEC == 00001,
+      "archive permissions");
+int (*walk)(const char *, int (*)(const char *, const struct stat *, int,
+                                struct FTW *), int, int) = &nftw;

@@ -11,6 +11,9 @@
 
 // These are namespace requests, not runtime capability or conformance claims.
 #define __LIBC_EXPLICIT_NAMESPACE 1
+#if defined(__STDC_WANT_LIB_EXT1__) && __STDC_WANT_LIB_EXT1__ == 1
+#define __LIBC_USE_ANNEX_K 1
+#endif
 #if defined(_GNU_SOURCE) ||                                                 \
     (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L)
 #define __LIBC_USE_C23_EXTENSIONS 1
@@ -109,6 +112,22 @@
 #endif
 #if defined(__LIBC_USE_POSIX2008) || defined(__LIBC_USE_C23_EXTENSIONS)
 #define __LIBC_USE_POSIX2008_OR_C23 1
+#endif
+#if defined(__LIBC_USE_POSIX2008) || defined(__LIBC_USE_DEFAULT)
+#define __LIBC_USE_POSIX2008_OR_DEFAULT 1
+#endif
+#if (defined(__LIBC_USE_POSIX1995) && __LIBC_POSIX_LEVEL < 202405L) ||         \
+    defined(__LIBC_USE_DEFAULT)
+#define __LIBC_USE_POSIX_LEGACY 1
+#endif
+#if defined(__LIBC_USE_POSIX) || defined(__LIBC_USE_C23_EXTENSIONS)
+#define __LIBC_USE_POSIX_OR_C23 1
+#endif
+#if defined(__LIBC_USE_POSIX2024) || defined(__LIBC_USE_DEFAULT)
+#define __LIBC_USE_POSIX2024_OR_DEFAULT 1
+#endif
+#if defined(__LIBC_USE_POSIX2024_OR_DEFAULT) || defined(__LIBC_USE_C23_EXTENSIONS)
+#define __LIBC_USE_POSIX2024_OR_DEFAULT_OR_C23 1
 #endif
 
 #endif // LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H

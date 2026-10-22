@@ -1,4 +1,79 @@
 # MMIX Linux installed namespace policy. This does not select runtime providers.
+dirent.h:
+  types:
+    struct_posix_dent: __LIBC_USE_POSIX2024
+  functions:
+    alphasort: __LIBC_USE_POSIX2008_OR_DEFAULT
+    scandir: __LIBC_USE_POSIX2008_OR_DEFAULT
+    fdopendir: __LIBC_USE_POSIX2008
+    dirfd: __LIBC_USE_POSIX2008_OR_DEFAULT
+    seekdir: __LIBC_USE_XOPEN_OR_DEFAULT
+    telldir: __LIBC_USE_XOPEN_OR_DEFAULT
+    readdir_r: __LIBC_USE_POSIX_LEGACY
+    posix_getdents: __LIBC_USE_POSIX2024
+    scandirat: __LIBC_USE_GNU
+    versionsort: __LIBC_USE_GNU
+fcntl.h:
+  types:
+    struct_f_owner_ex: __LIBC_USE_POSIX2024
+    struct_flock64: __LIBC_USE_GNU
+  functions:
+    openat: __LIBC_USE_POSIX2008
+    posix_fadvise: __LIBC_USE_POSIX2001
+    posix_fallocate: __LIBC_USE_POSIX2001
+ftw.h:
+  macros:
+    FTW_XDEV: __LIBC_USE_POSIX2024
+  functions:
+    ftw: __LIBC_USE_LEGACY_EXTENSIONS
+poll.h:
+  types:
+    sigset_t: __LIBC_USE_POSIX2024
+    struct_timespec: __LIBC_USE_POSIX2024
+  functions:
+    ppoll: __LIBC_USE_POSIX2024
+sys/mman.h:
+  functions:
+    madvise: __LIBC_USE_DEFAULT
+    memfd_create: __LIBC_USE_GNU
+    mincore: __LIBC_USE_DEFAULT
+    mlock2: __LIBC_USE_GNU
+    mremap: __LIBC_USE_GNU
+    pkey_alloc: __LIBC_USE_GNU
+    pkey_free: __LIBC_USE_GNU
+    pkey_get: __LIBC_USE_GNU
+    pkey_mprotect: __LIBC_USE_GNU
+    pkey_set: __LIBC_USE_GNU
+    remap_file_pages: __LIBC_USE_GNU
+sys/select.h:
+  functions:
+    pselect: __LIBC_USE_POSIX2001
+sys/stat.h:
+  types:
+    struct_timeval: __LIBC_USE_DEFAULT
+  functions:
+    fchmodat: __LIBC_USE_POSIX2008
+    fstatat: __LIBC_USE_POSIX2008
+    futimens: __LIBC_USE_POSIX2008
+    mkdirat: __LIBC_USE_POSIX2008
+    mkfifoat: __LIBC_USE_POSIX2008
+    mknodat: __LIBC_USE_POSIX2008
+    mknod: __LIBC_USE_XOPEN_OR_DEFAULT
+    utimensat: __LIBC_USE_POSIX2008
+sys/types.h:
+  types:
+    caddr_t: __LIBC_USE_DEFAULT
+    ino64_t: __LIBC_USE_GNU
+    loff_t: __LIBC_USE_DEFAULT
+    off64_t: __LIBC_USE_GNU
+    u_char: __LIBC_USE_DEFAULT
+    u_int: __LIBC_USE_DEFAULT
+    u_long: __LIBC_USE_DEFAULT
+    u_short: __LIBC_USE_DEFAULT
+    uint: __LIBC_USE_DEFAULT
+    ulong: __LIBC_USE_DEFAULT
+    ushort: __LIBC_USE_DEFAULT
+    useconds_t: __LIBC_USE_LEGACY_EXTENSIONS
 errno.h:
   objects:
     program_invocation_name: __LIBC_USE_GNU
