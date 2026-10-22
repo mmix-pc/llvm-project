@@ -88,6 +88,7 @@ enums:
     value: 11
 types:
   - type_name: Dl_info
+  - type_name: Dl_info_t
 functions:
   - name: dlclose
     standards:

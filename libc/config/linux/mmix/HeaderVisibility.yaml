@@ -1,4 +1,7 @@
 # MMIX Linux installed namespace policy. This does not select runtime providers.
+dlfcn.h:
+  types:
+    Dl_info_t: __LIBC_USE_POSIX2024
 setjmp.h:
   types:
     sigjmp_buf: __LIBC_USE_POSIX

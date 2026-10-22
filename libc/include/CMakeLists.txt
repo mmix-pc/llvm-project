@@ -152,6 +152,7 @@ add_header_macro(
   DEPENDS
     .llvm_libc_common_h
     .llvm-libc-types.dl_info
+    .llvm-libc-types.dl_info_t
 )
 
 add_header_macro(
