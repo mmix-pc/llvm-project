@@ -11,23 +11,32 @@ include(${SOURCE}/libc/config/linux/mmix/headers.txt)
 foreach(header byteswap libgen poll sys_ioctl termios sys_socket sys_un netdb net_if
     arpa_inet netinet_in sys_sysmacros sys_param pwd grp syslog regex
     sys_statfs sys_mount sys_utsname fnmatch alloca mmix_paths getopt
-    mntent sys_reboot sys_times sched malloc sys_prctl)
+    mntent sys_reboot sys_times sched malloc sys_prctl
+    aio assert complex cpio ctype dirent dlfcn fcntl fenv fmtmsg ftw glob
+    iconv inttypes langinfo libintl locale math monetary mqueue ndbm nl_types
+    pthread search semaphore spawn stdio sys_ipc sys_msg sys_resource sys_sem
+    sys_shm sys_stat sys_statvfs sys_time sys_wait tar threads time uchar utmpx
+    wchar wctype wordexp)
   if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
     message(FATAL_ERROR "Missing command-environment header: ${header}")
   endif()
 endforeach()
+set(TARGET_LIBC_ENTRYPOINTS "provider_baseline")
+set(LLVM_LIBC_ALL_HEADERS OFF)
 include(${SOURCE}/libc/config/linux/mmix/HeaderDeclarations.cmake)
-foreach(name sched_getaffinity prctl socket bind listen sendto getsockname
-    getpeername connect setsockopt getsockopt htons ntohs htonl ntohl
-    inet_aton inet_ntoa getaddrinfo freeaddrinfo getnameinfo gethostbyname
-    hstrerror __h_errno_location syslog)
-  if(NOT name IN_LIST TARGET_ENTRYPOINT_NAME_LIST)
-    message(FATAL_ERROR "Missing command-environment declaration: ${name}")
-  endif()
-endforeach()
+if(NOT LLVM_LIBC_ALL_HEADERS)
+  message(FATAL_ERROR "Unix declarations still depend on selected providers")
+endif()
+if(NOT TARGET_LIBC_ENTRYPOINTS STREQUAL "provider_baseline")
+  message(FATAL_ERROR "Declaration selection changed runtime providers")
+endif()
 set(TARGET_ENTRYPOINT_NAME_LIST "baseline")
 set(LIBC_MMIX_ENABLE_UNIX_HEADERS OFF)
+set(LLVM_LIBC_ALL_HEADERS OFF)
 include(${SOURCE}/libc/config/linux/mmix/HeaderDeclarations.cmake)
+if(LLVM_LIBC_ALL_HEADERS)
+  message(FATAL_ERROR "Default declaration policy changed")
+endif()
 if(NOT TARGET_ENTRYPOINT_NAME_LIST STREQUAL "baseline")
   message(FATAL_ERROR "Default declarations changed")
 endif()

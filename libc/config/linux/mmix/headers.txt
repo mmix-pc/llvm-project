@@ -25,6 +25,23 @@ if(LIBC_MMIX_BUILD_SHARED_LIBC)
   list(APPEND TARGET_PUBLIC_HEADERS libc.include.dlfcn libc.include.link libc.include.elf)
 endif()
 if(LIBC_MMIX_ENABLE_UNIX_HEADERS)
+  # Install the public compilation contract even when a facility's runtime is
+  # not selected. Compiler-owned C headers remain in Clang's resource directory.
+  list(APPEND TARGET_PUBLIC_HEADERS
+    libc.include.aio libc.include.assert libc.include.complex libc.include.cpio
+    libc.include.ctype libc.include.dirent libc.include.dlfcn libc.include.fcntl
+    libc.include.fenv libc.include.fmtmsg libc.include.ftw libc.include.glob
+    libc.include.iconv libc.include.inttypes libc.include.langinfo
+    libc.include.libintl libc.include.locale libc.include.math
+    libc.include.monetary libc.include.mqueue libc.include.ndbm
+    libc.include.nl_types libc.include.pthread libc.include.search
+    libc.include.semaphore libc.include.spawn libc.include.stdio
+    libc.include.sys_ipc libc.include.sys_msg libc.include.sys_resource
+    libc.include.sys_sem libc.include.sys_shm libc.include.sys_stat
+    libc.include.sys_statvfs libc.include.sys_time libc.include.sys_wait
+    libc.include.tar libc.include.threads libc.include.time
+    libc.include.uchar libc.include.utmpx libc.include.wchar libc.include.wctype
+    libc.include.wordexp)
   list(APPEND TARGET_PUBLIC_HEADERS
     libc.include.byteswap libc.include.endian libc.include.netdb libc.include.net_if
     libc.include.libgen libc.include.poll libc.include.sys_ioctl
