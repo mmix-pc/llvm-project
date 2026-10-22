@@ -25,6 +25,7 @@ if(LIBC_TARGET_OS_IS_LINUX)
       COMPILE_OPTIONS
         ${arg_test_options}
       DEPENDS
+        libc.src.fcntl.linux.fcntl_args
         libc.hdr.stdint_proxy
         libc.src.errno.errno
         libc.src.__support.OSUtil.linux.syscall_wrappers.fcntl

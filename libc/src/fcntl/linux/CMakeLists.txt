@@ -20,6 +20,19 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+add_header_library(
+  fcntl_args
+  HDRS fcntl_args.h
+  DEPENDS
+    libc.hdr.fcntl_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.types.struct_f_owner_ex
+    libc.hdr.types.struct_flock
+    libc.hdr.types.struct_flock64
+    libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
 add_entrypoint_object(
   fcntl
   SRCS
@@ -27,6 +40,7 @@ add_entrypoint_object(
   HDRS
     ../fcntl.h
   DEPENDS
+    .fcntl_args
     libc.hdr.stdint_proxy
     libc.hdr.fcntl_macros
     libc.src.__support.OSUtil.linux.syscall_wrappers.fcntl
