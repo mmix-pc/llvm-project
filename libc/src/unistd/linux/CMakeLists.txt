@@ -1,4 +1,4 @@
-foreach(name close read write pread pwrite sleep usleep)
+foreach(name close read write pread pwrite fdatasync sleep usleep)
   set(${name}_source ${name}.cpp)
 endforeach()
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
@@ -9,7 +9,7 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     set(mmix_pwrite_options -DLIBC_MMIX_CANCELLATION_WINDOWS)
   endif()
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
-  mmix_select_cancellation_points(close read write pread sleep usleep)
+  mmix_select_cancellation_points(close read write pread fdatasync sleep usleep)
   include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/ProcessOperations.cmake)
 else()
   foreach(name setuid setgid seteuid setegid)
@@ -41,12 +41,14 @@ add_entrypoint_object(
 
 add_entrypoint_object(
   fdatasync
-  SRCS fdatasync.cpp
+  SRCS ${fdatasync_source}
   HDRS ../fdatasync.h
   DEPENDS
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(

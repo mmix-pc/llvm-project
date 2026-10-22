@@ -201,6 +201,13 @@ add_libc_test(
     libc.test.UnitTest.ErrnoSetterMatcher
 )
 
+add_libc_test(
+  mmix_msync_test
+  SUITE libc_sys_mman_unittests
+  SRCS mmix_msync_test.cpp
+  DEPENDS libc.hdr.errno_macros libc.hdr.sys_mman_macros libc.src.errno.errno
+)
+
 if(CMAKE_CROSSCOMPILING_EMULATOR)
   if(LIBC_CMAKE_VERBOSE_LOGGING)
     message(STATUS "Skipping remap_file_pages_test under emulator.")

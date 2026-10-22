@@ -173,10 +173,16 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+set(msync_source msync.cpp)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
+  mmix_select_cancellation_points(msync)
+endif()
+
 add_entrypoint_object(
   msync
   SRCS
-    msync.cpp
+    ${msync_source}
   HDRS
     ../msync.h
   DEPENDS
@@ -184,6 +190,8 @@ add_entrypoint_object(
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(

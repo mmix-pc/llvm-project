@@ -3,6 +3,16 @@ add_custom_target(libc_fcntl_unittests)
 add_subdirectory(testdata)
 
 if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    mmix_fcntl_test
+    SUITE libc_fcntl_unittests
+    SRCS mmix_fcntl_test.cpp
+    HDRS fcntl_test_syscall.h
+    DEPENDS
+      libc.src.fcntl.linux.fcntl_args
+      libc.src.__support.OSUtil.linux.syscall_wrappers.fcntl
+      libc.src.errno.errno
+  )
   set(arg_test_modes full)
   if(NOT LLVM_LIBC_FULL_BUILD)
     list(PREPEND arg_test_modes overlay)
