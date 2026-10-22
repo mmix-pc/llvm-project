@@ -608,3 +608,10 @@ foreach(name seteuid setegid getgroups)
     DEPENDS .${LIBC_TARGET_OS}.${name}
   )
 endforeach()
+foreach(name fchownat fdatasync)
+  add_entrypoint_object(
+    ${name}
+    ALIAS
+    DEPENDS .${LIBC_TARGET_OS}.${name}
+  )
+endforeach()

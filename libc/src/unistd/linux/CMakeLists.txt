@@ -12,6 +12,28 @@ else()
 endif()
 
 add_entrypoint_object(
+  fchownat
+  SRCS fchownat.cpp
+  HDRS ../fchownat.h
+  DEPENDS
+    libc.hdr.types.uid_t
+    libc.hdr.types.gid_t
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
+  fdatasync
+  SRCS fdatasync.cpp
+  HDRS ../fdatasync.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
   alarm
   SRCS
     alarm.cpp

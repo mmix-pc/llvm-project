@@ -2,6 +2,46 @@ add_custom_target(libc_unistd_unittests)
 
 add_subdirectory(testdata)
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  foreach(name fchownat fdatasync)
+    add_libc_test(
+      ${name}_syscall_test
+      SUITE libc_unistd_unittests
+      SRCS ${name}_syscall_test.cpp
+      DEPENDS
+        libc.hdr.errno_macros
+        libc.hdr.fcntl_macros
+        libc.hdr.types.uid_t
+        libc.hdr.types.gid_t
+        libc.include.sys_syscall
+        libc.src.__support.OSUtil.osutil
+        libc.src.errno.errno
+    )
+    set(filesystem_dependencies)
+    if(name STREQUAL "fchownat")
+      set(filesystem_dependencies
+        libc.src.fcntl.openat libc.src.sys.stat.fstatat
+        libc.src.unistd.symlink libc.src.unistd.unlinkat)
+    else()
+      set(filesystem_dependencies
+        libc.hdr.stdio_macros libc.hdr.unistd_macros
+        libc.src.sys.stat.fstat libc.src.unistd.lseek
+        libc.src.unistd.pipe libc.src.unistd.unlink libc.src.unistd.write)
+    endif()
+    add_libc_test(
+      ${name}_test
+      SUITE libc_unistd_unittests
+      SRCS ${name}_test.cpp ${LIBC_SOURCE_DIR}/src/unistd/linux/${name}.cpp
+      DEPENDS
+        libc.hdr.errno_macros libc.hdr.fcntl_macros
+        libc.hdr.sys_stat_macros libc.hdr.types.uid_t libc.hdr.types.gid_t
+        libc.src.__support.OSUtil.osutil libc.include.sys_syscall
+        libc.src.fcntl.open libc.src.unistd.close libc.src.errno.errno
+        ${filesystem_dependencies}
+    )
+  endforeach()
+endif()
+
 add_libc_test(
   alarm_test
   SUITE
