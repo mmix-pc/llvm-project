@@ -1,0 +1,51 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DMMIX_CONFIG=%S/../../../../libc/config/linux/mmix -P %t/check.cmake
+# RUN: %python %t/objects.py %S/../../../../libc %t
+
+#--- check.cmake
+cmake_minimum_required(VERSION 3.20)
+set(core libc.src.strings.ffs libc.src.strings.ffsl libc.src.strings.ffsll)
+set(wide libc.src.wchar.wcpcpy libc.src.wchar.wcpncpy libc.src.wchar.wcsnlen
+         libc.src.wchar.wcslcat libc.src.wchar.wcslcpy)
+foreach(enabled OFF ON)
+  set(TARGET_LIBC_ENTRYPOINTS "")
+  set(LIBC_MMIX_BUILD_CORE ${enabled})
+  set(LIBC_MMIX_BUILD_WIDE ${enabled})
+  include(${MMIX_CONFIG}/Core.cmake)
+  include(${MMIX_CONFIG}/Wide.cmake)
+  foreach(entry IN LISTS core wide)
+    if(enabled AND NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+      message(FATAL_ERROR "Missing selected text provider: ${entry}")
+    elseif(NOT enabled AND entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+      message(FATAL_ERROR "Disabled text provider selected: ${entry}")
+    endif()
+  endforeach()
+endforeach()
+
+#--- objects.py
+from pathlib import Path
+import subprocess
+import sys
+
+libc, work = map(Path, sys.argv[1:3])
+resource = subprocess.check_output(
+    ["clang", "--no-default-config", "-print-resource-dir"], text=True).strip()
+base = ["clang", "-cc1", "-triple", "mmix-unknown-linux", "-std=c++17",
+        "-ffreestanding", "-internal-isystem", resource + "/include",
+        "-I", str(libc), "-DLIBC_FULL_BUILD", "-DLIBC_COPT_PUBLIC_PACKAGING",
+        "-DLIBC_NAMESPACE=text_test"]
+families = {"strings": ("ffs", "ffsl", "ffsll"),
+            "wchar": ("wcpcpy", "wcpncpy", "wcsnlen", "wcslcat", "wcslcpy")}
+for model in ("static", "pic"):
+    for optimization in ("0", "2"):
+        for family, names in families.items():
+            for name in names:
+                obj = work / (name + "-" + model + optimization + ".o")
+                subprocess.run(base + ["-mrelocation-model", model,
+                    "-O" + optimization, "-emit-obj", "-o", str(obj),
+                    str(libc / "src" / family / (name + ".cpp"))], check=True)
+                symbols = subprocess.check_output(
+                    ["llvm-nm", "--defined-only", "--format=posix", str(obj)], text=True)
+                assert any(line.split()[:2] == [name, "T"]
+                           for line in symbols.splitlines()), symbols

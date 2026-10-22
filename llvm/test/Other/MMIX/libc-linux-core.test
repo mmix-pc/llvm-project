@@ -5,6 +5,7 @@
 # RUN: split-file %S/libc-linux-stack-guard.test %t/crt/lifecycle/guard
 # RUN: split-file %S/libc-linux-process-args.test %t/crt/lifecycle/guard/args
 # RUN: split-file %S/libc-linux-synchronization.test %t/crt/lifecycle/guard/args/sync
+# RUN: split-file %S/libc-linux-text-namespaces.test %t/text
 # RUN: %python %t/run.py %S/../../../../libc %t
 
 #--- selection.cmake
@@ -39,6 +40,7 @@ endforeach()
 #--- run.py
 import pathlib
 import runpy
+import shutil
 import subprocess
 import sys
 
@@ -68,11 +70,16 @@ selection = root / "core.txt"
 run("cmake", "-DLIBC_SOURCE=" + str(libc), "-DOUTPUT=" + str(selection),
     "-P", root / "selection.cmake")
 entries = selection.read_text().splitlines()
-assert len(entries) == len(set(entries)) == 69, entries
+assert len(entries) == len(set(entries)), entries
+assert {"strings/ffs", "strings/ffsl", "strings/ffsll"} <= set(entries), entries
 # Keep the original memory providers, including compiler-emitted memmove in
 # generic qsort's fixed-size swap. Do not replace it with a test helper.
 entries += ["string/" + name for name in ("memcpy", "memmove", "memset", "memcmp", "strlen")]
 headers = crt / "lifecycle/guard/args/headers"
+# stdlib.h imports wait selectors; reuse the isolated UAPI fixture without
+# adding host kernel headers to the target compilation.
+(headers / "linux").mkdir(exist_ok=True)
+shutil.copyfile(root / "text/wait.h", headers / "linux/wait.h")
 for name in ("ctype", "inttypes", "string", "strings", "stdlib", "fenv", "stdio"):
     run(sys.executable, libc / "utils/hdrgen/main.py", "-o", headers / (name + ".h"),
         libc / "include" / (name + ".yaml"))
