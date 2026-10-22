@@ -41,6 +41,20 @@ if(LIBC_TARGET_OS_IS_LINUX)
     )
   endforeach()
   foreach(mode raw cancellable)
+    set(pwrite_options)
+    if(mode STREQUAL "cancellable")
+      list(APPEND pwrite_options -DLIBC_MMIX_CANCELLATION_WINDOWS)
+    endif()
+    add_libc_test(
+      mmix_pwrite_${mode}_test
+      SUITE libc_unistd_unittests
+      SRCS mmix_pwrite_test.cpp
+      COMPILE_OPTIONS ${pwrite_options}
+      DEPENDS
+        libc.hdr.types.struct_iovec
+        libc.src.errno.errno
+        libc.src.__support.OSUtil.osutil
+    )
     set(close_source close.cpp)
     set(close_options
       -include ${CMAKE_CURRENT_SOURCE_DIR}/mmix_close_test_syscall.h)

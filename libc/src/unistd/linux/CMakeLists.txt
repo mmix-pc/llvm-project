@@ -1,10 +1,15 @@
-foreach(name close read write sleep usleep)
+foreach(name close read write pread pwrite sleep usleep)
   set(${name}_source ${name}.cpp)
 endforeach()
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(close_source mmix/close.cpp)
+  set(pwrite_source mmix/pwrite.cpp)
+  set(mmix_pwrite_dependencies libc.hdr.types.struct_iovec)
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    set(mmix_pwrite_options -DLIBC_MMIX_CANCELLATION_WINDOWS)
+  endif()
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
-  mmix_select_cancellation_points(close read write sleep usleep)
+  mmix_select_cancellation_points(close read write pread sleep usleep)
   include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/ProcessOperations.cmake)
 else()
   foreach(name setuid setgid seteuid setegid)
@@ -603,7 +608,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   pread
   SRCS
-    pread.cpp
+    ${pread_source}
   HDRS
     ../pread.h
   DEPENDS
@@ -617,12 +622,14 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.__support.macros.sanitizer
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   pwrite
   SRCS
-    pwrite.cpp
+    ${pwrite_source}
   HDRS
     ../pwrite.h
   DEPENDS
@@ -635,6 +642,9 @@ add_entrypoint_object(
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+    ${mmix_pwrite_dependencies}
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_pwrite_options} ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
