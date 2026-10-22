@@ -116,6 +116,20 @@ add_libc_test(
 )
 
 add_libc_test(
+  posix_madvise_syscall_test
+  SUITE
+    libc_sys_mman_unittests
+  SRCS
+    posix_madvise_syscall_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.sys_mman_macros
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+)
+
+add_libc_test(
   mincore_test
   SUITE
     libc_sys_mman_unittests

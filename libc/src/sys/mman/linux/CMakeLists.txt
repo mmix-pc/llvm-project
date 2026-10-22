@@ -88,6 +88,7 @@ add_entrypoint_object(
   HDRS
     ../posix_madvise.h
   DEPENDS
+    libc.hdr.errno_macros
     libc.hdr.sys_mman_macros
     libc.hdr.types.size_t
     libc.include.sys_syscall

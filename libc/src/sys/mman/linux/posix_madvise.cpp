@@ -8,6 +8,7 @@
 
 #include "src/sys/mman/posix_madvise.h"
 
+#include "hdr/errno_macros.h"
 #include "src/__support/OSUtil/syscall.h" // For internal syscall function.
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
@@ -21,10 +22,18 @@ namespace LIBC_NAMESPACE_DECL {
 // This function is currently linux only. It has to be refactored suitably if
 // posix_madvise is to be supported on non-linux operating systems also.
 LLVM_LIBC_FUNCTION(int, posix_madvise, (void *addr, size_t size, int advice)) {
-  // POSIX_MADV_DONTNEED does nothing because the default MADV_DONTNEED may
-  // cause data loss, which the posix madvise does not allow.
-  if (advice == POSIX_MADV_DONTNEED) {
+  switch (advice) {
+  case POSIX_MADV_NORMAL:
+  case POSIX_MADV_RANDOM:
+  case POSIX_MADV_SEQUENTIAL:
+  case POSIX_MADV_WILLNEED:
+    break;
+  case POSIX_MADV_DONTNEED:
+    // Linux MADV_DONTNEED can discard data; POSIX advice must preserve it.
     return 0;
+  default:
+    // Do not forward Linux-only advice with destructive semantics.
+    return EINVAL;
   }
   int ret = LIBC_NAMESPACE::syscall_impl<int>(
       SYS_madvise, reinterpret_cast<long>(addr), size, advice);
