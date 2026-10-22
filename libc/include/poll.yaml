@@ -30,6 +30,7 @@ types:
 enums: []
 functions:
   - name: poll
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -38,6 +39,7 @@ functions:
       - type: nfds_t
       - type: int
   - name: ppoll
+    noexcept: false
     standards:
       - gnu
     return_type: int

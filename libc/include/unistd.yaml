@@ -154,6 +154,7 @@ functions:
     return_type: long
     arguments: []
   - name: lockf
+    noexcept: false
     standards: [posix]
     return_type: int
     arguments:

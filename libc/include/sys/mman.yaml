@@ -87,6 +87,7 @@ functions:
       - type: size_t
       - type: int
   - name: msync
+    noexcept: false
     standards:
       - posix
     return_type: int

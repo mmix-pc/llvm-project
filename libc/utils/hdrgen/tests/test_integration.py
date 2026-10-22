@@ -319,6 +319,14 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("int usleep(useconds_t);", content)
         self.assertIn("int getpid(void) __NOEXCEPT;", content)
 
+    def test_poll_exception_specifications(self):
+        output = self.output_dir / "poll.h"
+        self.run_script(self.source_dir.parents[2] / "include/poll.yaml",
+                        output, ["poll", "ppoll"])
+        content = output.read_text()
+        self.assertIn("int poll(struct pollfd *, nfds_t, int);", content)
+        self.assertIn("int ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *);", content)
+
     def test_signal_handler_exception_specification(self):
         output = self.output_dir / "signal.h"
         self.run_script(self.source_dir.parents[2] / "include/signal.yaml",
@@ -329,6 +337,19 @@ class TestHeaderGenIntegration(unittest.TestCase):
             "__signal_handler_t signal(int, __signal_handler_t) __NOEXCEPT;",
             content,
         )
+
+    def test_file_wait_exception_specifications(self):
+        for header, function, declaration in (
+            ("fcntl", "fcntl", "int fcntl(int, int, ...);"),
+            ("unistd", "lockf", "int lockf(int, int, off_t);"),
+            ("sys/mman", "msync", "int msync(void *, size_t, int);"),
+        ):
+            with self.subTest(function=function):
+                output = self.output_dir / (function + "-exception.h")
+                self.run_script(self.source_dir.parents[2] /
+                                ("include/" + header + ".yaml"), output,
+                                [function])
+                self.assertIn(declaration, output.read_text())
 
     def test_invalid_exception_specification(self):
         yaml_file = self.output_dir / "invalid-noexcept.yaml"

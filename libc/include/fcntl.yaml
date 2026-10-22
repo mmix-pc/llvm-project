@@ -79,6 +79,7 @@ functions:
       - type: const char *
       - type: mode_t
   - name: fcntl
+    noexcept: false
     standards:
       - posix
     return_type: int
