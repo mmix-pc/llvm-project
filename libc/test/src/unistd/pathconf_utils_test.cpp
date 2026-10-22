@@ -10,9 +10,27 @@
 #include "hdr/unistd_macros.h"
 #include "src/unistd/linux/pathconf_utils.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
+#include <linux/limits.h>
 #include <linux/magic.h>
 
 using LlvmLibcPathconfUtilsTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
+
+TEST_F(LlvmLibcPathconfUtilsTest, LinuxLimitsPreserveErrno) {
+  struct statfs s = {};
+  const struct {
+    int name;
+    long value;
+  } cases[] = {{_PC_PATH_MAX, PATH_MAX},
+               {_PC_PIPE_BUF, PIPE_BUF},
+               {_PC_MAX_CANON, MAX_CANON},
+               {_PC_MAX_INPUT, MAX_INPUT}};
+  for (const auto &test : cases) {
+    libc_errno = EDOM;
+    EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, test.name), test.value);
+    EXPECT_EQ(int(libc_errno), EDOM);
+  }
+  libc_errno = 0;
+}
 
 TEST_F(LlvmLibcPathconfUtilsTest, ResolutionConversion) {
   constexpr unsigned long long values[] = {
@@ -27,6 +45,21 @@ TEST_F(LlvmLibcPathconfUtilsTest, ResolutionConversion) {
                 static_cast<unsigned long long>(LONG_MAX) + 1),
             -1L);
   EXPECT_EQ(int(libc_errno), EOVERFLOW);
+  libc_errno = 0;
+}
+
+TEST_F(LlvmLibcPathconfUtilsTest, UnavailableProviders) {
+  struct statfs s = {};
+#ifdef _PC_FALLOC
+  libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, _PC_FALLOC), -1L);
+  EXPECT_EQ(int(libc_errno), EDOM);
+#endif
+#ifdef _PC_TEXTDOMAIN_MAX
+  libc_errno = 0;
+  EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, _PC_TEXTDOMAIN_MAX), -1L);
+  EXPECT_EQ(int(libc_errno), ENOTSUP);
+#endif
   libc_errno = 0;
 }
 

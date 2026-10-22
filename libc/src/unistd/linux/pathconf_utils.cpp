@@ -119,19 +119,19 @@ long pathconfig(const struct statfs &s, int name) {
     return s.f_frsize;
 
   case _PC_MAX_CANON:
-    return _POSIX_MAX_CANON;
+    return MAX_CANON;
 
   case _PC_MAX_INPUT:
-    return _POSIX_MAX_INPUT;
+    return MAX_INPUT;
 
   case _PC_NAME_MAX:
     return s.f_namelen;
 
   case _PC_PATH_MAX:
-    return _POSIX_PATH_MAX;
+    return PATH_MAX;
 
   case _PC_PIPE_BUF:
-    return _POSIX_PIPE_BUF;
+    return PIPE_BUF;
 
   case _PC_CHOWN_RESTRICTED:
     return _POSIX_CHOWN_RESTRICTED;
@@ -145,6 +145,18 @@ long pathconfig(const struct statfs &s, int name) {
 #ifdef _PC_TIMESTAMP_RESOLUTION
   case _PC_TIMESTAMP_RESOLUTION:
     return timestamp_resolution(s);
+#endif
+
+#ifdef _PC_FALLOC
+  case _PC_FALLOC:
+    // FIXME: Reconcile per-file support when posix_fallocate is provided.
+    return -1;
+#endif
+#ifdef _PC_TEXTDOMAIN_MAX
+  case _PC_TEXTDOMAIN_MAX:
+    // FIXME: Establish the catalog filename limit with the gettext provider.
+    libc_errno = ENOTSUP;
+    return -1;
 #endif
 
   case _PC_ASYNC_IO:
