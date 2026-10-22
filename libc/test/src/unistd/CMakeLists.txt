@@ -958,6 +958,31 @@ add_libc_test(
     libc.test.UnitTest.ErrnoCheckingTest
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    lockf_syscall_test
+    SUITE libc_unistd_unittests
+    SRCS lockf_syscall_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros libc.hdr.fcntl_macros
+      libc.hdr.unistd_macros libc.hdr.types.off_t
+      libc.hdr.types.struct_flock libc.src.__support.CPP.limits
+      libc.src.errno.errno
+  )
+  add_libc_test(
+    lockf_test
+    SUITE libc_unistd_unittests
+    SRCS lockf_test.cpp ${LIBC_SOURCE_DIR}/src/unistd/lockf.cpp
+    DEPENDS
+      libc.hdr.errno_macros libc.hdr.fcntl_macros
+      libc.hdr.unistd_macros libc.hdr.sys_stat_macros
+      libc.hdr.types.struct_flock libc.src.errno.errno
+      libc.src.fcntl.fcntl libc.src.fcntl.open
+      libc.src.unistd.getpid libc.src.unistd.close
+      libc.src.unistd.lseek libc.src.unistd.unlink
+  )
+endif()
+
 add_libc_test(
   pathconf_test
   SUITE

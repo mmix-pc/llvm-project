@@ -19,6 +19,25 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_entrypoint_object(
+    lockf
+    SRCS lockf.cpp
+    HDRS lockf.h
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.hdr.stdio_macros
+      libc.hdr.unistd_macros
+      libc.hdr.types.off_t
+      libc.hdr.types.struct_flock
+      libc.src.errno.errno
+      libc.src.fcntl.fcntl
+      .getpid
+    COMPILE_OPTIONS -fexceptions -funwind-tables
+  )
+endif()
+
 add_entrypoint_object(
   alarm
   ALIAS
