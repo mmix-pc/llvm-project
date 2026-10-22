@@ -76,3 +76,18 @@ add_entrypoint_object(
     ${mmix_cancellation_dependency}
   COMPILE_OPTIONS ${mmix_cancellation_options}
 )
+if(LIBC_TARGET_ARCHITECTURE MATCHES "^(mmix|x86_64)$")
+  foreach(name IN ITEMS posix_fallocate posix_fadvise)
+    add_entrypoint_object(
+      ${name}
+      SRCS ${name}.cpp
+      HDRS ../${name}.h
+      DEPENDS
+        libc.hdr.errno_macros
+        libc.hdr.types.off_t
+        libc.include.sys_syscall
+        libc.src.__support.CPP.limits
+        libc.src.__support.OSUtil.osutil
+    )
+  endforeach()
+endif()

@@ -89,3 +89,29 @@ add_libc_test(
     libc.test.UnitTest.ErrnoCheckingTest
     libc.test.UnitTest.ErrnoSetterMatcher
 )
+if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE MATCHES "^(mmix|x86_64)$")
+  foreach(name IN ITEMS posix_fallocate posix_fadvise)
+    add_libc_test(
+      ${name}_syscall_test
+      SUITE libc_fcntl_unittests
+      SRCS ${name}_syscall_test.cpp
+      DEPENDS
+        libc.hdr.errno_macros libc.hdr.types.off_t
+        libc.include.sys_syscall libc.src.__support.CPP.limits
+        libc.src.__support.OSUtil.osutil libc.src.errno.errno
+    )
+    add_libc_test(
+      ${name}_test
+      SUITE libc_fcntl_unittests
+      SRCS ${name}_test.cpp ${LIBC_SOURCE_DIR}/src/fcntl/linux/${name}.cpp
+      DEPENDS
+        libc.hdr.errno_macros libc.hdr.fcntl_macros libc.hdr.stdio_macros
+        libc.hdr.sys_stat_macros libc.hdr.types.off_t
+        libc.include.sys_syscall libc.src.__support.CPP.limits
+        libc.src.__support.OSUtil.osutil libc.src.errno.errno
+        libc.src.fcntl.open libc.src.sys.stat.fstat
+        libc.src.unistd.close libc.src.unistd.lseek libc.src.unistd.pipe
+        libc.src.unistd.pread libc.src.unistd.write libc.src.unistd.unlink
+    )
+  endforeach()
+endif()
