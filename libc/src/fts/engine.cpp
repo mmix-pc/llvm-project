@@ -48,13 +48,16 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace fts {
 #define _DIAGASSERT LIBC_ASSERT
+#ifdef errno
+#undef errno
+#endif
 #define errno libc_errno
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MAXPATHLEN 1024
 #define __fts_stat_t struct stat
 #define __fts_ino_t ino_t
 static FTSENT *fts_alloc(FTS *, const char *, size_t);
-static FTSENT *fts_build(FTS *, int);
+static FTSENT *fts_build(FTS *, int, WalkPolicy);
 static void fts_free(FTSENT *);
 static void fts_lfree(FTSENT *);
 static void fts_load(FTS *, FTSENT *);
@@ -63,7 +66,7 @@ static size_t fts_pow2(size_t);
 static int fts_palloc(FTS *, size_t);
 static void fts_padjust(FTS *, FTSENT *);
 static FTSENT *fts_sort(FTS *, FTSENT *, size_t);
-static unsigned short fts_stat(FTS *, FTSENT *, int);
+static unsigned short fts_stat(FTS *, FTSENT *, int, WalkPolicy);
 static int fts_safe_changedir(const FTS *, const FTSENT *, int, const char *);
 
 #define ISDOT(a) (a[0] == '.' && (!a[1] || (a[1] == '.' && !a[2])))
@@ -79,8 +82,14 @@ static int fts_safe_changedir(const FTS *, const FTSENT *, int, const char *);
 #define BNAMES 2 /* fts_children, names only */
 #define BREAD 3  /* fts_read */
 
+static bool nftw_options(int options) {
+  return (options & (FTS_NOCHDIR | FTS_LOGICAL)) &&
+         !(options & (FTS_NOSTAT | FTS_SEEDOT));
+}
+
 FTS *walk_open(char *const *argv, int options,
-               int (*compar)(const FTSENT **, const FTSENT **)) {
+              int (*compar)(const FTSENT **, const FTSENT **),
+              WalkPolicy policy) {
   FTS *sp;
   FTSENT *p, *root;
   size_t nitems;
@@ -89,7 +98,8 @@ FTS *walk_open(char *const *argv, int options,
 
   /* Options check. */
   if (!argv || !*argv || options & ~FTS_OPTIONMASK ||
-      !!(options & FTS_LOGICAL) == !!(options & FTS_PHYSICAL)) {
+      !!(options & FTS_LOGICAL) == !!(options & FTS_PHYSICAL) ||
+      (policy == WalkPolicy::Nftw && !nftw_options(options))) {
     errno = EINVAL;
     return (NULL);
   }
@@ -129,7 +139,14 @@ FTS *walk_open(char *const *argv, int options,
     p->fts_level = FTS_ROOTLEVEL;
     p->fts_parent = parent;
     p->fts_accpath = p->fts_name;
-    p->fts_info = fts_stat(sp, p, ISSET(FTS_COMFOLLOW));
+    p->fts_info = fts_stat(sp, p, ISSET(FTS_COMFOLLOW), policy);
+    if (policy == WalkPolicy::Nftw && p->fts_info == FTS_ERR) {
+      // This root has not joined the owned root list yet.
+      int error = p->fts_errno;
+      fts_free(p);
+      errno = error;
+      goto mem3;
+    }
 
     /* Command-line "." and ".." are real directories. */
     if (p->fts_info == FTS_DOT)
@@ -273,13 +290,29 @@ int walk_close(FTS *sp) {
 #define NAPPEND(p)                                                             \
   (p->fts_path[p->fts_pathlen - 1] == '/' ? p->fts_pathlen - 1 : p->fts_pathlen)
 
-FTSENT *walk_read(FTS *sp) {
+static bool stop_on_stat_error(FTS *sp, FTSENT *p, WalkPolicy policy) {
+  if (policy != WalkPolicy::Nftw || p->fts_info != FTS_ERR)
+    return false;
+  // A pending child may have just become current; keep its siblings and
+  // ancestors reachable by walk_close before stopping.
+  sp->fts_cur = p;
+  SET(FTS_STOP);
+  errno = p->fts_errno;
+  return true;
+}
+
+FTSENT *walk_read(FTS *sp, WalkPolicy policy) {
   FTSENT *p, *tmp;
   int instr;
   char *t;
   int saved_errno;
 
   _DIAGASSERT(sp != NULL);
+
+  if (policy == WalkPolicy::Nftw && !nftw_options(sp->fts_options)) {
+    errno = EINVAL;
+    return NULL;
+  }
 
   /* If finished or unrecoverable error, return NULL. */
   if (sp->fts_cur == NULL || ISSET(FTS_STOP))
@@ -294,7 +327,9 @@ FTSENT *walk_read(FTS *sp) {
 
   /* Any type of file may be re-visited; re-stat and re-turn. */
   if (instr == FTS_AGAIN) {
-    p->fts_info = fts_stat(sp, p, 0);
+    p->fts_info = fts_stat(sp, p, 0, policy);
+    if (stop_on_stat_error(sp, p, policy))
+      return NULL;
     return (p);
   }
 
@@ -306,7 +341,9 @@ FTSENT *walk_read(FTS *sp) {
    */
   if (instr == FTS_FOLLOW &&
       (p->fts_info == FTS_SL || p->fts_info == FTS_SLNONE)) {
-    p->fts_info = fts_stat(sp, p, 1);
+    p->fts_info = fts_stat(sp, p, 1, policy);
+    if (stop_on_stat_error(sp, p, policy))
+      return NULL;
     if (p->fts_info == FTS_D && !ISSET(FTS_NOCHDIR)) {
       if ((p->fts_symfd = open(".", O_RDONLY | O_CLOEXEC, 0)) == -1) {
         p->fts_errno = errno;
@@ -359,7 +396,7 @@ FTSENT *walk_read(FTS *sp) {
         for (p = sp->fts_child; p; p = p->fts_link)
           p->fts_accpath = p->fts_parent->fts_accpath;
       }
-    } else if ((sp->fts_child = fts_build(sp, BREAD)) == NULL) {
+    } else if ((sp->fts_child = fts_build(sp, BREAD, policy)) == NULL) {
       if (ISSET(FTS_STOP))
         return (NULL);
       return (p);
@@ -404,7 +441,9 @@ next:
       t = sp->fts_path + NAPPEND(p->fts_parent);
       *t++ = '/';
       memmove(t, p->fts_name, p->fts_namelen + 1);
-      p->fts_info = fts_stat(sp, p, 1);
+      p->fts_info = fts_stat(sp, p, 1, policy);
+      if (stop_on_stat_error(sp, p, policy))
+        return NULL;
       if (p->fts_info == FTS_D && !ISSET(FTS_NOCHDIR)) {
         if ((p->fts_symfd = open(".", O_RDONLY | O_CLOEXEC, 0)) == -1) {
           p->fts_errno = errno;
@@ -467,6 +506,45 @@ next:
   }
   p->fts_info = p->fts_errno ? FTS_ERR : FTS_DP;
   return (sp->fts_cur = p);
+}
+
+PrepareResult walk_prepare_directory(FTS *sp, WalkPolicy policy) {
+  _DIAGASSERT(sp != NULL);
+  FTSENT *cur = sp->fts_cur;
+  if (!ISSET(FTS_NOCHDIR) || ISSET(FTS_NOSTAT | FTS_NAMEONLY | FTS_STOP) ||
+      (policy == WalkPolicy::Nftw && !nftw_options(sp->fts_options)) || !cur ||
+      cur->fts_info != FTS_D || sp->fts_child ||
+      (cur->fts_instr != 0 && cur->fts_instr != FTS_NOINSTR) ||
+      (ISSET(FTS_XDEV) && cur->fts_dev != sp->fts_dev)) {
+    errno = EINVAL;
+    return PrepareResult::Error;
+  }
+
+  // BREAD transfers a complete list to the stream, or retires the entire
+  // partial list on failure. DP/DNR encode terminal preparation outcomes so
+  // the next read advances past this entry instead of reopening it.
+  size_t pathlen = cur->fts_pathlen;
+  char last = sp->fts_path[pathlen - 1];
+  errno = 0;
+  sp->fts_child = fts_build(sp, BREAD, policy);
+  int error = errno;
+  // fts_build can both reallocate the path and erase its trailing slash.
+  sp->fts_path[pathlen - 1] = last;
+  sp->fts_path[pathlen] = '\0';
+
+  if (ISSET(FTS_STOP) || cur->fts_info == FTS_DNR) {
+    if (!ISSET(FTS_STOP) && cur->fts_errno == EACCES) {
+      errno = EACCES;
+      return PrepareResult::Unreadable;
+    }
+    cur->fts_info = FTS_ERR;
+    cur->fts_errno = error;
+    SET(FTS_STOP);
+    errno = error;
+    return PrepareResult::Error;
+  }
+  errno = 0;
+  return sp->fts_child ? PrepareResult::Ready : PrepareResult::Empty;
 }
 
 /*
@@ -549,11 +627,11 @@ FTSENT *walk_children(FTS *sp, int instr) {
    */
   if (p->fts_level != FTS_ROOTLEVEL || p->fts_accpath[0] == '/' ||
       ISSET(FTS_NOCHDIR))
-    return (sp->fts_child = fts_build(sp, instr));
+    return (sp->fts_child = fts_build(sp, instr, WalkPolicy::Fts));
 
   if ((fd = open(".", O_RDONLY | O_CLOEXEC, 0)) == -1)
     return (sp->fts_child = NULL);
-  sp->fts_child = fts_build(sp, instr);
+  sp->fts_child = fts_build(sp, instr, WalkPolicy::Fts);
   if (fchdir(fd)) {
     int saved_errno = errno;
     (void)close(fd);
@@ -574,7 +652,7 @@ FTSENT *walk_children(FTS *sp, int instr) {
  * Unknown entries still require stat; directory link counts are not reliable
  * on all Linux filesystems.
  */
-static FTSENT *fts_build(FTS *sp, int type) {
+static FTSENT *fts_build(FTS *sp, int type, WalkPolicy policy) {
   struct dirent *dp;
   FTSENT *p, *head;
   size_t nitems;
@@ -599,6 +677,10 @@ static FTSENT *fts_build(FTS *sp, int type) {
     if (type == BREAD) {
       cur->fts_info = FTS_DNR;
       cur->fts_errno = errno;
+      if (policy == WalkPolicy::Nftw && errno != EACCES) {
+        cur->fts_info = FTS_ERR;
+        SET(FTS_STOP);
+      }
     }
     return (NULL);
   }
@@ -668,6 +750,8 @@ static FTSENT *fts_build(FTS *sp, int type) {
   if (cur->fts_level == INT_MAX) {
     closedir(dirp);
     cur->fts_info = FTS_ERR;
+    if (policy == WalkPolicy::Nftw)
+      cur->fts_errno = EOVERFLOW;
     SET(FTS_STOP);
     errno = EOVERFLOW;
     return NULL;
@@ -699,6 +783,8 @@ static FTSENT *fts_build(FTS *sp, int type) {
         (void)closedir(dirp);
         errno = saved_errno;
         cur->fts_info = FTS_ERR;
+        if (policy == WalkPolicy::Nftw)
+          cur->fts_errno = saved_errno;
         SET(FTS_STOP);
         return (NULL);
       }
@@ -739,7 +825,13 @@ static FTSENT *fts_build(FTS *sp, int type) {
       } else
         p->fts_accpath = p->fts_name;
       /* Stat it. */
-      p->fts_info = fts_stat(sp, p, 0);
+      p->fts_info = fts_stat(sp, p, 0, policy);
+      if (policy == WalkPolicy::Nftw && p->fts_info == FTS_ERR) {
+        // Do not queue a fatal stat error behind callbacks for other entries.
+        // p is not linked yet; mem1 owns it and the accumulated sibling list.
+        errno = p->fts_errno;
+        goto mem1;
+      }
     }
 
     /* We walk in directory order so "ls -f" doesn't get upset. */
@@ -803,7 +895,8 @@ static FTSENT *fts_build(FTS *sp, int type) {
   return (head);
 }
 
-static unsigned short fts_stat(FTS *sp, FTSENT *p, int follow) {
+static unsigned short fts_stat(FTS *sp, FTSENT *p, int follow,
+                              WalkPolicy policy) {
   FTSENT *t;
   dev_t dev;
   __fts_ino_t ino;
@@ -824,19 +917,25 @@ static unsigned short fts_stat(FTS *sp, FTSENT *p, int follow) {
    * fail, set the errno from the stat call.
    */
   if (ISSET(FTS_LOGICAL) || follow) {
-    if (stat(p->fts_accpath, sbp)) {
+    if (fts::stat(p->fts_accpath, sbp)) {
       saved_errno = errno;
-      if (!lstat(p->fts_accpath, sbp) && S_ISLNK(sbp->st_mode)) {
+      if ((policy == WalkPolicy::Fts || saved_errno == ENOENT) &&
+          !fts::lstat(p->fts_accpath, sbp) && S_ISLNK(sbp->st_mode)) {
         errno = 0;
         return (FTS_SLNONE);
       }
       p->fts_errno = saved_errno;
       goto err;
     }
-  } else if (lstat(p->fts_accpath, sbp)) {
+  } else if (fts::lstat(p->fts_accpath, sbp)) {
     p->fts_errno = errno;
   err:
     memset(sbp, 0, sizeof(*sbp));
+    if (policy == WalkPolicy::Nftw) {
+      errno = p->fts_errno;
+      if (p->fts_errno != EACCES)
+        return FTS_ERR;
+    }
     return (FTS_NS);
   }
 
@@ -1061,7 +1160,7 @@ static int fts_safe_changedir(const FTS *sp, const FTSENT *p, int fd,
   if (oldfd < 0 && (fd = open(path, O_RDONLY | O_CLOEXEC)) == -1)
     return -1;
 
-  if (fstat(fd, &sb) == -1)
+  if (fts::fstat(fd, &sb) == -1)
     goto bail;
 
   if (sb.st_ino != p->fts_ino || sb.st_dev != p->fts_dev) {
