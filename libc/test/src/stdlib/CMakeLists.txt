@@ -452,6 +452,25 @@ add_libc_test(
     libc.test.UnitTest.ErrnoCheckingTest
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    mkostemp_test
+    SUITE libc-stdlib-tests
+    SRCS mkostemp_test.cpp ${LIBC_SOURCE_DIR}/src/stdlib/mkostemp.cpp
+    DEPENDS
+      libc.src.stdlib.mkstemp_impl libc.src.errno.errno
+      libc.hdr.stdio_macros libc.src.fcntl.fcntl libc.src.sys.stat.fstat
+      libc.src.unistd.close libc.src.unistd.lseek libc.src.unistd.pread
+      libc.src.unistd.write libc.src.unistd.unlink
+  )
+  add_libc_test(
+    mkostemp_syscall_test
+    SUITE libc-stdlib-tests
+    SRCS mkostemp_syscall_test.cpp
+    DEPENDS libc.src.stdlib.mkstemp_impl libc.src.errno.errno
+  )
+endif()
+
 add_libc_test(
   mkstemp_test
   SUITE

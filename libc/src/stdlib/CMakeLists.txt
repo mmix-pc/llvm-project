@@ -431,15 +431,13 @@ add_entrypoint_object(
     libc.src.__support.macros.null_check
 )
 
-add_entrypoint_object(
-  mkstemp
-  SRCS
-    mkstemp.cpp
-  HDRS
-    mkstemp.h
+add_header_library(
+  mkstemp_impl
+  HDRS mkstemp_impl.h
   DEPENDS
     libc.hdr.errno_macros
     libc.hdr.fcntl_macros
+    libc.src.__support.CPP.string_view
     libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
     libc.src.__support.OSUtil.linux.syscall_wrappers.open
     libc.src.__support.common
@@ -447,6 +445,15 @@ add_entrypoint_object(
     libc.src.__support.macros.config
     libc.src.__support.macros.null_check
 )
+
+foreach(name mkstemp mkostemp)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .mkstemp_impl
+  )
+endforeach()
 
 add_entrypoint_object(
   mbtowc
