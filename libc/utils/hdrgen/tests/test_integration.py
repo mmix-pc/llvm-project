@@ -319,6 +319,17 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("int usleep(useconds_t);", content)
         self.assertIn("int getpid(void) __NOEXCEPT;", content)
 
+    def test_signal_handler_exception_specification(self):
+        output = self.output_dir / "signal.h"
+        self.run_script(self.source_dir.parents[2] / "include/signal.yaml",
+                        output, ["signal"])
+        content = output.read_text()
+        self.assertIn('#include "llvm-libc-types/__signal_handler_t.h"', content)
+        self.assertIn(
+            "__signal_handler_t signal(int, __signal_handler_t) __NOEXCEPT;",
+            content,
+        )
+
     def test_invalid_exception_specification(self):
         yaml_file = self.output_dir / "invalid-noexcept.yaml"
         yaml_file.write_text((self.source_dir / "input/noexcept.yaml").read_text()

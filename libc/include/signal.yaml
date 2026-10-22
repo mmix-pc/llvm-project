@@ -119,15 +119,11 @@ functions:
   - name: signal
     standards:
       - stdc
-    # May the Geneva Convention have mercy on my soul... Why this insanity?
-    # Well: signal returns a function pointer to a function with no return
-    # value and which accepts an int. The parameter list appears on the far
-    # right of the declaration. i.e.
-    # void (*signal(int, void (*)(int)))(int);
-    return_type: void (*
+    # Keep the exception specification on signal, not on the returned handler.
+    return_type: __signal_handler_t
     arguments:
       - type: int
-      - type: void (*)(int)))(int
+      - type: __signal_handler_t
   - name: sigprocmask
     standards:
       - posix
