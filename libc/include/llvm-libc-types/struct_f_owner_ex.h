@@ -11,14 +11,14 @@
 
 #include "pid_t.h"
 
-enum pid_type {
-  F_OWNER_TID = 0,
-  F_OWNER_PID,
-  F_OWNER_PGRP,
-};
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
+#define F_OWNER_TID 0
+#endif
+#define F_OWNER_PID 1
+#define F_OWNER_PGRP 2
 
 struct f_owner_ex {
-  enum pid_type type;
+  int type;
   pid_t pid;
 };
 

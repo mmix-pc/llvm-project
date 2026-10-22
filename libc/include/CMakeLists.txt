@@ -97,6 +97,14 @@ add_header_macro(
 )
 
 add_header_macro(
+  tar
+  ../libc/include/tar.yaml
+  tar.h
+  DEPENDS
+    .llvm_libc_common_h
+)
+
+add_header_macro(
   dirent
   ../libc/include/dirent.yaml
   dirent.h
@@ -842,6 +850,7 @@ add_header_macro(
   DEPENDS
     .llvm_libc_common_h
     .llvm-libc-macros.sys_mman_macros
+    .llvm-libc-macros.fcntl_macros
     .llvm-libc-types.mode_t
     .llvm-libc-types.off_t
     .llvm-libc-types.size_t
@@ -968,6 +977,17 @@ add_header_macro(
     .llvm-libc-types.blksize_t
     .llvm-libc-types.blkcnt_t
     .llvm-libc-types.struct_stat
+)
+
+add_header_macro(
+  ftw
+  ../libc/include/ftw.yaml
+  ftw.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-types.struct_FTW
+    .llvm-libc-types.__nftw_func_t
+    .sys_stat
 )
 
 add_header_macro(
@@ -1113,6 +1133,10 @@ add_header_macro(
     .llvm-libc-types.blksize_t
     .llvm-libc-types.caddr_t
     .llvm-libc-types.clockid_t
+    .llvm-libc-types.clock_t
+    .llvm-libc-types.fsblkcnt_t
+    .llvm-libc-types.fsfilcnt_t
+    .llvm-libc-types.reclen_t
     .llvm-libc-types.dev_t
     .llvm-libc-types.gid_t
     .llvm-libc-types.id_t
@@ -1127,6 +1151,9 @@ add_header_macro(
     .llvm-libc-types.pid_t
     .llvm-libc-types.pthread_attr_t
     .llvm-libc-types.pthread_cond_t
+    .llvm-libc-types.pthread_barrier_t
+    .llvm-libc-types.pthread_barrierattr_t
+    .llvm-libc-types.pthread_spinlock_t
     .llvm-libc-types.pthread_condattr_t
     .llvm-libc-types.pthread_key_t
     .llvm-libc-types.pthread_mutex_t
@@ -1180,6 +1207,7 @@ add_header_macro(
     .llvm_libc_common_h
     .llvm-libc-types.struct_iovec
     .llvm-libc-types.ssize_t
+    .llvm-libc-types.size_t
 )
 
 add_header_macro(

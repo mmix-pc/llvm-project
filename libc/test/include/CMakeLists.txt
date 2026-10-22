@@ -44,6 +44,18 @@ add_libc_test(
 )
 
 if(LIBC_TARGET_OS_IS_LINUX)
+  foreach(language IN ITEMS c cpp)
+    add_libc_test(
+      filesystem_types_${language}_test
+      C_TEST
+      SUITE libc_include_tests
+      SRCS filesystem_types_test.${language}
+      HDRS filesystem_types_test.h
+      DEPENDS libc.include.llvm-libc-types.struct_FTW
+              libc.include.llvm-libc-types.struct_f_owner_ex
+              libc.include.llvm-libc-macros.fcntl_macros
+    )
+  endforeach()
   foreach(mode default largefile64 file_offset64)
     set(fcntl_macro_options -std=c17 -pedantic-errors)
     if(mode STREQUAL "largefile64")

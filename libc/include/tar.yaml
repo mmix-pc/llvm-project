@@ -1,0 +1,53 @@
+header: tar.h
+standards: [posix]
+macros:
+  - macro_name: TMAGIC
+    macro_value: '"ustar"'
+  - macro_name: TMAGLEN
+    macro_value: '6'
+  - macro_name: TVERSION
+    macro_value: '"00"'
+  - macro_name: TVERSLEN
+    macro_value: '2'
+  - macro_name: REGTYPE
+    macro_value: "'0'"
+  - macro_name: AREGTYPE
+    macro_value: "'\\0'"
+  - macro_name: LNKTYPE
+    macro_value: "'1'"
+  - macro_name: SYMTYPE
+    macro_value: "'2'"
+  - macro_name: CHRTYPE
+    macro_value: "'3'"
+  - macro_name: BLKTYPE
+    macro_value: "'4'"
+  - macro_name: DIRTYPE
+    macro_value: "'5'"
+  - macro_name: FIFOTYPE
+    macro_value: "'6'"
+  - macro_name: CONTTYPE
+    macro_value: "'7'"
+  - macro_name: TSUID
+    macro_value: '04000'
+  - macro_name: TSGID
+    macro_value: '02000'
+  - macro_name: TSVTX
+    macro_value: '01000'
+  - macro_name: TUREAD
+    macro_value: '00400'
+  - macro_name: TUWRITE
+    macro_value: '00200'
+  - macro_name: TUEXEC
+    macro_value: '00100'
+  - macro_name: TGREAD
+    macro_value: '00040'
+  - macro_name: TGWRITE
+    macro_value: '00020'
+  - macro_name: TGEXEC
+    macro_value: '00010'
+  - macro_name: TOREAD
+    macro_value: '00004'
+  - macro_name: TOWRITE
+    macro_value: '00002'
+  - macro_name: TOEXEC
+    macro_value: '00001'

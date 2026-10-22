@@ -1,0 +1,47 @@
+header: ftw.h
+standards: [posix]
+public_includes: [sys/stat.h]
+macros:
+  - macro_name: FTW_F
+    macro_value: '0'
+  - macro_name: FTW_D
+    macro_value: '1'
+  - macro_name: FTW_DNR
+    macro_value: '2'
+  - macro_name: FTW_NS
+    macro_value: '3'
+  - macro_name: FTW_SL
+    macro_value: '4'
+  - macro_name: FTW_DP
+    macro_value: '5'
+  - macro_name: FTW_SLN
+    macro_value: '6'
+  - macro_name: FTW_PHYS
+    macro_value: '1'
+  - macro_name: FTW_MOUNT
+    macro_value: '2'
+  - macro_name: FTW_CHDIR
+    macro_value: '4'
+  - macro_name: FTW_DEPTH
+    macro_value: '8'
+  - macro_name: FTW_XDEV
+    macro_value: '16'
+types:
+  - type_name: struct_FTW
+  - type_name: __nftw_func_t
+functions:
+  - name: nftw
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: __nftw_func_t
+      - type: int
+      - type: int
+  - name: ftw
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: int (*)(const char *, const struct stat *, int)
+      - type: int

@@ -2,6 +2,7 @@ header: sys/uio.h
 standards:
   - posix
 types:
+  - type_name: size_t
   - type_name: struct_iovec
   - type_name: ssize_t
 functions:

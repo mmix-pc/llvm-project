@@ -14,7 +14,19 @@ types:
 enums: []
 objects: []
 functions:
+  - name: pselect
+    noexcept: false
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: int
+      - type: fd_set *__restrict
+      - type: fd_set *__restrict
+      - type: fd_set *__restrict
+      - type: const struct timespec *__restrict
+      - type: const sigset_t *__restrict
   - name: select
+    noexcept: false
     standards:
       - posix
     return_type: int

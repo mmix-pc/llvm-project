@@ -28,6 +28,10 @@
 #define MAP_FAILED ((void *)-1)
 #endif
 
+#ifndef MAP_ANON
+#define MAP_ANON MAP_ANONYMOUS
+#endif
+
 // Posix memory advise flags. (posix_madvise)
 #ifndef POSIX_MADV_NORMAL
 #define POSIX_MADV_NORMAL MADV_NORMAL

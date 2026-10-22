@@ -2,6 +2,13 @@ header: sys/types.h
 standards:
   - posix
 types:
+  - type_name: clock_t
+  - type_name: fsblkcnt_t
+  - type_name: fsfilcnt_t
+  - type_name: reclen_t
+  - type_name: pthread_barrier_t
+  - type_name: pthread_barrierattr_t
+  - type_name: pthread_spinlock_t
   - type_name: blkcnt_t
   - type_name: blksize_t
   - type_name: caddr_t
