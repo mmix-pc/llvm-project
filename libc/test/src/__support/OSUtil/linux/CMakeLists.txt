@@ -3,6 +3,15 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_ARCHITECTURE})
 endif()
 
 add_libc_test(
+  rt_sigprocmask_test
+  SUITE libc-osutil-tests
+  SRCS rt_sigprocmask_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
+)
+
+add_libc_test(
   sysinfo_test
   SUITE libc-osutil-tests
   SRCS sysinfo_test.cpp

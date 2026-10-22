@@ -14,6 +14,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_OSUTIL_SYSCALL_WRAPPERS_RT_SIGPROCMASK_H
 #define LLVM_LIBC_SRC___SUPPORT_OSUTIL_SYSCALL_WRAPPERS_RT_SIGPROCMASK_H
 
+#include "hdr/signal_macros.h"
 #include "hdr/types/sigset_t.h"
 #include "src/__support/OSUtil/linux/syscall.h" // For syscall_checked
 #include "src/__support/common.h"
@@ -25,9 +26,18 @@ namespace LIBC_NAMESPACE_DECL {
 namespace linux_syscalls {
 
 LIBC_INLINE ErrorOr<int> rt_sigprocmask(int how, const sigset_t *set,
-                                        sigset_t *oldset) {
-  return syscall_checked<int>(SYS_rt_sigprocmask, how, set, oldset,
-                              sizeof(sigset_t));
+                                      sigset_t *oldset) {
+  // Public sigset_t may reserve more storage than the Linux kernel mask.
+  constexpr unsigned long WORD_BITS = sizeof(unsigned long) * 8;
+  constexpr unsigned long KERNEL_SIZE =
+      ((NSIG - 1 + WORD_BITS - 1) / WORD_BITS) * sizeof(unsigned long);
+  static_assert(sizeof(sigset_t) >= KERNEL_SIZE);
+  auto result = syscall_checked<int>(SYS_rt_sigprocmask, how, set, oldset,
+                                    KERNEL_SIZE);
+  if (result && oldset)
+    __builtin_memset(reinterpret_cast<unsigned char *>(oldset) + KERNEL_SIZE,
+                     0, sizeof(sigset_t) - KERNEL_SIZE);
+  return result;
 }
 
 } // namespace linux_syscalls

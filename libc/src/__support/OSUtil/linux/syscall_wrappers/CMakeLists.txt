@@ -395,6 +395,7 @@ add_header_library(
   HDRS
     rt_sigprocmask.h
   DEPENDS
+    libc.hdr.signal_macros
     libc.src.__support.OSUtil.osutil
     libc.src.__support.common
     libc.src.__support.error_or
