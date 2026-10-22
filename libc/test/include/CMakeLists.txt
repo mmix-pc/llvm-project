@@ -52,6 +52,8 @@ if(LIBC_TARGET_OS_IS_LINUX)
       SRCS process_types_test.${language}
       HDRS process_types_test.h
       DEPENDS libc.include.llvm-libc-types.idtype_t
+              libc.include.llvm-libc-types.posix_spawnattr_t
+              libc.include.llvm-libc-macros.spawn_macros
               libc.include.llvm-libc-macros.sys_resource_macros
     )
     add_libc_test(

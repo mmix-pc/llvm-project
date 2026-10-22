@@ -764,10 +764,12 @@ add_header_macro(
   spawn.h
   DEPENDS
     .llvm_libc_common_h
+    .llvm-libc-macros.spawn_macros
     .llvm-libc-types.mode_t
     .llvm-libc-types.pid_t
     .llvm-libc-types.posix_spawnattr_t
     .llvm-libc-types.posix_spawn_file_actions_t
+    .llvm-libc-types.sigset_t
 )
 
 add_header_macro(

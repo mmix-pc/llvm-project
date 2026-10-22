@@ -53,6 +53,12 @@ add_macro_header(
 )
 
 add_macro_header(
+  spawn_macros
+  HDR
+    spawn-macros.h
+)
+
+add_macro_header(
   assert_macros
   HDR
     assert-macros.h

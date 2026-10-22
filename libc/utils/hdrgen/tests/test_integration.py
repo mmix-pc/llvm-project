@@ -87,7 +87,7 @@ class TestHeaderGenIntegration(unittest.TestCase):
                         output_file, ["posix_spawn"])
         self.assertIn(
             "int posix_spawn(pid_t *__restrict, const char *__restrict, "
-            "const posix_spawn_file_actions_t *, "
+            "const posix_spawn_file_actions_t *__restrict, "
             "const posix_spawnattr_t *__restrict, "
             "char * const * __restrict, char * const * __restrict) __NOEXCEPT;",
             output_file.read_text(),
