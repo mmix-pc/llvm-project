@@ -19,8 +19,12 @@
 #define FNM_PATHNAME (1 << 0)
 #define FNM_NOESCAPE (1 << 1)
 #define FNM_PERIOD (1 << 2)
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #define FNM_LEADING_DIR (1 << 3)
+#endif
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024)
 #define FNM_CASEFOLD (1 << 4)
 #define FNM_IGNORECASE FNM_CASEFOLD
+#endif
 
 #endif // LLVM_LIBC_MACROS_FNMATCH_MACROS_H

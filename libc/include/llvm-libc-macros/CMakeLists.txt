@@ -279,11 +279,19 @@ add_macro_header(
 )
 
 add_macro_header(
+  sys_wait_macros
+  HDR
+    sys-wait-macros.h
+)
+
+add_macro_header(
   stdlib_macros
   HDR
     stdlib-macros.h
   DEPENDS
     .alloca_macros
+    .sys_wait_macros
+    .fcntl_macros
 )
 
 add_macro_header(
@@ -417,12 +425,6 @@ add_macro_header(
   sys_time_macros
   HDR
     sys-time-macros.h
-)
-
-add_macro_header(
-  sys_wait_macros
-  HDR
-    sys-wait-macros.h
 )
 
 add_macro_header(

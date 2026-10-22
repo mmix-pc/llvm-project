@@ -80,7 +80,8 @@
 
 #define CRNCYSTR _NL_ITEM(LC_MONETARY, 0)
 
-#define YESEXPR _NL_ITEM(LC_MESSAGES, 0)
-#define NOEXPR _NL_ITEM(LC_MESSAGES, 1)
+// Explicit langinfo.h inclusion also works without the locale.h POSIX names.
+#define YESEXPR _NL_ITEM(__LLVM_LIBC_LC_MESSAGES, 0)
+#define NOEXPR _NL_ITEM(__LLVM_LIBC_LC_MESSAGES, 1)
 
 #endif // LLVM_LIBC_MACROS_LANGINFO_MACROS_H

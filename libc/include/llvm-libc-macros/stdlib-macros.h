@@ -11,6 +11,17 @@
 
 #include "../llvm-libc-types/size_t.h"
 
+#if defined(__linux__) && \
+    (!defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX))
+#include "sys-wait-macros.h"
+#endif
+
+#if defined(__linux__) &&                                                   \
+    (!defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024) || \
+     defined(__LIBC_USE_XOPEN))
+#include "fcntl-macros.h"
+#endif
+
 #ifdef _GNU_SOURCE
 #include "alloca-macros.h"
 #endif
