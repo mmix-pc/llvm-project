@@ -24,7 +24,7 @@
 
 // Compile-only composition checks, not a provider or proof of kernel behavior.
 static_assert(sizeof(long) == 8 && sizeof(void *) == 8);
-static_assert(sizeof(sigset_t) == 8 && sizeof(siginfo_t) == 128);
+static_assert(sizeof(sigset_t) == 128 && sizeof(siginfo_t) == 128);
 static_assert(sizeof(stack_t) == 24 && NSIG == 65);
 static_assert(sizeof(jmp_buf) == 304 && sizeof(sigjmp_buf) == 304);
 static_assert(sizeof(mcontext_t) == sizeof(sigcontext));

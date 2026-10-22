@@ -18,8 +18,7 @@ typedef struct ucontext_t {
   struct ucontext_t *uc_link;
   stack_t uc_stack;
   sigset_t uc_sigmask;
-  // Linux reserves 128 bytes for the mask area before the machine context.
-  unsigned char __unused[128 - sizeof(sigset_t)];
+  // Only the first word is a kernel mask; the remaining words must stay zero.
   mcontext_t uc_mcontext;
 } ucontext_t;
 

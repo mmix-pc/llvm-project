@@ -9,6 +9,7 @@
 #include "hdr/errno_macros.h"
 #include "hdr/limits_macros.h"
 #include "hdr/pthread_macros.h"
+#include "hdr/signal_macros.h"
 #include "hdr/stdint_proxy.h"
 #include "hdr/stdio_macros.h"
 #include "hdr/sys_resource_macros.h"
@@ -133,6 +134,9 @@ TEST(LlvmLibcSysconfLimitsTest, PublicLimits) {
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_IOV_MAX), long(IOV_MAX));
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_HOST_NAME_MAX), long(HOST_NAME_MAX));
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_SEM_VALUE_MAX), long(SEM_VALUE_MAX));
+#ifdef _SC_NSIG
+  EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_NSIG), long(NSIG));
+#endif
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_THREAD_KEYS_MAX),
             _POSIX_THREADS > 0 ? long(PTHREAD_KEYS_MAX) : -1L);
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_THREAD_STACK_MIN),

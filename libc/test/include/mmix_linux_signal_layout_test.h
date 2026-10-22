@@ -11,6 +11,8 @@
 #include "../../include/llvm-libc-macros/signal-macros.h"
 #include "../../include/llvm-libc-types/ucontext_t.h"
 #endif
+#include "../../include/llvm-libc-types/struct_sigaction.h"
+#include "../../include/llvm-libc-types/sigjmp_buf.h"
 #include "../../include/llvm-libc-types/siginfo_t.h"
 #include "../../include/llvm-libc-types/mcontext_t.h"
 #include "../../include/llvm-libc-types/ucontext_t.h"
@@ -28,7 +30,12 @@ CHECK(MINSIGSTKSZ == 32768, "minimum signal stack");
 CHECK(SIGSTKSZ == 65536, "default signal stack");
 CHECK(SS_AUTODISARM == 0x80000000U, "autodisarm");
 CHECK(sizeof(siginfo_t) == 128, "siginfo");
-CHECK(sizeof(sigset_t) == 8, "mask");
+CHECK(sizeof(sigset_t) == 128, "mask");
+CHECK(sizeof(struct sigaction) == 152, "public action");
+OFFSET(struct sigaction, sa_mask, 8);
+OFFSET(struct sigaction, sa_flags, 136);
+OFFSET(struct sigaction, sa_restorer, 144);
+CHECK(sizeof(sigjmp_buf) == 304, "signal jump buffer");
 CHECK(sizeof(stack_t) == 24, "stack");
 CHECK(ALIGNOF(stack_t) == 8, "stack alignment");
 OFFSET(stack_t, ss_sp, 0);
@@ -66,5 +73,4 @@ OFFSET(ucontext_t, uc_flags, 0);
 OFFSET(ucontext_t, uc_link, 8);
 OFFSET(ucontext_t, uc_stack, 16);
 OFFSET(ucontext_t, uc_sigmask, 40);
-OFFSET(ucontext_t, __unused, 48);
 OFFSET(ucontext_t, uc_mcontext, 168);

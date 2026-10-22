@@ -54,6 +54,12 @@ for opt in ("0", "2"):
 #undef LIBC_TARGET_ARCH_IS_AARCH64
 #define LIBC_TARGET_ARCH_IS_MMIX
 #define __mmix__ 1
+// The host compiler still defines its architecture: select MMIX public macros
+// explicitly after the common Linux definitions, before any public types.
+#include "include/llvm-libc-macros/linux/signal-macros.h"
+#undef MINSIGSTKSZ
+#undef SIGSTKSZ
+#include "include/llvm-libc-macros/mmix/linux-signal-macros.h"
 
 #--- sys/syscall.h
 #define SYS_ioctl 29
@@ -110,7 +116,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
   return reply;
 }
 extern "C" int main() {
-  static_assert(sizeof(sigset_t) == 8 && sizeof(siginfo_t) == 128);
+  static_assert(sizeof(sigset_t) == 128 && sizeof(siginfo_t) == 128);
   static_assert(sizeof(timespec) == 16 && sizeof(cpu_set_t) == 128);
   static_assert(TCIFLUSH == 0 && TCOFLUSH == 1 && TCIOFLUSH == 2);
   sigset_t set{{0x8000000000000001UL}};

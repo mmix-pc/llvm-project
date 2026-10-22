@@ -5,6 +5,8 @@
 // RUN: %clang_cc1 -triple riscv64-unknown-linux -fsyntax-only -DMINIMUM=2048 -DDEFAULT=8192 %s
 
 #include "../../../libc/include/llvm-libc-macros/signal-macros.h"
+#include "../../../libc/include/llvm-libc-types/sigset_t.h"
+_Static_assert(sizeof(sigset_t) == 8, "public capacity unchanged");
 #ifdef __linux__
 _Static_assert(MINSIGSTKSZ == MINIMUM, "minimum unchanged");
 _Static_assert(SIGSTKSZ == DEFAULT, "default unchanged");

@@ -48,6 +48,12 @@ for opt in ("0", "2"):
 #undef LIBC_TARGET_ARCH_IS_AARCH64
 #define LIBC_TARGET_ARCH_IS_MMIX
 #define __mmix__ 1
+// The host compiler still defines its architecture: select MMIX public macros
+// explicitly after the common Linux definitions, before any public types.
+#include "include/llvm-libc-macros/linux/signal-macros.h"
+#undef MINSIGSTKSZ
+#undef SIGSTKSZ
+#include "include/llvm-libc-macros/mmix/linux-signal-macros.h"
 
 #--- sys/syscall.h
 #define SYS_ppoll 73
@@ -91,7 +97,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
   return reply;
 }
 
-int main() {
+extern "C" int main() {
   static_assert(sizeof(pollfd) == 8 && sizeof(nfds_t) == 4);
   pollfd fd{7, 1, 0};
   const int timeouts[] = {-2147483647 - 1, -1, 0, 1, 999, 1000, 2147483647};

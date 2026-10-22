@@ -113,6 +113,10 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
   switch (name) {
   case _SC_ARG_MAX:
     return ARG_MAX;
+#ifdef _SC_NSIG
+  case _SC_NSIG:
+    return NSIG;
+#endif
   case _SC_CLK_TCK:
     if (auto ticks = auxv::get(AT_CLKTCK))
       return static_cast<long>(*ticks);

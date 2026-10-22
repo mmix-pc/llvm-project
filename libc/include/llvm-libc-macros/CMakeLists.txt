@@ -169,12 +169,16 @@ add_macro_header(
     posix-limits-macros.h
 )
 
+set(limits_macro_deps .posix_limits_macros)
+if(TARGET libc.include.llvm-libc-macros.mmix.linux_limits_macros)
+  list(APPEND limits_macro_deps .mmix.linux_limits_macros)
+endif()
 add_macro_header(
   limits_macros
   HDR
     limits-macros.h
   DEPENDS
-    .posix_limits_macros
+    ${limits_macro_deps}
 )
 
 add_macro_header(

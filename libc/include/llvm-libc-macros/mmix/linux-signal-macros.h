@@ -14,6 +14,10 @@
 #define SIGSTKSZ 65536
 #define SS_AUTODISARM (1U << 31)
 
+// Public storage is independent of the eight-byte Linux syscall mask.
+#undef __NSIGSET_WORDS
+#define __NSIGSET_WORDS (128 / sizeof(unsigned long))
+
 // Keep cancellation and process-credential notifications outside the public
 // range, including configurations that do not currently install either handler.
 #undef SIGRTMIN

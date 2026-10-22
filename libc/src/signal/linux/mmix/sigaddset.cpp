@@ -17,8 +17,8 @@
 // decoupled from signal_utils.h's handler, vDSO and locking dependencies.
 namespace LIBC_NAMESPACE_DECL {
 
-// Public capacity and the kernel transfer size are both one octa on MMIX.
-static_assert(sizeof(unsigned long) == 8 && sizeof(sigset_t) == 8);
+// Only the first public word is transferred to the kernel.
+static_assert(sizeof(unsigned long) == 8 && sizeof(sigset_t) == 128);
 static_assert(NSIG == 65);
 
 LLVM_LIBC_FUNCTION(int, sigaddset, (sigset_t * set, int signum)) {

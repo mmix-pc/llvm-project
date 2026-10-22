@@ -287,6 +287,10 @@
 
 #ifdef __linux__
 
+#ifdef __mmix__
+#include "mmix/linux-limits-macros.h"
+#endif
+
 #if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XOPEN) ||        \
     defined(__LIBC_USE_DEFAULT)
 #ifndef NZERO

@@ -10,6 +10,7 @@ import sys
 libc, root = map(pathlib.Path, sys.argv[1:3])
 resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
 common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
           "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=mask_test",
           "-I", str(root), "-I", str(libc)]
 for opt in ("0", "2"):
@@ -33,6 +34,12 @@ for opt in ("0", "2"):
 #undef LIBC_TARGET_ARCH_IS_AARCH64
 #define LIBC_TARGET_ARCH_IS_MMIX
 #define __mmix__ 1
+// The host compiler still defines its architecture: select MMIX public macros
+// explicitly after the common Linux definitions, before any public types.
+#include "include/llvm-libc-macros/linux/signal-macros.h"
+#undef MINSIGSTKSZ
+#undef SIGSTKSZ
+#include "include/llvm-libc-macros/mmix/linux-signal-macros.h"
 
 #--- sys/syscall.h
 #define SYS_rt_sigprocmask 135
@@ -66,12 +73,18 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
   return reply;
 }
 
-int main() {
+extern "C" int main() {
+  static_assert(sizeof(sigset_t) == 128);
   // Adapted from the upstream sigaddset/sigdelset/sigfillset invalid-input cases.
   sigset_t set{};
+  for (auto &word : set.__signals) word = ~0UL;
   libc_errno = 77;
   require(sigemptyset(&set) == 0 && set.__signals[0] == 0);
+  for (auto word : set.__signals) require(word == 0);
+  for (auto &word : set.__signals) word = ~0UL;
   require(sigfillset(&set) == 0 && set.__signals[0] == ~0UL);
+  for (unsigned i = 1; i < __NSIGSET_WORDS; ++i)
+    require(set.__signals[i] == 0);
   require(int(libc_errno) == 77);
   for (int signal = 1; signal <= 64; ++signal) {
     require(sigemptyset(&set) == 0);
@@ -98,7 +111,10 @@ int main() {
   const int modes[] = {SIG_BLOCK, SIG_UNBLOCK, SIG_SETMASK};
   for (int how : modes) {
     for (int combination = 0; combination < 4; ++combination) {
-      sigset_t old{};
+      struct { sigset_t old; unsigned long canary; } storage{};
+      auto &old = storage.old;
+      storage.canary = 0x1234;
+      for (auto &word : old.__signals) word = ~0UL;
       const sigset_t *input = combination & 1 ? &set : nullptr;
       sigset_t *output = combination & 2 ? &old : nullptr;
       libc_errno = 77;
@@ -109,6 +125,9 @@ int main() {
       require(args[2] == reinterpret_cast<long>(output));
       require(args[3] == 8 && args[4] == 0 && args[5] == 0);
       if (output) require(old.__signals[0] == 0x8000000000000001UL);
+      for (unsigned i = 1; i < __NSIGSET_WORDS; ++i)
+        require(old.__signals[i] == (output ? 0UL : ~0UL));
+      require(storage.canary == 0x1234);
     }
   }
   // Invalid how is ignored by Linux for a query; do not reject it locally.
@@ -116,6 +135,10 @@ int main() {
   const int errors[] = {EINVAL, EFAULT, ENOSYS};
   for (int error : errors) {
     reply = -error;
+    sigset_t old;
+    for (auto &word : old.__signals) word = ~0UL;
+    require(sigprocmask(SIG_SETMASK, nullptr, &old) == -1);
+    for (auto word : old.__signals) require(word == ~0UL);
     auto before = calls;
     libc_errno = 0;
     auto *invalid_ptr = reinterpret_cast<sigset_t *>(-1L);

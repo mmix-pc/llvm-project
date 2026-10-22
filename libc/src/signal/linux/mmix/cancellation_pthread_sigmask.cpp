@@ -14,8 +14,12 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_sigmask,
                    (int how, const sigset_t *__restrict set,
                     sigset_t *__restrict oldset)) {
-  return mmix::cancellation_public_mask(how, set ? &set->__signals[0] : nullptr,
-                                        oldset ? &oldset->__signals[0]
-                                               : nullptr);
+  int error = mmix::cancellation_public_mask(
+      how, set ? &set->__signals[0] : nullptr,
+      oldset ? &oldset->__signals[0] : nullptr);
+  if (!error && oldset)
+    for (unsigned i = 1; i < __NSIGSET_WORDS; ++i)
+      oldset->__signals[i] = 0;
+  return error;
 }
 } // namespace LIBC_NAMESPACE_DECL

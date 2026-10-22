@@ -56,11 +56,11 @@
 // SIGRTMAX is the largest allowed value for the runtime signal.
 #define SIGRTMAX (NSIG - 1)
 
-// The kernel sigset is stored as an array of long values. Each bit of this
+// The default public sigset is stored as an array of long values. Each bit of this
 // array corresponds to a signal, adjusted by 1. That is, bit 0 corresponds
 // to signal number 1, bit 1 corresponds to signal number 2 and so on. The
-// below macro denotes the size of that array (in number of long words and
-// not bytes).
+// below macro denotes the public array size in words, not syscall transfer
+// bytes. Target headers may reserve additional public storage.
 #define __NSIGSET_WORDS ((NSIG - 1) / (sizeof(unsigned long) * 8))
 
 #define SIG_BLOCK 0   // For blocking signals

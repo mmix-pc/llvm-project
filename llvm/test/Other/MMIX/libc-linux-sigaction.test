@@ -32,6 +32,12 @@ for opt in ("0", "2"):
 #undef LIBC_TARGET_ARCH_IS_AARCH64
 #define LIBC_TARGET_ARCH_IS_MMIX
 #define __mmix__ 1
+// The host compiler still defines its architecture: select MMIX public macros
+// explicitly after the common Linux definitions, before any public types.
+#include "include/llvm-libc-macros/linux/signal-macros.h"
+#undef MINSIGSTKSZ
+#undef SIGSTKSZ
+#include "include/llvm-libc-macros/mmix/linux-signal-macros.h"
 
 #--- sys/syscall.h
 // The exported-UAPI comparison is a separate consumer gate.
@@ -45,14 +51,16 @@ for opt in ("0", "2"):
 
 #--- semantics.cpp
 #include "src/signal/linux/mmix/rt_sigaction.h"
+#include "hdr/limits_macros.h"
 #include <linux/errno.h>
 
 using namespace sigaction_test;
 using mmix::KernelSigaction;
-static_assert(sizeof(struct sigaction) == 32);
+static_assert(sizeof(struct sigaction) == 152);
+static_assert(NSIG_MAX == NSIG && NSIG_MAX <= sizeof(sigset_t) * 8);
 static_assert(__builtin_offsetof(struct sigaction, sa_mask) == 8);
-static_assert(__builtin_offsetof(struct sigaction, sa_flags) == 16);
-static_assert(__builtin_offsetof(struct sigaction, sa_restorer) == 24);
+static_assert(__builtin_offsetof(struct sigaction, sa_flags) == 136);
+static_assert(__builtin_offsetof(struct sigaction, sa_restorer) == 144);
 
 static void handler(int) {}
 static void handler3(int, siginfo_t *, void *) {}
@@ -76,7 +84,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c
   return reply;
 }
 
-int main() {
+extern "C" int main() {
   const bool modes[] = {false, true};
   for (bool info : modes) {
     struct sigaction action{};
@@ -94,11 +102,15 @@ int main() {
     require(roundtrip.sa_flags == action.sa_flags);
     require(roundtrip.sa_restorer == restorer);
     require(roundtrip.sa_mask.__signals[0] == action.sa_mask.__signals[0]);
+    for (unsigned i = 1; i < __NSIGSET_WORDS; ++i)
+      require(roundtrip.sa_mask.__signals[i] == 0);
     if (info) require(roundtrip.sa_sigaction == handler3);
     else require(roundtrip.sa_handler == handler);
     returned = kernel;
     for (int combination = 0; combination < 4; ++combination) {
       struct sigaction old{};
+      for (auto &word : old.sa_mask.__signals)
+        word = ~0UL;
       reply = 0;
       auto result = mmix::rt_sigaction(SIGUSR1, combination & 1 ? &action : nullptr,
                                       combination & 2 ? &old : nullptr);
@@ -116,6 +128,8 @@ int main() {
       if (combination & 2) {
         require(old.sa_flags == action.sa_flags && old.sa_restorer == restorer);
         require(old.sa_mask.__signals[0] == action.sa_mask.__signals[0]);
+        for (unsigned i = 1; i < __NSIGSET_WORDS; ++i)
+          require(old.sa_mask.__signals[i] == 0);
         if (info) require(old.sa_sigaction == handler3);
         else require(old.sa_handler == handler);
       }

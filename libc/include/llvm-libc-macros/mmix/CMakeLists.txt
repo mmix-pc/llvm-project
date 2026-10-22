@@ -15,6 +15,7 @@ set_target_properties(${unistd_options_target} PROPERTIES
 add_header(unistd_macros HDR unistd-macros.h DEPENDS .unistd_options)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
+  add_header(linux_limits_macros HDR linux-limits-macros.h)
   add_header(linux_features HDR linux-features.h)
   add_header(common_base HDR ../../__llvm-libc-common.h DEST_HDR common-base.h)
   if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)

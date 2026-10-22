@@ -29,7 +29,7 @@ struct KernelSigaction {
 };
 
 static_assert(sizeof(int) == 4 && sizeof(unsigned long) == 8);
-static_assert(sizeof(sigset_t) == 8);
+static_assert(sizeof(sigset_t) == 128);
 static_assert(sizeof(KernelSigaction) == 32 && alignof(KernelSigaction) == 8);
 static_assert(__builtin_offsetof(KernelSigaction, sa_handler) == 0);
 static_assert(__builtin_offsetof(KernelSigaction, sa_flags) == 8);
