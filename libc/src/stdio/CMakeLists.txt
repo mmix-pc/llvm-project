@@ -357,3 +357,10 @@ add_entrypoint_object(vdprintf SRCS vdprintf.cpp HDRS vdprintf.h
     libc.src.errno.errno)
 add_entrypoint_object(dprintf SRCS dprintf.cpp HDRS dprintf.h
   DEPENDS .vdprintf)
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_entrypoint_object(
+    renameat
+    ALIAS
+    DEPENDS .linux.renameat
+  )
+endif()

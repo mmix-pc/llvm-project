@@ -869,3 +869,24 @@ if(LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX)
       libc.src.unistd.close
   )
 endif()
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    renameat_syscall_test
+    SUITE libc_stdio_unittests
+    SRCS renameat_syscall_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros libc.hdr.fcntl_macros libc.include.sys_syscall
+      libc.src.__support.OSUtil.osutil libc.src.errno.errno
+  )
+  add_libc_test(
+    renameat_test
+    SUITE libc_stdio_unittests
+    SRCS renameat_test.cpp ${LIBC_SOURCE_DIR}/src/stdio/linux/renameat.cpp
+    DEPENDS
+      libc.hdr.errno_macros libc.hdr.fcntl_macros libc.hdr.sys_stat_macros
+      libc.include.sys_syscall libc.src.__support.OSUtil.osutil
+      libc.src.fcntl.open libc.src.fcntl.openat libc.src.unistd.close
+      libc.src.unistd.unlinkat libc.src.sys.stat.fstat
+      libc.src.sys.stat.fstatat libc.src.errno.errno
+  )
+endif()
