@@ -42,8 +42,16 @@ for language in ("c", "c++"):
                    "-nostdinc", "-I", str(include), "-x", language,
                    "-std=c17" if language == "c" else "-std=c++17",
                    "-U_GNU_SOURCE", *defines, "-fsyntax-only", "-Werror", "-"]
-        result = subprocess.run(command, input=source, text=True, capture_output=True)
-        assert result.returncode == 0, (command, result.stderr)
+        for unsigned_char in (False, True):
+            signedness = "-funsigned-char" if unsigned_char else "-fsigned-char"
+            minimum = "0" if unsigned_char else "SCHAR_MIN"
+            maximum = "UCHAR_MAX" if unsigned_char else "SCHAR_MAX"
+            check = source + ("\n#if CHAR_MIN != " + minimum + " || CHAR_MAX != " + maximum +
+                              "\n#error char limits\n#endif\n")
+            assertion = "static_assert" if language == "c++" else "_Static_assert"
+            check += assertion + "(CHAR_MIN == " + minimum + ", \"character minimum\");\n"
+            result = subprocess.run(command + [signedness], input=check, text=True, capture_output=True)
+            assert result.returncode == 0, (command, signedness, result.stderr)
 
 # Without an explicit namespace policy, other targets retain their old macros.
 source = '#include "llvm-libc-macros/limits-macros.h"\n'

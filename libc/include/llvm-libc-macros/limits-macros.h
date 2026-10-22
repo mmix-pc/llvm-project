@@ -200,7 +200,7 @@
 
 #ifndef CHAR_MIN
 #ifdef __CHAR_UNSIGNED__
-#define CHAR_MIN UCHAR_MIN
+#define CHAR_MIN 0
 #else
 #define CHAR_MIN SCHAR_MIN
 #endif // __CHAR_UNSIGNED__
