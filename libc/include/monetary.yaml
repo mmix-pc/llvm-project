@@ -1,0 +1,24 @@
+header: monetary.h
+standards: [posix]
+types:
+  - type_name: locale_t
+  - type_name: size_t
+  - type_name: ssize_t
+functions:
+  - name: strfmon
+    standards: [posix]
+    return_type: ssize_t
+    arguments:
+      - type: char *__restrict
+      - type: size_t
+      - type: const char *__restrict
+      - type: ...
+  - name: strfmon_l
+    standards: [posix]
+    return_type: ssize_t
+    arguments:
+      - type: char *__restrict
+      - type: size_t
+      - type: locale_t
+      - type: const char *__restrict
+      - type: ...

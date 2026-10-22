@@ -8,6 +8,7 @@ macros:
     macro_header: nl_types-macros.h
 types:
   - type_name: nl_catd
+  - type_name: nl_item
 enums: []
 objects: []
 functions:

@@ -1,6 +1,8 @@
 header: ctype.h
 standards:
   - stdc
+types:
+  - type_name: locale_t
 enums: []
 objects: []
 functions:

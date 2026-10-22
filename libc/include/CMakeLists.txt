@@ -47,6 +47,47 @@ macro(add_header_macro TARGET_NAME YAML_FILE GEN_HDR DEPENDS)
 endmacro()
 
 add_header_macro(
+  iconv
+  ../libc/include/iconv.yaml
+  iconv.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-types.iconv_t
+    .llvm-libc-types.size_t
+)
+
+add_header_macro(
+  libintl
+  ../libc/include/libintl.yaml
+  libintl.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-types.locale_t
+)
+
+add_header_macro(
+  monetary
+  ../libc/include/monetary.yaml
+  monetary.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-types.locale_t
+    .llvm-libc-types.size_t
+    .llvm-libc-types.ssize_t
+)
+
+add_header_macro(
+  wordexp
+  ../libc/include/wordexp.yaml
+  wordexp.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-macros.wordexp_macros
+    .llvm-libc-types.wordexp_t
+    .llvm-libc-types.size_t
+)
+
+add_header_macro(
   ctype
   ../libc/include/ctype.yaml
   ctype.h
@@ -1321,6 +1362,7 @@ add_header_macro(
   ../libc/include/wctype.yaml
   wctype.h
   DEPENDS
+    .llvm-libc-types.locale_t
     .llvm_libc_common_h
     .llvm-libc-macros.wchar_macros
     .llvm-libc-types.wint_t
@@ -1365,6 +1407,7 @@ add_header_macro(
   DEPENDS
     .llvm-libc-macros.nl_types_macros
     .llvm-libc-types.nl_catd
+    .llvm-libc-types.nl_item
 )
 
 add_header_macro(

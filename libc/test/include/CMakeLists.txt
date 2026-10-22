@@ -3,6 +3,16 @@ add_dependencies(check-libc libc_include_tests-build)
 
 foreach(language IN ITEMS c cpp)
   add_libc_test(
+    text_conversion_types_${language}_test
+    C_TEST
+    SUITE libc_include_tests
+    SRCS text_conversion_types_test.${language}
+    HDRS text_conversion_types_test.h
+    DEPENDS libc.include.llvm-libc-types.iconv_t
+            libc.include.llvm-libc-types.wordexp_t
+            libc.include.llvm-libc-macros.wordexp_macros
+  )
+  add_libc_test(
     stream_state_namespace_${language}_test
     C_TEST
     SUITE libc_include_tests

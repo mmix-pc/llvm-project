@@ -1,0 +1,42 @@
+header: wordexp.h
+standards: [posix]
+macros:
+  - macro_name: WRDE_DOOFFS
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_APPEND
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_NOCMD
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_REUSE
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_SHOWERR
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_UNDEF
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_NOSPACE
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_BADCHAR
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_BADVAL
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_CMDSUB
+    macro_header: wordexp-macros.h
+  - macro_name: WRDE_SYNTAX
+    macro_header: wordexp-macros.h
+types:
+  - type_name: size_t
+  - type_name: wordexp_t
+functions:
+  - name: wordexp
+    noexcept: false
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const char *__restrict
+      - type: wordexp_t *__restrict
+      - type: int
+  - name: wordfree
+    standards: [posix]
+    return_type: void
+    arguments:
+      - type: wordexp_t *

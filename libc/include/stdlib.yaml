@@ -27,6 +27,123 @@ types:
 enums: []
 objects: []
 functions:
+  - name: drand48
+    standards: [posix]
+    return_type: double
+    arguments:
+      - type: "void"
+  - name: erand48
+    standards: [posix]
+    return_type: double
+    arguments:
+      - type: "unsigned short [3]"
+  - name: getsubopt
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: "char **__restrict"
+      - type: "char *const *__restrict"
+      - type: "char **__restrict"
+  - name: grantpt
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: "int"
+  - name: initstate
+    standards: [posix]
+    return_type: char *
+    arguments:
+      - type: "unsigned int"
+      - type: "char *"
+      - type: "size_t"
+  - name: jrand48
+    standards: [posix]
+    return_type: long
+    arguments:
+      - type: "unsigned short [3]"
+  - name: l64a
+    standards: [posix]
+    return_type: char *
+    arguments:
+      - type: "long"
+  - name: lcong48
+    standards: [posix]
+    return_type: void
+    arguments:
+      - type: "unsigned short [7]"
+  - name: lrand48
+    standards: [posix]
+    return_type: long
+    arguments:
+      - type: "void"
+  - name: mkostemp
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: "char *"
+      - type: "int"
+  - name: mrand48
+    standards: [posix]
+    return_type: long
+    arguments:
+      - type: "void"
+  - name: nrand48
+    standards: [posix]
+    return_type: long
+    arguments:
+      - type: "unsigned short [3]"
+  - name: posix_openpt
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: "int"
+  - name: ptsname
+    standards: [posix]
+    return_type: char *
+    arguments:
+      - type: "int"
+  - name: ptsname_r
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: "int"
+      - type: "char *"
+      - type: "size_t"
+  - name: random
+    standards: [posix]
+    return_type: long
+    arguments:
+      - type: "void"
+  - name: secure_getenv
+    standards: [posix]
+    return_type: char *
+    arguments:
+      - type: "const char *"
+  - name: seed48
+    standards: [posix]
+    return_type: unsigned short *
+    arguments:
+      - type: "unsigned short [3]"
+  - name: setstate
+    standards: [posix]
+    return_type: char *
+    arguments:
+      - type: "char *"
+  - name: srand48
+    standards: [posix]
+    return_type: void
+    arguments:
+      - type: "long"
+  - name: srandom
+    standards: [posix]
+    return_type: void
+    arguments:
+      - type: "unsigned int"
+  - name: unlockpt
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: "int"
   - name: clearenv
     standards:
       - gnu
