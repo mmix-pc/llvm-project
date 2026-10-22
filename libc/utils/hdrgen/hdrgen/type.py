@@ -6,11 +6,11 @@
 #
 # ==-------------------------------------------------------------------------==#
 
-from hdrgen.symbol import Symbol
+from hdrgen.symbol import Symbol, validate_guard
 
 
 class Type(Symbol):
     # A type carries its name and an optional guard.
     def __init__(self, name, guard=None):
         super().__init__(name)
-        self.guard = guard
+        self.guard = validate_guard(guard)

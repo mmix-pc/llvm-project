@@ -7,6 +7,16 @@
 # ==-------------------------------------------------------------------------==#
 
 from functools import total_ordering
+import re
+
+
+def validate_guard(guard):
+    if guard is not None and (
+        not isinstance(guard, str)
+        or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", guard) is None
+    ):
+        raise ValueError("Symbol guard must be a preprocessor identifier")
+    return guard
 
 
 @total_ordering

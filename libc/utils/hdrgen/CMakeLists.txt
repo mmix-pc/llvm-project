@@ -9,8 +9,13 @@ if(LLVM_LIBC_FULL_BUILD)
     COMMAND python3 ${HDRGEN_TESTS_DIR}/test_integration.py --output_dir ${TEST_OUTPUT_DIR}
   )
 
+  add_test(
+    NAME hdrgen_guards_test
+    COMMAND python3 ${HDRGEN_TESTS_DIR}/test_guards.py
+  )
+
   add_custom_target(check-hdrgen
-    COMMAND ${CMAKE_CTEST_COMMAND} -R hdrgen_integration_test --output-on-failure
+    COMMAND ${CMAKE_CTEST_COMMAND} -R "hdrgen_.*_test" --output-on-failure
   )
 
   message(STATUS "Integration test for hdrgen added.")

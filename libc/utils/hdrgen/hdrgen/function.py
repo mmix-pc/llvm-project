@@ -7,7 +7,7 @@
 # ==-------------------------------------------------------------------------==#
 
 import re
-from hdrgen.symbol import Symbol
+from hdrgen.symbol import Symbol, validate_guard
 from hdrgen.type import Type
 
 
@@ -57,7 +57,7 @@ class Function(Symbol):
         ]
         assert all(self.arguments)
         self.standards = standards
-        self.guard = guard
+        self.guard = validate_guard(guard)
         self.attributes = attributes or []
         if not isinstance(noexcept, bool):
             raise ValueError("Function noexcept must be a boolean")

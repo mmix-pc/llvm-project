@@ -46,6 +46,7 @@ def yaml_to_classes(yaml_data, header_class, entry_points=None):
             macro_data["macro_name"],
             macro_data.get("macro_value"),
             macro_data.get("macro_header"),
+            macro_data.get("guard"),
         )
         macro.standards = macro_data.get("standards", [])
         header.add_macro(macro)
@@ -129,7 +130,8 @@ def yaml_to_classes(yaml_data, header_class, entry_points=None):
     objects = yaml_data.get("objects", [])
     sorted_objects = sorted(objects, key=lambda x: x["object_name"])
     for object_data in sorted_objects:
-        obj = Object(object_data["object_name"], object_data["object_type"])
+        obj = Object(object_data["object_name"], object_data["object_type"],
+                     object_data.get("guard"))
         obj.standards = object_data.get("standards", [])
         header.add_object(obj)
     return header

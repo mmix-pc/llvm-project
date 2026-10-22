@@ -11,6 +11,7 @@
 import argparse
 import json
 import sys
+import yaml
 from pathlib import Path
 
 from hdrgen.header import HeaderFile
@@ -64,6 +65,10 @@ def main():
         metavar="SYMBOL",
         action="append",
     )
+    parser.add_argument(
+        "--visibility", type=Path,
+        help="Optional YAML mapping of header names to symbol guards",
+    )
     args = parser.parse_args()
 
     if not args.json and len(args.yaml_file) != 1:
@@ -72,6 +77,12 @@ def main():
         return 2
 
     files_read = set()
+    visibility = {}
+    if args.visibility:
+        files_read.add(args.visibility)
+        visibility = yaml.safe_load(args.visibility.read_text())
+        if not isinstance(visibility, dict):
+            raise ValueError("Visibility policy must map header names to policies")
 
     def write_depfile():
         if not args.depfile:
@@ -83,7 +94,7 @@ def main():
 
     def load_yaml(path):
         files_read.add(path)
-        return load_yaml_file(path, HeaderFile, args.entry_point)
+        return load_yaml_file(path, HeaderFile, None)
 
     def load_header(yaml_file):
         merge_from_files = dict()
@@ -113,6 +124,11 @@ def main():
                 return 2
             header.merge(merge_from_header)
 
+        if header.name in visibility:
+            header.apply_visibility(visibility[header.name])
+        if args.entry_point:
+            header.functions = [f for f in header.functions
+                                if f.name in args.entry_point]
         header.validate()
         assert header.name, f"`header: name.h` line is required in {yaml_file}"
         return header

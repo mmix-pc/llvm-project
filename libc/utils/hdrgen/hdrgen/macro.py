@@ -6,14 +6,15 @@
 #
 # ==-------------------------------------------------------------------------==#
 
-from hdrgen.symbol import Symbol
+from hdrgen.symbol import Symbol, validate_guard
 
 
 class Macro(Symbol):
-    def __init__(self, name, value=None, header=None):
+    def __init__(self, name, value=None, header=None, guard=None):
         super().__init__(name)
         self.value = value
         self.header = header
+        self.guard = validate_guard(guard)
 
     def __str__(self):
         if self.header != None:

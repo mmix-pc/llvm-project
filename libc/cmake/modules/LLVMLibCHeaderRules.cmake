@@ -76,7 +76,7 @@ function(add_gen_header target_name)
   cmake_parse_arguments(
     "ADD_GEN_HDR"
     "PROXY;PUBLIC" # No optional arguments
-    "YAML_FILE;GEN_HDR" # Single value arguments
+    "YAML_FILE;GEN_HDR;VISIBILITY_FILE" # Single value arguments
     "DEPENDS" # Multi value arguments
     ${ARGN}
   )
@@ -100,6 +100,10 @@ function(add_gen_header target_name)
   endif()
   set(dep_file "${out_file}.d")
   set(yaml_file ${CMAKE_SOURCE_DIR}/${ADD_GEN_HDR_YAML_FILE})
+  set(visibility_args "")
+  if(ADD_GEN_HDR_VISIBILITY_FILE)
+    list(APPEND visibility_args --visibility ${ADD_GEN_HDR_VISIBILITY_FILE})
+  endif()
 
   if(LLVM_LIBC_ALL_HEADERS)
     set(entry_points "")
@@ -120,9 +124,10 @@ function(add_gen_header target_name)
       --depfile ${dep_file}
       --write-if-changed
       ${proxy_arg}
+      ${visibility_args}
       ${yaml_file}
       "@${rsp_file}"
-    DEPENDS ${yaml_file} ${rsp_file}
+    DEPENDS ${yaml_file} ${rsp_file} ${ADD_GEN_HDR_VISIBILITY_FILE}
     DEPFILE ${dep_file}
     COMMENT "Generating header ${ADD_GEN_HDR_GEN_HDR} from ${yaml_file}"
   )

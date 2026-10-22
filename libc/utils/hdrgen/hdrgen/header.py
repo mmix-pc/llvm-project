@@ -9,6 +9,7 @@
 import re
 from functools import reduce
 from pathlib import PurePosixPath
+from hdrgen.symbol import validate_guard
 
 
 STDINT_SIZES = [
@@ -134,11 +135,9 @@ class HeaderFile:
         self.functions.append(function)
 
     def merge(self, other):
-        self.macros = sorted(set(self.macros) | set(other.macros))
-        self.types = sorted(set(self.types) | set(other.types))
-        self.enumerations = sorted(set(self.enumerations) | set(other.enumerations))
-        self.objects = sorted(set(self.objects) | set(other.objects))
-        self.functions = sorted(set(self.functions) | set(other.functions))
+        for field in ("macros", "types", "enumerations", "objects", "functions"):
+            setattr(self, field, self.merge_symbols(
+                getattr(self, field) + getattr(other, field)))
         self.extra_standards |= other.extra_standards
         self.public_includes = sorted(
             set(self.public_includes) | set(other.public_includes)
@@ -148,12 +147,24 @@ class HeaderFile:
         else:
             self.license_text = other.license_text
 
+    @staticmethod
+    def merge_symbols(symbols):
+        # Name-only Symbol equality would silently discard alternate guards.
+        result = {}
+        for symbol in symbols:
+            key = (symbol.name, getattr(symbol, "guard", None))
+            previous = result.get(key)
+            if previous is not None and vars(previous) != vars(symbol):
+                raise ValueError(f"Conflicting declarations for '{symbol.name}'")
+            result[key] = symbol
+        return sorted(result.values())
+
     def all_types(self):
-        return reduce(
-            lambda a, b: a | b,
-            [f.signature_types() for f in self.functions],
-            set(self.types),
-        )
+        # Explicit metadata owns visibility; inferred signature types must not
+        # overwrite it depending on set insertion order.
+        explicit = {typ.name for typ in self.types}
+        inferred = set().union(*(f.signature_types() for f in self.functions))
+        return self.types + sorted(typ for typ in inferred if typ.name not in explicit)
 
     def all_attributes(self):
         return reduce(
@@ -161,6 +172,25 @@ class HeaderFile:
             [set(f.attributes) for f in self.functions],
             set(),
         )
+
+    def apply_visibility(self, policy):
+        if not isinstance(policy, dict):
+            raise ValueError("Header visibility policy must be a mapping")
+        for field, guards in policy.items():
+            if field not in ("functions", "types", "macros", "objects"):
+                raise ValueError(f"Unknown visibility collection '{field}'")
+            if not isinstance(guards, dict):
+                raise ValueError("Visibility collection must map names to guards")
+            symbols = getattr(self, field)
+            unknown = guards.keys() - {symbol.name for symbol in symbols}
+            if unknown:
+                raise ValueError(f"Unknown visibility names: {sorted(unknown)}")
+            for symbol in symbols:
+                if symbol.name in guards:
+                    guard = validate_guard(guards[symbol.name])
+                    if symbol.guard is not None and symbol.guard != guard:
+                        raise ValueError(f"Cannot replace existing guard of '{symbol.name}'")
+                    symbol.guard = guard
 
     def all_standards(self):
         standards = set(self.standards)
@@ -191,7 +221,7 @@ class HeaderFile:
             | {
                 PurePosixPath("llvm-libc-macros") / macro.header
                 for macro in self.macros
-                if macro.header is not None
+                if macro.header is not None and macro.guard is None
             }
             | {
                 COMPILER_HEADER_TYPES.get(
@@ -274,6 +304,20 @@ class HeaderFile:
             )
         ]
 
+        # Macro providers precede guarded types that may use their predicates.
+        current_guard = None
+        unconditional = self.includes()
+        for macro in sorted(self.macros):
+            if macro.header is None or macro.guard is None:
+                continue
+            path = PurePosixPath("llvm-libc-macros") / macro.header
+            if path in unconditional:
+                continue
+            self.emit_guard(content, current_guard, macro.guard)
+            current_guard = macro.guard
+            content.append(f'#include "{relpath(path)!s}"')
+        self.emit_guard(content, current_guard, None)
+
         # Add guarded types
         current_guard = None
         has_seen_guard = False
@@ -289,18 +333,23 @@ class HeaderFile:
             )
             self.emit_guard(content, current_guard, typ.guard)
             current_guard = typ.guard
-            content.append(f'#include "{relpath(path)!s}"')
+            content.append(f"#include {path}" if isinstance(path, str)
+                           else f'#include "{relpath(path)!s}"')
         self.emit_guard(content, current_guard, None)
 
         return content
 
     def macro_lines(self):
         content = []
+        current_guard = None
         for macro in sorted(self.macros):
             # When there is nothing to define, the Macro object converts to str
             # as an empty string.  Don't emit a blank line for those cases.
             if str(macro):
+                self.emit_guard(content, current_guard, macro.guard)
+                current_guard = macro.guard
                 content.extend(["", f"{macro}"])
+        self.emit_guard(content, current_guard, None)
         return content
 
     def enum_lines(self):
@@ -362,7 +411,12 @@ class HeaderFile:
         self.emit_guard(content, current_guard, None)
 
         # Emit object declarations.
-        content.extend(str(object) for object in self.objects)
+        current_guard = None
+        for object in self.objects:
+            self.emit_guard(content, current_guard, object.guard)
+            current_guard = object.guard
+            content.append(str(object))
+        self.emit_guard(content, current_guard, None)
         if self.objects:
             content.append("")
 
@@ -372,14 +426,27 @@ class HeaderFile:
         return "\n".join(content)
 
     def json_data(self):
+        # Dependency discovery must include conditional providers too.
+        conditional = {
+            PurePosixPath("llvm-libc-macros") / macro.header
+            for macro in self.macros if macro.header is not None
+        }
+        conditional.update(
+            COMPILER_HEADER_TYPES.get(typ.name,
+                PurePosixPath("llvm-libc-types") / f"{typ.name}.h")
+            for typ in self.types
+        )
         return {
             "name": self.name,
             "standards": self.standards,
-            "includes": sorted(str(file) for file in {COMMON_HEADER} | self.includes()),
+            "includes": sorted(str(file) for file in
+                               {COMMON_HEADER} | self.includes() | conditional),
         }
 
     def validate(self):
         self.all_standards()
+        for field in ("macros", "types", "enumerations", "objects", "functions"):
+            self.merge_symbols(getattr(self, field))
 
     def emit_guard(self, content, current_guard, new_guard):
         if current_guard != new_guard:

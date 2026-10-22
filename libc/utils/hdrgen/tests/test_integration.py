@@ -53,6 +53,24 @@ class TestHeaderGenIntegration(unittest.TestCase):
 
         self.compare_files(output_file, expected_output_file)
 
+    def test_visibility_policy_and_dependency(self):
+        source = self.output_dir / "visibility.yaml"
+        policy = self.output_dir / "visibility-policy.yaml"
+        depfile = self.output_dir / "visibility.d"
+        output = self.output_dir / "visibility.h"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("header: example.h\nobjects:\n"
+                          "  - object_name: state\n    object_type: int\n")
+        policy.write_text("example.h:\n  objects:\n    state: EXT\n")
+        self.run_script(source, output, switches=["--visibility", str(policy),
+                                                "--depfile", str(depfile)])
+        self.assertIn("#ifdef EXT\nextern int state;", output.read_text())
+        self.assertIn(str(policy), depfile.read_text())
+        policy.write_text("example.h:\n  objects:\n    typo: EXT\n")
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.run_script(source, output, switches=["--visibility", str(policy)])
+        self.assertIn("Unknown visibility names", raised.exception.stderr)
+
     def test_c_wide_search_signatures(self):
         output_file = self.output_dir / "wide_search.h"
         names = ["wcschr", "wcspbrk", "wcsrchr", "wcsstr", "wmemchr"]

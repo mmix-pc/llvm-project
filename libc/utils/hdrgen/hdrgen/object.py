@@ -6,13 +6,14 @@
 #
 # ==-------------------------------------------------------------------------==#
 
-from hdrgen.symbol import Symbol
+from hdrgen.symbol import Symbol, validate_guard
 
 
 class Object(Symbol):
-    def __init__(self, name, type):
+    def __init__(self, name, type, guard=None):
         super().__init__(name)
         self.type = type
+        self.guard = validate_guard(guard)
 
     def __str__(self):
         split_type = self.type.partition("[")
