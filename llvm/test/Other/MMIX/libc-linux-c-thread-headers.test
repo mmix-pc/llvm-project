@@ -1,0 +1,78 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+resource = subprocess.check_output(
+    [clang, "--no-default-config", "-print-resource-dir"], text=True).strip()
+include = out / "include"
+include.mkdir(exist_ok=True)
+for name in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(libc / "include" / name, include / name, dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h", include / "__llvm-libc-common.h")
+for name in ("threads", "pthread", "time", "limits", "sched", "signal"):
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include" / (name + ".yaml")),
+                    "-o", str(include / (name + ".h"))], check=True)
+for triple in ("mmix-unknown-linux", "x86_64-unknown-linux-gnu"):
+    for language in ("c", "c++"):
+        command = [clang, "--no-default-config", "--target=" + triple,
+                   "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                   "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+                   "-fsyntax-only", "-Werror", "-"]
+        check = "static_assert" if language == "c++" else "_Static_assert"
+        for first in ("threads", "pthread"):
+            source = '#include <' + first + '.h>\n#include <threads.h>\n#include <pthread.h>\n#include <limits.h>\n'
+            source += (
+                '#if TSS_DTOR_ITERATIONS != PTHREAD_DESTRUCTOR_ITERATIONS\n#error destructor bound\n#endif\n'
+                'once_flag once = ONCE_FLAG_INIT;\n'
+                'thread_local int thread_value;\n'
+                'void same_thread_type(thrd_t *t, pthread_t *p) { t = p; p = t; }\n' +
+                check + '(sizeof(thrd_t) == 8 && __alignof__(thrd_t) == 8, "thread ABI");\n' +
+                check + '(sizeof(mtx_t) == 24 && __alignof__(mtx_t) == 8, "mutex ABI");\n' +
+                check + '(sizeof(cnd_t) == 24 && __alignof__(cnd_t) == 8, "condition ABI");\n' +
+                check + '(sizeof(once_flag) == 4 && __alignof__(once_flag) == 4, "once ABI");\n' +
+                check + '(sizeof(tss_t) == 4 && __alignof__(tss_t) == 4, "key ABI");\n'
+                'int (*timed_lock)(mtx_t *, const struct timespec *) = &mtx_timedlock;\n'
+                'int (*sleep_fn)(const struct timespec *, struct timespec *) = &thrd_sleep;\n'
+                'void (*yield_fn)(void) = &thrd_yield;\n'
+                'time_t imported_time;\nstruct tm imported_calendar;\n'
+                'int (*clock_fn)(struct timespec *, int) = &timespec_get;\n')
+            if triple.startswith("mmix"):
+                source += '#ifndef __STDC_NO_THREADS__\n#error premature runtime claim\n#endif\n'
+            if language == "c++":
+                source += '#ifdef thread_local\n#error do not replace the C++ keyword\n#endif\n'
+                source += 'static_assert(!noexcept(call_once(nullptr, nullptr)), "callback may throw");\n'
+            else:
+                source += '#ifndef thread_local\n#error missing C17 macro\n#endif\n'
+            subprocess.run(command, input=source, text=True, check=True)
+
+# Exercise the existing MMIX unwind/cleanup header composition explicitly.
+# Header-only generation of the minimal cache does not select these providers.
+shutil.copyfile(libc / "include/llvm-libc-macros/pthread-macros.h",
+                include / "llvm-libc-macros/mmix/pthread-base-macros.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-macros.h",
+                include / "llvm-libc-macros/pthread-macros.h")
+for language in ("c", "c++"):
+    source = '''#include <threads.h>
+#include <pthread.h>
+static void cleanup(void *p) { (void)p; }
+void paired_cleanup(void) {
+  pthread_cleanup_push(cleanup, 0);
+  pthread_cleanup_pop(0);
+}
+int cancel_modes[] = {PTHREAD_CANCEL_ENABLE, PTHREAD_CANCEL_DISABLE,
+                      PTHREAD_CANCEL_DEFERRED, PTHREAD_CANCEL_ASYNCHRONOUS};
+void *cancel_result = PTHREAD_CANCELED;
+'''
+    subprocess.run([clang, "--no-default-config", "--target=mmix-unknown-linux",
+                    "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                    "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+                    "-fsyntax-only", "-Werror", "-"], input=source, text=True, check=True)

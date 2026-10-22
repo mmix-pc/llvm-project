@@ -519,6 +519,8 @@ add_header_macro(
   ../libc/include/threads.yaml
   threads.h
   DEPENDS
+    .time
+    .llvm-libc-macros.threads_macros
     .llvm_libc_common_h
     .llvm-libc-types.__call_once_func_t
     .llvm-libc-types.once_flag

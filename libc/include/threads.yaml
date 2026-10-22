@@ -1,7 +1,13 @@
 header: threads.h
 standards:
   - stdc
+public_includes:
+  - time.h
 macros:
+  - macro_name: thread_local
+    macro_header: threads-macros.h
+  - macro_name: TSS_DTOR_ITERATIONS
+    macro_header: threads-macros.h
   - macro_name: ONCE_FLAG_INIT
     macro_value: '{0}'
 types:
@@ -33,6 +39,19 @@ enums:
     value: null
 objects: []
 functions:
+  - name: mtx_timedlock
+    return_type: int
+    arguments:
+      - type: mtx_t *__restrict
+      - type: const struct timespec *__restrict
+  - name: thrd_sleep
+    return_type: int
+    arguments:
+      - type: const struct timespec *
+      - type: struct timespec *
+  - name: thrd_yield
+    return_type: void
+    arguments: []
   - name: call_once
     noexcept: false
     standards:
