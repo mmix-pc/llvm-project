@@ -37,6 +37,8 @@
 #define SOCK_CLOEXEC 0x80000
 #define SOCK_NONBLOCK 0x800
 
+#define SOMAXCONN 4096
+
 #define SOL_SOCKET 1
 
 // The values of the following constants differ on some architectures

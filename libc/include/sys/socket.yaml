@@ -2,6 +2,8 @@ header: sys/socket.h
 standards:
   - posix
 macros:
+  - macro_name: SOMAXCONN
+    macro_header: sys-socket-macros.h
   - macro_name: AF_UNSPEC
     macro_header: sys-socket-macros.h
 types:

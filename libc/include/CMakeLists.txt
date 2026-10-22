@@ -466,6 +466,7 @@ add_header_macro(
   ../libc/include/netdb.yaml
   netdb.h
   DEPENDS
+    .stdint
     .llvm_libc_common_h
     .llvm-libc-macros.netdb_macros
     .llvm-libc-types.struct_addrinfo
