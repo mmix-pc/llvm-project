@@ -35,35 +35,38 @@ LLVM_LIBC_FUNCTION(int, select,
   // instead of a struct timeval argument. Also, it takes an additional
   // argument which is a pointer to an object of a type defined above as
   // "pselect6_sigset_t".
-  struct timespec ts {
-    0, 0
-  };
+  struct timespec ts{0, 0};
+  struct timespec *ts_ptr = nullptr;
   if (timeout != nullptr) {
-    // In general, if the tv_sec and tv_usec in |timeout| are correctly set,
-    // then converting tv_usec to nanoseconds will not be a problem. However,
-    // if tv_usec in |timeout| is more than a second, it can lead to overflows.
-    // So, we detect such cases and adjust.
+    if (timeout->tv_sec < 0 || timeout->tv_usec < 0) {
+      libc_errno = EINVAL;
+      return -1;
+    }
+    // Linux select normalizes nonnegative microseconds, even above one second.
+    // Check the seconds sum before adding, and scale only the remainder.
     constexpr time_t TIME_MAX = cpp::numeric_limits<time_t>::max();
     if ((TIME_MAX - timeout->tv_sec) < (timeout->tv_usec / 1000000)) {
       ts.tv_sec = TIME_MAX;
       ts.tv_nsec = 999999999;
     } else {
       ts.tv_sec = timeout->tv_sec + timeout->tv_usec / 1000000;
-      ts.tv_nsec = timeout->tv_usec * 1000;
+      ts.tv_nsec = (timeout->tv_usec % 1000000) * 1000;
     }
+    // Keep kernel timeout writeback local, leaving the caller's timeval intact.
+    ts_ptr = &ts;
   }
   pselect6_sigset_t pss{nullptr, sizeof(sigset_t)};
 #if defined(SYS_pselect6_time64)
   int ret = LIBC_NAMESPACE::syscall_impl<int>(
-      SYS_pselect6_time64, nfds, read_set, write_set, error_set, &ts, &pss);
+      SYS_pselect6_time64, nfds, read_set, write_set, error_set, ts_ptr, &pss);
 #elif defined(SYS_pselect6)
   static_assert(
       sizeof(timespec::tv_nsec) == sizeof(long),
       "This legacy syscall fallback is only safe on platforms where tv_nsec "
       "matches the register size (long). It is unsafe on 32-bit platforms "
       "with 64-bit tv_nsec.");
-  int ret = LIBC_NAMESPACE::syscall_impl<int>(SYS_pselect6, nfds, read_set,
-                                              write_set, error_set, &ts, &pss);
+  int ret = LIBC_NAMESPACE::syscall_impl<int>(
+      SYS_pselect6, nfds, read_set, write_set, error_set, ts_ptr, &pss);
 #else
 #error "SYS_pselect6 and SYS_pselect6_time64 syscalls not available."
 #endif
