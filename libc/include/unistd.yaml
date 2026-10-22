@@ -10,6 +10,14 @@ macros:
     macro_header: unistd-macros.h
   - macro_name: SEEK_HOLE
     macro_header: unistd-macros.h
+  - macro_name: POSIX_CLOSE_RESTART
+    macro_header: unistd-macros.h
+  - macro_name: _PC_FALLOC
+    macro_header: unistd-macros.h
+  - macro_name: _PC_TEXTDOMAIN_MAX
+    macro_header: unistd-macros.h
+  - macro_name: _SC_DEVICE_CONTROL
+    macro_header: unistd-macros.h
   - macro_name: SEEK_SET
     macro_header: file-seek-macros.h
   - macro_name: SEEK_CUR

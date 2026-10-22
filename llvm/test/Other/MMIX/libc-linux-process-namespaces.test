@@ -67,6 +67,10 @@ for language in ("c", "c++"):
                 ("unistd", "SEEK_DATA", posix >= 202405),
                 ("unistd", "SEEK_HOLE", posix >= 202405),
                 ("unistd", "O_CLOEXEC", posix >= 202405),
+                ("unistd", "POSIX_CLOSE_RESTART", posix >= 202405),
+                ("unistd", "_PC_FALLOC", posix >= 202405),
+                ("unistd", "_PC_TEXTDOMAIN_MAX", posix >= 202405),
+                ("unistd", "_SC_DEVICE_CONTROL", posix >= 202405),
                 ("unistd", "F_LOCK", default or xsi > 0),
                 ("unistd", "posix_close", posix >= 202405),
                 ("unistd", "getresuid", xsi >= 800),
@@ -88,6 +92,11 @@ for language in ("c", "c++"):
             else:
                 assert result.returncode != 0 and name in result.stderr and "undeclared" in result.stderr, (defines, name, result.stderr)
         check = "static_assert" if language == "c++" else "_Static_assert"
+        if posix >= 202405:
+            result = compile('#include <unistd.h>\n' + check +
+                             '(POSIX_CLOSE_RESTART == 1 && _PC_FALLOC == 22 && '
+                             '_PC_TEXTDOMAIN_MAX == 23 && _SC_DEVICE_CONTROL == 306, "query ABI");\n')
+            assert result.returncode == 0, (defines, result.stderr)
         result = compile('#include <unistd.h>\n' + check +
                          '(sizeof(intptr_t) == sizeof(void *), "pointer integer width");\n'
                          'void *null_pointer = NULL;\n#include <stdint.h>\n')

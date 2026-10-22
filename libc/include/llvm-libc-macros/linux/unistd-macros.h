@@ -30,6 +30,7 @@
 #if !defined(__LIBC_EXPLICIT_NAMESPACE) || __LIBC_USE_POSIX2024
 #define SEEK_DATA 3
 #define SEEK_HOLE 4
+#define POSIX_CLOSE_RESTART 1
 #endif
 
 #define _SC_ARG_MAX 0
@@ -196,6 +197,10 @@
 #define _PC_SYNC_IO 19
 #define _PC_SOCK_MAXBUF 20
 #define _PC_TIMESTAMP_RESOLUTION 21
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024)
+#define _PC_FALLOC 22
+#define _PC_TEXTDOMAIN_MAX 23
+#endif
 
 #define _CS_PATH 0
 #define _CS_V6_WIDTH_RESTRICTED_ENVS 1
@@ -245,6 +250,7 @@
 #define _SC_XOPEN_UUCP 304
 #if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024)
 #define _SC_NSIG 305
+#define _SC_DEVICE_CONTROL 306
 #endif
 #define _CS_POSIX_V8_ILP32_OFF32_CFLAGS 1200
 #define _CS_POSIX_V8_ILP32_OFF32_LDFLAGS 1201
