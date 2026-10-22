@@ -77,8 +77,9 @@ function(mmix_configure_unistd_options output)
     signal.sigqueue signal.sigtimedwait signal.sigwaitinfo)
   mmix_set_posix_option(PRIORITY_SCHEDULING 200809L
     sched.sched_setscheduler sched.sched_getscheduler sched.sched_setparam sched.sched_getparam)
-  mmix_set_posix_option(SPAWN 200809L
-    spawn.posix_spawn spawn.posix_spawnp)
+  # FIXME: Qualify the full Spawn option after implementing spawn attributes.
+  # Exporting the null-attribute subset does not establish option support.
+  set(MMIX_POSIX_SPAWN "(-1L)")
   mmix_set_posix_option(SAVED_IDS 1
     unistd.setuid unistd.setgid)
   mmix_set_posix_option(JOB_CONTROL 1

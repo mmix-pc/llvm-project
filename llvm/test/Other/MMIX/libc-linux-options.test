@@ -26,12 +26,11 @@ extensions = {
 all_flags = base + list(extensions) + ["ROBUST_MUTEX"]
 options = ["THREADS", "THREAD_ATTR_STACKADDR", "THREAD_ATTR_STACKSIZE",
            *extensions.values(), "THREAD_ROBUST_PRIO_INHERIT",
-           "THREAD_ROBUST_PRIO_PROTECT"]
+           "THREAD_ROBUST_PRIO_PROTECT", "SPAWN"]
 providers = {
     "MAPPED_FILES": {"sys.mman.mmap", "sys.mman.munmap"},
     "MEMORY_PROTECTION": {"sys.mman.mprotect"},
     "SHARED_MEMORY_OBJECTS": {"sys.mman.shm_open", "sys.mman.shm_unlink"},
-    "SPAWN": {"spawn.posix_spawn", "spawn.posix_spawnp"},
     "FSYNC": {"unistd.fsync", "unistd.fdatasync"},
     "SYNCHRONIZED_IO": {"unistd.fsync", "unistd.fdatasync"},
     "MEMLOCK": {"sys.mman.mlockall", "sys.mman.munlockall"},
@@ -105,5 +104,7 @@ for flag in all_flags:
 
 entries = sorted(set.union(*providers.values()))
 check("selected-providers", [], entries)
+check("partial-spawn", all_flags + ["SPAWN"],
+      entries + ["spawn.posix_spawn", "spawn.posix_spawnp"])
 for entry in entries:
     check("without-provider-" + entry, [], [e for e in entries if e != entry])
