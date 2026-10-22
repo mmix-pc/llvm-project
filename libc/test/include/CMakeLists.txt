@@ -1,6 +1,18 @@
 add_custom_target(libc_include_tests)
 add_dependencies(check-libc libc_include_tests-build)
 
+foreach(language IN ITEMS c cpp)
+  add_libc_test(
+    stream_state_namespace_${language}_test
+    C_TEST
+    SUITE libc_include_tests
+    SRCS stream_state_namespace_test.${language}
+    HDRS stream_state_namespace_test.h
+    DEPENDS libc.include.llvm-libc-types.fpos_t
+            libc.include.llvm-libc-macros.wchar_macros
+  )
+endforeach()
+
 add_libc_test(
   posix_limits_test
   C_TEST

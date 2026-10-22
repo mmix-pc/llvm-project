@@ -10,10 +10,9 @@
 #define LLVM_LIBC_TYPES_FPOS_T_H
 
 #include "mbstate_t.h"
-#include "off_t.h"
 
 typedef struct {
-  off_t __offset;
+  __INT64_TYPE__ __offset;
   mbstate_t __state;
 } fpos_t;
 
