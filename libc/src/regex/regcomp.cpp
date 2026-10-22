@@ -17,6 +17,8 @@ LLVM_LIBC_FUNCTION(int, regcomp,
                     int cflags)) {
   preg->re_nsub = 0;
   preg->__internal = nullptr;
+  // FIXME: Implement REG_MINIMAL with an explicit BSD-engine translation;
+  // its public bit must not be forwarded as an unrelated private engine flag.
   if (cflags & ~(REG_EXTENDED | REG_ICASE | REG_NOSUB | REG_NEWLINE))
     return REG_BADPAT;
   // The byte-oriented engine does not validate the locale's input encoding.

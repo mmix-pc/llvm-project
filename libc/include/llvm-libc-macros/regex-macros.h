@@ -19,6 +19,9 @@
 #define REG_ICASE 2
 #define REG_NOSUB 4
 #define REG_NEWLINE 8
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024)
+#define REG_MINIMAL 0x100
+#endif
 
 // regexec eflags
 #define REG_NOTBOL 1

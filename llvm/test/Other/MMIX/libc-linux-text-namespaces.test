@@ -148,6 +148,20 @@ for language in ("c", "c++"):
         assert result.returncode == 0, (defines, result.stderr)
         result = compile('#include <langinfo.h>\nint items[] = {YESEXPR, NOEXPR};\n')
         assert result.returncode == 0, (defines, result.stderr)
+        source = '#include <langinfo.h>\n#include <regex.h>\n'
+        assertion = '_Static_assert' if language == 'c' else 'static_assert'
+        for family, first in (("ALTMON", 49), ("ABALTMON", 61)):
+            for month in range(1, 13):
+                name = family + '_' + str(month)
+                source += ('#ifndef ' if posix >= 202405 else '#ifdef ') + name + '\n#error namespace\n#endif\n'
+                if posix >= 202405:
+                    value = '(LC_TIME << 16) + ' + str(first + month - 1)
+                    source += assertion + '(' + name + ' == (' + value + '), "query ABI");\n'
+        source += ('#ifndef ' if posix >= 202405 else '#ifdef ') + 'REG_MINIMAL\n#error namespace\n#endif\n'
+        if posix >= 202405:
+            source += assertion + '(REG_MINIMAL == 0x100 && (REG_MINIMAL & (REG_EXTENDED | REG_ICASE | REG_NEWLINE | REG_NOSUB)) == 0, "independent flag");\n'
+        result = compile(source)
+        assert result.returncode == 0, (defines, result.stderr)
         source = '#include <stdlib.h>\n'
         for name, present in (("WEXITSTATUS", posix > 0), ("WNOHANG", posix > 0),
                               ("O_APPEND", posix >= 202405 or xsi > 0)):
@@ -208,4 +222,8 @@ print(f"{observations} text declaration observations passed")
 #define TEST_LINUX_WAIT_H
 #define WNOHANG 1
 #define WUNTRACED 2
+#define P_ALL 0
+#define P_PID 1
+#define P_PGID 2
+#define P_PIDFD 3
 #endif

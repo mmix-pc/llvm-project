@@ -78,6 +78,35 @@
 #define ERA_T_FMT _NL_ITEM(LC_TIME, 47)
 #define ALT_DIGITS _NL_ITEM(LC_TIME, 48)
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024)
+// Stand-alone month forms have distinct query identities even in locales
+// where their strings are identical to the contextual forms.
+#define ALTMON_1 _NL_ITEM(LC_TIME, 49)
+#define ALTMON_2 _NL_ITEM(LC_TIME, 50)
+#define ALTMON_3 _NL_ITEM(LC_TIME, 51)
+#define ALTMON_4 _NL_ITEM(LC_TIME, 52)
+#define ALTMON_5 _NL_ITEM(LC_TIME, 53)
+#define ALTMON_6 _NL_ITEM(LC_TIME, 54)
+#define ALTMON_7 _NL_ITEM(LC_TIME, 55)
+#define ALTMON_8 _NL_ITEM(LC_TIME, 56)
+#define ALTMON_9 _NL_ITEM(LC_TIME, 57)
+#define ALTMON_10 _NL_ITEM(LC_TIME, 58)
+#define ALTMON_11 _NL_ITEM(LC_TIME, 59)
+#define ALTMON_12 _NL_ITEM(LC_TIME, 60)
+#define ABALTMON_1 _NL_ITEM(LC_TIME, 61)
+#define ABALTMON_2 _NL_ITEM(LC_TIME, 62)
+#define ABALTMON_3 _NL_ITEM(LC_TIME, 63)
+#define ABALTMON_4 _NL_ITEM(LC_TIME, 64)
+#define ABALTMON_5 _NL_ITEM(LC_TIME, 65)
+#define ABALTMON_6 _NL_ITEM(LC_TIME, 66)
+#define ABALTMON_7 _NL_ITEM(LC_TIME, 67)
+#define ABALTMON_8 _NL_ITEM(LC_TIME, 68)
+#define ABALTMON_9 _NL_ITEM(LC_TIME, 69)
+#define ABALTMON_10 _NL_ITEM(LC_TIME, 70)
+#define ABALTMON_11 _NL_ITEM(LC_TIME, 71)
+#define ABALTMON_12 _NL_ITEM(LC_TIME, 72)
+#endif
+
 #define CRNCYSTR _NL_ITEM(LC_MONETARY, 0)
 
 // Explicit langinfo.h inclusion also works without the locale.h POSIX names.
