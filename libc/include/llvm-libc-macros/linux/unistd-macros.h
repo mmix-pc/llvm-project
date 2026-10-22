@@ -27,6 +27,11 @@
 #define F_TEST 3
 #endif
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || __LIBC_USE_POSIX2024
+#define SEEK_DATA 3
+#define SEEK_HOLE 4
+#endif
+
 #define _SC_ARG_MAX 0
 #define _SC_CLK_TCK 2
 #define _SC_OPEN_MAX 4

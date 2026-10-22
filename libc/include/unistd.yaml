@@ -2,6 +2,14 @@ header: unistd.h
 standards:
   - posix
 macros:
+  - macro_name: 'NULL'
+    macro_header: null-macro.h
+  - macro_name: O_CLOEXEC
+    macro_header: fcntl-macros.h
+  - macro_name: SEEK_DATA
+    macro_header: unistd-macros.h
+  - macro_name: SEEK_HOLE
+    macro_header: unistd-macros.h
   - macro_name: SEEK_SET
     macro_header: file-seek-macros.h
   - macro_name: SEEK_CUR
@@ -35,6 +43,7 @@ macros:
   - macro_name: _POSIX_THREADS
     macro_header: unistd-macros.h
 types:
+  - type_name: intptr_t
   - type_name: uid_t
   - type_name: gid_t
   - type_name: ssize_t
@@ -58,6 +67,41 @@ objects:
   - object_name: optopt
     object_type: int
 functions:
+  - name: posix_close
+    noexcept: false
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: int
+      - type: int
+  - name: getresuid
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: uid_t *__restrict
+      - type: uid_t *__restrict
+      - type: uid_t *__restrict
+  - name: getresgid
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: gid_t *__restrict
+      - type: gid_t *__restrict
+      - type: gid_t *__restrict
+  - name: setresuid
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: uid_t
+      - type: uid_t
+      - type: uid_t
+  - name: setresgid
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: gid_t
+      - type: gid_t
+      - type: gid_t
   - name: execlp
     standards: [posix]
     return_type: int
