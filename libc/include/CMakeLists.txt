@@ -762,6 +762,41 @@ add_header_macro(
 )
 
 add_header_macro(
+  aio
+  ../libc/include/aio.yaml
+  aio.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-types.struct_aiocb
+    .llvm-libc-types.off_t
+    .llvm-libc-types.pthread_attr_t
+    .llvm-libc-types.size_t
+    .llvm-libc-types.ssize_t
+    .llvm-libc-types.struct_timespec
+    .llvm-libc-types.struct_sigevent
+    .llvm-libc-types.union_sigval
+)
+
+add_header_macro(
+  ndbm
+  ../libc/include/ndbm.yaml
+  ndbm.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-types.DBM
+    .llvm-libc-types.datum
+    .llvm-libc-types.size_t
+    .llvm-libc-types.mode_t
+)
+
+add_header_macro(
+  fmtmsg
+  ../libc/include/fmtmsg.yaml
+  fmtmsg.h
+  DEPENDS .llvm_libc_common_h
+)
+
+add_header_macro(
   mqueue
   ../libc/include/mqueue.yaml
   mqueue.h
@@ -1037,6 +1072,39 @@ add_header_macro(
     .llvm-libc-types.time_t
     .llvm-libc-types.struct_timespec
     .llvm-libc-types.struct_timeval
+)
+
+add_header_macro(
+  sys_msg
+  ../libc/include/sys/msg.yaml
+  sys/msg.h
+  DEPENDS
+    .llvm_libc_common_h
+    .sys_ipc
+    .llvm-libc-macros.sys_msg_macros
+    .llvm-libc-types.struct_msqid_ds
+    .llvm-libc-types.msgqnum_t
+    .llvm-libc-types.msglen_t
+    .llvm-libc-types.pid_t
+    .llvm-libc-types.ssize_t
+    .llvm-libc-types.time_t
+    .llvm-libc-types.size_t
+)
+
+add_header_macro(
+  sys_shm
+  ../libc/include/sys/shm.yaml
+  sys/shm.h
+  DEPENDS
+    .llvm_libc_common_h
+    .sys_ipc
+    .llvm-libc-macros.sys_shm_macros
+    .llvm-libc-types.intptr_t
+    .llvm-libc-types.struct_shmid_ds
+    .llvm-libc-types.shmatt_t
+    .llvm-libc-types.pid_t
+    .llvm-libc-types.time_t
+    .llvm-libc-types.size_t
 )
 
 add_header_macro(

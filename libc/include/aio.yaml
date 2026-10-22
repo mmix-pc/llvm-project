@@ -1,0 +1,69 @@
+header: aio.h
+standards: [posix]
+macros:
+  - macro_name: AIO_CANCELED
+    macro_value: '0'
+  - macro_name: AIO_NOTCANCELED
+    macro_value: '1'
+  - macro_name: AIO_ALLDONE
+    macro_value: '2'
+  - macro_name: LIO_READ
+    macro_value: '0'
+  - macro_name: LIO_WRITE
+    macro_value: '1'
+  - macro_name: LIO_NOP
+    macro_value: '2'
+  - macro_name: LIO_WAIT
+    macro_value: '0'
+  - macro_name: LIO_NOWAIT
+    macro_value: '1'
+types:
+  - type_name: struct_aiocb
+  - type_name: off_t
+  - type_name: pthread_attr_t
+  - type_name: size_t
+  - type_name: ssize_t
+  - type_name: struct_timespec
+  - type_name: struct_sigevent
+  - type_name: union_sigval
+functions:
+  - name: aio_cancel
+    return_type: int
+    arguments:
+      - type: int
+      - type: struct aiocb *
+  - name: aio_error
+    return_type: int
+    arguments:
+      - type: const struct aiocb *
+  - name: aio_fsync
+    return_type: int
+    arguments:
+      - type: int
+      - type: struct aiocb *
+  - name: aio_read
+    return_type: int
+    arguments:
+      - type: struct aiocb *
+  - name: aio_return
+    return_type: ssize_t
+    arguments:
+      - type: struct aiocb *
+  - name: aio_suspend
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: const struct aiocb *const *
+      - type: int
+      - type: const struct timespec *
+  - name: aio_write
+    return_type: int
+    arguments:
+      - type: struct aiocb *
+  - name: lio_listio
+    return_type: int
+    arguments:
+      - type: int
+      - type: struct aiocb *const *__restrict
+      - type: int
+      - type: struct sigevent *__restrict

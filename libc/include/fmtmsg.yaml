@@ -1,0 +1,64 @@
+header: fmtmsg.h
+standards: [posix]
+macros:
+  - macro_name: MM_HARD
+    macro_value: '0x001'
+  - macro_name: MM_SOFT
+    macro_value: '0x002'
+  - macro_name: MM_FIRM
+    macro_value: '0x004'
+  - macro_name: MM_APPL
+    macro_value: '0x008'
+  - macro_name: MM_UTIL
+    macro_value: '0x010'
+  - macro_name: MM_OPSYS
+    macro_value: '0x020'
+  - macro_name: MM_RECOVER
+    macro_value: '0x040'
+  - macro_name: MM_NRECOV
+    macro_value: '0x080'
+  - macro_name: MM_PRINT
+    macro_value: '0x100'
+  - macro_name: MM_CONSOLE
+    macro_value: '0x200'
+  - macro_name: MM_NOSEV
+    macro_value: '0'
+  - macro_name: MM_HALT
+    macro_value: '1'
+  - macro_name: MM_ERROR
+    macro_value: '2'
+  - macro_name: MM_WARNING
+    macro_value: '3'
+  - macro_name: MM_INFO
+    macro_value: '4'
+  - macro_name: MM_NULLLBL
+    macro_value: '((char *)0)'
+  - macro_name: MM_NULLTXT
+    macro_value: '((char *)0)'
+  - macro_name: MM_NULLACT
+    macro_value: '((char *)0)'
+  - macro_name: MM_NULLTAG
+    macro_value: '((char *)0)'
+  - macro_name: MM_NULLMC
+    macro_value: '0L'
+  - macro_name: MM_NULLSEV
+    macro_value: '0'
+  - macro_name: MM_OK
+    macro_value: '0'
+  - macro_name: MM_NOTOK
+    macro_value: '(-1)'
+  - macro_name: MM_NOMSG
+    macro_value: '1'
+  - macro_name: MM_NOCON
+    macro_value: '4'
+functions:
+  - name: fmtmsg
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: long
+      - type: const char *
+      - type: int
+      - type: const char *
+      - type: const char *
+      - type: const char *

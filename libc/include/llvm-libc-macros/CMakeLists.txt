@@ -338,6 +338,9 @@ add_macro_header(
     sys-ipc-macros.h
 )
 
+add_macro_header(sys_msg_macros HDR sys-msg-macros.h)
+add_macro_header(sys_shm_macros HDR sys-shm-macros.h)
+
 add_macro_header(
   sys_sem_macros
   HDR

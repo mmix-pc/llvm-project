@@ -1,0 +1,129 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+resource = subprocess.check_output(
+    [clang, "--no-default-config", "-print-resource-dir"], text=True).strip()
+include = out / "include"
+for name in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(libc / "include" / name, include / name, dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h", include / "__llvm-libc-common.h")
+for name in ("aio", "fmtmsg", "ndbm", "sys/ipc", "sys/msg", "sys/shm"):
+    target = include / (name + ".h")
+    target.parent.mkdir(exist_ok=True)
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include" / (name + ".yaml")),
+                    "-o", str(target)], check=True)
+
+for triple in ("mmix-unknown-linux", "x86_64-unknown-linux-gnu"):
+    for language in ("c", "c++"):
+        command = [clang, "--no-default-config", "--target=" + triple,
+                   "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                   "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+                   "-fsyntax-only", "-Werror", "-"]
+        assertion = "static_assert" if language == "c++" else "_Static_assert"
+        for header, fixture in (("aio", "aio.c"), ("fmtmsg", "fmtmsg.c"), ("ndbm", "ndbm.c")):
+            source = '#define CHECK ' + assertion + '\n#include <' + header + '.h>\n'
+            source += (out / fixture).read_text()
+            subprocess.run(command, input=source, text=True, check=True)
+        if triple.startswith("mmix"):
+            for first in ("", "#include <sys/ipc.h>\n"):
+                source = '#define CHECK ' + assertion + '\n' + first + (out / "sysv.c").read_text()
+                subprocess.run(command, input=source, text=True, check=True)
+
+#--- aio.c
+CHECK(sizeof(struct aiocb) == 88 && __alignof__(struct aiocb) == 8, "request ABI");
+CHECK(__builtin_offsetof(struct aiocb, aio_offset) == 72, "offset ABI");
+CHECK(AIO_CANCELED != AIO_NOTCANCELED && AIO_NOTCANCELED != AIO_ALLDONE && AIO_ALLDONE != AIO_CANCELED, "distinct cancel results");
+CHECK(LIO_READ != LIO_WRITE && LIO_WRITE != LIO_NOP && LIO_NOP != LIO_READ, "distinct operations");
+CHECK(LIO_WAIT != LIO_NOWAIT, "distinct wait policies");
+void fields(struct aiocb *a) {
+  int *fd = &a->aio_fildes, *op = &a->aio_lio_opcode, *prio = &a->aio_reqprio;
+  volatile void **buf = &a->aio_buf;
+  size_t *bytes = &a->aio_nbytes;
+  struct sigevent *ev = &a->aio_sigevent;
+  off_t *offset = &a->aio_offset;
+}
+int (*cancel_fn)(int, struct aiocb *) = &aio_cancel;
+int (*error_fn)(const struct aiocb *) = &aio_error;
+int (*sync_fn)(int, struct aiocb *) = &aio_fsync;
+int (*read_fn)(struct aiocb *) = &aio_read;
+ssize_t (*return_fn)(struct aiocb *) = &aio_return;
+int (*suspend_fn)(const struct aiocb *const *, int, const struct timespec *) = &aio_suspend;
+int (*write_fn)(struct aiocb *) = &aio_write;
+int (*list_fn)(int, struct aiocb *const *, int, struct sigevent *) = &lio_listio;
+pthread_attr_t imported_attr;
+union sigval imported_value;
+#ifdef __cplusplus
+CHECK(!noexcept(aio_suspend(nullptr, 0, nullptr)), "cancellation");
+#endif
+
+#--- fmtmsg.c
+int (*message_fn)(long, const char *, int, const char *, const char *, const char *) = &fmtmsg;
+CHECK((MM_HARD | MM_SOFT | MM_FIRM | MM_APPL | MM_UTIL | MM_OPSYS | MM_RECOVER | MM_NRECOV | MM_PRINT | MM_CONSOLE) == 0x3ff, "classification bits");
+CHECK(MM_NOSEV == 0 && MM_HALT == 1 && MM_ERROR == 2 && MM_WARNING == 3 && MM_INFO == 4, "severity values");
+CHECK(MM_OK == 0 && MM_NOTOK == -1 && MM_NOMSG == 1 && MM_NOCON == 4, "result values");
+char *label = MM_NULLLBL, *text = MM_NULLTXT, *action = MM_NULLACT, *tag = MM_NULLTAG;
+long classification = MM_NULLMC;
+int severity = MM_NULLSEV;
+#ifdef __cplusplus
+CHECK(!noexcept(fmtmsg(0, nullptr, 0, nullptr, nullptr, nullptr)), "output may cancel");
+#endif
+
+#--- ndbm.c
+CHECK(sizeof(datum) == 16 && __alignof__(datum) == 8, "datum ABI");
+CHECK(__builtin_offsetof(datum, dsize) == 8, "datum size offset");
+CHECK(DBM_INSERT == 0 && DBM_REPLACE == 1, "store policy");
+void fields(datum *d) { void **p = &d->dptr; size_t *s = &d->dsize; }
+CHECK(sizeof(((datum *)0)->dsize) == 8, "Issue 8 count width");
+int (*clear_fn)(DBM *) = &dbm_clearerr;
+void (*close_fn)(DBM *) = &dbm_close;
+int (*delete_fn)(DBM *, datum) = &dbm_delete;
+int (*error_fn)(DBM *) = &dbm_error;
+datum (*fetch_fn)(DBM *, datum) = &dbm_fetch;
+datum (*first_fn)(DBM *) = &dbm_firstkey;
+datum (*next_fn)(DBM *) = &dbm_nextkey;
+DBM *(*open_fn)(const char *, int, mode_t) = &dbm_open;
+int (*store_fn)(DBM *, datum, datum, int) = &dbm_store;
+size_t required_size_import;
+
+#--- sysv.c
+#include <sys/msg.h>
+#include <sys/shm.h>
+CHECK(sizeof(struct msqid_ds) == 120 && __alignof__(struct msqid_ds) == 8, "message ABI");
+CHECK(sizeof(struct shmid_ds) == 112 && __alignof__(struct shmid_ds) == 8, "shared memory ABI");
+CHECK(__builtin_offsetof(struct msqid_ds, msg_qnum) == 80, "message count offset");
+CHECK(__builtin_offsetof(struct msqid_ds, msg_lspid) == 96, "message pid offset");
+CHECK(__builtin_offsetof(struct shmid_ds, shm_nattch) == 88, "attachment count offset");
+void fields(struct msqid_ds *m, struct shmid_ds *s) {
+  unsigned long *n = &m->msg_qnum, *b = &m->msg_qbytes, *a = &s->shm_nattch;
+  pid_t *p = &m->msg_lspid, *q = &m->msg_lrpid, *r = &s->shm_cpid, *t = &s->shm_lpid;
+  time_t *st = &m->msg_stime, *rt = &m->msg_rtime, *ct = &m->msg_ctime;
+  time_t *at = &s->shm_atime, *dt = &s->shm_dtime, *sct = &s->shm_ctime;
+  size_t *z = &s->shm_segsz;
+}
+int (*msg_control)(int, int, struct msqid_ds *) = &msgctl;
+int (*msg_get)(key_t, int) = &msgget;
+ssize_t (*msg_receive)(int, void *, size_t, long, int) = &msgrcv;
+int (*msg_send)(int, const void *, size_t, int) = &msgsnd;
+void *(*shm_attach)(int, const void *, int) = &shmat;
+int (*shm_control)(int, int, struct shmid_ds *) = &shmctl;
+int (*shm_detach)(const void *) = &shmdt;
+int (*shm_get)(key_t, size_t, int) = &shmget;
+CHECK(MSG_NOERROR == 010000 && SHM_RDONLY == 010000 && SHM_RND == 020000, "kernel flags");
+CHECK(SHMLBA == 8192, "MMIX attachment boundary");
+void *failure = SHM_FAILED;
+intptr_t imported_pointer_integer;
+int required_ipc_imports = IPC_CREAT | IPC_EXCL | IPC_NOWAIT;
+#ifdef __cplusplus
+CHECK(!noexcept(msgrcv(0, nullptr, 0, 0, 0)), "cancellation");
+CHECK(!noexcept(msgsnd(0, nullptr, 0, 0)), "cancellation");
+#endif

@@ -1,0 +1,43 @@
+header: sys/msg.h
+standards: [posix]
+public_includes: [sys/ipc.h]
+macros:
+  - macro_name: MSG_NOERROR
+    macro_header: sys-msg-macros.h
+types:
+  - type_name: msgqnum_t
+  - type_name: msglen_t
+  - type_name: struct_msqid_ds
+  - type_name: pid_t
+  - type_name: ssize_t
+  - type_name: time_t
+  - type_name: size_t
+functions:
+  - name: msgctl
+    return_type: int
+    arguments:
+      - type: int
+      - type: int
+      - type: struct msqid_ds *
+  - name: msgget
+    return_type: int
+    arguments:
+      - type: key_t
+      - type: int
+  - name: msgrcv
+    noexcept: false
+    return_type: ssize_t
+    arguments:
+      - type: int
+      - type: void *
+      - type: size_t
+      - type: long
+      - type: int
+  - name: msgsnd
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: int
+      - type: const void *
+      - type: size_t
+      - type: int

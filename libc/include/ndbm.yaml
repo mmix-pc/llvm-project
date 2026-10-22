@@ -1,0 +1,56 @@
+header: ndbm.h
+standards: [posix]
+macros:
+  - macro_name: DBM_INSERT
+    macro_value: '0'
+  - macro_name: DBM_REPLACE
+    macro_value: '1'
+types:
+  - type_name: DBM
+  - type_name: datum
+  - type_name: size_t
+  - type_name: mode_t
+functions:
+  - name: dbm_clearerr
+    return_type: int
+    arguments:
+      - type: DBM *
+  - name: dbm_close
+    return_type: void
+    arguments:
+      - type: DBM *
+  - name: dbm_delete
+    return_type: int
+    arguments:
+      - type: DBM *
+      - type: datum
+  - name: dbm_error
+    return_type: int
+    arguments:
+      - type: DBM *
+  - name: dbm_fetch
+    return_type: datum
+    arguments:
+      - type: DBM *
+      - type: datum
+  - name: dbm_firstkey
+    return_type: datum
+    arguments:
+      - type: DBM *
+  - name: dbm_nextkey
+    return_type: datum
+    arguments:
+      - type: DBM *
+  - name: dbm_open
+    return_type: DBM *
+    arguments:
+      - type: const char *
+      - type: int
+      - type: mode_t
+  - name: dbm_store
+    return_type: int
+    arguments:
+      - type: DBM *
+      - type: datum
+      - type: datum
+      - type: int

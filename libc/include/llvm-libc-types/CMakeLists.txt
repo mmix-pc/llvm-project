@@ -208,6 +208,17 @@ add_header(struct_rlimit HDR struct_rlimit.h DEPENDS .rlim_t)
 add_header(struct_sched_param HDR struct_sched_param.h)
 add_header(struct_sembuf HDR struct_sembuf.h)
 add_header(struct_seminfo HDR struct_seminfo.h)
+add_header(DBM HDR DBM.h)
+add_header(datum HDR datum.h DEPENDS .size_t)
+add_header(msgqnum_t HDR msgqnum_t.h)
+add_header(msglen_t HDR msglen_t.h)
+add_header(shmatt_t HDR shmatt_t.h)
+add_header(struct_msqid_ds_mmix HDR linux/mmix/struct_msqid_ds.h
+  DEPENDS .struct_ipc_perm .time_t .pid_t .msgqnum_t .msglen_t)
+add_header(struct_shmid_ds_mmix HDR linux/mmix/struct_shmid_ds.h
+  DEPENDS .struct_ipc_perm .size_t .time_t .pid_t .shmatt_t)
+add_header(struct_msqid_ds HDR struct_msqid_ds.h DEPENDS .struct_msqid_ds_mmix)
+add_header(struct_shmid_ds HDR struct_shmid_ds.h DEPENDS .struct_shmid_ds_mmix)
 if(LIBC_TARGET_OS STREQUAL "linux" AND
    LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   add_header(struct_semid_ds HDR linux/mmix/struct_semid_ds.h
@@ -238,6 +249,7 @@ add_header(jmp_buf HDR jmp_buf.h DEPENDS .__jmp_buf)
 add_header(sigjmp_buf HDR sigjmp_buf.h DEPENDS .__jmp_buf)
 add_header(struct_sigaction HDR struct_sigaction.h DEPENDS .sigset_t .siginfo_t)
 add_header(struct_sigevent HDR struct_sigevent.h DEPENDS .union_sigval .pthread_attr_t .pid_t)
+add_header(struct_aiocb HDR struct_aiocb.h DEPENDS .off_t .size_t .struct_sigevent)
 add_header(struct_timespec HDR struct_timespec.h DEPENDS .time_t)
 add_header(struct_itimerspec HDR struct_itimerspec.h DEPENDS .struct_timespec)
 add_header(
