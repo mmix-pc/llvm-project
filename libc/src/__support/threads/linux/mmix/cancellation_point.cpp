@@ -326,8 +326,8 @@ long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
       __builtin_trap();
     libc_errno = point.saved_errno;
   }
-  // Close errors may already consume the descriptor. Never retry, replay or
-  // reinterpret them; completed success/partial results always reach callers.
+  // Close errors may already consume the descriptor. Never retry or turn them
+  // into cancellation; public errno translation happens after this decision.
   if (recovered || result == -4096 ||
       (result == -EINTR && number != SYS_close)) {
     bool claimed;

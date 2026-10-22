@@ -40,6 +40,28 @@ if(LIBC_TARGET_OS_IS_LINUX)
         ${filesystem_dependencies}
     )
   endforeach()
+  foreach(mode raw cancellable)
+    set(close_source close.cpp)
+    set(close_options
+      -include ${CMAKE_CURRENT_SOURCE_DIR}/mmix_close_test_syscall.h)
+    if(mode STREQUAL "cancellable")
+      set(close_source cancellation_close.cpp)
+      list(APPEND close_options -DTEST_CANCELLABLE_CLOSE)
+    endif()
+    add_libc_test(
+      mmix_close_${mode}_test
+      SUITE libc_unistd_unittests
+      SRCS
+        mmix_close_test.cpp
+        ${LIBC_SOURCE_DIR}/src/unistd/linux/mmix/${close_source}
+        ${LIBC_SOURCE_DIR}/src/unistd/linux/mmix/posix_close.cpp
+      HDRS mmix_close_test_syscall.h
+      COMPILE_OPTIONS ${close_options}
+      DEPENDS
+        libc.src.errno.errno
+        libc.src.__support.OSUtil.linux.syscall_wrappers.close
+    )
+  endforeach()
 endif()
 
 add_libc_test(

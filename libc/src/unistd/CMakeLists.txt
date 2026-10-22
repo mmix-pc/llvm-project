@@ -634,3 +634,11 @@ foreach(name fchownat fdatasync)
     DEPENDS .${LIBC_TARGET_OS}.${name}
   )
 endforeach()
+
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS_IS_LINUX)
+  add_entrypoint_object(
+    posix_close
+    ALIAS
+    DEPENDS .linux.posix_close
+  )
+endif()

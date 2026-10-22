@@ -16,7 +16,8 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, close, (int fd)) {
   long result = mmix::cancellation_syscall(SYS_close, fd);
   if (result < 0) {
-    libc_errno = static_cast<int>(-result);
+    // Translate only after the cancellation window has resolved raw fd state.
+    libc_errno = result == -EINTR ? EINPROGRESS : static_cast<int>(-result);
     return -1;
   }
   return static_cast<int>(result);

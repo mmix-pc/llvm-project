@@ -94,7 +94,7 @@ for language in ("c", "c++"):
         check = "static_assert" if language == "c++" else "_Static_assert"
         if posix >= 202405:
             result = compile('#include <unistd.h>\n' + check +
-                             '(POSIX_CLOSE_RESTART == 1 && _PC_FALLOC == 22 && '
+                             '(POSIX_CLOSE_RESTART == 0 && _PC_FALLOC == 22 && '
                              '_PC_TEXTDOMAIN_MAX == 23 && _SC_DEVICE_CONTROL == 306, "query ABI");\n')
             assert result.returncode == 0, (defines, result.stderr)
         result = compile('#include <unistd.h>\n' + check +

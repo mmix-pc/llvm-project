@@ -2,6 +2,7 @@ foreach(name close read write sleep usleep)
   set(${name}_source ${name}.cpp)
 endforeach()
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(close_source mmix/close.cpp)
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
   mmix_select_cancellation_points(close read write sleep usleep)
   include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/ProcessOperations.cmake)
@@ -9,6 +10,16 @@ else()
   foreach(name setuid setgid seteuid setegid)
     set(${name}_source ${name}.cpp)
   endforeach()
+endif()
+
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  add_entrypoint_object(
+    posix_close
+    SRCS mmix/posix_close.cpp
+    HDRS ../posix_close.h
+    DEPENDS libc.src.unistd.close libc.src.errno.errno
+    COMPILE_OPTIONS ${mmix_cancellation_options}
+  )
 endif()
 
 add_entrypoint_object(

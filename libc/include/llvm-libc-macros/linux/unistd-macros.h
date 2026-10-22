@@ -30,7 +30,11 @@
 #if !defined(__LIBC_EXPLICIT_NAMESPACE) || __LIBC_USE_POSIX2024
 #define SEEK_DATA 3
 #define SEEK_HOLE 4
+#if defined(__mmix__)
+#define POSIX_CLOSE_RESTART 0
+#else
 #define POSIX_CLOSE_RESTART 1
+#endif
 #endif
 
 #define _SC_ARG_MAX 0
