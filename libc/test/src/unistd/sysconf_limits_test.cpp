@@ -128,6 +128,22 @@ TEST(LlvmLibcSysconfLimitsTest, IndeterminatePasswdBufferSize) {
   }
 }
 
+#ifdef _SC_DEVICE_CONTROL
+TEST(LlvmLibcSysconfLimitsTest, DeviceControlCapability) {
+  const int errors[] = {0, EDOM};
+  for (int saved_errno : errors) {
+    libc_errno = saved_errno;
+#if defined(_POSIX_DEVICE_CONTROL) && _POSIX_DEVICE_CONTROL > 0
+    EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_DEVICE_CONTROL),
+              long(_POSIX_DEVICE_CONTROL));
+#else
+    EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_DEVICE_CONTROL), -1L);
+#endif
+    EXPECT_EQ(int(libc_errno), saved_errno);
+  }
+}
+#endif
+
 TEST(LlvmLibcSysconfLimitsTest, PublicLimits) {
   libc_errno = EDOM;
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_NGROUPS_MAX), long(NGROUPS_MAX));

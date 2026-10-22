@@ -515,6 +515,14 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
 #else
     return -1;
 #endif
+#ifdef _SC_DEVICE_CONTROL
+  case _SC_DEVICE_CONTROL:
+#ifdef _POSIX_DEVICE_CONTROL
+    return _POSIX_DEVICE_CONTROL > 0 ? _POSIX_DEVICE_CONTROL : -1;
+#else
+    return -1;
+#endif
+#endif
   case _SC_XOPEN_VERSION:
 #ifdef _XOPEN_VERSION
     return _XOPEN_VERSION > 0 ? _XOPEN_VERSION : -1;
