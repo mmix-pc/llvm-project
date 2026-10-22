@@ -761,10 +761,26 @@ add_header_macro(
 )
 
 add_header_macro(
+  mqueue
+  ../libc/include/mqueue.yaml
+  mqueue.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-macros.fcntl_macros
+    .llvm-libc-types.mqd_t
+    .llvm-libc-types.struct_mq_attr
+    .llvm-libc-types.size_t
+    .llvm-libc-types.ssize_t
+    .llvm-libc-types.struct_timespec
+    .llvm-libc-types.struct_sigevent
+)
+
+add_header_macro(
   semaphore
   ../libc/include/semaphore.yaml
   semaphore.h
   DEPENDS
+    .llvm-libc-macros.fcntl_macros
     .llvm_libc_common_h
     .llvm-libc-macros.semaphore_macros
     .llvm-libc-types.clockid_t

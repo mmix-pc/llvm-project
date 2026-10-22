@@ -1,0 +1,88 @@
+header: mqueue.h
+standards:
+  - posix
+macros:
+  - macro_name: O_RDONLY
+    macro_header: fcntl-macros.h
+  - macro_name: O_WRONLY
+    macro_header: fcntl-macros.h
+  - macro_name: O_RDWR
+    macro_header: fcntl-macros.h
+  - macro_name: O_CREAT
+    macro_header: fcntl-macros.h
+  - macro_name: O_EXCL
+    macro_header: fcntl-macros.h
+  - macro_name: O_NONBLOCK
+    macro_header: fcntl-macros.h
+types:
+  - type_name: mqd_t
+  - type_name: struct_mq_attr
+  - type_name: size_t
+  - type_name: ssize_t
+  - type_name: struct_timespec
+  - type_name: struct_sigevent
+functions:
+  - name: mq_close
+    return_type: int
+    arguments:
+      - type: mqd_t
+  - name: mq_getattr
+    return_type: int
+    arguments:
+      - type: mqd_t
+      - type: struct mq_attr *
+  - name: mq_notify
+    return_type: int
+    arguments:
+      - type: mqd_t
+      - type: const struct sigevent *
+  - name: mq_open
+    return_type: mqd_t
+    arguments:
+      - type: const char *
+      - type: int
+      - type: '...'
+  - name: mq_receive
+    noexcept: false
+    return_type: ssize_t
+    arguments:
+      - type: mqd_t
+      - type: char *
+      - type: size_t
+      - type: unsigned *
+  - name: mq_send
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: mqd_t
+      - type: const char *
+      - type: size_t
+      - type: unsigned
+  - name: mq_setattr
+    return_type: int
+    arguments:
+      - type: mqd_t
+      - type: const struct mq_attr *__restrict
+      - type: struct mq_attr *__restrict
+  - name: mq_timedreceive
+    noexcept: false
+    return_type: ssize_t
+    arguments:
+      - type: mqd_t
+      - type: char *__restrict
+      - type: size_t
+      - type: unsigned *__restrict
+      - type: const struct timespec *__restrict
+  - name: mq_timedsend
+    noexcept: false
+    return_type: int
+    arguments:
+      - type: mqd_t
+      - type: const char *
+      - type: size_t
+      - type: unsigned
+      - type: const struct timespec *
+  - name: mq_unlink
+    return_type: int
+    arguments:
+      - type: const char *

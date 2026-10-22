@@ -2,6 +2,10 @@ header: semaphore.h
 standards:
   - posix
 macros:
+  - macro_name: O_CREAT
+    macro_header: fcntl-macros.h
+  - macro_name: O_EXCL
+    macro_header: fcntl-macros.h
   - macro_name: SEM_FAILED
     macro_header: semaphore-macros.h
 types:
