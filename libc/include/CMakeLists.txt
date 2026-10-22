@@ -1043,6 +1043,7 @@ add_header_macro(
   ../libc/include/sys/sem.yaml
   sys/sem.h
   DEPENDS
+    .llvm-libc-types.pid_t
     .llvm_libc_common_h
     .llvm-libc-macros.sys_sem_macros
     .llvm-libc-types.key_t

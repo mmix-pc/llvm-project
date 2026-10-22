@@ -48,6 +48,7 @@ macros:
     standards:
       - linux
 types:
+  - type_name: pid_t
   - type_name: key_t
   - type_name: size_t
   - type_name: struct_ipc_perm

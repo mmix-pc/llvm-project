@@ -1,0 +1,49 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+resource = subprocess.check_output(
+    [clang, "--no-default-config", "-print-resource-dir"], text=True).strip()
+include = out / "include"
+for name in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(libc / "include" / name, include / name, dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h", include / "__llvm-libc-common.h")
+(include / "sys").mkdir(exist_ok=True)
+for name in ("sem", "ipc"):
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include/sys" / (name + ".yaml")),
+                    "-o", str(include / "sys" / (name + ".h"))], check=True)
+for triple, relative, size, ctime, nsems in (
+        ("mmix-unknown-linux", "linux/mmix/", 88, 56, 64),
+        ("x86_64-unknown-linux-gnu", "", 104, 64, 80)):
+    shutil.copyfile(libc / "include/llvm-libc-types" / relative / "struct_semid_ds.h",
+                    include / "llvm-libc-types/struct_semid_ds.h")
+    for language in ("c", "c++"):
+        check = "static_assert" if language == "c++" else "_Static_assert"
+        source = '#include <sys/sem.h>\n'
+        for record, expected in (("ipc_perm", 48), ("semid_ds", size)):
+            source += f'{check}(sizeof(struct {record}) == {expected}, "record size");\n'
+            source += f'{check}(__alignof__(struct {record}) == 8, "record alignment");\n'
+        for member, offset in (("sem_perm", 0), ("sem_otime", 48),
+                               ("sem_ctime", ctime), ("sem_nsems", nsems)):
+            source += f'{check}(__builtin_offsetof(struct semid_ds, {member}) == {offset}, "member offset");\n'
+        source += '''
+void members(struct semid_ds *s) {
+  struct ipc_perm *perm = &s->sem_perm;
+  time_t *otime = &s->sem_otime, *ctime = &s->sem_ctime;
+  unsigned long *nsems = &s->sem_nsems;
+}
+pid_t required_import;
+'''
+        subprocess.run([clang, "--no-default-config", "--target=" + triple,
+                        "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                        "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+                        "-fsyntax-only", "-Werror", "-"], input=source, text=True, check=True)
