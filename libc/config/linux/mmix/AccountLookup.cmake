@@ -12,6 +12,9 @@ set(MMIX_ACCOUNT_LOOKUP_ENTRYPOINTS
   libc.src.pwd.getpwuid_r
   libc.src.pwd.getpwnam
   libc.src.pwd.getpwuid
+  libc.src.pwd.setpwent
+  libc.src.pwd.getpwent
+  libc.src.pwd.endpwent
   libc.src.grp.getgrnam_r
   libc.src.grp.getgrgid_r
   libc.src.grp.getgrnam
