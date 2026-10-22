@@ -14,9 +14,70 @@ types:
   - type_name: wint_t
   - type_name: wchar_t
   - type_name: mbstate_t
+  - type_name: locale_t
 enums: []
 objects: []
 functions:
+  - name: open_wmemstream
+    standards: [posix]
+    return_type: FILE *
+    arguments:
+      - type: wchar_t **
+      - type: size_t *
+  - name: wcscasecmp
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const wchar_t *
+      - type: const wchar_t *
+  - name: wcscasecmp_l
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const wchar_t *
+      - type: const wchar_t *
+      - type: locale_t
+  - name: wcscoll_l
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const wchar_t *
+      - type: const wchar_t *
+      - type: locale_t
+  - name: wcsncasecmp
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const wchar_t *
+      - type: const wchar_t *
+      - type: size_t
+  - name: wcsncasecmp_l
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const wchar_t *
+      - type: const wchar_t *
+      - type: size_t
+      - type: locale_t
+  - name: wcsxfrm_l
+    standards: [posix]
+    return_type: size_t
+    arguments:
+      - type: wchar_t *__restrict
+      - type: const wchar_t *__restrict
+      - type: size_t
+      - type: locale_t
+  - name: wcswidth
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const wchar_t *
+      - type: size_t
+  - name: wcwidth
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: wchar_t
   - name: wcsftime
     standards: [stdc]
     return_type: size_t

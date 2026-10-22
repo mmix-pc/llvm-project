@@ -1,0 +1,189 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+# RUN: clang --no-default-config --target=x86_64-unknown-linux-gnu -fshort-wchar -ffreestanding -nostdinc -I%S/../../../../libc -std=c17 -Werror -pedantic-errors -fsyntax-only %S/../../../../libc/test/include/stream_state_namespace_test.c
+# RUN: clang --no-default-config --target=x86_64-unknown-linux-gnu -fshort-wchar -ffreestanding -nostdinc -I%S/../../../../libc -std=c++17 -Werror -pedantic-errors -fsyntax-only %S/../../../../libc/test/include/stream_state_namespace_test.cpp
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"],
+                                   text=True).strip()
+include = out / "include"
+include.mkdir(exist_ok=True)
+for directory in ("llvm-libc-macros", "llvm-libc-types"):
+    shutil.copytree(libc / "include" / directory, include / directory,
+                    dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+generator = libc / "utils/hdrgen/main.py"
+policy = libc / "config/linux/mmix/HeaderVisibility.yaml"
+for header in ("stdio", "wchar", "fenv", "math", "complex"):
+    subprocess.run([sys.executable, str(generator),
+                    str(libc / "include" / (header + ".yaml")),
+                    "--visibility", str(policy), "-o",
+                    str(include / (header + ".h"))], check=True)
+
+# Expected groups are independent of the generator's policy and standards tags.
+groups = {
+    "stdio.h": {
+        "iso": "fopen freopen printf fprintf fgetpos fsetpos snprintf tmpnam",
+        "posix": "ctermid fdopen fileno popen pclose",
+        "threads": "flockfile ftrylockfile funlockfile getc_unlocked getchar_unlocked putc_unlocked putchar_unlocked",
+        "largefile": "fseeko ftello",
+        "posix2008": "getdelim getline dprintf vdprintf fmemopen open_memstream renameat",
+        "legacy_xsi": "tempnam",
+        "gnu": "asprintf vasprintf clearerr_unlocked feof_unlocked ferror_unlocked fgetc_unlocked fgets_unlocked fileno_unlocked fopencookie fputc_unlocked fputs_unlocked fread_unlocked fwrite_unlocked",
+    },
+    "wchar.h": {
+        "iso": "wcslen wcsftime wcrtomb mbsrtowcs wcsrtombs fwprintf fwscanf swprintf swscanf",
+        "posix2008": "mbsnrtowcs open_wmemstream wcpcpy wcpncpy wcscasecmp wcscasecmp_l wcscoll_l wcsdup wcsncasecmp wcsncasecmp_l wcsnlen wcsnrtombs wcsxfrm_l",
+        "posix2024": "wcslcat wcslcpy",
+        "xsi": "wcswidth wcwidth",
+        "gnu": "wmempcpy",
+    },
+    "fenv.h": {
+        "iso": "feclearexcept fegetenv fegetexceptflag fegetround feholdexcept feraiseexcept fesetenv fesetexceptflag fesetround fetestexcept feupdateenv",
+        "gnu": "fedisableexcept feenableexcept fegetexcept fesetexcept fetestexceptflag",
+    },
+}
+modes = [
+    ([], 0, False),
+    (["-D_POSIX_C_SOURCE=199506L"], 199506, False),
+    (["-D_POSIX_C_SOURCE=200112L"], 200112, False),
+    (["-D_POSIX_C_SOURCE=200809L"], 200809, False),
+    (["-D_POSIX_C_SOURCE=202405L"], 202405, False),
+    (["-D_XOPEN_SOURCE=700"], 200809, False),
+    (["-D_XOPEN_SOURCE=800"], 202405, False),
+    (["-D_XOPEN_SOURCE=700", "-D_POSIX_C_SOURCE=202405L"], 202405, False),
+    (["-D_DEFAULT_SOURCE"], 202405, False),
+    (["-D_GNU_SOURCE"], 202405, True),
+]
+real_math = """acos asin atan atan2 cos sin tan acosh asinh atanh cosh sinh tanh
+exp exp2 expm1 frexp ilogb ldexp log log10 log1p log2 logb modf scalbn scalbln
+cbrt fabs hypot pow sqrt erf erfc lgamma tgamma ceil floor nearbyint rint lrint
+llrint round lround llround trunc fmod remainder remquo copysign nan nextafter
+nexttoward fdim fmax fmin fma""".split()
+complex_math = """cacos casin catan ccos csin ctan cacosh casinh catanh ccosh csinh
+ctanh cexp clog cabs cpow csqrt carg cimag conj cproj creal""".split()
+checks = 0
+for language in ("c", "c++"):
+    command = [clang, "--no-default-config", "--target=mmix-unknown-linux",
+               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+               "-x", language,
+               "-std=c17" if language == "c" else "-std=c++17",
+               "-U_GNU_SOURCE", "-fsyntax-only", "-Werror", "-"]
+    for defines, level, gnu in modes:
+        enabled = {"iso": True, "posix": level > 0,
+                   "threads": level >= 199506, "largefile": level >= 200112,
+                   "posix2008": level >= 200809,
+                   "posix2024": level >= 202405, "gnu": gnu,
+                   "xsi": any(d.startswith("-D_XOPEN_SOURCE=") for d in defines) or gnu,
+                   "legacy_xsi": "-D_XOPEN_SOURCE=700" in defines and level < 202405}
+        for header, families in groups.items():
+            prefix = '#include <' + header + '>\n'
+            baseline = subprocess.run(command + defines, input=prefix, text=True,
+                                      capture_output=True)
+            assert baseline.returncode == 0, (header, defines, baseline.stderr)
+            for family, names in families.items():
+                for name in names.split():
+                    # Taking an address avoids implicit declarations/builtin calls.
+                    source = prefix + 'void probe(void) { (void)&' + name + '; }\n'
+                    result = subprocess.run(command + defines, input=source,
+                                            text=True, capture_output=True)
+                    assert (result.returncode == 0) == enabled[family], (
+                        header, name, language, defines, result.stderr)
+                    if not enabled[family]:
+                        assert name in result.stderr and "undeclared" in result.stderr, result.stderr
+                    checks += 1
+        for typ, present in (("off_t", level > 0), ("ssize_t", level > 0),
+                             ("cookie_io_functions_t", gnu)):
+            result = subprocess.run(command + defines,
+                                    input='#include <stdio.h>\n' + typ + ' value;\n',
+                                    text=True, capture_output=True)
+            assert (result.returncode == 0) == present, (typ, defines, result.stderr)
+        source = '#include <wchar.h>\n'
+        source += '#ifndef WCHAR_MIN\n#error missing minimum\n#endif\n'
+        source += '#ifndef WCHAR_MAX\n#error missing maximum\n#endif\n'
+        source += '#include <stdio.h>\n'
+        source += ("#ifndef " if level else "#ifdef ") + 'L_ctermid\n#error terminal limit\n#endif\n'
+        result = subprocess.run(command + defines, input=source, text=True,
+                                capture_output=True)
+        assert result.returncode == 0, result.stderr
+        result = subprocess.run(command + defines,
+                                input='#include <stdio.h>\nvoid probe(void) { (void)&gets; }\n',
+                                text=True, capture_output=True)
+        assert result.returncode != 0 and "undeclared" in result.stderr, result.stderr
+        result = subprocess.run(command + defines,
+                                input='#include <wchar.h>\nlocale_t locale;\n',
+                                text=True, capture_output=True)
+        assert (result.returncode == 0) == (level >= 200809), result.stderr
+        if language == "c++":
+            source = '#include <stdio.h>\n#include <wchar.h>\n'
+            source += 'static_assert(!noexcept(fclose(nullptr)), "cancellation");\n'
+            source += 'static_assert(!noexcept(fwscanf(nullptr, nullptr)), "cancellation");\n'
+            result = subprocess.run(command + defines, input=source, text=True,
+                                    capture_output=True)
+            assert result.returncode == 0, result.stderr
+
+        source = '#include <math.h>\n#include <complex.h>\n'
+        for name in real_math + complex_math:
+            for suffix in ("", "f", "l"):
+                source += 'void probe_' + name + suffix + '(void) { (void)&' + name + suffix + '; }\n'
+        xsi = any(d.startswith("-D_XOPEN_SOURCE") for d in defines) or gnu
+        xsi8 = "-D_XOPEN_SOURCE=800" in defines or gnu
+        default = "-D_DEFAULT_SOURCE" in defines or gnu
+        for macro, present in (("M_PI", xsi or default),
+                               ("M_EGAMMA", xsi8 or default),
+                               ("M_PIl", xsi8 or default), ("M_PIf", gnu),
+                               ("MAXFLOAT", enabled["legacy_xsi"]),
+                               ("FP_INT_UPWARD", gnu), ("FP_LLOGB0", gnu),
+                               ("iszero", gnu), ("issubnormal", gnu)):
+            source += ("#ifndef " if present else "#ifdef ") + macro + "\n#error math namespace\n#endif\n"
+        source += 'int classify(double x) { return isfinite(x) + isgreater(x, 0.0); }\n'
+        result = subprocess.run(command + defines, input=source, text=True,
+                                capture_output=True)
+        assert result.returncode == 0, (language, defines, result.stderr)
+        if enabled["legacy_xsi"]:
+            source = '#include <stdio.h>\n#include <math.h>\n'
+            source += 'char *(*temporary_name)(const char *, const char *) = &tempnam;\n'
+            assertion = "static_assert" if language == "c++" else "_Static_assert"
+            source += assertion + '(MAXFLOAT == __FLT_MAX__, "maximum float");\n'
+            if language == "c":
+                source += '_Static_assert(_Generic(MAXFLOAT, float: 1, default: 0), "float type");\n'
+            result = subprocess.run(command + defines, input=source, text=True,
+                                    capture_output=True)
+            assert result.returncode == 0, (language, defines, result.stderr)
+        for name in ("roundeven", "fmaximum", "totalorder", "llogb", "sincos", "powi"):
+            result = subprocess.run(command + defines,
+                                    input='#include <math.h>\nvoid probe(void) { (void)&' + name + '; }\n',
+                                    text=True, capture_output=True)
+            assert (result.returncode == 0) == gnu, (name, defines, result.stderr)
+        for name in ("j0", "j1", "jn", "y0", "y1", "yn", "signgam"):
+            result = subprocess.run(command + defines,
+                                    input='#include <math.h>\nvoid probe(void) { (void)&' + name + '; }\n',
+                                    text=True, capture_output=True)
+            assert (result.returncode == 0) == xsi, (name, defines, result.stderr)
+        if language == "c":
+            source = '#include <tgmath.h>\n'
+            source += '_Static_assert(_Generic(sqrt(1.0f), float: 1, default: 0), "float generic");\n'
+            source += '_Static_assert(_Generic(sqrt(1.0L), long double: 1, default: 0), "long double generic");\n'
+            source += '_Static_assert(_Generic(sqrt(CMPLX(1.0, 0.0)), double _Complex: 1, default: 0), "complex generic");\n'
+            result = subprocess.run(command + defines, input=source, text=True,
+                                    capture_output=True)
+            assert result.returncode == 0, (defines, result.stderr)
+
+# No policy file means unchanged declarations for other targets/configurations.
+subprocess.run([sys.executable, str(generator), str(libc / "include/stdio.yaml"),
+                "-o", str(out / "generic-stdio.h")], check=True)
+generic = (out / "generic-stdio.h").read_text()
+assert "__LIBC_USE_" not in generic
+assert "fopencookie(" in generic and "cookie_io_functions_t.h" in generic
+print(f"{checks} declaration observations passed")

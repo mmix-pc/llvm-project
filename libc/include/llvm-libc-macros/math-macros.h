@@ -17,11 +17,13 @@
 #define FP_SUBNORMAL 3
 #define FP_NORMAL 4
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_C23_EXTENSIONS)
 #define FP_INT_UPWARD 0
 #define FP_INT_DOWNWARD 1
 #define FP_INT_TOWARDZERO 2
 #define FP_INT_TONEARESTFROMZERO 3
 #define FP_INT_TONEAREST 4
+#endif
 
 #define MATH_ERRNO 1
 #define MATH_ERREXCEPT 2
@@ -32,15 +34,26 @@
 #define INFINITY __builtin_inff()
 #define NAN __builtin_nanf("")
 
+// MAXFLOAT was removed from XSI in Issue 8.
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XOPEN_LEGACY)
+#define MAXFLOAT __FLT_MAX__
+#endif
+
 #define FP_ILOGB0 (-INT_MAX - 1)
-#define FP_LLOGB0 (-LONG_MAX - 1)
 
 #ifdef __FP_LOGBNAN_MIN
 #define FP_ILOGBNAN (-INT_MAX - 1)
-#define FP_LLOGBNAN (-LONG_MAX - 1)
 #else
 #define FP_ILOGBNAN INT_MAX
+#endif
+
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_C23_EXTENSIONS)
+#define FP_LLOGB0 (-LONG_MAX - 1)
+#ifdef __FP_LOGBNAN_MIN
+#define FP_LLOGBNAN (-LONG_MAX - 1)
+#else
 #define FP_LLOGBNAN LONG_MAX
+#endif
 #endif
 
 // Math error handling. Target support is assumed to be existent unless
@@ -76,25 +89,32 @@
 
 // POSIX math constants
 // https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/math.h.html
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XOPEN) ||        \
+    defined(__LIBC_USE_DEFAULT)
 #define M_E (__extension__ 0x1.5bf0a8b145769p1)
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XSI8) ||         \
+    defined(__LIBC_USE_DEFAULT)
 #define M_EGAMMA (__extension__ 0x1.2788cfc6fb619p-1)
+#define M_PHI (__extension__ 0x1.9e3779b97f4a8p0)
+#define M_1_SQRTPI (__extension__ 0x1.20dd750429b6dp-1)
+#define M_SQRT3 (__extension__ 0x1.bb67ae8584caap0)
+#define M_SQRT1_3 (__extension__ 0x1.279a74590331cp-1)
+#endif
 #define M_LOG2E (__extension__ 0x1.71547652b82fep0)
 #define M_LOG10E (__extension__ 0x1.bcb7b1526e50ep-2)
 #define M_LN2 (__extension__ 0x1.62e42fefa39efp-1)
 #define M_LN10 (__extension__ 0x1.26bb1bbb55516p1)
-#define M_PHI (__extension__ 0x1.9e3779b97f4a8p0)
 #define M_PI (__extension__ 0x1.921fb54442d18p1)
 #define M_PI_2 (__extension__ 0x1.921fb54442d18p0)
 #define M_PI_4 (__extension__ 0x1.921fb54442d18p-1)
 #define M_1_PI (__extension__ 0x1.45f306dc9c883p-2)
-#define M_1_SQRTPI (__extension__ 0x1.20dd750429b6dp-1)
 #define M_2_PI (__extension__ 0x1.45f306dc9c883p-1)
 #define M_2_SQRTPI (__extension__ 0x1.20dd750429b6dp0)
 #define M_SQRT2 (__extension__ 0x1.6a09e667f3bcdp0)
-#define M_SQRT3 (__extension__ 0x1.bb67ae8584caap0)
 #define M_SQRT1_2 (__extension__ 0x1.6a09e667f3bcdp-1)
-#define M_SQRT1_3 (__extension__ 0x1.279a74590331cp-1)
+#endif
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #define M_Ef (__extension__ 0x1.5bf0a8p1f)
 #define M_EGAMMAf (__extension__ 0x1.2788dp-1f)
 #define M_LOG2Ef (__extension__ 0x1.715476p0f)
@@ -113,7 +133,10 @@
 #define M_SQRT3f (__extension__ 0x1.bb67aep0f)
 #define M_SQRT1_2f (__extension__ 0x1.6a09e6p-1f)
 #define M_SQRT1_3f (__extension__ 0x1.279a74p-1f)
+#endif
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XSI8) ||         \
+    defined(__LIBC_USE_DEFAULT)
 #define M_El (__extension__ 0x1.5bf0a8b1457695355fb8ac404e7ap1L)
 #define M_EGAMMAl (__extension__ 0x1.2788cfc6fb618f49a37c7f0202a6p-1L)
 #define M_LOG2El (__extension__ 0x1.71547652b82fe1777d0ffda0d23ap0L)
@@ -132,7 +155,9 @@
 #define M_SQRT3l (__extension__ 0x1.bb67ae8584caa73b25742d7078b8p0L)
 #define M_SQRT1_2l (__extension__ 0x1.6a09e667f3bcc908b2fb1366ea95p-1L)
 #define M_SQRT1_3l (__extension__ 0x1.279a74590331c4d218f81e4afb25p-1L)
+#endif
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #ifdef __FLT16_MANT_DIG__
 #define M_Ef16 (__extension__ 0x1.5cp1f16)
 #define M_EGAMMAf16 (__extension__ 0x1.278p-1f16)
@@ -174,5 +199,6 @@
 #define M_SQRT1_2f128 (__extension__ 0x1.6a09e667f3bcc908b2fb1366ea95p-1q)
 #define M_SQRT1_3f128 (__extension__ 0x1.279a74590331c4d218f81e4afb25p-1q)
 #endif // __SIZEOF_FLOAT128__
+#endif
 
 #endif // LLVM_LIBC_MACROS_MATH_MACROS_H

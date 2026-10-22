@@ -44,6 +44,11 @@ extern FILE *stderr;
 #define L_tmpnam 64
 #define TMP_MAX 10000
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX)
+// Space for the controlling-terminal pathname "/dev/tty" and its terminator.
+#define L_ctermid 9
+#endif
+
 #define _IONBF 2
 #define _IOLBF 1
 #define _IOFBF 0

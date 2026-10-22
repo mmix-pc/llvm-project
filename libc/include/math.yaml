@@ -6,8 +6,42 @@ types:
   - type_name: double_t
   - type_name: float128
 enums: []
-objects: []
+objects:
+  - object_name: signgam
+    object_type: int
 functions:
+  - name: j0
+    standards: [posix]
+    return_type: double
+    arguments:
+      - type: double
+  - name: j1
+    standards: [posix]
+    return_type: double
+    arguments:
+      - type: double
+  - name: jn
+    standards: [posix]
+    return_type: double
+    arguments:
+      - type: int
+      - type: double
+  - name: y0
+    standards: [posix]
+    return_type: double
+    arguments:
+      - type: double
+  - name: y1
+    standards: [posix]
+    return_type: double
+    arguments:
+      - type: double
+  - name: yn
+    standards: [posix]
+    return_type: double
+    arguments:
+      - type: int
+      - type: double
   - name: acosl
     standards:
       - stdc
