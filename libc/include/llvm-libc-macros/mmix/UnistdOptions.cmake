@@ -84,8 +84,9 @@ function(mmix_configure_unistd_options output)
     unistd.setuid unistd.setgid)
   mmix_set_posix_option(JOB_CONTROL 1
     unistd.tcsetpgrp unistd.tcgetpgrp unistd.setsid)
-  mmix_set_posix_option(REGEXP 1
-    regex.regcomp regex.regexec regex.regerror regex.regfree)
+  # FIXME: Qualify locale-aware matching and REG_MINIMAL before advertising
+  # regular-expression support. The byte-oriented provider is incomplete.
+  set(MMIX_POSIX_REGEXP "(-1L)")
   mmix_set_posix_option(TIMEOUTS 200809L
     semaphore.sem_timedwait pthread.pthread_mutex_timedlock
     pthread.pthread_rwlock_timedrdlock pthread.pthread_rwlock_timedwrlock)

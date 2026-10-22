@@ -26,7 +26,7 @@ extensions = {
 all_flags = base + list(extensions) + ["ROBUST_MUTEX"]
 options = ["THREADS", "THREAD_ATTR_STACKADDR", "THREAD_ATTR_STACKSIZE",
            *extensions.values(), "THREAD_ROBUST_PRIO_INHERIT",
-           "THREAD_ROBUST_PRIO_PROTECT", "SPAWN"]
+           "THREAD_ROBUST_PRIO_PROTECT", "SPAWN", "REGEXP"]
 providers = {
     "MAPPED_FILES": {"sys.mman.mmap", "sys.mman.munmap"},
     "MEMORY_PROTECTION": {"sys.mman.mprotect"},
@@ -52,8 +52,6 @@ providers = {
                            "sched.sched_setparam", "sched.sched_getparam"},
     "SAVED_IDS": {"unistd.setuid", "unistd.setgid"},
     "JOB_CONTROL": {"unistd.tcsetpgrp", "unistd.tcgetpgrp", "unistd.setsid"},
-    "REGEXP": {"regex.regcomp", "regex.regexec", "regex.regerror",
-               "regex.regfree"},
     "TIMEOUTS": {"semaphore.sem_timedwait", "pthread.pthread_mutex_timedlock",
                  "pthread.pthread_rwlock_timedrdlock",
                  "pthread.pthread_rwlock_timedwrlock"},
@@ -74,7 +72,7 @@ def check(name, enabled, entries=()):
     public = set(base) <= set(enabled)
     expected = {option: -1 for option in options}
     for option, required in providers.items():
-        value = 1 if option in {"REGEXP", "SAVED_IDS", "JOB_CONTROL"} else 200809
+        value = 1 if option in {"SAVED_IDS", "JOB_CONTROL"} else 200809
         expected[option] = value if required <= set(entries) else -1
     if public:
         for option in ("THREADS", "THREAD_ATTR_STACKADDR", "THREAD_ATTR_STACKSIZE"):
@@ -106,5 +104,8 @@ entries = sorted(set.union(*providers.values()))
 check("selected-providers", [], entries)
 check("partial-spawn", all_flags + ["SPAWN"],
       entries + ["spawn.posix_spawn", "spawn.posix_spawnp"])
+check("partial-regexp", all_flags,
+      entries + ["regex." + name for name in
+                 ("regcomp", "regexec", "regerror", "regfree")])
 for entry in entries:
     check("without-provider-" + entry, [], [e for e in entries if e != entry])
