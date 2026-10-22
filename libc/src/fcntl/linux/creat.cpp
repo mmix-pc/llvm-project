@@ -17,7 +17,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(int, creat, (const char *path, int mode_flags)) {
+LLVM_LIBC_FUNCTION(int, creat, (const char *path, mode_t mode_flags)) {
   ErrorOr<int> fd =
       linux_syscalls::open(path, O_CREAT | O_WRONLY | O_TRUNC, mode_flags);
 

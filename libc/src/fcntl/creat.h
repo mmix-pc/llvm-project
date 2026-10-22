@@ -10,11 +10,12 @@
 #define LLVM_LIBC_SRC_FCNTL_CREAT_H
 
 #include "hdr/fcntl_macros.h"
+#include "hdr/types/mode_t.h"
 #include "src/__support/macros/config.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
-int creat(const char *path, int mode);
+int creat(const char *path, mode_t mode);
 
 } // namespace LIBC_NAMESPACE_DECL
 

@@ -13,6 +13,7 @@ add_entrypoint_object(
   HDRS
     ../creat.h
   DEPENDS
+    libc.hdr.types.mode_t
     libc.hdr.fcntl_macros
     libc.src.__support.OSUtil.linux.syscall_wrappers.open
     libc.src.__support.OSUtil.osutil

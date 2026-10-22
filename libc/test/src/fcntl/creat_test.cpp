@@ -19,7 +19,8 @@ using LlvmLibcCreatTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 TEST_F(LlvmLibcCreatTest, CreatAndOpen) {
   using LIBC_NAMESPACE::testing::ErrnoSetterMatcher::Succeeds;
   constexpr const char *TEST_FILE = "testdata/creat.test";
-  int fd = LIBC_NAMESPACE::creat(TEST_FILE, S_IRWXU);
+  int (*create)(const char *, mode_t) = LIBC_NAMESPACE::creat;
+  int fd = create(TEST_FILE, S_IRWXU);
   ASSERT_ERRNO_SUCCESS();
   ASSERT_GT(fd, 0);
   ASSERT_THAT(LIBC_NAMESPACE::close(fd), Succeeds(0));
