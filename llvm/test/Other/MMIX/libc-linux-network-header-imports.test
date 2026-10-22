@@ -35,4 +35,51 @@ for triple in ("mmix-unknown-linux", "x86_64-unknown-linux-gnu"):
                       check + '(sizeof(uint32_t) == 4, "network integer type");\n' +
                       check + '(IPPORT_RESERVED == 1024, "reserved ports");\n' +
                       check + '(SOMAXCONN == 4096, "Linux backlog limit");\n')
+            source += (
+                check + '(sizeof(struct netent) == 24 && __alignof__(struct netent) == 8, "netent ABI");\n' +
+                check + '(__builtin_offsetof(struct netent, n_net) == 20, "network number offset");\n' +
+                check + '(sizeof(struct protoent) == 24 && __alignof__(struct protoent) == 8, "protoent ABI");\n' +
+                check + '(sizeof(struct servent) == 32 && __alignof__(struct servent) == 8, "servent ABI");\n' +
+                check + '(__builtin_offsetof(struct servent, s_port) == 16 && '
+                '__builtin_offsetof(struct servent, s_proto) == 24, "service offsets");\n' +
+                check + '(NI_NUMERICSCOPE == 0x100 && !(NI_NUMERICSCOPE & '
+                '(NI_NUMERICHOST | NI_NUMERICSERV | NI_NOFQDN | NI_NAMEREQD | NI_DGRAM)), "scope flag");\n'
+                'void member_types(struct netent *n, struct protoent *p, struct servent *s) {\n'
+                '  char **nn = &n->n_name, **pn = &p->p_name, **sn = &s->s_name, **sp = &s->s_proto;\n'
+                '  char ***na = &n->n_aliases, ***pa = &p->p_aliases, ***sa = &s->s_aliases;\n'
+                '  int *nt = &n->n_addrtype, *pp = &p->p_proto, *port = &s->s_port;\n'
+                '  uint32_t *network = &n->n_net;\n'
+                '}\n'
+                'struct netent *(*network_address)(uint32_t, int) = &getnetbyaddr;\n'
+                'struct netent *(*network_name)(const char *) = &getnetbyname;\n'
+                'struct protoent *(*protocol_name)(const char *) = &getprotobyname;\n'
+                'struct protoent *(*protocol_number)(int) = &getprotobynumber;\n'
+                'struct servent *(*service_name)(const char *, const char *) = &getservbyname;\n'
+                'struct servent *(*service_port)(int, const char *) = &getservbyport;\n'
+                'const char *(*error_message)(int) = &gai_strerror;\n')
+            for family in ("host", "net", "proto", "serv"):
+                source += ('void (*end_' + family + ')(void) = &end' + family + 'ent;\n'
+                           'void (*set_' + family + ')(int) = &set' + family + 'ent;\n'
+                           'struct ' + family + 'ent *(*get_' + family + ')(void) = &get' + family + 'ent;\n')
+                if language == "c++":
+                    source += 'static_assert(!noexcept(get' + family + 'ent()), "cancellation");\n'
             subprocess.run(command, input=source, text=True, check=True)
+
+# The Issue 8 addition must not leak into older explicit namespaces.
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+for language in ("c", "c++"):
+    for selector, visible in (([], False), (["-D_POSIX_C_SOURCE=200809L"], False),
+                              (["-D_XOPEN_SOURCE=700"], False),
+                              (["-D_POSIX_C_SOURCE=202405L"], True),
+                              (["-D_XOPEN_SOURCE=800"], True),
+                              (["-D_DEFAULT_SOURCE"], True), (["-D_GNU_SOURCE"], True)):
+        source = '#include <netdb.h>\n' + ('#ifndef' if visible else '#ifdef') + ' NI_NUMERICSCOPE\n'
+        source += '#error scope namespace mismatch\n#endif\n'
+        subprocess.run([clang, "--no-default-config", "--target=mmix-unknown-linux",
+                        "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                        "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+                        "-U_GNU_SOURCE", "-fsyntax-only", "-Werror", "-"] + selector,
+                       input=source, text=True, check=True)

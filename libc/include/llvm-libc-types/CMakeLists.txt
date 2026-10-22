@@ -284,6 +284,9 @@ add_header(socklen_t HDR socklen_t.h)
 add_header(struct_sockaddr HDR struct_sockaddr.h DEPENDS .sa_family_t)
 add_header(struct_addrinfo HDR struct_addrinfo.h DEPENDS .socklen_t .struct_sockaddr)
 add_header(struct_hostent HDR struct_hostent.h)
+add_header(struct_netent HDR struct_netent.h DEPENDS libc.include.llvm-libc-macros.stdint_macros)
+add_header(struct_protoent HDR struct_protoent.h)
+add_header(struct_servent HDR struct_servent.h)
 add_header(struct_sockaddr_in HDR struct_sockaddr_in.h DEPENDS .in_port_t .sa_family_t .struct_in_addr)
 add_header(
   struct_sockaddr_in6

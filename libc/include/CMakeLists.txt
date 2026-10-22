@@ -471,6 +471,9 @@ add_header_macro(
     .llvm-libc-macros.netdb_macros
     .llvm-libc-types.struct_addrinfo
     .llvm-libc-types.struct_hostent
+    .llvm-libc-types.struct_netent
+    .llvm-libc-types.struct_protoent
+    .llvm-libc-types.struct_servent
 )
 
 add_header_macro(

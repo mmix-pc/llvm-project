@@ -2,6 +2,8 @@ header: netdb.h
 standards:
   - posix
 macros:
+  - macro_name: NI_NUMERICSCOPE
+    macro_header: netdb-macros.h
   - macro_name: IPPORT_RESERVED
     macro_header: netdb-macros.h
   - macro_name: AI_PASSIVE
@@ -36,9 +38,101 @@ types:
   - type_name: uint32_t
   - type_name: struct_addrinfo
   - type_name: struct_hostent
+  - type_name: struct_netent
+  - type_name: struct_protoent
+  - type_name: struct_servent
 enums: []
 objects: []
 functions:
+  - name: gai_strerror
+    return_type: const char *
+    arguments:
+      - type: int
+  - name: endhostent
+    noexcept: false
+    return_type: void
+    arguments: []
+  - name: sethostent
+    noexcept: false
+    return_type: void
+    arguments:
+      - type: int
+  - name: gethostent
+    noexcept: false
+    return_type: struct hostent *
+    arguments: []
+  - name: endnetent
+    noexcept: false
+    return_type: void
+    arguments: []
+  - name: setnetent
+    noexcept: false
+    return_type: void
+    arguments:
+      - type: int
+  - name: getnetent
+    noexcept: false
+    return_type: struct netent *
+    arguments: []
+  - name: endprotoent
+    noexcept: false
+    return_type: void
+    arguments: []
+  - name: setprotoent
+    noexcept: false
+    return_type: void
+    arguments:
+      - type: int
+  - name: getprotoent
+    noexcept: false
+    return_type: struct protoent *
+    arguments: []
+  - name: endservent
+    noexcept: false
+    return_type: void
+    arguments: []
+  - name: setservent
+    noexcept: false
+    return_type: void
+    arguments:
+      - type: int
+  - name: getservent
+    noexcept: false
+    return_type: struct servent *
+    arguments: []
+  - name: getnetbyaddr
+    noexcept: false
+    return_type: struct netent *
+    arguments:
+      - type: uint32_t
+      - type: int
+  - name: getnetbyname
+    noexcept: false
+    return_type: struct netent *
+    arguments:
+      - type: const char *
+  - name: getprotobyname
+    noexcept: false
+    return_type: struct protoent *
+    arguments:
+      - type: const char *
+  - name: getprotobynumber
+    noexcept: false
+    return_type: struct protoent *
+    arguments:
+      - type: int
+  - name: getservbyname
+    noexcept: false
+    return_type: struct servent *
+    arguments:
+      - type: const char *
+      - type: const char *
+  - name: getservbyport
+    noexcept: false
+    return_type: struct servent *
+    arguments:
+      - type: int
+      - type: const char *
   - name: __h_errno_location
     standards:
       - linux

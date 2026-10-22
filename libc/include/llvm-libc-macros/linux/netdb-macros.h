@@ -14,6 +14,8 @@
 #ifndef LLVM_LIBC_MACROS_LINUX_NETDB_MACROS_H
 #define LLVM_LIBC_MACROS_LINUX_NETDB_MACROS_H
 
+#include "../../__llvm-libc-common.h"
+
 #define IPPORT_RESERVED 1024
 
 #define EAI_BADFLAGS -1
@@ -40,6 +42,9 @@
 #define NI_NOFQDN 4
 #define NI_NAMEREQD 8
 #define NI_DGRAM 16
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024)
+#define NI_NUMERICSCOPE 0x100
+#endif
 
 #define HOST_NOT_FOUND 1
 #define TRY_AGAIN 2
