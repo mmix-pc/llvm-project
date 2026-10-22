@@ -6,9 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-// This header must go before limits_macros.h otherwise libc header may choose
-// to undefine LINK_MAX.
-#include <linux/limits.h> // For LINK_MAX and other limits
+#include <linux/limits.h>
 
 #include "hdr/limits_macros.h"
 #include "hdr/unistd_macros.h"
@@ -19,53 +17,69 @@
 
 // other linux specific includes
 #include <linux/bfs_fs.h>
-#if __has_include(<linux/ufs_fs.h>)
-#include <linux/ufs_fs.h>
-#else
-// from https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/
-#define UFS_MAGIC 0x00011954
-#endif
 #include <linux/magic.h> // For common FS magics
+#include <linux/minix_fs.h>
 
 namespace LIBC_NAMESPACE_DECL {
 
-long filesizebits(const struct statfs &s) {
-  switch (s.f_type) {
-  case JFFS2_SUPER_MAGIC:
-  case MSDOS_SUPER_MAGIC:
-  case NCP_SUPER_MAGIC:
-    return 32;
-  }
-  return 64;
+static long unavailable_filesystem_property() {
+  // FIXME: statfs does not expose these properties. Unknown metadata is not
+  // an unlimited value; add rules only for filesystem-invariant properties.
+  libc_errno = ENOTSUP;
+  return -1;
 }
 
-long link_max(const struct statfs &s) {
-  switch (s.f_type) {
-  case EXT2_SUPER_MAGIC:
-    return 32000;
+static long filesizebits(const struct statfs &s) {
+  switch (static_cast<unsigned long>(s.f_type)) {
+#if __SIZEOF_LONG__ == 8
+  // These filesystems use MAX_LFS_FILESIZE, which is LLONG_MAX on LP64.
+  case RAMFS_MAGIC:
+  case TMPFS_MAGIC:
+  case XFS_SUPER_MAGIC:
+  case BTRFS_SUPER_MAGIC:
+    return 64;
+#endif
+  default:
+    return unavailable_filesystem_property();
+  }
+}
+
+static long link_max(const struct statfs &s) {
+  switch (static_cast<unsigned long>(s.f_type)) {
   case MINIX_SUPER_MAGIC:
-    return 250;
+  case MINIX_SUPER_MAGIC2:
+    return MINIX_LINK_MAX;
   case MINIX2_SUPER_MAGIC:
-    return 65530;
-  case REISERFS_SUPER_MAGIC:
-    return 0xffff - 1000;
-  case UFS_MAGIC:
-    return 32000;
+  case MINIX2_SUPER_MAGIC2:
+  case MINIX3_SUPER_MAGIC:
+    return MINIX2_LINK_MAX;
+  case XFS_SUPER_MAGIC:
+    // Linux XFS sets s_max_links to XFS_MAXLINK.
+    return 0x7fffffff;
+  default:
+    return unavailable_filesystem_property();
   }
-  return LINK_MAX;
 }
 
-long symlinks(const struct statfs &s) {
-  switch (s.f_type) {
-  case ADFS_SUPER_MAGIC:
+static long symlinks(const struct statfs &s) {
+  switch (static_cast<unsigned long>(s.f_type)) {
+  case RAMFS_MAGIC:
+  case TMPFS_MAGIC:
+  case EXT2_SUPER_MAGIC: // ext2 and ext4 both provide symlink operations.
+  case BTRFS_SUPER_MAGIC:
+  case XFS_SUPER_MAGIC:
+  case MINIX_SUPER_MAGIC:
+  case MINIX_SUPER_MAGIC2:
+  case MINIX2_SUPER_MAGIC:
+  case MINIX2_SUPER_MAGIC2:
+  case MINIX3_SUPER_MAGIC:
+    return 1;
   case BFS_MAGIC:
-  case CRAMFS_MAGIC:
-  case EFS_SUPER_MAGIC:
   case MSDOS_SUPER_MAGIC:
-  case QNX4_SUPER_MAGIC:
     return 0;
+  default:
+    return unavailable_filesystem_property();
   }
-  return 1;
 }
 
 long checked_timestamp_resolution(unsigned long long nanoseconds) {
