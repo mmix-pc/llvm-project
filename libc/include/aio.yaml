@@ -64,6 +64,6 @@ functions:
     return_type: int
     arguments:
       - type: int
-      - type: struct aiocb *const *__restrict
+      - type: struct aiocb *__restrict const *__restrict
       - type: int
       - type: struct sigevent *__restrict

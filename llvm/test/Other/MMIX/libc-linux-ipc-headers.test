@@ -59,7 +59,7 @@ int (*read_fn)(struct aiocb *) = &aio_read;
 ssize_t (*return_fn)(struct aiocb *) = &aio_return;
 int (*suspend_fn)(const struct aiocb *const *, int, const struct timespec *) = &aio_suspend;
 int (*write_fn)(struct aiocb *) = &aio_write;
-int (*list_fn)(int, struct aiocb *const *, int, struct sigevent *) = &lio_listio;
+int (*list_fn)(int, struct aiocb *__restrict const *, int, struct sigevent *) = &lio_listio;
 pthread_attr_t imported_attr;
 union sigval imported_value;
 #ifdef __cplusplus
