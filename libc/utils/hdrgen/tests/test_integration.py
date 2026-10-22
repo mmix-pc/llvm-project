@@ -99,6 +99,15 @@ class TestHeaderGenIntegration(unittest.TestCase):
                         output_file, ["mkdtemp"])
         self.assertIn("char *mkdtemp(char *) __NOEXCEPT;", output_file.read_text())
 
+    def test_termios_function_types(self):
+        output_file = self.output_dir / "termios.h"
+        self.run_script(self.source_dir.parents[2] / "include/termios.yaml",
+                        output_file, ["cfsetispeed", "cfsetospeed", "tcsetattr"])
+        content = output_file.read_text()
+        self.assertIn("int cfsetispeed(struct termios *, speed_t) __NOEXCEPT;", content)
+        self.assertIn("int cfsetospeed(struct termios *, speed_t) __NOEXCEPT;", content)
+        self.assertIn("int tcsetattr(int, int, const struct termios *) __NOEXCEPT;", content)
+
     def test_strerror_r_declaration_routing(self):
         output_file = self.output_dir / "strerror_r.h"
         self.run_script(self.source_dir.parents[2] / "include/string.yaml",

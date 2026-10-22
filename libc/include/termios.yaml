@@ -28,14 +28,14 @@ functions:
   - name: cfsetispeed
     standards:
       - posix
-    return_type: speed_t
+    return_type: int
     arguments:
       - type: struct termios *
       - type: speed_t
   - name: cfsetospeed
     standards:
       - posix
-    return_type: speed_t
+    return_type: int
     arguments:
       - type: struct termios *
       - type: speed_t
@@ -86,4 +86,4 @@ functions:
     arguments:
       - type: int
       - type: int
-      - type: struct termios *
+      - type: const struct termios *
