@@ -274,6 +274,7 @@ locale.h:
   types:
     locale_t: __LIBC_USE_POSIX2008
   functions:
+    getlocalename_l: __LIBC_USE_POSIX2024
     duplocale: __LIBC_USE_POSIX2008
     freelocale: __LIBC_USE_POSIX2008
     newlocale: __LIBC_USE_POSIX2008

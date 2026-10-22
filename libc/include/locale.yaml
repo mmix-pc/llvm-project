@@ -22,6 +22,12 @@ types:
   - type_name: locale_t
   - type_name: struct_lconv
 functions:
+  - name: getlocalename_l
+    standards: [posix]
+    return_type: const char *
+    arguments:
+      - type: int
+      - type: locale_t
   - name: localeconv
     standards:
       - stdc
