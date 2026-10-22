@@ -11,23 +11,31 @@
 
 #include "../../__llvm-libc-common.h"
 
-#define SIGHUP 1
 #define SIGINT 2
-#define SIGQUIT 3
 #define SIGILL 4
-#define SIGTRAP 5
 #define SIGABRT 6
-#define SIGIOT 6
-#define SIGBUS 7
 #define SIGFPE 8
+#define SIGSEGV 11
+#define SIGTERM 15
+
+#define SIG_ERR __LLVM_LIBC_CAST(reinterpret_cast, void (*)(int), -1)
+#define SIG_DFL __LLVM_LIBC_CAST(reinterpret_cast, void (*)(int), 0)
+#define SIG_IGN __LLVM_LIBC_CAST(reinterpret_cast, void (*)(int), 1)
+
+// Public namespace selection must not change the signal-set representation.
+#define _NSIG 65
+#define __NSIGSET_WORDS ((_NSIG - 1) / (sizeof(unsigned long) * 8))
+
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX)
+#define SIGHUP 1
+#define SIGQUIT 3
+#define SIGTRAP 5
+#define SIGBUS 7
 #define SIGKILL 9
 #define SIGUSR1 10
-#define SIGSEGV 11
 #define SIGUSR2 12
 #define SIGPIPE 13
 #define SIGALRM 14
-#define SIGTERM 15
-#define SIGSTKFLT 16
 #define SIGCHLD 17
 #define SIGCONT 18
 #define SIGSTOP 19
@@ -39,29 +47,33 @@
 #define SIGXFSZ 25
 #define SIGVTALRM 26
 #define SIGPROF 27
-#define SIGWINCH 28
-#define SIGIO 29
-#define SIGPOLL SIGIO
-#define SIGPWR 30
 #define SIGSYS 31
 
-// All signal numbers need to be less than this constant.
-#define NSIG 65
-#define _NSIG NSIG
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_DEFAULT)
+#define SIGIOT SIGABRT
+#define SIGSTKFLT 16
+#define SIGIO 29
+#define SIGPWR 30
+#define NSIG _NSIG
+#endif
+
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024_OR_DEFAULT)
+#define SIGWINCH 28
+// Includes the terminating NUL for signal names and realtime offsets.
+#define SIG2STR_MAX 32
+#endif
+
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_LEGACY_EXTENSIONS)
+#define SIGPOLL 29
+#define SIG_HOLD __LLVM_LIBC_CAST(reinterpret_cast, void (*)(int), 2)
+#endif
 
 // SIGRTMIN is current set to the minimum usable from user mode programs. If
 // the libc itself uses some of these signal numbers for private operations,
 // then it has to be adjusted in future to reflect that.
 #define SIGRTMIN 32
 // SIGRTMAX is the largest allowed value for the runtime signal.
-#define SIGRTMAX (NSIG - 1)
-
-// The default public sigset is stored as an array of long values. Each bit of this
-// array corresponds to a signal, adjusted by 1. That is, bit 0 corresponds
-// to signal number 1, bit 1 corresponds to signal number 2 and so on. The
-// below macro denotes the public array size in words, not syscall transfer
-// bytes. Target headers may reserve additional public storage.
-#define __NSIGSET_WORDS ((NSIG - 1) / (sizeof(unsigned long) * 8))
+#define SIGRTMAX (_NSIG - 1)
 
 #define SIG_BLOCK 0   // For blocking signals
 #define SIG_UNBLOCK 1 // For unblocking signals
@@ -72,11 +84,14 @@
 #define SA_NOCLDWAIT 0x00000002
 #define SA_SIGINFO 0x00000004
 #define SA_RESTART 0x10000000
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_DEFAULT)
 #define SA_RESTORER 0x04000000
+#endif
 #define SA_ONSTACK 0x08000000
 #define SA_NODEFER 0x40000000
 #define SA_RESETHAND 0x80000000
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_XOPEN_OR_DEFAULT)
 // Signal stack flags
 #define SS_ONSTACK 0x1
 #define SS_DISABLE 0x2
@@ -88,15 +103,11 @@
 #define MINSIGSTKSZ 5120
 #define SIGSTKSZ 16384
 #elif defined(__mmix__)
-#include "../mmix/linux-signal-macros.h"
+// Defined by the target header below.
 #else
 #error "Signal stack sizes not defined for your platform."
 #endif
-
-#define SIG_ERR __LLVM_LIBC_CAST(reinterpret_cast, void (*)(int), -1)
-#define SIG_DFL __LLVM_LIBC_CAST(reinterpret_cast, void (*)(int), 0)
-#define SIG_IGN __LLVM_LIBC_CAST(reinterpret_cast, void (*)(int), 1)
-#define SIG_HOLD __LLVM_LIBC_CAST(reinterpret_cast, void (*)(int), 2)
+#endif
 
 // SIGILL si_codes
 #define ILL_ILLOPC 1 // Illegal opcode
@@ -162,6 +173,13 @@
 #define SIGEV_SIGNAL 0
 #define SIGEV_NONE 1
 #define SIGEV_THREAD 2
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #define SIGEV_THREAD_ID 4
+#endif
+#endif // POSIX namespace
+
+#if defined(__mmix__)
+#include "../mmix/linux-signal-macros.h"
+#endif
 
 #endif // LLVM_LIBC_MACROS_LINUX_SIGNAL_MACROS_H

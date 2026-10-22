@@ -542,8 +542,13 @@ add_header_macro(
   ../libc/include/signal.yaml
   signal.h
   DEPENDS
+    .llvm-libc-types.mcontext_t
+    .llvm-libc-types.ucontext_t
     .llvm-libc-types.__signal_handler_t
     .llvm-libc-macros.signal_macros
+    .llvm-libc-types.size_t
+    .llvm-libc-types.uid_t
+    .llvm-libc-types.pthread_attr_t
     .llvm-libc-types.pthread_t
     .llvm-libc-types.pid_t
     .llvm-libc-types.sig_atomic_t

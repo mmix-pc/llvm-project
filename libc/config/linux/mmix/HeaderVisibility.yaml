@@ -1,4 +1,49 @@
 # MMIX Linux installed namespace policy. This does not select runtime providers.
+setjmp.h:
+  types:
+    sigjmp_buf: __LIBC_USE_POSIX
+  functions:
+    sigsetjmp: __LIBC_USE_POSIX
+    siglongjmp: __LIBC_USE_POSIX
+signal.h:
+  types:
+    size_t: __LIBC_USE_POSIX
+    uid_t: __LIBC_USE_POSIX
+    pthread_attr_t: __LIBC_USE_POSIX1993
+    pthread_t: __LIBC_USE_POSIX1995
+    pid_t: __LIBC_USE_POSIX
+    sig_t: __LIBC_USE_DEFAULT
+    sighandler_t: __LIBC_USE_GNU
+    siginfo_t: __LIBC_USE_POSIX1993
+    sigset_t: __LIBC_USE_POSIX
+    stack_t: __LIBC_USE_POSIX
+    struct_sigaction: __LIBC_USE_POSIX
+    struct_sigevent: __LIBC_USE_POSIX1993
+    union_sigval: __LIBC_USE_POSIX1993
+    struct_timespec: __LIBC_USE_POSIX1993
+  functions:
+    kill: __LIBC_USE_POSIX
+    killpg: __LIBC_USE_XOPEN_OR_DEFAULT
+    psiginfo: __LIBC_USE_POSIX2008
+    psignal: __LIBC_USE_POSIX2008
+    pthread_kill: __LIBC_USE_POSIX1995
+    pthread_sigmask: __LIBC_USE_POSIX1995
+    sig2str: __LIBC_USE_POSIX2024
+    str2sig: __LIBC_USE_POSIX2024
+    sigaction: __LIBC_USE_POSIX
+    sigaddset: __LIBC_USE_POSIX
+    sigaltstack: __LIBC_USE_XOPEN_OR_DEFAULT
+    sigdelset: __LIBC_USE_POSIX
+    sigemptyset: __LIBC_USE_POSIX
+    sigfillset: __LIBC_USE_POSIX
+    sigismember: __LIBC_USE_POSIX
+    sigpending: __LIBC_USE_POSIX
+    sigprocmask: __LIBC_USE_POSIX
+    sigqueue: __LIBC_USE_POSIX1993
+    sigsuspend: __LIBC_USE_POSIX
+    sigtimedwait: __LIBC_USE_POSIX1993
+    sigwait: __LIBC_USE_POSIX1995
+    sigwaitinfo: __LIBC_USE_POSIX1993
 spawn.h:
   macros:
     POSIX_SPAWN_SETSID: __LIBC_USE_POSIX2024

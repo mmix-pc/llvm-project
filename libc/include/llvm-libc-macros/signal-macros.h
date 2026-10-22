@@ -17,4 +17,10 @@
 #include "gpu/signal-macros.h"
 #endif
 
+#if defined(__linux__) && (defined(__x86_64__) || defined(__mmix__))
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX)
+#define __LIBC_HAS_UCONTEXT 1
+#endif
+#endif
+
 #endif // LLVM_LIBC_MACROS_SIGNAL_MACROS_H
