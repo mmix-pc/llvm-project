@@ -8,3 +8,7 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.select
 )
+
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS_IS_LINUX)
+  add_entrypoint_object(pselect ALIAS DEPENDS .linux.pselect)
+endif()

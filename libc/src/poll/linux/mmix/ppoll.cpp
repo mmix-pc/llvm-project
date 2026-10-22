@@ -11,6 +11,9 @@
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/signal/linux/mmix/private_signals.h"
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "src/__support/threads/linux/mmix/cancellation_point.h"
+#endif
 #include <sys/syscall.h>
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, ppoll,
@@ -30,9 +33,16 @@ LLVM_LIBC_FUNCTION(int, ppoll,
     filtered = *mask;
     filtered.__signals[0] &= ~mmix::private_signal_mask;
   }
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  long result = mmix::cancellation_syscall(
+      SYS_ppoll, reinterpret_cast<long>(fds), count,
+      timeout ? reinterpret_cast<long>(&copy) : 0,
+      mask ? reinterpret_cast<long>(&filtered) : 0, 8);
+#else
   long result =
       syscall_impl<long>(SYS_ppoll, fds, count, timeout ? &copy : nullptr,
                          mask ? &filtered : nullptr, 8);
+#endif
   if (result < 0) {
     libc_errno = static_cast<int>(-result);
     return -1;

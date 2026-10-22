@@ -1,6 +1,29 @@
 add_custom_target(libc_poll_unittests)
 
 if(LIBC_TARGET_OS_IS_LINUX)
+  foreach(mode IN ITEMS raw cancellable)
+    set(readiness_options)
+    if(mode STREQUAL "cancellable")
+      list(APPEND readiness_options -DLIBC_MMIX_CANCELLATION_WINDOWS)
+    endif()
+    add_libc_test(
+      mmix_readiness_${mode}_test
+      SUITE libc_poll_unittests
+      SRCS mmix_readiness_test.cpp
+      DEPENDS
+        libc.hdr.types.fd_set
+        libc.hdr.types.sigset_t
+        libc.hdr.types.nfds_t
+        libc.hdr.types.struct_pollfd
+        libc.hdr.types.struct_timespec
+        libc.hdr.types.struct_timeval
+        libc.include.sys_syscall
+        libc.src.__support.CPP.limits
+        libc.src.__support.OSUtil.osutil
+        libc.src.errno.errno
+      COMPILE_OPTIONS ${readiness_options}
+    )
+  endforeach()
   add_libc_test(
     ppoll_test
     SUITE libc_poll_unittests

@@ -1,14 +1,21 @@
 set(ppoll_source ppoll.cpp)
+set(poll_source poll.cpp)
 set(ppoll_private_deps)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(ppoll_source mmix/ppoll.cpp)
+  set(poll_source mmix/poll.cpp)
+  set(poll_private_deps libc.src.poll.ppoll)
   set(ppoll_private_deps libc.src.signal.linux.mmix.private_signals)
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    list(APPEND ppoll_private_deps libc.src.__support.threads.linux.mmix.cancellation_point)
+    set(mmix_poll_options -DLIBC_MMIX_CANCELLATION_WINDOWS -fexceptions -funwind-tables)
+  endif()
 endif()
 
 add_entrypoint_object(
   poll
   SRCS
-    poll.cpp
+    ${poll_source}
   HDRS
     ../poll.h
   DEPENDS
@@ -18,6 +25,8 @@ add_entrypoint_object(
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+    ${poll_private_deps}
+  COMPILE_OPTIONS ${mmix_poll_options}
 )
 
 add_entrypoint_object(
@@ -37,4 +46,5 @@ add_entrypoint_object(
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+  COMPILE_OPTIONS ${mmix_poll_options}
 )
