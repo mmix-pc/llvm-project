@@ -1,0 +1,63 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"],
+                                   text=True).strip()
+include = out / "include"
+include.mkdir(exist_ok=True)
+for name in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(libc / "include" / name, include / name, dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                str(libc / "include/termios.yaml"), "--visibility",
+                str(libc / "config/linux/mmix/HeaderVisibility.yaml"),
+                "-o", str(include / "termios.h")], check=True)
+
+modes = [([], False), (["-D_POSIX_C_SOURCE=200809L"], False),
+         (["-D_POSIX_C_SOURCE=202405L"], True),
+         (["-D_XOPEN_SOURCE=700"], False), (["-D_XOPEN_SOURCE=800"], True),
+         (["-D_DEFAULT_SOURCE"], True), (["-D_GNU_SOURCE"], True)]
+for language in ("c", "c++"):
+    command = [clang, "--no-default-config", "--target=mmix-unknown-linux",
+               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+               "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+               "-U_GNU_SOURCE", "-fsyntax-only", "-Werror", "-"]
+    check = "static_assert" if language == "c++" else "_Static_assert"
+    for defines, current in modes:
+        def compile(source):
+            return subprocess.run(command + defines, input=source, text=True,
+                                  capture_output=True)
+        result = compile('#include <termios.h>\n'
+                         'int (*input_speed)(struct termios *, speed_t) = &cfsetispeed;\n'
+                         'int (*output_speed)(struct termios *, speed_t) = &cfsetospeed;\n'
+                         'int (*attributes)(int, int, const struct termios *) = &tcsetattr;\n')
+        assert result.returncode == 0, (defines, result.stderr)
+        for name in ("tcgetwinsize", "tcsetwinsize"):
+            result = compile('#include <termios.h>\n'
+                             'void probe(void) { (void)&' + name + '; }\n')
+            if current:
+                assert result.returncode == 0, (defines, name, result.stderr)
+            else:
+                assert result.returncode != 0 and name in result.stderr and "undeclared" in result.stderr, (defines, name, result.stderr)
+        result = compile('#include <termios.h>\n' + check +
+                         '(sizeof(struct winsize) == 8 && __alignof__(struct winsize) == 2, "window ABI");\n')
+        if current:
+            assert result.returncode == 0, (defines, result.stderr)
+            result = compile('#include <termios.h>\n'
+                             'int (*get_window)(int, struct winsize *) = &tcgetwinsize;\n'
+                             'int (*set_window)(int, const struct winsize *) = &tcsetwinsize;\n')
+            assert result.returncode == 0, (defines, result.stderr)
+        else:
+            assert result.returncode != 0 and "incomplete" in result.stderr, (defines, result.stderr)

@@ -25,7 +25,7 @@ shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
 (include / "linux").mkdir(exist_ok=True)
 (include / "linux/wait.h").write_text(
     "#define P_ALL 0\n#define P_PID 1\n#define P_PGID 2\n#define P_PIDFD 3\n")
-headers = "time unistd grp pwd sys/time sys/select sys/resource sys/wait"
+headers = "time unistd grp pwd spawn sys/time sys/select sys/resource sys/wait"
 for name in headers.split():
     target = include / (name + ".h")
     target.parent.mkdir(exist_ok=True)
@@ -64,11 +64,23 @@ for language in ("c", "c++"):
                 ("time", "getdate", xsi > 0),
                 ("time", "getdate_err", xsi > 0),
                 ("unistd", "gettid", gnu),
+                ("unistd", "SEEK_DATA", posix >= 202405),
+                ("unistd", "SEEK_HOLE", posix >= 202405),
+                ("unistd", "O_CLOEXEC", posix >= 202405),
+                ("unistd", "F_LOCK", default or xsi > 0),
+                ("unistd", "posix_close", posix >= 202405),
+                ("unistd", "getresuid", xsi >= 800),
+                ("unistd", "getresgid", xsi >= 800),
+                ("unistd", "setresuid", xsi >= 800),
+                ("unistd", "setresgid", xsi >= 800),
                 ("unistd", "_Fork", posix >= 202405),
                 ("unistd", "fexecve", posix >= 200809),
                 ("unistd", "usleep", default or 0 < xsi < 700),
                 ("grp", "getgrgid_r", posix >= 199506),
-                ("pwd", "getpwent", default or xsi > 0)):
+                ("pwd", "getpwent", default or xsi > 0),
+                ("spawn", "POSIX_SPAWN_SETSID", posix >= 202405),
+                ("spawn", "posix_spawn_file_actions_addchdir", posix >= 202405),
+                ("spawn", "posix_spawn_file_actions_addfchdir", posix >= 202405)):
             result = compile('#include <' + header + '.h>\n'
                              'void probe(void) { (void)(' + name + '); }\n')
             if active:
@@ -76,6 +88,23 @@ for language in ("c", "c++"):
             else:
                 assert result.returncode != 0 and name in result.stderr and "undeclared" in result.stderr, (defines, name, result.stderr)
         check = "static_assert" if language == "c++" else "_Static_assert"
+        result = compile('#include <unistd.h>\n' + check +
+                         '(sizeof(intptr_t) == sizeof(void *), "pointer integer width");\n'
+                         'void *null_pointer = NULL;\n#include <stdint.h>\n')
+        assert result.returncode == 0, (defines, result.stderr)
+        result = compile('#include <stdint.h>\n#include <unistd.h>\n'
+                         'intptr_t pointer_integer;\n')
+        assert result.returncode == 0, (defines, result.stderr)
+        result = compile('#include <spawn.h>\n' + check +
+                         '(sizeof(posix_spawnattr_t) == 272, "spawn size");\n' + check +
+                         '(__alignof__(posix_spawnattr_t) == 8, "spawn alignment");\n' + check +
+                         '(__builtin_offsetof(posix_spawnattr_t, __sigdefault) == 16, "default signal offset");\n' + check +
+                         '(__builtin_offsetof(posix_spawnattr_t, __sigmask) == 144, "signal mask offset");\n'
+                         'int (*getparam)(const posix_spawnattr_t *, struct sched_param *) = &posix_spawnattr_getschedparam;\n'
+                         'int (*setparam)(posix_spawnattr_t *, const struct sched_param *) = &posix_spawnattr_setschedparam;\n'
+                         'int (*getmask)(const posix_spawnattr_t *, sigset_t *) = &posix_spawnattr_getsigmask;\n'
+                         'int (*setmask)(posix_spawnattr_t *, const sigset_t *) = &posix_spawnattr_setsigmask;\n')
+        assert result.returncode == 0, (defines, result.stderr)
         result = compile('#include <time.h>\n' + check +
                          '(sizeof(struct tm) == 56, "tm layout");\n')
         assert result.returncode == 0, (defines, result.stderr)

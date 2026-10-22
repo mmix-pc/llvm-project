@@ -1,4 +1,16 @@
 # MMIX Linux installed namespace policy. This does not select runtime providers.
+spawn.h:
+  macros:
+    POSIX_SPAWN_SETSID: __LIBC_USE_POSIX2024
+  functions:
+    posix_spawn_file_actions_addchdir: __LIBC_USE_POSIX2024
+    posix_spawn_file_actions_addfchdir: __LIBC_USE_POSIX2024
+termios.h:
+  types:
+    struct_winsize: __LIBC_USE_POSIX2024
+  functions:
+    tcgetwinsize: __LIBC_USE_POSIX2024
+    tcsetwinsize: __LIBC_USE_POSIX2024
 grp.h:
   types:
     FILE: __LIBC_USE_DEFAULT
@@ -71,6 +83,10 @@ sys/wait.h:
   functions:
     wait4: __LIBC_USE_DEFAULT
 unistd.h:
+  macros:
+    O_CLOEXEC: __LIBC_USE_POSIX2024
+    SEEK_DATA: __LIBC_USE_POSIX2024
+    SEEK_HOLE: __LIBC_USE_POSIX2024
   types:
     useconds_t: __LIBC_USE_LEGACY_EXTENSIONS
   objects:
@@ -86,6 +102,11 @@ unistd.h:
     getpagesize: __LIBC_USE_BSD_LEGACY
     gethostid: __LIBC_USE_XOPEN_OR_DEFAULT
     gettid: __LIBC_USE_GNU
+    getresuid: __LIBC_USE_XSI8
+    getresgid: __LIBC_USE_XSI8
+    setresuid: __LIBC_USE_XSI8
+    setresgid: __LIBC_USE_XSI8
+    posix_close: __LIBC_USE_POSIX2024
     linkat: __LIBC_USE_POSIX2008
     lockf: __LIBC_USE_XOPEN_OR_DEFAULT
     nice: __LIBC_USE_XOPEN_OR_DEFAULT
