@@ -8,6 +8,8 @@ set(MMIX_DESCRIPTORS_ENTRYPOINTS
   libc.src.fcntl.open
   libc.src.fcntl.openat
   libc.src.fcntl.fcntl
+  libc.src.fcntl.posix_fallocate
+  libc.src.fcntl.posix_fadvise
   libc.src.unistd.close
   libc.src.unistd.read
   libc.src.sys.uio.readv
@@ -22,6 +24,7 @@ set(MMIX_DESCRIPTORS_ENTRYPOINTS
   libc.src.unistd.pipe
   libc.src.unistd.pipe2
   libc.src.unistd.fsync
+  libc.src.unistd.fdatasync
   libc.src.unistd.isatty
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_DESCRIPTORS_ENTRYPOINTS})

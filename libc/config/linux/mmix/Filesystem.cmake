@@ -4,6 +4,10 @@ if(NOT LIBC_MMIX_BUILD_FILESYSTEM)
 endif()
 
 set(MMIX_FILESYSTEM_ENTRYPOINTS
+  libc.src.ftw.ftw
+  libc.src.ftw.nftw
+  libc.src.unistd.posix_close
+  libc.src.unistd.lockf
   libc.src.sys.stat.umask
   libc.src.sys.stat.stat
   libc.src.sys.stat.fstat
@@ -23,6 +27,7 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.sys.mman.posix_madvise
   libc.src.unistd.usleep
   libc.src.unistd.fchown
+  libc.src.unistd.fchownat
   libc.src.unistd.access
   libc.src.unistd.faccessat
   libc.src.unistd.chdir
@@ -36,10 +41,13 @@ set(MMIX_FILESYSTEM_ENTRYPOINTS
   libc.src.unistd.unlinkat
   libc.src.unistd.rmdir
   libc.src.unistd.link
+  libc.src.unistd.linkat
   libc.src.unistd.symlink
+  libc.src.unistd.symlinkat
   libc.src.unistd.ftruncate
   libc.src.unistd.truncate
   libc.src.stdio.rename
+  libc.src.stdio.renameat
   libc.src.stdio.remove
   libc.src.stdlib.realpath
   libc.src.dirent.opendir
