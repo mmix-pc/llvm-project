@@ -11,6 +11,24 @@
 
 #include <linux/wait.h>
 
+// The public selectors must retain their enumeration type in C++ expressions.
+enum __libc_idtype {
+  __LIBC_P_ALL = P_ALL,
+  __LIBC_P_PID = P_PID,
+  __LIBC_P_PGID = P_PGID,
+  __LIBC_P_PIDFD = P_PIDFD
+};
+#undef P_ALL
+#undef P_PID
+#undef P_PGID
+#undef P_PIDFD
+#define P_ALL __LIBC_P_ALL
+#define P_PID __LIBC_P_PID
+#define P_PGID __LIBC_P_PGID
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
+#define P_PIDFD __LIBC_P_PIDFD
+#endif
+
 #define WCOREDUMP(status) ((status) & WCOREFLAG)
 #define WEXITSTATUS(status) (((status) & 0xff00) >> 8)
 #define WIFCONTINUED(status) ((status) == 0xffff)

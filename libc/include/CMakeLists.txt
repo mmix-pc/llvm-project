@@ -1114,6 +1114,7 @@ add_header_macro(
   sys/time.h
   DEPENDS
     .llvm_libc_common_h
+    .sys_select
     .llvm-libc-macros.sys_time_macros
     .llvm-libc-types.struct_itimerval
     .llvm-libc-types.struct_timeval
@@ -1132,11 +1133,11 @@ add_header_macro(
     .llvm-libc-types.blkcnt_t
     .llvm-libc-types.blksize_t
     .llvm-libc-types.caddr_t
-    .llvm-libc-types.clockid_t
     .llvm-libc-types.clock_t
     .llvm-libc-types.fsblkcnt_t
     .llvm-libc-types.fsfilcnt_t
     .llvm-libc-types.reclen_t
+    .llvm-libc-types.clockid_t
     .llvm-libc-types.dev_t
     .llvm-libc-types.gid_t
     .llvm-libc-types.id_t
@@ -1150,10 +1151,10 @@ add_header_macro(
     .llvm-libc-types.off_t
     .llvm-libc-types.pid_t
     .llvm-libc-types.pthread_attr_t
-    .llvm-libc-types.pthread_cond_t
     .llvm-libc-types.pthread_barrier_t
     .llvm-libc-types.pthread_barrierattr_t
     .llvm-libc-types.pthread_spinlock_t
+    .llvm-libc-types.pthread_cond_t
     .llvm-libc-types.pthread_condattr_t
     .llvm-libc-types.pthread_key_t
     .llvm-libc-types.pthread_mutex_t
@@ -1206,8 +1207,8 @@ add_header_macro(
   DEPENDS
     .llvm_libc_common_h
     .llvm-libc-types.struct_iovec
-    .llvm-libc-types.ssize_t
     .llvm-libc-types.size_t
+    .llvm-libc-types.ssize_t
 )
 
 add_header_macro(
@@ -1243,6 +1244,8 @@ add_header_macro(
   DEPENDS
     .llvm_libc_common_h
     .llvm-libc-macros.sys_wait_macros
+    .llvm-libc-types.id_t
+    .llvm-libc-types.idtype_t
     .llvm-libc-types.pid_t
     .llvm-libc-types.struct_rusage
     .llvm-libc-types.siginfo_t

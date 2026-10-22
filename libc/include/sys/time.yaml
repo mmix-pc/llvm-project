@@ -1,6 +1,7 @@
 header: sys/time.h
 standards:
   - posix
+public_includes: [sys/select.h]
 macros:
   - macro_name: ITIMER_REAL
     macro_header: sys-time-macros.h

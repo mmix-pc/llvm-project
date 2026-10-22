@@ -29,6 +29,9 @@
 #define RLIMIT_RTTIME 15
 
 #define RLIM_INFINITY ((rlim_t) - 1)
+// Linux limits are all representable in rlim_t; no separate saved value is needed.
+#define RLIM_SAVED_MAX RLIM_INFINITY
+#define RLIM_SAVED_CUR RLIM_INFINITY
 
 #define RUSAGE_SELF 0
 #define RUSAGE_CHILDREN (-1)

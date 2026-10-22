@@ -58,6 +58,66 @@ objects:
   - object_name: optopt
     object_type: int
 functions:
+  - name: execlp
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: const char *
+      - type: '...'
+  - name: fexecve
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: int
+      - type: __exec_argv_t
+      - type: __exec_envp_t
+  - name: fchownat
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: int
+      - type: const char *
+      - type: uid_t
+      - type: gid_t
+      - type: int
+  - name: fdatasync
+    noexcept: false
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: int
+  - name: getlogin
+    standards: [posix]
+    return_type: char *
+    arguments: []
+  - name: getlogin_r
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: char *
+      - type: size_t
+  - name: gethostid
+    standards: [posix]
+    return_type: long
+    arguments: []
+  - name: lockf
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: int
+      - type: int
+      - type: off_t
+  - name: nice
+    standards: [posix]
+    return_type: int
+    arguments:
+      - type: int
+  - name: pause
+    noexcept: false
+    standards: [posix]
+    return_type: int
+    arguments: []
   - name: seteuid
     return_type: int
     arguments:
