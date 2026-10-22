@@ -21,6 +21,8 @@ headers = root / "c"
 # Source-only error constants, not Linux UAPI qualification.
 shutil.copyfile(source / "libc/include/llvm-libc-macros/generic-error-number-macros.h",
                 headers / "linux/errno.h")
+shutil.copyfile(source / "llvm/test/Other/MMIX/Inputs/linux-wait-selectors.h",
+                headers / "linux/wait.h")
 shutil.copyfile(source / "libc/include/__llvm-libc-common.h", headers / "__llvm-libc-common.h")
 shutil.copyfile(source / "libcxx/vendor/llvm/default_assertion_handler.in",
                 root / "__assertion_handler")

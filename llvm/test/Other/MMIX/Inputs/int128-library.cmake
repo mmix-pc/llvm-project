@@ -30,6 +30,8 @@ configure_file(${inputs}/int128-library-errno.h
                ${ROOT}/include/errno.h COPYONLY)
 configure_file(${inputs}/int128-library-endian.h
                ${ROOT}/include/machine/endian.h COPYONLY)
+configure_file(${inputs}/linux-wait-selectors.h
+               ${ROOT}/include/linux/wait.h COPYONLY)
 
 # A bounded, static, single-threaded header profile; int128 is deliberately
 # left to upstream compiler feature detection, not set by this configuration.

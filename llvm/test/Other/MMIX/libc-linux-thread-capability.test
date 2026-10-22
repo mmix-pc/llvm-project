@@ -1,12 +1,13 @@
 # REQUIRES: mmix-registered-target
 # RUN: split-file %s %t
 # RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/unistd.h %S/../../../../libc/include/unistd.yaml
-# RUN: clang -cc1 -triple mmix-unknown-linux -std=c17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
-# RUN: clang -cc1 -triple mmix-unknown-linux -x c++ -std=c++17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
-# RUN: clang -cc1 -triple mmix-unknown-linux -std=c17 -ffreestanding -DLIBC_THREAD_MODE=0 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
-# RUN: clang -cc1 -triple mmix-unknown-linux -std=c17 -ffreestanding -DLIBC_THREAD_MODE=1 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
-# RUN: clang -cc1 -triple mmix-unknown-unknown -std=c17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
-# RUN: clang -cc1 -triple x86_64-unknown-linux-gnu -std=c17 -ffreestanding -DLIBC_THREAD_MODE=1 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# Use compiler resource headers, but never host libc or libc++ headers.
+# RUN: clang --no-default-config --target=mmix-unknown-linux -nostdlibinc -std=c17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang --no-default-config --target=mmix-unknown-linux -nostdlibinc -nostdinc++ -x c++ -std=c++17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang --no-default-config --target=mmix-unknown-linux -nostdlibinc -std=c17 -ffreestanding -DLIBC_THREAD_MODE=0 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang --no-default-config --target=mmix-unknown-linux -nostdlibinc -std=c17 -ffreestanding -DLIBC_THREAD_MODE=1 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang --no-default-config --target=mmix-unknown-unknown -nostdlibinc -std=c17 -ffreestanding -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
+# RUN: clang --no-default-config --target=x86_64-unknown-linux-gnu -nostdlibinc -std=c17 -ffreestanding -DLIBC_THREAD_MODE=1 -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
 
 #--- public.c
 #include <unistd.h>
