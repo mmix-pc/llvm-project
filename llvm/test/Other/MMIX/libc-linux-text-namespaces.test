@@ -1,0 +1,211 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"],
+                                   text=True).strip()
+include = out / "include"
+include.mkdir(exist_ok=True)
+# A minimal UAPI dependency isolates header policy from the host's kernel.
+(include / "linux").mkdir(exist_ok=True)
+shutil.copyfile(out / "wait.h", include / "linux/wait.h")
+for directory in ("llvm-libc-macros", "llvm-libc-types"):
+    shutil.copytree(libc / "include" / directory, include / directory,
+                    dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+headers = "ctype fnmatch glob iconv langinfo libintl libgen locale monetary nl_types regex search stdlib string strings uchar wctype wordexp"
+for name in headers.split():
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include" / (name + ".yaml")), "--visibility",
+                    str(libc / "config/linux/mmix/HeaderVisibility.yaml"),
+                    "-o", str(include / (name + ".h"))], check=True)
+
+# Requirements are independent of the implementation's standards tags.
+families = {
+    "ctype": {
+        "iso": "isalnum isalpha isblank iscntrl isdigit isgraph islower isprint ispunct isspace isupper isxdigit tolower toupper",
+        "posix2008": "isalnum_l isalpha_l isblank_l iscntrl_l isdigit_l isgraph_l islower_l isprint_l ispunct_l isspace_l isupper_l isxdigit_l tolower_l toupper_l",
+        "legacy": "isascii toascii",
+    },
+    "wctype": {
+        "iso": "iswalnum iswalpha iswblank iswcntrl iswdigit iswgraph iswlower iswprint iswpunct iswspace iswupper iswxdigit iswctype wctype towlower towupper wctrans towctrans",
+        "posix2008": "iswalnum_l iswalpha_l iswblank_l iswcntrl_l iswdigit_l iswgraph_l iswlower_l iswprint_l iswpunct_l iswspace_l iswupper_l iswxdigit_l iswctype_l wctype_l towlower_l towupper_l wctrans_l towctrans_l",
+    },
+    "locale": {"iso": "localeconv setlocale",
+               "posix2008": "newlocale duplocale freelocale uselocale"},
+    "stdlib": {
+        "iso": "abort exit _Exit getenv malloc free calloc realloc aligned_alloc abs div qsort bsearch strtol strtoul strtoll strtoull strtod strtof strtold",
+        "posix2001": "setenv unsetenv posix_memalign",
+        "posix2008": "mkdtemp",
+        "posix2008_or_xsi": "getsubopt mkstemp realpath",
+        "xsi_default": "a64l putenv drand48 erand48 initstate jrand48 l64a lcong48 lrand48 mrand48 nrand48 random seed48 setstate srand48 srandom",
+        "xsi": "grantpt posix_openpt ptsname unlockpt",
+        "xsi8": "ptsname_r",
+        "current": "qsort_r reallocarray mkostemp secure_getenv",
+        "gnu": "clearenv memalignment strtod_l strtol_l strtoll_l strfromd strfromf strfroml free_sized free_aligned_sized",
+        "default": "memalign",
+        "legacy": "valloc",
+    },
+    "string": {
+        "iso": "memchr memcmp memcpy memmove memset strcat strchr strcmp strcoll strcpy strcspn strerror strlen strncat strncmp strncpy strpbrk strrchr strspn strstr strtok strxfrm",
+        "posix2008_or_xsi": "strdup",
+        "xsi_default": "memccpy",
+        "posix1995": "strtok_r",
+        "posix2008": "stpcpy stpncpy strndup strnlen strsignal strcoll_l strerror_l strxfrm_l",
+        "current": "memmem strlcpy strlcat",
+        "gnu": "mempcpy memrchr strcasestr strchrnul strverscmp memset_explicit",
+        "default": "strsep",
+    },
+    "strings": {
+        "posix2008_or_xsi": "strcasecmp strncasecmp",
+        "posix2008": "strcasecmp_l strncasecmp_l",
+        "xsi_default": "ffs",
+        "xsi8": "ffsl ffsll",
+        "bsd": "bcmp bcopy bzero index rindex",
+    },
+    "uchar": {"iso": "mbrtoc16 mbrtoc32 c16rtomb c32rtomb"},
+    "search": {"iso": "hcreate hdestroy hsearch insque remque lfind lsearch tfind tdelete tsearch twalk",
+               "gnu": "hcreate_r hdestroy_r hsearch_r twalk_r tdestroy"},
+    "iconv": {"iso": "iconv iconv_open iconv_close"},
+    "wordexp": {"iso": "wordexp wordfree"},
+    "monetary": {"iso": "strfmon", "posix2008": "strfmon_l"},
+    "libintl": {
+        "iso": "gettext dgettext dcgettext ngettext dngettext dcngettext textdomain bindtextdomain bind_textdomain_codeset",
+        "current": "gettext_l dgettext_l dcgettext_l ngettext_l dngettext_l dcngettext_l",
+    },
+}
+modes = [
+    ([], 0, 0, False, False),
+    (["-D_POSIX_C_SOURCE=199506L"], 199506, 0, False, False),
+    (["-D_POSIX_C_SOURCE=200112L"], 200112, 0, False, False),
+    (["-D_POSIX_C_SOURCE=200809L"], 200809, 0, False, False),
+    (["-D_POSIX_C_SOURCE=202405L"], 202405, 0, False, False),
+    (["-D_XOPEN_SOURCE=700"], 200809, 700, False, False),
+    (["-D_XOPEN_SOURCE=800"], 202405, 800, False, False),
+    (["-D_DEFAULT_SOURCE"], 202405, 0, False, True),
+    (["-D_GNU_SOURCE"], 202405, 800, True, True),
+]
+observations = 0
+for language in ("c", "c++"):
+    command = [clang, "--no-default-config", "--target=mmix-unknown-linux",
+               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+               "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+               "-U_GNU_SOURCE", "-fsyntax-only", "-fno-builtin", "-Werror", "-"]
+    for defines, posix, xsi, gnu, default in modes:
+        expected = dict(iso=True, posix1995=posix >= 199506,
+                        posix2001=posix >= 200112, posix2008=posix >= 200809,
+                        posix2008_or_xsi=posix >= 200809 or xsi > 0,
+                        current=posix >= 202405, xsi8=xsi >= 800, xsi=xsi > 0,
+                        xsi_default=xsi > 0 or default, default=default,
+                        gnu=gnu, legacy=0 < xsi < 800 or default,
+                        bsd=0 < xsi < 700 or default)
+        def compile(source):
+            return subprocess.run(command + defines, input=source, text=True,
+                                  capture_output=True)
+        for header, groups in families.items():
+            prefix = '#include <' + header + '.h>\n'
+            result = compile(prefix)
+            assert result.returncode == 0, (language, defines, header, result.stderr)
+            positive = prefix
+            for group, names in groups.items():
+                for name in names.split():
+                    probe = 'void probe_' + name + '(void) { (void)&' + name + '; }\n'
+                    if expected[group]:
+                        positive += probe
+                    else:
+                        result = compile(prefix + probe)
+                        assert result.returncode != 0 and "undeclared" in result.stderr and name in result.stderr, (defines, name, result.stderr)
+                    observations += 1
+            result = compile(positive)
+            assert result.returncode == 0, (language, defines, header, result.stderr)
+
+        for header in ("ctype", "wctype", "locale", "string", "strings", "stdlib"):
+            present = gnu if header == "stdlib" else posix >= 200809
+            source = '#include <' + header + '.h>\n'
+            source += 'locale_t value;\n' if present else 'extern int locale_t;\n'
+            result = compile(source)
+            assert result.returncode == 0, (defines, header, result.stderr)
+        source = '#include <locale.h>\n#include <fnmatch.h>\n'
+        for name, present in (("LC_MESSAGES", posix > 0),
+                              ("LC_GLOBAL_LOCALE", posix >= 200809),
+                              ("LC_ALL_MASK", posix >= 200809),
+                              ("FNM_CASEFOLD", posix >= 202405),
+                              ("FNM_IGNORECASE", posix >= 202405),
+                              ("FNM_LEADING_DIR", gnu)):
+            source += ("#ifndef " if present else "#ifdef ") + name + "\n#error namespace\n#endif\n"
+        result = compile(source)
+        assert result.returncode == 0, (defines, result.stderr)
+        result = compile('#include <langinfo.h>\nint items[] = {YESEXPR, NOEXPR};\n')
+        assert result.returncode == 0, (defines, result.stderr)
+        source = '#include <stdlib.h>\n'
+        for name, present in (("WEXITSTATUS", posix > 0), ("WNOHANG", posix > 0),
+                              ("O_APPEND", posix >= 202405 or xsi > 0)):
+            source += ("#ifndef " if present else "#ifdef ") + name + "\n#error namespace\n#endif\n"
+        result = compile(source)
+        assert result.returncode == 0, (defines, result.stderr)
+        result = compile('#include <uchar.h>\n' + ('char8_t value;\n' if gnu else 'extern int char8_t;\n'))
+        assert result.returncode == 0, (defines, result.stderr)
+
+        # Include order cannot add declarations or change ABI/type identities.
+        for ordered in (headers.split(), list(reversed(headers.split()))):
+            result = compile(''.join('#include <' + h + '.h>\n' for h in ordered))
+            assert result.returncode == 0, (defines, result.stderr)
+        if language == "c++":
+            source = '#include <stdlib.h>\n'
+            source += 'static_assert(!noexcept(qsort(nullptr, 0, 0, nullptr)), "callback");\n'
+            result = compile(source)
+            assert result.returncode == 0, result.stderr
+
+        assertion = "_Static_assert" if language == "c" else "static_assert"
+        source = '#include <iconv.h>\n#include <wordexp.h>\n'
+        for condition in (
+                'sizeof(iconv_t) == sizeof(void *)',
+                '__alignof__(iconv_t) == __alignof__(void *)',
+                'sizeof(wordexp_t) == 24',
+                '__alignof__(wordexp_t) == 8',
+                '__builtin_offsetof(wordexp_t, we_wordc) == 0',
+                '__builtin_offsetof(wordexp_t, we_wordv) == 8',
+                '__builtin_offsetof(wordexp_t, we_offs) == 16',
+                '(WRDE_DOOFFS | WRDE_APPEND | WRDE_NOCMD | WRDE_REUSE | WRDE_SHOWERR | WRDE_UNDEF) == 63',
+                'WRDE_NOSPACE == 1 && WRDE_BADCHAR == 2 && WRDE_BADVAL == 3 && WRDE_CMDSUB == 4 && WRDE_SYNTAX == 5'):
+            source += assertion + '(' + condition + ', "ABI");\n'
+        source += 'size_t (*convert)(iconv_t, char **, size_t *, char **, size_t *) = &iconv;\n'
+        source += 'iconv_t (*open_converter)(const char *, const char *) = &iconv_open;\n'
+        source += 'int (*close_converter)(iconv_t) = &iconv_close;\n'
+        source += 'int (*expand)(const char *, wordexp_t *, int) = &wordexp;\n'
+        source += 'void (*release)(wordexp_t *) = &wordfree;\n'
+        if language == "c++":
+            source += 'static_assert(!noexcept(wordexp(nullptr, nullptr, 0)), "may execute commands");\n'
+        result = compile(source)
+        assert result.returncode == 0, (language, defines, result.stderr)
+        result = compile('#include <iconv.h>\nint size = sizeof(*((iconv_t)0));\n')
+        assert result.returncode != 0 and "incomplete" in result.stderr, result.stderr
+
+# Unrelated targets retain legacy macro availability without an explicit policy.
+source = '#include "llvm-libc-macros/locale-macros.h"\n'
+source += '#include "llvm-libc-macros/fnmatch-macros.h"\n'
+source += 'locale_t locale;\nint masks = LC_MESSAGES_MASK | FNM_LEADING_DIR;\n'
+result = subprocess.run([clang, "--no-default-config", "--target=x86_64-unknown-linux-gnu",
+                         "-x", "c", "-std=c17", "-nostdinc", "-I", str(include),
+                         "-fsyntax-only", "-Werror", "-"], input=source,
+                        text=True, capture_output=True)
+assert result.returncode == 0, result.stderr
+print(f"{observations} text declaration observations passed")
+
+#--- wait.h
+#ifndef TEST_LINUX_WAIT_H
+#define TEST_LINUX_WAIT_H
+#define WNOHANG 1
+#define WUNTRACED 2
+#endif

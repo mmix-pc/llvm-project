@@ -87,5 +87,28 @@
 #if __LIBC_XOPEN_LEVEL > 0 && __LIBC_POSIX_LEVEL < 202405L
 #define __LIBC_USE_XOPEN_LEGACY 1
 #endif
+#if defined(__LIBC_USE_XOPEN_LEGACY) || defined(__LIBC_USE_DEFAULT)
+#define __LIBC_USE_LEGACY_EXTENSIONS 1
+#endif
+#if defined(__LIBC_USE_XOPEN) || defined(__LIBC_USE_DEFAULT)
+#define __LIBC_USE_XOPEN_OR_DEFAULT 1
+#endif
+#if defined(__LIBC_USE_DEFAULT) ||                                          \
+    (__LIBC_XOPEN_LEVEL > 0 && __LIBC_XOPEN_LEVEL < 700)
+#define __LIBC_USE_BSD_LEGACY 1
+#endif
+#if defined(__LIBC_USE_XOPEN_OR_DEFAULT) || defined(__LIBC_USE_C23_EXTENSIONS)
+#define __LIBC_USE_XOPEN_OR_DEFAULT_OR_C23 1
+#endif
+#if defined(__LIBC_USE_POSIX2008) || defined(__LIBC_USE_XOPEN)
+#define __LIBC_USE_POSIX2008_OR_XOPEN 1
+#endif
+#if defined(__LIBC_USE_POSIX2008) || defined(__LIBC_USE_XOPEN) ||              \
+    defined(__LIBC_USE_C23_EXTENSIONS)
+#define __LIBC_USE_POSIX2008_OR_XOPEN_OR_C23 1
+#endif
+#if defined(__LIBC_USE_POSIX2008) || defined(__LIBC_USE_C23_EXTENSIONS)
+#define __LIBC_USE_POSIX2008_OR_C23 1
+#endif
 
 #endif // LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H

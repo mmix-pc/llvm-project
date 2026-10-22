@@ -3,6 +3,183 @@ errno.h:
   objects:
     program_invocation_name: __LIBC_USE_GNU
     program_invocation_short_name: __LIBC_USE_GNU
+ctype.h:
+  types:
+    locale_t: __LIBC_USE_POSIX2008
+  functions:
+    isascii: __LIBC_USE_LEGACY_EXTENSIONS
+    toascii: __LIBC_USE_LEGACY_EXTENSIONS
+    isalnum_l: __LIBC_USE_POSIX2008
+    isalpha_l: __LIBC_USE_POSIX2008
+    isblank_l: __LIBC_USE_POSIX2008
+    iscntrl_l: __LIBC_USE_POSIX2008
+    isdigit_l: __LIBC_USE_POSIX2008
+    isgraph_l: __LIBC_USE_POSIX2008
+    islower_l: __LIBC_USE_POSIX2008
+    isprint_l: __LIBC_USE_POSIX2008
+    ispunct_l: __LIBC_USE_POSIX2008
+    isspace_l: __LIBC_USE_POSIX2008
+    isupper_l: __LIBC_USE_POSIX2008
+    isxdigit_l: __LIBC_USE_POSIX2008
+    tolower_l: __LIBC_USE_POSIX2008
+    toupper_l: __LIBC_USE_POSIX2008
+locale.h:
+  types:
+    locale_t: __LIBC_USE_POSIX2008
+  functions:
+    duplocale: __LIBC_USE_POSIX2008
+    freelocale: __LIBC_USE_POSIX2008
+    newlocale: __LIBC_USE_POSIX2008
+    uselocale: __LIBC_USE_POSIX2008
+langinfo.h:
+  types:
+    locale_t: __LIBC_USE_POSIX2008
+  functions:
+    nl_langinfo_l: __LIBC_USE_POSIX2008
+monetary.h:
+  types:
+    locale_t: __LIBC_USE_POSIX2008
+  functions:
+    strfmon_l: __LIBC_USE_POSIX2008
+libintl.h:
+  types:
+    locale_t: __LIBC_USE_POSIX2024
+  functions:
+    dcgettext_l: __LIBC_USE_POSIX2024
+    dcngettext_l: __LIBC_USE_POSIX2024
+    dgettext_l: __LIBC_USE_POSIX2024
+    dngettext_l: __LIBC_USE_POSIX2024
+    gettext_l: __LIBC_USE_POSIX2024
+    ngettext_l: __LIBC_USE_POSIX2024
+stdlib.h:
+  types:
+    locale_t: __LIBC_USE_GNU
+  functions:
+    a64l: __LIBC_USE_XOPEN_OR_DEFAULT
+    drand48: __LIBC_USE_XOPEN_OR_DEFAULT
+    erand48: __LIBC_USE_XOPEN_OR_DEFAULT
+    getsubopt: __LIBC_USE_POSIX2008_OR_XOPEN
+    grantpt: __LIBC_USE_XOPEN
+    initstate: __LIBC_USE_XOPEN_OR_DEFAULT
+    jrand48: __LIBC_USE_XOPEN_OR_DEFAULT
+    l64a: __LIBC_USE_XOPEN_OR_DEFAULT
+    lcong48: __LIBC_USE_XOPEN_OR_DEFAULT
+    lrand48: __LIBC_USE_XOPEN_OR_DEFAULT
+    mkostemp: __LIBC_USE_POSIX2024
+    mrand48: __LIBC_USE_XOPEN_OR_DEFAULT
+    nrand48: __LIBC_USE_XOPEN_OR_DEFAULT
+    posix_openpt: __LIBC_USE_XOPEN
+    ptsname: __LIBC_USE_XOPEN
+    ptsname_r: __LIBC_USE_XSI8
+    random: __LIBC_USE_XOPEN_OR_DEFAULT
+    secure_getenv: __LIBC_USE_POSIX2024
+    seed48: __LIBC_USE_XOPEN_OR_DEFAULT
+    setstate: __LIBC_USE_XOPEN_OR_DEFAULT
+    srand48: __LIBC_USE_XOPEN_OR_DEFAULT
+    srandom: __LIBC_USE_XOPEN_OR_DEFAULT
+    unlockpt: __LIBC_USE_XOPEN
+    clearenv: __LIBC_USE_GNU
+    free_sized: __LIBC_USE_C23_EXTENSIONS
+    free_aligned_sized: __LIBC_USE_C23_EXTENSIONS
+    memalign: __LIBC_USE_DEFAULT
+    memalignment: __LIBC_USE_GNU
+    mkdtemp: __LIBC_USE_POSIX2008
+    mkstemp: __LIBC_USE_POSIX2008_OR_XOPEN
+    posix_memalign: __LIBC_USE_POSIX2001
+    putenv: __LIBC_USE_XOPEN_OR_DEFAULT
+    qsort_r: __LIBC_USE_POSIX2024
+    realpath: __LIBC_USE_POSIX2008_OR_XOPEN
+    reallocarray: __LIBC_USE_POSIX2024
+    setenv: __LIBC_USE_POSIX2001
+    unsetenv: __LIBC_USE_POSIX2001
+    valloc: __LIBC_USE_LEGACY_EXTENSIONS
+    strfromd: __LIBC_USE_C23_EXTENSIONS
+    strfromf: __LIBC_USE_C23_EXTENSIONS
+    strfroml: __LIBC_USE_C23_EXTENSIONS
+    strtod_l: __LIBC_USE_GNU
+    strtof_l: __LIBC_USE_GNU
+    strtol_l: __LIBC_USE_GNU
+    strtold_l: __LIBC_USE_GNU
+    strtoll_l: __LIBC_USE_GNU
+    strtoul_l: __LIBC_USE_GNU
+    strtoull_l: __LIBC_USE_GNU
+string.h:
+  types:
+    locale_t: __LIBC_USE_POSIX2008
+  functions:
+    memccpy: __LIBC_USE_XOPEN_OR_DEFAULT_OR_C23
+    memmem: __LIBC_USE_POSIX2024
+    mempcpy: __LIBC_USE_GNU
+    memrchr: __LIBC_USE_GNU
+    memset_explicit: __LIBC_USE_C23_EXTENSIONS
+    stpcpy: __LIBC_USE_POSIX2008
+    stpncpy: __LIBC_USE_POSIX2008
+    strcasestr: __LIBC_USE_GNU
+    strchrnul: __LIBC_USE_GNU
+    strcoll_l: __LIBC_USE_POSIX2008
+    strdup: __LIBC_USE_POSIX2008_OR_XOPEN_OR_C23
+    strerror_l: __LIBC_USE_POSIX2008
+    strlcat: __LIBC_USE_POSIX2024
+    strlcpy: __LIBC_USE_POSIX2024
+    strndup: __LIBC_USE_POSIX2008_OR_C23
+    strnlen: __LIBC_USE_POSIX2008
+    strsep: __LIBC_USE_DEFAULT
+    strsignal: __LIBC_USE_POSIX2008
+    strtok_r: __LIBC_USE_POSIX1995
+    strverscmp: __LIBC_USE_GNU
+    strxfrm_l: __LIBC_USE_POSIX2008
+strings.h:
+  types:
+    locale_t: __LIBC_USE_POSIX2008
+  functions:
+    bcmp: __LIBC_USE_BSD_LEGACY
+    bcopy: __LIBC_USE_BSD_LEGACY
+    bzero: __LIBC_USE_BSD_LEGACY
+    index: __LIBC_USE_BSD_LEGACY
+    rindex: __LIBC_USE_BSD_LEGACY
+    ffs: __LIBC_USE_XOPEN_OR_DEFAULT
+    ffsl: __LIBC_USE_XSI8
+    ffsll: __LIBC_USE_XSI8
+    strcasecmp: __LIBC_USE_POSIX2008_OR_XOPEN
+    strcasecmp_l: __LIBC_USE_POSIX2008
+    strncasecmp: __LIBC_USE_POSIX2008_OR_XOPEN
+    strncasecmp_l: __LIBC_USE_POSIX2008
+uchar.h:
+  types:
+    char8_t: __LIBC_USE_C23_EXTENSIONS
+wctype.h:
+  types:
+    locale_t: __LIBC_USE_POSIX2008
+  functions:
+    iswalnum_l: __LIBC_USE_POSIX2008
+    iswalpha_l: __LIBC_USE_POSIX2008
+    iswblank_l: __LIBC_USE_POSIX2008
+    iswcntrl_l: __LIBC_USE_POSIX2008
+    iswdigit_l: __LIBC_USE_POSIX2008
+    iswgraph_l: __LIBC_USE_POSIX2008
+    iswlower_l: __LIBC_USE_POSIX2008
+    iswprint_l: __LIBC_USE_POSIX2008
+    iswpunct_l: __LIBC_USE_POSIX2008
+    iswspace_l: __LIBC_USE_POSIX2008
+    iswupper_l: __LIBC_USE_POSIX2008
+    iswxdigit_l: __LIBC_USE_POSIX2008
+    iswctype_l: __LIBC_USE_POSIX2008
+    towlower_l: __LIBC_USE_POSIX2008
+    towupper_l: __LIBC_USE_POSIX2008
+    wctype_l: __LIBC_USE_POSIX2008
+    wctrans_l: __LIBC_USE_POSIX2008
+    towctrans_l: __LIBC_USE_POSIX2008
+search.h:
+  types:
+    struct_hsearch_data: __LIBC_USE_GNU
+    __action_closure_fn_t: __LIBC_USE_GNU
+    __free_fn_t: __LIBC_USE_GNU
+  functions:
+    hcreate_r: __LIBC_USE_GNU
+    hdestroy_r: __LIBC_USE_GNU
+    hsearch_r: __LIBC_USE_GNU
+    twalk_r: __LIBC_USE_GNU
+    tdestroy: __LIBC_USE_GNU
 stdio.h:
   types:
     off_t: __LIBC_USE_POSIX
