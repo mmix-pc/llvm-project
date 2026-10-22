@@ -945,6 +945,29 @@ add_libc_test(
     libc.test.UnitTest.ErrnoSetterMatcher
 )
 
+foreach(provider IN ITEMS enabled disabled)
+  set(fallocate_query_options)
+  if(provider STREQUAL "enabled")
+    list(APPEND fallocate_query_options -DLIBC_HAS_POSIX_FALLOCATE)
+  endif()
+  add_libc_test(
+    fallocate_query_${provider}_test
+    SUITE libc_unistd_unittests
+    SRCS fallocate_query_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.src.__support.error_or
+      libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+      libc.src.__support.OSUtil.linux.syscall_wrappers.close
+      libc.src.__support.OSUtil.linux.syscall_wrappers.fstatfs
+      libc.src.__support.OSUtil.linux.syscall_wrappers.open
+      libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+      libc.src.errno.errno
+    COMPILE_OPTIONS ${fallocate_query_options}
+  )
+endforeach()
+
 add_libc_test(
   pathconf_utils_test
   SUITE

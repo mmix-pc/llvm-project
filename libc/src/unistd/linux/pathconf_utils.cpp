@@ -163,8 +163,8 @@ long pathconfig(const struct statfs &s, int name) {
 
 #ifdef _PC_FALLOC
   case _PC_FALLOC:
-    // FIXME: Reconcile per-file support when posix_fallocate is provided.
-    return -1;
+    // The entrypoints query the object, not just its filesystem magic.
+    return unavailable_filesystem_property();
 #endif
 #ifdef _PC_TEXTDOMAIN_MAX
   case _PC_TEXTDOMAIN_MAX:

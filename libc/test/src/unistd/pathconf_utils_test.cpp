@@ -132,7 +132,7 @@ TEST_F(LlvmLibcPathconfUtilsTest, UnavailableProviders) {
 #ifdef _PC_FALLOC
   libc_errno = EDOM;
   EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, _PC_FALLOC), -1L);
-  EXPECT_EQ(int(libc_errno), EDOM);
+  EXPECT_EQ(int(libc_errno), ENOTSUP);
 #endif
 #ifdef _PC_TEXTDOMAIN_MAX
   libc_errno = 0;

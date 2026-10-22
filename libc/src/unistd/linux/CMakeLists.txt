@@ -226,6 +226,7 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.linux.syscall_wrappers.fstatfs
     libc.src.errno.errno
     libc.src.unistd.linux.pathconf_utils
+    libc.src.unistd.linux.fallocate_query
 )
 
 add_entrypoint_object(
@@ -524,10 +525,30 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.linux.syscall_wrappers.statfs
     libc.src.errno.errno
     libc.src.unistd.linux.pathconf_utils
+    libc.src.unistd.linux.fallocate_query
 )
 
 if("pathconf" IN_LIST TARGET_ENTRYPOINT_NAME_LIST OR
    "fpathconf" IN_LIST TARGET_ENTRYPOINT_NAME_LIST)
+  set(fallocate_query_options)
+  if("posix_fallocate" IN_LIST TARGET_ENTRYPOINT_NAME_LIST)
+    list(APPEND fallocate_query_options -DLIBC_HAS_POSIX_FALLOCATE)
+  endif()
+  add_object_library(
+    fallocate_query
+    SRCS fallocate_query.cpp
+    HDRS fallocate_query.h
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.src.__support.error_or
+      libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+      libc.src.__support.OSUtil.linux.syscall_wrappers.close
+      libc.src.__support.OSUtil.linux.syscall_wrappers.fstatfs
+      libc.src.__support.OSUtil.linux.syscall_wrappers.open
+      libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+    COMPILE_OPTIONS ${fallocate_query_options}
+  )
   add_object_library(
     pathconf_utils
     SRCS

@@ -8,15 +8,27 @@
 
 #include "src/unistd/fpathconf.h"
 #include "hdr/types/struct_statfs.h"
+#include "hdr/unistd_macros.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/fstatfs.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/unistd/linux/pathconf_utils.h"
+#include "src/unistd/linux/fallocate_query.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(long, fpathconf, (int fd, int name)) {
+#ifdef _PC_FALLOC
+  if (name == _PC_FALLOC) {
+    auto result = fallocate_support(fd);
+    if (!result) {
+      libc_errno = result.error();
+      return -1;
+    }
+    return *result;
+  }
+#endif
   struct statfs result;
   auto error_or_ret = linux_syscalls::fstatfs(fd, &result);
   if (!error_or_ret) {
