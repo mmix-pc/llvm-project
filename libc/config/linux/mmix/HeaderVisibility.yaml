@@ -181,7 +181,7 @@ dirent.h:
     dirfd: __LIBC_USE_POSIX2008_OR_DEFAULT
     seekdir: __LIBC_USE_XOPEN_OR_DEFAULT
     telldir: __LIBC_USE_XOPEN_OR_DEFAULT
-    readdir_r: __LIBC_USE_POSIX_LEGACY
+    readdir_r: __LIBC_USE_POSIX1995
     posix_getdents: __LIBC_USE_POSIX2024
     scandirat: __LIBC_USE_GNU
     versionsort: __LIBC_USE_GNU
@@ -434,7 +434,7 @@ stdio.h:
     ssize_t: __LIBC_USE_POSIX
     cookie_io_functions_t: __LIBC_USE_GNU
   functions:
-    asprintf: __LIBC_USE_GNU
+    asprintf: __LIBC_USE_POSIX2024
     ctermid: __LIBC_USE_POSIX
     clearerr_unlocked: __LIBC_USE_GNU
     dprintf: __LIBC_USE_POSIX2008
@@ -467,7 +467,7 @@ stdio.h:
     putchar_unlocked: __LIBC_USE_POSIX1995
     renameat: __LIBC_USE_POSIX2008
     tempnam: __LIBC_USE_XOPEN_LEGACY
-    vasprintf: __LIBC_USE_GNU
+    vasprintf: __LIBC_USE_POSIX2024
     vdprintf: __LIBC_USE_POSIX2008
 wchar.h:
   types:

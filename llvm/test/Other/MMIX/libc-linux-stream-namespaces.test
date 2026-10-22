@@ -39,8 +39,9 @@ groups = {
         "threads": "flockfile ftrylockfile funlockfile getc_unlocked getchar_unlocked putc_unlocked putchar_unlocked",
         "largefile": "fseeko ftello",
         "posix2008": "getdelim getline dprintf vdprintf fmemopen open_memstream renameat",
+        "posix2024": "asprintf vasprintf",
         "legacy_xsi": "tempnam",
-        "gnu": "asprintf vasprintf clearerr_unlocked feof_unlocked ferror_unlocked fgetc_unlocked fgets_unlocked fileno_unlocked fopencookie fputc_unlocked fputs_unlocked fread_unlocked fwrite_unlocked",
+        "gnu": "clearerr_unlocked feof_unlocked ferror_unlocked fgetc_unlocked fgets_unlocked fileno_unlocked fopencookie fputc_unlocked fputs_unlocked fread_unlocked fwrite_unlocked",
     },
     "wchar.h": {
         "iso": "wcslen wcsftime wcrtomb mbsrtowcs wcsrtombs fwprintf fwscanf swprintf swscanf",

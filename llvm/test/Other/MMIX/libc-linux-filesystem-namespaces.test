@@ -54,7 +54,7 @@ for language in ("c", "c++"):
             assert result.returncode == 0, (language, defines, name, result.stderr)
         for header, name, active in (
                 ("dirent", "posix_getdents", posix >= 202405),
-                ("dirent", "readdir_r", default or 199506 <= posix < 202405),
+                ("dirent", "readdir_r", default or posix >= 199506),
                 ("dirent", "scandirat", gnu),
                 ("fcntl", "openat", posix >= 200809),
                 ("fcntl", "posix_fadvise", posix >= 200112),
