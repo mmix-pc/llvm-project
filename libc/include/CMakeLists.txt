@@ -369,6 +369,7 @@ add_header_macro(
     .llvm_libc_common_h
     .llvm-libc-macros.annex_k_macros
     .llvm-libc-macros.null_macro
+    .llvm-libc-macros.strerror_r_macros
     .llvm-libc-types.errno_t
     .llvm-libc-types.locale_t
     .llvm-libc-types.rsize_t
