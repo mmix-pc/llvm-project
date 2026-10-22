@@ -1,4 +1,103 @@
 # MMIX Linux installed namespace policy. This does not select runtime providers.
+grp.h:
+  types:
+    FILE: __LIBC_USE_DEFAULT
+  functions:
+    getgrnam_r: __LIBC_USE_POSIX1995
+    getgrgid_r: __LIBC_USE_POSIX1995
+    getgrent: __LIBC_USE_XOPEN_OR_DEFAULT
+    setgrent: __LIBC_USE_XOPEN_OR_DEFAULT
+    endgrent: __LIBC_USE_XOPEN_OR_DEFAULT
+    getgrent_r: __LIBC_USE_GNU
+    fgetgrent: __LIBC_USE_DEFAULT
+    fgetgrent_r: __LIBC_USE_GNU
+    putgrent: __LIBC_USE_GNU
+    initgroups: __LIBC_USE_DEFAULT
+    getgrouplist: __LIBC_USE_DEFAULT
+    setgroups: __LIBC_USE_DEFAULT
+pwd.h:
+  functions:
+    getpwnam_r: __LIBC_USE_POSIX1995
+    getpwuid_r: __LIBC_USE_POSIX1995
+    getpwent: __LIBC_USE_XOPEN_OR_DEFAULT
+    setpwent: __LIBC_USE_XOPEN_OR_DEFAULT
+    endpwent: __LIBC_USE_XOPEN_OR_DEFAULT
+time.h:
+  types:
+    clockid_t: __LIBC_USE_POSIX1993
+    errno_t: __LIBC_USE_ANNEX_K
+    locale_t: __LIBC_USE_POSIX2008
+    pid_t: __LIBC_USE_POSIX2001
+    rsize_t: __LIBC_USE_ANNEX_K
+    struct_itimerspec: __LIBC_USE_POSIX1993
+    struct_sigevent: __LIBC_USE_POSIX1993
+    struct_timeval: __LIBC_USE_DEFAULT
+    timer_t: __LIBC_USE_POSIX1993
+    tm_gmtoff_t: __LIBC_USE_POSIX2024_OR_DEFAULT
+  objects:
+    getdate_err: __LIBC_USE_XOPEN
+    tzname: __LIBC_USE_POSIX
+    daylight: __LIBC_USE_XOPEN_OR_DEFAULT
+    timezone: __LIBC_USE_XOPEN_OR_DEFAULT
+  functions:
+    asctime_r: __LIBC_USE_POSIX_LEGACY
+    ctime_r: __LIBC_USE_POSIX_LEGACY
+    clock_getres: __LIBC_USE_POSIX1993
+    clock_gettime: __LIBC_USE_POSIX1993
+    clock_settime: __LIBC_USE_POSIX1993
+    clock_getcpuclockid: __LIBC_USE_POSIX2001
+    clock_nanosleep: __LIBC_USE_POSIX2001
+    gmtime_r: __LIBC_USE_POSIX_OR_C23
+    getdate: __LIBC_USE_XOPEN
+    localtime_r: __LIBC_USE_POSIX_OR_C23
+    nanosleep: __LIBC_USE_POSIX1993
+    strftime_l: __LIBC_USE_POSIX2008
+    strptime: __LIBC_USE_XOPEN
+    timegm: __LIBC_USE_POSIX2024_OR_DEFAULT_OR_C23
+    timer_create: __LIBC_USE_POSIX1993
+    timer_delete: __LIBC_USE_POSIX1993
+    timer_getoverrun: __LIBC_USE_POSIX1993
+    timer_gettime: __LIBC_USE_POSIX1993
+    timer_settime: __LIBC_USE_POSIX1993
+    tzset: __LIBC_USE_POSIX
+sys/time.h:
+  types:
+    struct_timezone: __LIBC_USE_DEFAULT
+  functions:
+    settimeofday: __LIBC_USE_DEFAULT
+sys/wait.h:
+  types:
+    struct_rusage: __LIBC_USE_DEFAULT
+  functions:
+    wait4: __LIBC_USE_DEFAULT
+unistd.h:
+  types:
+    useconds_t: __LIBC_USE_LEGACY_EXTENSIONS
+  objects:
+    environ: __LIBC_USE_POSIX2024
+  functions:
+    _Fork: __LIBC_USE_POSIX2024
+    chroot: __LIBC_USE_DEFAULT
+    dup3: __LIBC_USE_POSIX2024
+    faccessat: __LIBC_USE_POSIX2008
+    fchownat: __LIBC_USE_POSIX2008
+    fexecve: __LIBC_USE_POSIX2008
+    getentropy: __LIBC_USE_POSIX2024
+    getpagesize: __LIBC_USE_BSD_LEGACY
+    gethostid: __LIBC_USE_XOPEN_OR_DEFAULT
+    gettid: __LIBC_USE_GNU
+    linkat: __LIBC_USE_POSIX2008
+    lockf: __LIBC_USE_XOPEN_OR_DEFAULT
+    nice: __LIBC_USE_XOPEN_OR_DEFAULT
+    pipe2: __LIBC_USE_POSIX2024
+    pread: __LIBC_USE_POSIX2008_OR_XOPEN
+    pwrite: __LIBC_USE_POSIX2008_OR_XOPEN
+    readlinkat: __LIBC_USE_POSIX2008
+    swab: __LIBC_USE_XOPEN
+    symlinkat: __LIBC_USE_POSIX2008
+    unlinkat: __LIBC_USE_POSIX2008
+    usleep: __LIBC_USE_BSD_LEGACY
+    vfork: __LIBC_USE_BSD_LEGACY
 dirent.h:
   types:
     struct_posix_dent: __LIBC_USE_POSIX2024

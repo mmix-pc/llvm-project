@@ -1,0 +1,92 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"],
+                                   text=True).strip()
+include = out / "include"
+include.mkdir(exist_ok=True)
+for name in ("llvm-libc-types", "llvm-libc-macros"):
+    shutil.copytree(libc / "include" / name, include / name, dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+# Keep this namespace regression independent of host UAPI. Installed-style
+# probes separately verify the actual MMIX UAPI composition.
+(include / "linux").mkdir(exist_ok=True)
+(include / "linux/wait.h").write_text(
+    "#define P_ALL 0\n#define P_PID 1\n#define P_PGID 2\n#define P_PIDFD 3\n")
+headers = "time unistd grp pwd sys/time sys/select sys/resource sys/wait"
+for name in headers.split():
+    target = include / (name + ".h")
+    target.parent.mkdir(exist_ok=True)
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include" / (name + ".yaml")), "--visibility",
+                    str(libc / "config/linux/mmix/HeaderVisibility.yaml"),
+                    "-o", str(target)], check=True)
+
+modes = [([], 0, 0, False, False),
+         (["-D_POSIX_C_SOURCE=200809L"], 200809, 0, False, False),
+         (["-D_POSIX_C_SOURCE=202405L"], 202405, 0, False, False),
+         (["-D_XOPEN_SOURCE=700"], 200809, 700, False, False),
+         (["-D_XOPEN_SOURCE=800"], 202405, 800, False, False),
+         (["-D_DEFAULT_SOURCE"], 202405, 0, False, True),
+         (["-D_GNU_SOURCE"], 202405, 800, True, True)]
+for language in ("c", "c++"):
+    command = [clang, "--no-default-config", "--target=mmix-unknown-linux",
+               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+               "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+               "-U_GNU_SOURCE", "-fsyntax-only", "-Werror", "-"]
+    for defines, posix, xsi, gnu, default in modes:
+        def compile(source):
+            return subprocess.run(command + defines, input=source, text=True,
+                                  capture_output=True)
+        for name in headers.split():
+            result = compile('#include <' + name + '.h>\n')
+            assert result.returncode == 0, (language, defines, name, result.stderr)
+        for header, name, active in (
+                ("time", "clock_getres", posix >= 199309),
+                ("time", "clock_nanosleep", posix >= 200112),
+                ("time", "CLOCK_REALTIME", posix >= 199309),
+                ("time", "TIMER_ABSTIME", posix >= 199309),
+                ("time", "CLOCK_MONOTONIC_RAW", default),
+                ("time", "asctime_r", default or 199506 <= posix < 202405),
+                ("time", "timegm", posix >= 202405),
+                ("time", "getdate", xsi > 0),
+                ("time", "getdate_err", xsi > 0),
+                ("unistd", "gettid", gnu),
+                ("unistd", "_Fork", posix >= 202405),
+                ("unistd", "fexecve", posix >= 200809),
+                ("unistd", "usleep", default or 0 < xsi < 700),
+                ("grp", "getgrgid_r", posix >= 199506),
+                ("pwd", "getpwent", default or xsi > 0)):
+            result = compile('#include <' + header + '.h>\n'
+                             'void probe(void) { (void)(' + name + '); }\n')
+            if active:
+                assert result.returncode == 0, (defines, name, result.stderr)
+            else:
+                assert result.returncode != 0 and name in result.stderr and "undeclared" in result.stderr, (defines, name, result.stderr)
+        check = "static_assert" if language == "c++" else "_Static_assert"
+        result = compile('#include <time.h>\n' + check +
+                         '(sizeof(struct tm) == 56, "tm layout");\n')
+        assert result.returncode == 0, (defines, result.stderr)
+        result = compile('#include <time.h>\nlong *offset(struct tm *p) { return &p->tm_gmtoff; }\n')
+        if posix >= 202405 or default:
+            assert result.returncode == 0, (defines, result.stderr)
+        else:
+            assert result.returncode != 0 and "no member named 'tm_gmtoff'" in result.stderr, (defines, result.stderr)
+        result = compile('#include <sys/wait.h>\n#include <sys/resource.h>\n'
+                         'idtype_t selector = P_PID;\n'
+                         'int (*wait_address)(idtype_t, id_t, siginfo_t *, int) = &waitid;\n' +
+                         check + '(sizeof(idtype_t) == 4 && P_ALL == 0 && P_PID == 1 && P_PGID == 2, "wait ABI");\n' +
+                         check + '(RLIM_SAVED_MAX == RLIM_INFINITY && RLIM_SAVED_CUR == RLIM_INFINITY, "resource limits");\n')
+        assert result.returncode == 0, (defines, result.stderr)

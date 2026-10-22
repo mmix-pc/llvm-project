@@ -13,11 +13,15 @@
 #define CLOCKS_PER_SEC 1000000
 #endif
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_BSD_LEGACY)
 #define CLK_TCK CLOCKS_PER_SEC
+#endif
 
 #define TIME_UTC 1
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 #define TIME_MONOTONIC 2
 #define TIME_ACTIVE 3
 #define TIME_THREAD_ACTIVE 4
+#endif
 
 #endif // LLVM_LIBC_MACROS_TIME_MACROS_H

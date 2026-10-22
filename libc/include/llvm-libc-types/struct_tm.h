@@ -26,8 +26,14 @@ struct tm {
   int tm_yday;  // days since January
   int tm_isdst; // Daylight Saving Time flag
 #if defined(__linux__)
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) ||                                    \
+    defined(__LIBC_USE_POSIX2024_OR_DEFAULT)
   long tm_gmtoff;
   const char *tm_zone;
+#else
+  long __tm_gmtoff;
+  const char *__tm_zone;
+#endif
 #endif
 };
 
