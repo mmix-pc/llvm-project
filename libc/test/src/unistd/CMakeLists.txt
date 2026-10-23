@@ -966,6 +966,8 @@ add_libc_test(
   SRCS
     sysconf_test.cpp
   DEPENDS
+    libc.hdr.errno_macros
+    libc.src.errno.errno
     libc.include.unistd
     libc.src.unistd.sysconf
 )

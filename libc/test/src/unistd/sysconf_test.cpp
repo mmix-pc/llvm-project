@@ -12,6 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/unistd/sysconf.h"
+#include "src/__support/libc_errno.h"
+#include "hdr/errno_macros.h"
 #include "test/UnitTest/Test.h"
 
 #include <unistd.h>
@@ -56,7 +58,15 @@ TEST(LlvmLibcSysconfTest, ThreadOptionsTest) {
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_THREAD_PROCESS_SHARED), long(_POSIX_THREAD_PROCESS_SHARED));
 #endif
 #if defined(_SC_THREAD_CPUTIME) && defined(_POSIX_THREAD_CPUTIME)
+#if _POSIX_THREAD_CPUTIME == 0
+  // A zero header value requires a runtime decision, not a zero query result.
+  libc_errno = EDOM;
+  long thread_cpu_time = LIBC_NAMESPACE::sysconf(_SC_THREAD_CPUTIME);
+  EXPECT_TRUE(thread_cpu_time == -1 || thread_cpu_time > 0);
+  EXPECT_EQ(static_cast<int>(libc_errno), EDOM);
+#else
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_THREAD_CPUTIME), long(_POSIX_THREAD_CPUTIME));
+#endif
 #endif
 #if defined(_SC_THREAD_ROBUST_PRIO_INHERIT) && defined(_POSIX_THREAD_ROBUST_PRIO_INHERIT)
   EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_THREAD_ROBUST_PRIO_INHERIT), long(_POSIX_THREAD_ROBUST_PRIO_INHERIT));
