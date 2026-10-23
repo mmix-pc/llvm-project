@@ -124,4 +124,17 @@ if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE MATCHES "^(mmix|x86_64)$
         libc.src.unistd.pread libc.src.unistd.write libc.src.unistd.unlink
     )
   endforeach()
+  add_libc_test(
+    posix_fallocate_unsupported_test
+    SUITE libc_fcntl_unittests
+    SRCS posix_fallocate_unsupported_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros libc.hdr.fcntl_macros libc.hdr.stdio_macros
+      libc.hdr.sys_stat_macros libc.hdr.types.off_t
+      libc.include.sys_syscall libc.src.__support.CPP.limits
+      libc.src.__support.OSUtil.osutil libc.src.errno.errno
+      libc.src.fcntl.open libc.src.sys.stat.fstat
+      libc.src.unistd.close libc.src.unistd.lseek libc.src.unistd.pread
+      libc.src.unistd.write libc.src.unistd.unlink
+  )
 endif()
