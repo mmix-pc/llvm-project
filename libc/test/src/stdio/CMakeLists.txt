@@ -56,6 +56,10 @@ foreach(memory_stream fmemopen open_memstream)
     SUITE libc_stdio_unittests
     SRCS ${memory_stream}_test.cpp
     DEPENDS ${memory_stream_test_deps} libc.src.stdio.${memory_stream}
+      libc.src.wchar.fwide
+      libc.src.wchar.fgetwc
+      libc.src.wchar.fputwc
+      libc.test.src.locale_guard
   )
 endforeach()
 

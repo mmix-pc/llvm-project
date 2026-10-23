@@ -109,7 +109,6 @@ public:
     } else if (size) {
       memory[0] = '\0';
     }
-    try_set_orientation_unlocked(Orientation::BYTE);
   }
 };
 } // namespace

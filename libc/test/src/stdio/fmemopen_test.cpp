@@ -24,10 +24,46 @@
 #include "src/stdio/ftell.h"
 #include "src/stdio/fwrite.h"
 #include "src/stdio/setvbuf.h"
+#include "src/wchar/fgetwc.h"
+#include "src/wchar/fputwc.h"
+#include "src/wchar/fwide.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
+#include "test/src/locale/LocaleGuard.h"
 
 using LlvmLibcFmemopenTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 namespace LIBC = LIBC_NAMESPACE;
+
+TEST_F(LlvmLibcFmemopenTest, OrientationFollowsFirstOperation) {
+  LocaleGuard locale;
+  char input[] = "a\xc3\xa9";
+  FILE *f = LIBC::fmemopen(input, sizeof(input) - 1, "r");
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(LIBC::fwide(f, 0), 0);
+  EXPECT_EQ(LIBC::fgetwc(f), wint_t(L'a'));
+  EXPECT_GT(LIBC::fwide(f, 0), 0);
+  EXPECT_EQ(LIBC::fgetwc(f), wint_t(0xe9));
+  ASSERT_EQ(LIBC::fclose(f), 0);
+
+  char output[] = {'!', '?', '?', '?', '!'};
+  f = LIBC::fmemopen(output + 1, 3, "w");
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(LIBC::fwide(f, 0), 0);
+  EXPECT_EQ(LIBC::fputwc(0xe9, f), wint_t(0xe9));
+  EXPECT_GT(LIBC::fwide(f, 0), 0);
+  ASSERT_EQ(LIBC::fclose(f), 0);
+  EXPECT_EQ(int(static_cast<unsigned char>(output[1])), 0xc3);
+  EXPECT_EQ(int(static_cast<unsigned char>(output[2])), 0xa9);
+  EXPECT_EQ(output[3], '\0');
+  EXPECT_EQ(output[0], '!');
+  EXPECT_EQ(output[4], '!');
+
+  f = LIBC::fmemopen(input, sizeof(input), "r");
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(LIBC::fwide(f, 0), 0);
+  EXPECT_EQ(LIBC::fgetc(f), int('a'));
+  EXPECT_LT(LIBC::fwide(f, 0), 0);
+  ASSERT_EQ(LIBC::fclose(f), 0);
+}
 
 TEST_F(LlvmLibcFmemopenTest, ReadIncludesNulsAndEofPreservesDestination) {
   char memory[] = "test";
