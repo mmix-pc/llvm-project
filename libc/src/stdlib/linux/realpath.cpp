@@ -22,6 +22,7 @@
 #include "src/__support/CPP/string.h"
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/OSUtil/linux/stat/kernel_statx_types.h"
+#include "src/__support/OSUtil/linux/syscall.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/getcwd.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/readlink.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/statx.h"
@@ -31,6 +32,8 @@
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/string/memory_utils/inline_memcpy.h"
+
+#include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
 namespace {
@@ -210,11 +213,10 @@ ErrorOr<cpp::string_view> readlink(const char *path, char (&buf)[PATH_MAX]) {
   return target;
 }
 
-ErrorOr<mode_t> read_file_type(const char *path) {
+ErrorOr<mode_t> read_file_type(const char *path, int dirfd = AT_FDCWD) {
   internal::kernel_statx_buf buf;
-  ErrorOr<int> ret =
-      linux_syscalls::statx(AT_FDCWD, path, AT_SYMLINK_NOFOLLOW,
-                            internal::KERNEL_STATX_TYPE_MASK, &buf);
+  ErrorOr<int> ret = linux_syscalls::statx(
+      dirfd, path, AT_SYMLINK_NOFOLLOW, internal::KERNEL_STATX_TYPE_MASK, &buf);
   if (!ret)
     return Error(ret.error());
 
@@ -224,17 +226,38 @@ ErrorOr<mode_t> read_file_type(const char *path) {
   return static_cast<mode_t>(buf.stx_mode);
 }
 
+cpp::optional<Error> check_directory_search(const char *path) {
+  // O_PATH does not require read access. Looking up "." relative to this
+  // descriptor checks search access without appending bytes to a PATH_MAX path.
+  int fd = syscall_impl<int>(SYS_openat, AT_FDCWD, path,
+                            O_PATH | O_DIRECTORY | O_CLOEXEC, 0);
+  if (fd < 0)
+    return Error(-fd);
+
+  ErrorOr<mode_t> mode = read_file_type(".", fd);
+  syscall_impl<int>(SYS_close, fd);
+  if (!mode)
+    return Error(mode.error());
+  return cpp::nullopt;
+}
+
 cpp::optional<Error> resolve_path(PendingPath &pending_path,
                                   ResolvedPath &resolved_path) {
   size_t symlinks_followed = 0;
 
   while (!pending_path.empty()) {
     cpp::string_view component = pending_path.advance_component();
-    if (component.empty() || component == path::CURRENT_DIR_COMPONENT)
-      continue;
-
-    if (component == path::PARENT_DIR_COMPONENT) {
-      resolved_path.set_to_parent();
+    if (component.empty() || component == path::CURRENT_DIR_COMPONENT ||
+        component == path::PARENT_DIR_COMPONENT) {
+      // A path consisting only of separators names root without searching it.
+      if (component.empty() && path::is_root(resolved_path.c_str()))
+        continue;
+      if (cpp::optional<Error> err =
+              check_directory_search(resolved_path.c_str());
+          err)
+        return err;
+      if (component == path::PARENT_DIR_COMPONENT)
+        resolved_path.set_to_parent();
       continue;
     }
 

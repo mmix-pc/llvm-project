@@ -28,6 +28,7 @@
 #include "src/stdlib/realpath.h"
 #include "src/string/strdup.h"
 #include "src/sys/random/getrandom.h"
+#include "src/sys/stat/chmod.h"
 #include "src/sys/stat/mkdirat.h"
 #include "src/unistd/chdir.h"
 #include "src/unistd/close.h"
@@ -44,6 +45,7 @@ using LIBC_NAMESPACE::CString;
 using LIBC_NAMESPACE::FixedVector;
 using LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 using LIBC_NAMESPACE::testing::tlog;
+using LIBC_NAMESPACE::testing::ErrnoSetterMatcher::Fails;
 using LIBC_NAMESPACE::testing::ErrnoSetterMatcher::Succeeds;
 
 // This test assumes the following values, so fail early if they mismatch.
@@ -411,7 +413,17 @@ TEST_F(LlvmLibcRealpathTest, ErrorsWithNotDirWhenFileIsInPath) {
   ASSERT_EQ(realpath_buffered(test_dir.absolute_path("file/.")), nullptr);
   ASSERT_ERRNO_EQ(ENOTDIR);
 
+  ASSERT_EQ(realpath_buffered(test_dir.absolute_path("file/..")), nullptr);
+  ASSERT_ERRNO_EQ(ENOTDIR);
+
   ASSERT_EQ(realpath_buffered(test_dir.absolute_path("file/")), nullptr);
+  ASSERT_ERRNO_EQ(ENOTDIR);
+
+  ASSERT_THAT(test_dir.symlink("file/.", "dot-link"), Succeeds());
+  ASSERT_THAT(test_dir.symlink("file/..", "parent-link"), Succeeds());
+  ASSERT_EQ(realpath_buffered(test_dir.absolute_path("dot-link")), nullptr);
+  ASSERT_ERRNO_EQ(ENOTDIR);
+  ASSERT_EQ(realpath_buffered(test_dir.absolute_path("parent-link")), nullptr);
   ASSERT_ERRNO_EQ(ENOTDIR);
 }
 
@@ -445,10 +457,76 @@ TEST_F(LlvmLibcRealpathTest, ErrorsWithNoAccessWhenDirectoryNotSearchable) {
   ASSERT_TRUE(create_test_dir("ErrorsWithNoAccessWhenDirectoryNotSearchable",
                               test_dir));
 
-  ASSERT_THAT(test_dir.mkdir("a", /* mode= */ 0644), Succeeds());
+  ASSERT_THAT(test_dir.mkdir("a", /* mode= */ 0600), Succeeds());
+  ASSERT_THAT(test_dir.symlink("a", "link"), Succeeds());
+  ASSERT_THAT(test_dir.symlink("a/.", "dot-link"), Succeeds());
+  ASSERT_THAT(test_dir.symlink("a/..", "parent-link"), Succeeds());
+  ASSERT_THAT(test_dir.symlink("a/", "slash-link"), Succeeds());
+  ASSERT_THAT(test_dir.symlink(test_dir.absolute_path("a/.").c_str(),
+                              "absolute-dot-link"),
+              Succeeds());
 
-  ASSERT_STREQ(realpath_buffered(test_dir.absolute_path("a/b")), nullptr);
-  ASSERT_ERRNO_EQ(EACCES);
+  // Require real kernel search denial. Root/capability bypass must not count
+  // as permission coverage; run this test without those privileges.
+  ASSERT_THAT(LIBC_NAMESPACE::openat(
+                  AT_FDCWD, test_dir.absolute_path("a/missing").c_str(),
+                  O_RDONLY),
+              Fails(EACCES));
+
+  ASSERT_STREQ(realpath_buffered(test_dir.absolute_path("a")),
+               test_dir.absolute_path("a").c_str());
+  const char *paths[] = {"a/b",        "a/.",        "a/..",
+                        "a/",         "a///",       "a/../a",
+                        "link/.",     "link/..",    "link/",
+                        "dot-link",   "parent-link", "slash-link",
+                        "absolute-dot-link"};
+  for (const char *p : paths) {
+    ASSERT_EQ(realpath_buffered(test_dir.absolute_path(p)), nullptr);
+    ASSERT_ERRNO_EQ(EACCES);
+  }
+
+  ASSERT_THAT(LIBC_NAMESPACE::chdir(test_dir.c_str()), Succeeds());
+  for (const char *p : paths) {
+    ASSERT_EQ(realpath_buffered(p), nullptr);
+    ASSERT_ERRNO_EQ(EACCES);
+  }
+}
+
+TEST_F(LlvmLibcRealpathTest, DotTraversalRequiresSearchableWorkingDirectory) {
+  TestDir test_dir;
+  ASSERT_TRUE(create_test_dir("DotTraversalRequiresSearchableWorkingDirectory",
+                             test_dir));
+  ASSERT_THAT(test_dir.mkdir("a"), Succeeds());
+  cpp::string directory = test_dir.absolute_path("a");
+  ASSERT_THAT(LIBC_NAMESPACE::chdir(directory.c_str()), Succeeds());
+
+  struct RestoreMode {
+    const char *path;
+    ~RestoreMode() { LIBC_NAMESPACE::chmod(path, 0755); }
+  } restore{directory.c_str()};
+  ASSERT_THAT(LIBC_NAMESPACE::chmod(directory.c_str(), 0600), Succeeds());
+  ASSERT_THAT(LIBC_NAMESPACE::openat(AT_FDCWD, "missing", O_RDONLY),
+              Fails(EACCES));
+
+  const char *paths[] = {".", "..", "./", "../", "./.."};
+  for (const char *p : paths) {
+    ASSERT_EQ(realpath_buffered(p), nullptr);
+    ASSERT_ERRNO_EQ(EACCES);
+  }
+}
+
+TEST_F(LlvmLibcRealpathTest, DotTraversalDoesNotRequireReadPermission) {
+  TestDir test_dir;
+  ASSERT_TRUE(create_test_dir("DotTraversalDoesNotRequireReadPermission",
+                             test_dir));
+  ASSERT_THAT(test_dir.mkdir("a", /* mode= */ 0100), Succeeds());
+
+  ASSERT_STREQ(realpath_buffered(test_dir.absolute_path("a/.")),
+               test_dir.absolute_path("a").c_str());
+  ASSERT_STREQ(realpath_buffered(test_dir.absolute_path("a/..")),
+               test_dir.c_str());
+  ASSERT_STREQ(realpath_buffered(test_dir.absolute_path("a/")),
+               test_dir.absolute_path("a").c_str());
 }
 
 TEST_F(LlvmLibcRealpathTest, RelativePathResolvesToCurrentWorkingDir) {
@@ -494,6 +572,16 @@ TEST_F(LlvmLibcRealpathTest, RelativeRealpathAcceptsPathExactlyMaxSize) {
   ASSERT_TRUE(chdir_to_absolute_path_with_size(test_dir, PATH_MAX - 1, path));
 
   ASSERT_STREQ(realpath_buffered("."), path.c_str());
+  ASSERT_STREQ(realpath_buffered("./"), path.c_str());
+
+  size_t separator = cpp::string_view(path).find_last_of('/');
+  cpp::string parent(cpp::string_view(path).substr(0, separator));
+  ASSERT_STREQ(realpath_buffered(".."), parent.c_str());
+
+  ASSERT_THAT(LIBC_NAMESPACE::chdir(".."), Succeeds());
+  cpp::string relative(cpp::string_view(path).substr(separator + 1));
+  relative += '/';
+  ASSERT_STREQ(realpath_buffered(relative), path.c_str());
 }
 
 TEST_F(LlvmLibcRealpathTest, RelativeRealpathRejectsPathExceedingMaxSize) {
