@@ -10,6 +10,7 @@
 #include "src/stdio/fclose.h"
 #include "src/stdio/fflush.h"
 #include "src/stdio/flockfile.h"
+#include "src/stdio/ftrylockfile.h"
 #include "src/stdio/funlockfile.h"
 #include "src/stdio/fwrite.h"
 #include "src/stdio/open_memstream.h"
@@ -44,7 +45,39 @@ void *write_records(void *arg) {
   }
   return nullptr;
 }
+void *try_lock(void *arg) {
+  auto *stream = static_cast<FILE *>(arg);
+  if (LIBC::ftrylockfile(stream) != 0)
+    return nullptr;
+  LIBC::funlockfile(stream);
+  return arg;
+}
 } // namespace
+
+TEST(LlvmLibcMemoryStreamLockTest, TryLockPreservesRecursiveOwnership) {
+  char *memory;
+  size_t length;
+  FILE *f = LIBC::open_memstream(&memory, &length);
+  ASSERT_NE(f, nullptr);
+  LIBC::flockfile(f);
+  ASSERT_EQ(LIBC::ftrylockfile(f), 0);
+  ASSERT_EQ(LIBC::fwrite("x", 1, 1, f), size_t(1));
+  for (unsigned depth = 2; depth; --depth) {
+    pthread_t thread;
+    ASSERT_EQ(::pthread_create(&thread, nullptr, try_lock, f), 0);
+    void *result;
+    ASSERT_EQ(::pthread_join(thread, &result), 0);
+    EXPECT_EQ(result, nullptr);
+    LIBC::funlockfile(f);
+  }
+  pthread_t thread;
+  ASSERT_EQ(::pthread_create(&thread, nullptr, try_lock, f), 0);
+  void *result;
+  ASSERT_EQ(::pthread_join(thread, &result), 0);
+  EXPECT_EQ(result, static_cast<void *>(f));
+  EXPECT_EQ(LIBC::fclose(f), 0);
+  ::free(memory);
+}
 
 TEST(LlvmLibcMemoryStreamLockTest, ConcurrentGrowthAndPublication) {
   char *memory;

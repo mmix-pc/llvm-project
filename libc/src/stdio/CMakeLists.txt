@@ -41,6 +41,16 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  ftrylockfile
+  SRCS ftrylockfile.cpp
+  HDRS ftrylockfile.h
+  DEPENDS
+    libc.hdr.types.FILE
+    libc.src.__support.File.file
+    libc.src.__support.File.platform_file
+)
+
+add_entrypoint_object(
   funlockfile
   SRCS
     funlockfile.cpp

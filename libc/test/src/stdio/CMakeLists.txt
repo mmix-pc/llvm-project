@@ -78,6 +78,7 @@ if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPI
       ${memory_stream_overlay_sources}
       ${LIBC_SOURCE_DIR}/src/stdio/open_memstream.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/flockfile.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/ftrylockfile.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/funlockfile.cpp
     DEPENDS ${memory_stream_overlay_deps}
     LINK_LIBRARIES pthread
