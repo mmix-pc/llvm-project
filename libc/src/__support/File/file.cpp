@@ -432,7 +432,7 @@ int File::ungetc_unlocked(int c) {
 
   eof = false; // There is atleast one character that can be read now.
   prev_op = FileOp::READ;
-  return c;
+  return static_cast<unsigned char>(c);
 }
 
 ErrorOr<int> File::seek(off_t offset, int whence) {

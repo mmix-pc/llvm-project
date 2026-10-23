@@ -491,6 +491,23 @@ TEST(LlvmLibcFileTest, UngetcPreservesErrorIndicator) {
   }
 }
 
+TEST(LlvmLibcFileTest, UngetcReturnsConvertedByte) {
+  const int modes[] = {_IOFBF, _IONBF};
+  const int values[] = {0x100 + 'x', -2, 0x100};
+  for (int mode : modes) {
+    char buffer[8];
+    StringFile *f = new_string_file(buffer, sizeof(buffer), mode, false, "r");
+    for (int value : values) {
+      EXPECT_EQ(f->ungetc(value), int(static_cast<unsigned char>(value)));
+      unsigned char byte;
+      ASSERT_EQ(f->read(&byte, 1).value, size_t(1));
+      EXPECT_EQ(byte, static_cast<unsigned char>(value));
+    }
+    EXPECT_EQ(f->ungetc(EOF), EOF);
+    EXPECT_EQ(f->close(), 0);
+  }
+}
+
 TEST(LlvmLibcFileTest, SmallBuffer) {
   LocaleGuard locale;
   const char WRITE_DATA[] = "small buffer";
