@@ -480,7 +480,29 @@ if(LIBC_TARGET_OS_IS_LINUX)
     mkostemp_syscall_test
     SUITE libc-stdlib-tests
     SRCS mkostemp_syscall_test.cpp
-    DEPENDS libc.src.stdlib.mkstemp_impl libc.src.errno.errno
+    DEPENDS
+      libc.src.stdlib.mkstemp_impl
+      libc.src.errno.errno
+      libc.src.string.strlen
+      libc.src.sys.stat.fstat
+      libc.src.sys.stat.lstat
+      libc.src.unistd.close
+      libc.src.unistd.pread
+      libc.src.unistd.symlink
+      libc.src.unistd.unlink
+      libc.src.unistd.write
+  )
+  add_libc_test(
+    mkdtemp_syscall_test
+    SUITE libc-stdlib-tests
+    SRCS mkdtemp_syscall_test.cpp
+    DEPENDS
+      libc.src.stdlib.mkdtemp
+      libc.src.string.strlen
+      libc.src.sys.stat.stat
+      libc.src.unistd.rmdir
+      libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
+      libc.src.__support.OSUtil.linux.syscall_wrappers.mkdir
   )
 endif()
 

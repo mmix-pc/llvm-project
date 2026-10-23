@@ -37,23 +37,23 @@ TEST_F(LlvmLibcMkstempTest, ValidTemplate) {
   ::free(tmpl);
 }
 
-TEST_F(LlvmLibcMkstempTest, TemplateModifiedInPlace) {
+TEST_F(LlvmLibcMkstempTest, TemplatePreservesPrefixAndLength) {
   char *tmpl = LIBC_NAMESPACE::strdup(libc_make_test_file_path("tmp_XXXXXX"));
+  char *original = LIBC_NAMESPACE::strdup(tmpl);
   size_t len = LIBC_NAMESPACE::strlen(tmpl);
   size_t count = 0;
   for (size_t i = len; i > 0 && tmpl[i - 1] == 'X'; i--)
     count++;
   int fd = LIBC_NAMESPACE::mkstemp(tmpl);
   ASSERT_GE(fd, 0);
-  bool modified = false;
-  for (size_t i = len - count; i < len; i++)
-    if (tmpl[i] != 'X') {
-      modified = true;
-      break;
-    }
-  EXPECT_TRUE(modified);
+  // X is a portable filename character; even an unchanged suffix is valid.
+  EXPECT_EQ(LIBC_NAMESPACE::strlen(tmpl), len);
+  for (size_t i = 0; i < len - count; ++i)
+    EXPECT_EQ(tmpl[i], original[i]);
+  EXPECT_EQ(LIBC_NAMESPACE::access(tmpl, F_OK), 0);
   LIBC_NAMESPACE::close(fd);
   LIBC_NAMESPACE::unlink(tmpl);
+  ::free(original);
   ::free(tmpl);
 }
 
@@ -146,22 +146,20 @@ TEST_F(LlvmLibcMkstempTest, SixXsNoPrefix) {
 TEST_F(LlvmLibcMkstempTest, MoreThanSixXs) {
   char *tmpl =
       LIBC_NAMESPACE::strdup(libc_make_test_file_path("tmp_XXXXXXXXXX"));
+  char *original = LIBC_NAMESPACE::strdup(tmpl);
   size_t len = LIBC_NAMESPACE::strlen(tmpl);
   size_t count = 0;
   for (size_t i = len; i > 0 && tmpl[i - 1] == 'X'; i--)
     count++;
   int fd = LIBC_NAMESPACE::mkstemp(tmpl);
   ASSERT_GE(fd, 0);
-  bool modified = false;
-  for (size_t i = len - count; i < len; i++)
-    if (tmpl[i] != 'X') {
-      modified = true;
-      break;
-    }
-  EXPECT_TRUE(modified);
+  EXPECT_EQ(LIBC_NAMESPACE::strlen(tmpl), len);
+  for (size_t i = 0; i < len - count; ++i)
+    EXPECT_EQ(tmpl[i], original[i]);
   EXPECT_EQ(LIBC_NAMESPACE::access(tmpl, F_OK), 0);
   LIBC_NAMESPACE::close(fd);
   LIBC_NAMESPACE::unlink(tmpl);
+  ::free(original);
   ::free(tmpl);
 }
 
