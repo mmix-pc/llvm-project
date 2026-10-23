@@ -3,6 +3,22 @@ add_custom_target(libc_dirent_unittests)
 
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
+    posix_getdents_transport_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc_dirent_unittests
+    SRCS posix_getdents_transport_test.cpp
+      ${LIBC_SOURCE_DIR}/src/dirent/linux/posix_getdents.cpp
+    DEPENDS
+      libc.src.__support.CPP.limits
+      libc.src.__support.CPP.span
+      libc.src.__support.CPP.mutex
+      libc.src.__support.threads.mutex
+      libc.src.__support.error_or
+      libc.hdr.types.struct_dirent
+      libc.src.errno.errno
+  )
+
+  add_libc_test(
     scandir_ownership_test
     OVERLAY_BUILD_ONLY
     SUITE libc_dirent_unittests
