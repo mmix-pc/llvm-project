@@ -43,6 +43,14 @@ namespace {
 cpp::Atomic<uint64_t> identities{1};
 long process_id = 0;
 bool initialized = false;
+
+void assign_cancellation_identity(ThreadControl &control) {
+  control.cancellation_identity =
+      identities.fetch_add(1, cpp::MemoryOrder::ACQ_REL);
+  if (!control.cancellation_identity ||
+      control.cancellation_identity == UINT64_MAX)
+    __builtin_trap();
+}
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
 struct AsyncExit {
   __jmp_buf environment{};
@@ -241,12 +249,25 @@ void initialize_cancellation_windows(ThreadControl &control) {
   if (!initialized || (control.retains_resources_until_process_exit() &&
                        control.cancellation_identity))
     __builtin_trap();
-  control.cancellation_identity =
-      identities.fetch_add(1, cpp::MemoryOrder::ACQ_REL);
-  if (!control.cancellation_identity ||
-      control.cancellation_identity == UINT64_MAX)
-    __builtin_trap();
+  assign_cancellation_identity(control);
   restore_mask(control.cancellation.enabled() ? old & ~CANCEL_MASK : old);
+}
+
+bool restore_fork_cancellation(ThreadControl &control) {
+  if (!initialized || current_control != &control ||
+      !control.fork_recovery.allows_loader() || !control.unwind_root.active ||
+      control.cancellation_identity || control.cancellation_point.load() ||
+      control.cancellation_transfer.load() ||
+      control.cancellation_suppression.load() != 1)
+    return false;
+  long child_pid = syscall_impl(SYS_getpid);
+  if (child_pid <= 0)
+    return false;
+  // The action is inherited, but SI_TKILL now carries the child's process ID.
+  // Do not rerun startup or unmask notifications before fork recovery finishes.
+  process_id = child_pid;
+  assign_cancellation_identity(control);
+  return true;
 }
 
 bool cancellation_private_block() {

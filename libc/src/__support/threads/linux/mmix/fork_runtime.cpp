@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 #include "fork_runtime.h"
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "cancellation_point.h"
+#endif
 #include "credentials.h"
 #include "fork_transport.h"
 #include "hdr/errno_macros.h"
@@ -228,6 +231,11 @@ void ForkOperation::restore_runtime(bool child) {
 #ifdef LIBC_MMIX_UNWIND_ROOTS
   // Metadata queries are safe only after the quiescent loader has resumed.
   if (child && child_recovery.allows_loader() && !restore_fork_unwind(*caller))
+    internal::exit(127);
+#endif
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  if (child && child_recovery.allows_loader() &&
+      !restore_fork_cancellation(*caller))
     internal::exit(127);
 #endif
   if (credentials) {
