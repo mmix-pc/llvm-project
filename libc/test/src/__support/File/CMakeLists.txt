@@ -82,6 +82,7 @@ if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
       libc-support-tests
     SRCS
       linux_file_allocation_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/fclose.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/generic/freopen.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/fmemopen.cpp
     DEPENDS

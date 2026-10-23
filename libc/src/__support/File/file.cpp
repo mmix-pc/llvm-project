@@ -81,7 +81,6 @@ void File::install_backend_unlocked(File *replacement) {
   platform_flush = replacement->platform_flush;
   platform_wide_write = replacement->platform_wide_write;
   has_descriptor = replacement->has_descriptor;
-  close_on_flush_error = replacement->close_on_flush_error;
   reset_stream_state_unlocked(replacement->mode);
 }
 

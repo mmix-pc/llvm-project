@@ -368,8 +368,8 @@ int reopenfile_unlocked(File *f, const char *path, const char *mode) {
   // The public File retains its buffer and registry position. This object is
   // only the backend context; publishing it would cause duplicate flushing.
   AllocChecker ac;
-  auto *backend = new (ac) LinuxFile(fd.value(), nullptr, 0, _IONBF, false,
-                                    flags, true, linux_file_close, true);
+  auto *backend =
+      new (ac) LinuxFile(fd.value(), nullptr, 0, _IONBF, false, flags);
   if (!ac) {
     linux_syscalls::close(fd.value());
     return ENOMEM;

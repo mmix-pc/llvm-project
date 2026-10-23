@@ -40,7 +40,7 @@ struct PipeFile : LinuxFile {
   explicit PipeFile(bool read)
       : LinuxFile(-1, buffer, sizeof(buffer), _IOFBF, false,
                   ModeFlags(read ? OpenMode::READ : OpenMode::WRITE), false,
-                  retire_pipe, true) {}
+                  retire_pipe) {}
 };
 
 RawMutex registry_lock;

@@ -1081,23 +1081,18 @@ TEST(LlvmLibcFileTest, ShortSeekPreservesOnlyUnconsumedData) {
   EXPECT_MEM_EQ(MemoryView("abcdef", 6), MemoryView(file.get_str(), 6));
 }
 
-TEST(LlvmLibcFileTest, ShortCloseRemainsPublishedUntilRetry) {
+TEST(LlvmLibcFileTest, ShortCloseConsumesStream) {
   LocaleGuard locale;
   LIBC_NAMESPACE::AllocChecker ac;
   char buffer[8];
   auto *file = new (ac) ShortWriteFile(buffer, sizeof(buffer), _IOFBF, false,
                                       File::mode_flags("w"), 2);
   ASSERT_TRUE(bool(ac));
+  File *previous = File::get_first_file();
   File::add_file(file);
   ASSERT_EQ(file->write("abcdef", 6).value, size_t(6));
   EXPECT_EQ(file->close(), EIO);
-  EXPECT_EQ(file->get_pos(), size_t(2));
-  EXPECT_EQ(File::get_first_file(), static_cast<File *>(file));
-  file->set_max_write(8);
-  ASSERT_EQ(file->flush(), 0);
-  EXPECT_EQ(file->get_pos(), size_t(6));
-  EXPECT_MEM_EQ(MemoryView("abcdef", 6), MemoryView(file->get_str(), 6));
-  EXPECT_EQ(file->close(), 0);
+  EXPECT_EQ(File::get_first_file(), previous);
 }
 
 TEST(LlvmLibcFileTest, ShortBufferedWriteRetainsOldDataWithoutAcceptingNewData) {
@@ -1193,8 +1188,7 @@ public:
 
   NativeWideFile()
       : File(byte_write, byte_read, seek_file, close_file, nullptr, 0, _IONBF,
-             false, ModeFlags(OpenMode::WRITE), nullptr, false, false,
-             wide_write) {}
+             false, ModeFlags(OpenMode::WRITE), nullptr, false, wide_write) {}
 };
 } // namespace
 

@@ -8,6 +8,7 @@
 
 #include "src/__support/File/linux/file.h"
 #include "src/__support/libc_errno.h"
+#include "src/stdio/fclose.h"
 #include "src/stdio/fmemopen.h"
 #include "src/stdio/freopen.h"
 #include "test/UnitTest/Test.h"
@@ -443,4 +444,32 @@ TEST(LlvmLibcLinuxFileAllocationTest, SetBufferFailurePreservesCallerStorage) {
   EXPECT_EQ(storage[0], static_cast<unsigned char>(0x5a));
   EXPECT_EQ(storage[15], static_cast<unsigned char>(0x5a));
   EXPECT_EQ(file.close(), 0);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, FcloseFlushFailureConsumesResources) {
+  int expected_fd = next_descriptor();
+  ASSERT_GE(expected_fd, 0);
+  start_tracking(0);
+  auto result = LIBC_NAMESPACE::openfile("/dev/full", "w");
+  tracking = false;
+  ASSERT_TRUE(result.has_value());
+  ASSERT_EQ(live_allocations, 2U);
+  auto *file = result.value();
+  ASSERT_EQ(file->write("buffered", 8).value, size_t(8));
+  closing_file = file;
+  published_at_reclamation = false;
+  reclamation_checks = 0;
+  int status = LIBC_NAMESPACE::fclose(reinterpret_cast<FILE *>(file));
+  int error = LIBC_NAMESPACE::libc_errno;
+  closing_file = nullptr;
+  EXPECT_EQ(status, EOF);
+  EXPECT_EQ(error, ENOSPC);
+  EXPECT_EQ(live_allocations, 0U);
+  EXPECT_EQ(reclamation_checks, 2U);
+  EXPECT_FALSE(published_at_reclamation);
+  EXPECT_EQ(::fcntl(expected_fd, F_GETFD), -1);
+  int reused = ::open("/dev/null", O_RDONLY);
+  EXPECT_EQ(reused, expected_fd);
+  EXPECT_GE(::fcntl(reused, F_GETFD), 0);
+  EXPECT_EQ(::close(reused), 0);
 }

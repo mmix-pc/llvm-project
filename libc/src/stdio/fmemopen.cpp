@@ -96,7 +96,7 @@ class FixedMemoryFile final : public File {
 public:
   FixedMemoryFile(char *memory, size_t size, ModeFlags mode, bool owned)
       : File(write, read, seek, close, staging, sizeof(staging), _IOFBF, false,
-             mode, flush, /*descriptor=*/false, /*close_on_error=*/true,
+             mode, flush, /*descriptor=*/false,
              /*wwf=*/nullptr, destroy),
         memory(memory), capacity(size), owns_memory(owned),
         append(mode & ModeFlags(OpenMode::APPEND)) {

@@ -96,7 +96,7 @@ public:
   DynamicMemoryFile(char **output, size_t *size, char *memory)
       : File(write, read, seek, close, staging, sizeof(staging), _IOFBF, false,
              ModeFlags(OpenMode::WRITE), flush, /*descriptor=*/false,
-             /*close_on_error=*/true, /*wwf=*/nullptr, destroy),
+             /*wwf=*/nullptr, destroy),
         output(output), output_size(size), memory(memory) {
     try_set_orientation_unlocked(Orientation::BYTE);
     flush(this);

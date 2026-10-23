@@ -133,7 +133,6 @@ private:
   DestroyFunc *destroy_object;
   File *backend = nullptr;
   bool has_descriptor;
-  bool close_on_flush_error;
 
   Mutex mutex;
   bool internal_locking = true;
@@ -223,12 +222,11 @@ public:
   constexpr File(WriteFunc *wf, ReadFunc *rf, SeekFunc *sf, CloseFunc *cf,
                  uint8_t *buffer, size_t buffer_size, int buffer_mode,
                  bool owned, ModeFlags modeflags, FlushFunc *ff = nullptr,
-                 bool descriptor = true, bool close_on_error = false,
+                 bool descriptor = true,
                  WideWriteFunc *wwf = nullptr, DestroyFunc *df = nullptr)
       : platform_write(wf), platform_read(rf), platform_seek(sf),
         platform_close(cf), platform_flush(ff), platform_wide_write(wwf),
         destroy_object(df), has_descriptor(descriptor),
-        close_on_flush_error(close_on_error),
         mutex(/*timed=*/false, /*recursive=*/true,
               /*robust=*/false, /*pshared=*/false),
         ungetc_buf{}, buf(buffer), bufsize(buffer_size), bufmode(buffer_mode),
@@ -316,14 +314,11 @@ public:
     int flush_error;
     {
       FileLock lock(this);
-      // Memory streams must publish even empty buffers. Their close callback
-      // also releases owned state after flush failure; legacy backends retain
-      // the existing retryable-close contract unless they opt in.
+      // Publish even empty memory buffers. A flush failure does not preserve
+      // the association: fclose consumes the stream regardless of its result.
       bool need_flush =
           platform_flush || (prev_op == FileOp::WRITE && (pos || wide_size));
       flush_error = flush_buffer && need_flush ? flush_unlocked() : 0;
-      if (flush_error && !close_on_flush_error)
-        return flush_error;
       pos = read_limit = 0;
       wide_size = wide_prefix = 0;
       prev_op = FileOp::NONE;
