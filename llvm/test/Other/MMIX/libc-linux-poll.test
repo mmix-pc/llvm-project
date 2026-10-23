@@ -12,7 +12,7 @@ if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel")
 endif()
 set(LIBC_MMIX_BUILD_POLL ON)
 include(${SOURCE}/libc/config/linux/mmix/Poll.cmake)
-if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel;libc.src.poll.poll;libc.src.poll.ppoll")
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel;libc.src.poll.poll;libc.src.poll.ppoll;libc.src.sys.select.select;libc.src.sys.select.pselect")
   message(FATAL_ERROR "unexpected polling provider selection")
 endif()
 
