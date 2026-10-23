@@ -19,11 +19,16 @@
 #include "src/stdio/fflush.h"
 #include "src/stdio/fileno.h"
 #include "src/stdio/fopen.h"
+#include "src/stdio/fdopen.h"
 #include "src/stdio/fread.h"
 #include "src/stdio/freopen.h"
 #include "src/stdio/fwrite.h"
+#include "src/stdio/ftell.h"
 #include "src/stdio/stdout.h"
 #include "src/unistd/close.h"
+#include "src/unistd/dup.h"
+#include "src/unistd/lseek.h"
+#include "src/unistd/pipe.h"
 #include "src/wchar/fwide.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/ErrnoSetterMatcher.h"
@@ -124,18 +129,16 @@ TEST_F(LlvmLibcFreopenTest, NullFilenameInvalidModeChange) {
   ASSERT_FALSE(file == nullptr);
   ASSERT_THAT(LIBC_NAMESPACE::fclose(file), Succeeds(0));
 
-  file = LIBC_NAMESPACE::fopen(FILENAME, "r");
-  ASSERT_FALSE(file == nullptr);
-
-  // Attempt incompatible mode change (r to w with filename == nullptr).
-  ASSERT_THAT(LIBC_NAMESPACE::freopen(nullptr, "w", file),
-              Fails(EBADF, static_cast<void *>(nullptr)));
-
-  // Attempt incompatible mode change (r to w+ with filename == nullptr).
-  ASSERT_THAT(LIBC_NAMESPACE::freopen(nullptr, "w+", file),
-              Fails(EBADF, static_cast<void *>(nullptr)));
-
-  ASSERT_THAT(LIBC_NAMESPACE::fclose(file), Succeeds(0));
+  const char *modes[] = {"w", "w+"};
+  for (const char *mode : modes) {
+    file = LIBC_NAMESPACE::fopen(FILENAME, "r");
+    ASSERT_NE(file, nullptr);
+    int fd = LIBC_NAMESPACE::fileno(file);
+    ASSERT_THAT(LIBC_NAMESPACE::freopen(nullptr, mode, file),
+                Fails(EBADF, static_cast<void *>(nullptr)));
+    ASSERT_THAT(LIBC_NAMESPACE::fcntl(fd, F_GETFL), Fails(EBADF, -1));
+    // A failed freopen consumes the stream; never reuse or close it again.
+  }
 }
 
 #if defined(LIBC_TARGET_OS_IS_POSIX) || defined(LIBC_TARGET_OS_IS_LINUX)
@@ -155,8 +158,6 @@ TEST_F(LlvmLibcFreopenTest, InvalidModeFailure) {
   // freopen attempt.
   ASSERT_THAT(LIBC_NAMESPACE::fcntl(old_fd, F_GETFL), Fails(EBADF, -1));
 
-  // Clean up stream object to avoid memory leaks.
-  ASSERT_THAT(LIBC_NAMESPACE::fclose(file), Fails(EBADF, EOF));
 }
 #endif
 
@@ -179,8 +180,6 @@ TEST_F(LlvmLibcFreopenTest, NonExistentFileFailure) {
   // Per POSIX spec: The original stream fd is closed even if open fails.
   ASSERT_THAT(LIBC_NAMESPACE::fcntl(old_fd, F_GETFL), Fails(EBADF, -1));
 
-  // Clean up stream object to avoid memory leaks.
-  ASSERT_THAT(LIBC_NAMESPACE::fclose(file), Fails(EBADF, EOF));
 }
 #endif // LIBC_TARGET_OS_IS_POSIX || LIBC_TARGET_OS_IS_LINUX
 
@@ -249,10 +248,51 @@ TEST_F(LlvmLibcFreopenTest, NullFilenameBadFdTest) {
   ASSERT_THAT(LIBC_NAMESPACE::freopen(nullptr, "a", file),
               Fails(EBADF, static_cast<void *>(nullptr)));
 
-  // Clean up stream object to avoid memory leaks.
-  ASSERT_THAT(LIBC_NAMESPACE::fclose(file), Fails(EBADF, EOF));
 }
 #endif // LIBC_TARGET_OS_IS_POSIX || LIBC_TARGET_OS_IS_LINUX
+
+#ifdef LIBC_TARGET_OS_IS_LINUX
+TEST_F(LlvmLibcFreopenTest, NullFilenameTruncatesAndResetsSharedOffset) {
+  const auto path = libc_make_test_file_path("freopen-null-truncate.test");
+  FILE *file = LIBC_NAMESPACE::fopen(path, "w+");
+  ASSERT_NE(file, nullptr);
+  ASSERT_EQ(LIBC_NAMESPACE::fwrite("before", 1, 6, file), size_t(6));
+  ASSERT_EQ(LIBC_NAMESPACE::fflush(file), 0);
+  int fd = LIBC_NAMESPACE::fileno(file);
+  int other = LIBC_NAMESPACE::dup(fd);
+  ASSERT_GE(other, 0);
+  ASSERT_EQ(LIBC_NAMESPACE::freopen(nullptr, "w+e", file), file);
+  EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 0L);
+  EXPECT_EQ(LIBC_NAMESPACE::lseek(other, 0, SEEK_END), off_t(0));
+  EXPECT_NE(LIBC_NAMESPACE::fcntl(fd, F_GETFD) & FD_CLOEXEC, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(other, F_GETFD) & FD_CLOEXEC, 0);
+  ASSERT_EQ(LIBC_NAMESPACE::fwrite("after", 1, 5, file), size_t(5));
+  ASSERT_EQ(LIBC_NAMESPACE::freopen(nullptr, "a+", file), file);
+  EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 5L);
+  EXPECT_NE(LIBC_NAMESPACE::fcntl(other, F_GETFL) & O_APPEND, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(fd, F_GETFD) & FD_CLOEXEC, 0);
+  ASSERT_EQ(LIBC_NAMESPACE::freopen(nullptr, "r+", file), file);
+  EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 0L);
+  EXPECT_EQ(LIBC_NAMESPACE::lseek(other, 0, SEEK_CUR), off_t(0));
+  EXPECT_EQ(LIBC_NAMESPACE::fcntl(other, F_GETFL) & O_APPEND, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fwide(file, 0), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::close(other), 0);
+  verify_file_content(path, "after");
+}
+
+TEST_F(LlvmLibcFreopenTest, NullFilenameConsumesNonseekableAssociation) {
+  int descriptors[2];
+  ASSERT_EQ(LIBC_NAMESPACE::pipe(descriptors), 0);
+  FILE *file = LIBC_NAMESPACE::fdopen(descriptors[0], "r");
+  ASSERT_NE(file, nullptr);
+  ASSERT_THAT(LIBC_NAMESPACE::freopen(nullptr, "r", file),
+              Fails(ESPIPE, static_cast<void *>(nullptr)));
+  EXPECT_THAT(LIBC_NAMESPACE::fcntl(descriptors[0], F_GETFD), Fails(EBADF, -1));
+  EXPECT_EQ(LIBC_NAMESPACE::close(descriptors[1]), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fflush(nullptr), 0);
+}
+#endif
 
 TEST_F(LlvmLibcFreopenTest, ResetOrientationTest) {
   const auto FILENAME_A = libc_make_test_file_path("freopen_orient_a.test");

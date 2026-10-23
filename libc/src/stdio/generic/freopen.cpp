@@ -33,6 +33,9 @@ LLVM_LIBC_FUNCTION(::FILE *, freopen,
   int error = reopenfile(file, filename, mode);
 
   if (error != 0) {
+    // The old association is consumed even on failure. Skip another flush,
+    // release owned storage, and retain the original reopening error.
+    file->close(false);
     libc_errno = error;
     return nullptr;
   }

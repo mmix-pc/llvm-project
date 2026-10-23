@@ -17,6 +17,7 @@
 #include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/dup3.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/fcntl.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/ftruncate.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/lseek.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/read.h"
@@ -197,12 +198,13 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
 
   if (path != nullptr) {
     int old_fd = get_fd();
+    // The old association must be closed before opening the replacement.
+    // In particular, reopening must not require an extra free descriptor.
+    if (old_fd >= 0)
+      linux_syscalls::close(old_fd);
+    set_fd(-1);
 
     if (modeflags == 0) {
-      if (old_fd >= 0) {
-        linux_syscalls::close(old_fd);
-        set_fd(-1);
-      }
       reset_stream_state_unlocked(modeflags);
       return EINVAL;
     }
@@ -214,23 +216,14 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
 
     ErrorOr<int> new_fd = linux_file_open(path, open_flags, OPEN_MODE);
 
-    // If the new file fails to open, POSIX says we still have to close the old
-    // file.
     if (!new_fd) {
-      if (old_fd >= 0) {
-        // POSIX: "Failure to close the file descriptor successfully shall be
-        // ignored"
-        linux_syscalls::close(old_fd);
-
-        set_fd(-1);
-      }
       reset_stream_state_unlocked(modeflags);
       return new_fd.error();
     }
 
     // Else the new file successfully opened, so we move it into the fd the old
     // file was using if the old fd exists.
-    if (old_fd >= 0) {
+    if (old_fd >= 0 && new_fd.value() != old_fd) {
       // Preserve the requested descriptor flag atomically across replacement.
       auto dup_result = linux_syscalls::dup3(new_fd.value(), old_fd,
                                            open_flags & O_CLOEXEC);
@@ -239,11 +232,10 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
         reset_stream_state_unlocked(modeflags);
         return dup_result.error();
       }
-      auto close_result = linux_syscalls::close(new_fd.value());
-      if (!close_result) {
-        reset_stream_state_unlocked(modeflags);
-        return close_result.error();
-      }
+      // The replacement is installed; Linux consumes the temporary fd even
+      // when close reports an error. Do not invalidate the live association.
+      linux_syscalls::close(new_fd.value());
+      set_fd(old_fd);
     } else {
       set_fd(new_fd.value());
     }
@@ -252,24 +244,28 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
     return 0;
   }
 
+  auto fail = [&](int error) {
+    if (fd >= 0)
+      linux_syscalls::close(fd);
+    set_fd(-1);
+    reset_stream_state_unlocked(0);
+    return error;
+  };
   if (modeflags == 0)
-    return EINVAL;
+    return fail(EINVAL);
 
   if (fd < 0)
-    return EBADF;
+    return fail(EBADF);
 
   auto result = linux_syscalls::fcntl(fd, F_GETFL);
   if (!result.has_value())
-    return EBADF;
+    return fail(result.error());
   int fd_flags = result.value();
 
   // Reusing an existing file cannot satisfy an exclusive-create request.
   int open_flags = mode_flags_to_open_flags(modeflags);
   if ((open_flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
-    linux_syscalls::close(fd);
-    set_fd(-1);
-    reset_stream_state_unlocked(modeflags);
-    return EEXIST;
+    return fail(EEXIST);
   }
 
   using OpenMode = File::OpenMode;
@@ -285,12 +281,24 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
 
   if (((fd_flags & O_ACCMODE) == O_RDONLY && (modeflags & REQUIRES_WRITE)) ||
       ((fd_flags & O_ACCMODE) == O_WRONLY && (modeflags & REQUIRES_READ))) {
-    return EBADF;
+    return fail(EBADF);
+  }
+
+  // NULL-path conversion is supported only for seekable descriptions. Check
+  // before truncation or flag changes; no /proc pathname reopening is used.
+  auto position = linux_syscalls::lseek(fd, 0, SEEK_CUR);
+  if (!position)
+    return fail(position.error());
+
+  if (modeflags & ModeFlags(OpenMode::WRITE)) {
+    auto truncated = linux_syscalls::ftruncate(fd, 0);
+    if (!truncated)
+      return fail(truncated.error());
   }
 
   auto descriptor_flags = linux_syscalls::fcntl(fd, F_GETFD);
   if (!descriptor_flags)
-    return descriptor_flags.error();
+    return fail(descriptor_flags.error());
   int new_descriptor_flags = descriptor_flags.value() & ~FD_CLOEXEC;
   if (modeflags & static_cast<ModeFlags>(OpenMode::CLOEXEC))
     new_descriptor_flags |= FD_CLOEXEC;
@@ -298,35 +306,23 @@ int LinuxFile::reopen_unlocked(const char *path, const char *mode) {
     auto set_flags = linux_syscalls::fcntl(
         fd, F_SETFD, reinterpret_cast<void *>(new_descriptor_flags));
     if (!set_flags)
-      return set_flags.error();
+      return fail(set_flags.error());
   }
 
-  bool do_seek = false;
   bool is_append = modeflags & static_cast<ModeFlags>(OpenMode::APPEND);
   bool has_append_flag = fd_flags & O_APPEND;
-
-  if (is_append && !has_append_flag) {
-    if (!linux_syscalls::fcntl(fd, F_SETFL,
-                               reinterpret_cast<void *>(fd_flags | O_APPEND))
-             .has_value()) {
-      return EBADF;
-    }
-    do_seek = true;
-  } else if (!is_append && has_append_flag) {
-    if (!linux_syscalls::fcntl(fd, F_SETFL,
-                               reinterpret_cast<void *>(fd_flags & ~O_APPEND))
-             .has_value()) {
-      return EBADF;
-    }
+  if (is_append != has_append_flag) {
+    int flags = is_append ? fd_flags | O_APPEND : fd_flags & ~O_APPEND;
+    auto changed = linux_syscalls::fcntl(fd, F_SETFL,
+                                        reinterpret_cast<void *>(flags));
+    if (!changed)
+      return fail(changed.error());
   }
 
+  auto seek_result = linux_syscalls::lseek(fd, 0, is_append ? SEEK_END : SEEK_SET);
+  if (!seek_result)
+    return fail(seek_result.error());
   reset_stream_state_unlocked(modeflags);
-
-  if (do_seek) {
-    auto seek_result = linux_file_seek(this, 0, SEEK_END);
-    if (!seek_result.has_value())
-      return seek_result.error();
-  }
   return 0;
 }
 

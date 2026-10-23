@@ -82,7 +82,9 @@ if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
       libc-support-tests
     SRCS
       linux_file_allocation_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/freopen.cpp
     DEPENDS
+      libc.src.errno.errno
       libc.src.__support.CPP.new
       libc.src.__support.File.file
       libc.src.__support.File.platform_file

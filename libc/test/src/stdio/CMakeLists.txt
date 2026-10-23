@@ -170,8 +170,13 @@ add_libc_test(
     libc.src.stdio.fread
     libc.src.stdio.freopen
     libc.src.stdio.fwrite
+    libc.src.stdio.fdopen
+    libc.src.stdio.ftell
     libc.src.stdio.stdout
     libc.src.unistd.close
+    libc.src.unistd.dup
+    libc.src.unistd.lseek
+    libc.src.unistd.pipe
     libc.src.wchar.fwide
     libc.test.UnitTest.ErrnoCheckingTest
     libc.test.UnitTest.ErrnoSetterMatcher

@@ -7,10 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/File/linux/file.h"
+#include "src/__support/libc_errno.h"
+#include "src/stdio/freopen.h"
 #include "test/UnitTest/Test.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 namespace {
@@ -303,4 +306,75 @@ TEST(LlvmLibcLinuxFileAllocationTest, ClosePreservesNonOwnedObject) {
   EXPECT_EQ(file.get_fd(), -1);
   // Global flushing can still visit the static standard-stream object.
   EXPECT_EQ(file.flush(), 0);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, FailedReopenConsumesOwnedResources) {
+  struct Case {
+    const char *path;
+    const char *mode;
+    int error;
+  };
+  const Case cases[] = {{"/dev/null", "invalid", EINVAL},
+                        {"/dev/null/missing", "r", ENOTDIR},
+                        {nullptr, "w", EBADF},
+                        {nullptr, "wx", EEXIST}};
+  for (const auto &entry : cases) {
+    int expected_fd = next_descriptor();
+    ASSERT_GE(expected_fd, 0);
+    start_tracking(0);
+    auto result = LIBC_NAMESPACE::openfile("/dev/null", "r");
+    tracking = false;
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(live_allocations, 2U);
+    closing_file = result.value();
+    published_at_reclamation = false;
+    reclamation_checks = 0;
+    auto *reopened = LIBC_NAMESPACE::freopen(
+        entry.path, entry.mode, reinterpret_cast<FILE *>(result.value()));
+    int error = LIBC_NAMESPACE::libc_errno;
+    closing_file = nullptr;
+    EXPECT_EQ(reopened, static_cast<FILE *>(nullptr));
+    EXPECT_EQ(error, entry.error);
+    EXPECT_EQ(live_allocations, 0U);
+    EXPECT_EQ(reclamation_checks, 2U);
+    EXPECT_FALSE(published_at_reclamation);
+    EXPECT_EQ(next_descriptor(), expected_fd);
+  }
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, FailedReopenPreservesNonOwnedObject) {
+  int fd = ::open("/dev/null", O_RDONLY);
+  ASSERT_GE(fd, 0);
+  unsigned char buffer[32];
+  LIBC_NAMESPACE::LinuxFile file(fd, buffer, sizeof(buffer), _IOFBF, false,
+                                LIBC_NAMESPACE::File::mode_flags("r"), false);
+  EXPECT_EQ(LIBC_NAMESPACE::freopen(nullptr, "w",
+                                   reinterpret_cast<FILE *>(&file)),
+            static_cast<FILE *>(nullptr));
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EBADF);
+  EXPECT_EQ(::fcntl(fd, F_GETFD), -1);
+  // Inspect the internal static object, not the invalid public FILE handle.
+  EXPECT_EQ(file.get_fd(), -1);
+  EXPECT_EQ(file.flush(), 0);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, ReopenNeedsNoSpareDescriptor) {
+  auto result = LIBC_NAMESPACE::openfile("/dev/null", "r");
+  ASSERT_TRUE(result.has_value());
+  auto *file = result.value();
+  int fd = LIBC_NAMESPACE::get_fileno(file);
+  struct rlimit original;
+  ASSERT_EQ(::getrlimit(RLIMIT_NOFILE, &original), 0);
+  struct rlimit limited = original;
+  limited.rlim_cur = static_cast<rlim_t>(fd) + 1;
+  ASSERT_EQ(::setrlimit(RLIMIT_NOFILE, &limited), 0);
+  auto *reopened = LIBC_NAMESPACE::freopen(
+      "/dev/null", "re", reinterpret_cast<FILE *>(file));
+  // Restore the process limit before assertions or other test infrastructure.
+  int restored = ::setrlimit(RLIMIT_NOFILE, &original);
+  ASSERT_EQ(restored, 0);
+  ASSERT_EQ(reopened, reinterpret_cast<FILE *>(file));
+  EXPECT_EQ(LIBC_NAMESPACE::get_fileno(file), fd);
+  EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, FD_CLOEXEC);
+  EXPECT_EQ(file->close(), 0);
 }

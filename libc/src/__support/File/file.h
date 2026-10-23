@@ -522,10 +522,9 @@ ErrorOr<File *> openfile(const char *path, const char *mode);
 // Internal descriptors must acquire close-on-exec atomically with opening.
 ErrorOr<File *> openfile(const char *path, const char *mode, bool close_on_exec);
 // Reopens a file stream.
-// Note: On failure, `reopenfile` will place the file stream in an invalid state
-// (closing the underlying file descriptor) but will not deallocate the `File`
-// object itself, ensuring static streams like stdin/stdout/stderr are
-// preserved.
+// The backend consumes the descriptor on failure but does not destroy File.
+// The public wrapper must then close(false) to unpublish and release owned
+// storage. The backend's ownership flag preserves static standard streams.
 int reopenfile(File *f, const char *path, const char *mode);
 // Expected to be implemented by the platform file, will be called after
 // locking.
