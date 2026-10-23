@@ -420,3 +420,27 @@ TEST(LlvmLibcLinuxFileAllocationTest, ReplacementCloseReleasesBothObjects) {
   EXPECT_EQ(live_allocations, 0U);
   EXPECT_EQ(next_descriptor(), expected_fd);
 }
+
+TEST(LlvmLibcLinuxFileAllocationTest, SetBufferFailurePreservesCallerStorage) {
+  int fd = ::open("/dev/null", O_WRONLY);
+  ASSERT_GE(fd, 0);
+  unsigned char storage[16] = {};
+  LIBC_NAMESPACE::LinuxFile file(fd, storage + 1, sizeof(storage) - 2, _IOLBF,
+                                 false, LIBC_NAMESPACE::File::mode_flags("w"),
+                                 false);
+  storage[0] = storage[15] = 0x5a;
+  start_tracking(1);
+  int result = file.set_buffer(nullptr, 64, _IOFBF);
+  tracking = false;
+  EXPECT_EQ(result, ENOMEM);
+  EXPECT_EQ(allocation_count, 1U);
+  EXPECT_EQ(live_allocations, 0U);
+  EXPECT_EQ(file.buffer_capacity(), size_t(14));
+  EXPECT_TRUE(file.line_buffered());
+  ASSERT_EQ(file.write("old buffer", 10).value, size_t(10));
+  EXPECT_EQ(storage[1], static_cast<unsigned char>('o'));
+  EXPECT_EQ(storage[10], static_cast<unsigned char>('r'));
+  EXPECT_EQ(storage[0], static_cast<unsigned char>(0x5a));
+  EXPECT_EQ(storage[15], static_cast<unsigned char>(0x5a));
+  EXPECT_EQ(file.close(), 0);
+}

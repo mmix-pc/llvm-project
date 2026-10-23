@@ -574,13 +574,13 @@ int File::set_buffer(void *buffer, size_t size, int buffer_mode) {
       buf = new_buf;
     } else {
       AllocChecker ac;
-      buf = new (ac) uint8_t[size];
+      auto *new_buf = new (ac) uint8_t[size];
       if (!ac)
         return ENOMEM;
+      buf = new_buf;
       own_buf = true;
     }
     bufsize = size;
-    // TODO: Handle allocation failures.
   } else {
     if (own_buf)
       delete[] buf;
