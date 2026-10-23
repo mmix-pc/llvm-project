@@ -48,6 +48,28 @@ void evaluate(LIBC_NAMESPACE::scanf_core::FormatSection *format_arr,
 
 TEST(LlvmLibcScanfParserTest, Constructor) { init("test", 1, 2); }
 
+TEST(LlvmLibcScanfParserTest, AllocationAndWideAliases) {
+  using namespace LIBC_NAMESPACE::scanf_core;
+  FormatSection sections[5];
+  char *bytes = nullptr;
+  wchar_t *wide = nullptr;
+  wchar_t ch = 0;
+  wchar_t word[2] = {};
+  evaluate(sections, "%ms%3ml[ab]%C%S", &bytes, &wide, &ch, word);
+  EXPECT_EQ(sections[0].conv_name, 's');
+  EXPECT_EQ(int(sections[0].flags), int(ALLOCATE));
+  EXPECT_EQ(sections[0].output_ptr, static_cast<void *>(&bytes));
+  EXPECT_EQ(sections[1].conv_name, '[');
+  EXPECT_EQ(sections[1].max_width, 3);
+  EXPECT_EQ(int(sections[1].length_modifier), int(LengthModifier::l));
+  EXPECT_EQ(int(sections[1].flags), int(ALLOCATE));
+  EXPECT_EQ(sections[1].output_ptr, static_cast<void *>(&wide));
+  EXPECT_EQ(sections[2].conv_name, 'c');
+  EXPECT_EQ(int(sections[2].length_modifier), int(LengthModifier::l));
+  EXPECT_EQ(sections[3].conv_name, 's');
+  EXPECT_EQ(int(sections[3].length_modifier), int(LengthModifier::l));
+}
+
 TEST(LlvmLibcScanfParserTest, EvalRaw) {
   LIBC_NAMESPACE::scanf_core::FormatSection format_arr[10];
   const char *str = "test";

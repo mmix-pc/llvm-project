@@ -19,12 +19,16 @@
 #include "src/__support/wchar/wcrtomb.h"
 #include "src/__support/wctype_utils.h"
 #include "src/stdio/scanf_core/converter_utils.h"
+#include "src/stdio/scanf_core/string_output.h"
+#ifndef LIBC_COPT_SCANF_DISABLE_FLOAT
+#include "src/stdio/scanf_core/float_converter.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace scanf_core {
 
 // Keep one wide lookahead, including embedded NUL, separate from end of input.
-// Only consumed characters contribute to %n; return lookahead before unlocking.
+// Only consumed characters contribute to %n; sources retain unread lookahead.
 template <typename Source> class WideReader {
   Source &source;
   wint_t next = WEOF;
@@ -33,19 +37,16 @@ template <typename Source> class WideReader {
 
 public:
   explicit WideReader(Source &source) : source(source) {}
-  ~WideReader() {
-    if (cached && next != WEOF)
-      source.putback(next);
-  }
   wint_t peek() {
     if (!cached) {
-      next = source.get();
+      next = source.peek();
       cached = true;
     }
     return next;
   }
   void take() {
     if (peek() != WEOF) {
+      source.take();
       ++count;
       cached = false;
     }
@@ -71,7 +72,13 @@ LIBC_INLINE wint_t wide_scan_lower(wint_t c) {
   return c >= L'A' && c <= L'Z' ? c + (L'a' - L'A') : c;
 }
 
-enum class WideScanResult { OK, MATCH_FAILURE, INPUT_FAILURE };
+enum class WideScanResult {
+  OK,
+  MATCH_FAILURE,
+  INPUT_FAILURE,
+  ENCODING_FAILURE,
+  ALLOCATION_FAILURE
+};
 
 template <typename Source>
 WideScanResult wide_scan_integer(WideReader<Source> &input, size_t width,
@@ -135,95 +142,22 @@ WideScanResult wide_scan_integer(WideReader<Source> &input, size_t width,
   return WideScanResult::OK;
 }
 
+#ifndef LIBC_COPT_SCANF_DISABLE_FLOAT
 template <typename Source>
 WideScanResult wide_scan_float(WideReader<Source> &input, size_t width,
                                const FormatSection &section) {
-  if (input.peek() == WEOF)
-    return WideScanResult::INPUT_FAILURE;
-  CharVector token;
-  bool allocation_failed = false;
-  auto peek = [&]() -> wint_t { return width ? input.peek() : WEOF; };
-  auto take = [&]() {
-    // The lexer admits ASCII numeric syntax only, never narrows user text.
-    if (!token.append(static_cast<char>(input.peek()))) {
-      allocation_failed = true;
-      libc_errno = ENOMEM;
-      width = 0;
-      return;
-    }
-    input.take();
-    --width;
-  };
-  if (peek() == L'+' || peek() == L'-')
-    take();
-  bool valid = false;
-  if (wide_scan_lower(peek()) == L'i') {
-    size_t n = 0;
-    const char word[] = "infinity";
-    while (n < 8 && wide_scan_lower(peek()) == wint_t(word[n])) {
-      take();
-      ++n;
-    }
-    valid = n == 3 || n == 8;
-  } else if (wide_scan_lower(peek()) == L'n') {
-    size_t n = 0;
-    const char word[] = "nan";
-    while (n < 3 && wide_scan_lower(peek()) == wint_t(word[n])) {
-      take();
-      ++n;
-    }
-    valid = n == 3;
-    if (valid && peek() == L'(') {
-      take();
-      while ((peek() >= L'0' && peek() <= L'9') ||
-             (wide_scan_lower(peek()) >= L'a' &&
-              wide_scan_lower(peek()) <= L'z') ||
-             peek() == L'_')
-        take();
-      valid = peek() == L')';
-      if (valid)
-        take();
-    }
-  } else {
-    int base = 10;
-    bool digits = false;
-    if (peek() == L'0') {
-      take();
-      digits = true;
-      if (wide_scan_lower(peek()) == L'x') {
-        take();
-        base = 16;
-        digits = false;
-      }
-    }
-    auto read_digits = [&](int radix) {
-      bool any = false;
-      while (wide_scan_digit(peek()) >= 0 && wide_scan_digit(peek()) < radix) {
-        any = true;
-        take();
-      }
-      return any;
-    };
-    digits = read_digits(base) || digits;
-    if (peek() == L'.') {
-      take();
-      digits = read_digits(base) || digits;
-    }
-    valid = digits;
-    if (digits && wide_scan_lower(peek()) == (base == 16 ? L'p' : L'e')) {
-      take();
-      if (peek() == L'+' || peek() == L'-')
-        take();
-      valid = read_digits(10) && digits;
-    }
-  }
-  if (allocation_failed)
-    return WideScanResult::INPUT_FAILURE;
-  if (!valid)
-    return WideScanResult::MATCH_FAILURE;
-  write_float_with_length(token.c_str(), section);
-  return WideScanResult::OK;
+  int result = scan_float_token(
+      [&]() -> int {
+        wint_t c = input.peek();
+        return c == WEOF ? -1 : c <= 127 ? int(c) : 256;
+      },
+      [&] { input.take(); }, width, section);
+  return result == READ_OK              ? WideScanResult::OK
+         : result == MATCHING_FAILURE   ? WideScanResult::MATCH_FAILURE
+         : result == ALLOCATION_FAILURE ? WideScanResult::ALLOCATION_FAILURE
+                                        : WideScanResult::INPUT_FAILURE;
 }
+#endif
 
 struct WideScanSet {
   const wchar_t *begin = nullptr;
@@ -244,31 +178,31 @@ struct WideScanSet {
   }
 };
 
-template <typename Source>
-WideScanResult wide_scan_string(WideReader<Source> &input, size_t width,
-                                const FormatSection &section,
-                                const WideScanSet &set) {
+template <typename CharT, typename Source>
+WideScanResult wide_scan_string_to(WideReader<Source> &input, size_t width,
+                                   const FormatSection &section,
+                                   const WideScanSet &set) {
   size_t count = 0;
-  char *bytes = static_cast<char *>(section.output_ptr);
-  wchar_t *wide = static_cast<wchar_t *>(section.output_ptr);
+  StringOutput<CharT> output(section);
   internal::mbstate state{};
-  bool writing = (section.flags & NO_WRITE) == 0;
   while (count < width && input.peek() != WEOF) {
     wint_t c = input.peek();
     if ((section.conv_name == 's' && wide_scan_space(c)) ||
         (section.conv_name == '[' && !set.contains(c)))
       break;
-    if (writing) {
-      if (section.length_modifier == LengthModifier::l) {
-        *wide++ = static_cast<wchar_t>(c);
-      } else {
-        auto result = internal::wcrtomb(bytes, static_cast<wchar_t>(c), &state);
-        if (!result.has_value()) {
-          libc_errno = result.error();
-          return WideScanResult::INPUT_FAILURE;
-        }
-        bytes += result.value();
+    if constexpr (sizeof(CharT) == sizeof(wchar_t)) {
+      if (!output.append(static_cast<wchar_t>(c)))
+        return WideScanResult::ALLOCATION_FAILURE;
+    } else {
+      char bytes[4];
+      auto result = internal::wcrtomb(bytes, static_cast<wchar_t>(c), &state);
+      if (!result.has_value()) {
+        libc_errno = result.error();
+        return WideScanResult::ENCODING_FAILURE;
       }
+      for (size_t i = 0; i < result.value(); ++i)
+        if (!output.append(bytes[i]))
+          return WideScanResult::ALLOCATION_FAILURE;
     }
     input.take();
     ++count;
@@ -278,23 +212,40 @@ WideScanResult wide_scan_string(WideReader<Source> &input, size_t width,
                                 : WideScanResult::MATCH_FAILURE;
   if (section.conv_name == 'c' && count != width)
     return WideScanResult::INPUT_FAILURE;
-  if (writing && section.conv_name != 'c') {
-    if (section.length_modifier == LengthModifier::l)
-      *wide = L'\0';
-    else
-      *bytes = '\0';
-  }
+  if (section.conv_name != 'c' && !output.append(CharT(0)))
+    return WideScanResult::ALLOCATION_FAILURE;
+  output.publish();
   return WideScanResult::OK;
 }
 
 template <typename Source>
+WideScanResult wide_scan_string(WideReader<Source> &input, size_t width,
+                                const FormatSection &section,
+                                const WideScanSet &set) {
+  if (section.length_modifier == LengthModifier::l)
+    return wide_scan_string_to<wchar_t>(input, width, section, set);
+  return wide_scan_string_to<char>(input, width, section, set);
+}
+
+template <typename Source>
 int wide_scanf_main(Source &source, const wchar_t *format,
-                    internal::ArgList &args) {
+                    internal::ArgList &args, int *conversion_status = nullptr) {
   WideReader<Source> input(source);
+#ifndef LIBC_COPT_SCANF_DISABLE_INDEX_MODE
+  internal::ArgList args_start(args);
+#endif
   int assignments = 0;
   bool converted = false;
+  if (conversion_status)
+    *conversion_status = READ_OK;
   auto failure = [&](WideScanResult status) {
-    return status == WideScanResult::INPUT_FAILURE && !converted ? EOF
+    if (conversion_status)
+      *conversion_status =
+          status == WideScanResult::ENCODING_FAILURE     ? ENCODING_FAILURE
+          : status == WideScanResult::ALLOCATION_FAILURE ? ALLOCATION_FAILURE
+          : status == WideScanResult::INPUT_FAILURE      ? FILE_READ_ERROR
+                                                         : MATCHING_FAILURE;
+    return status != WideScanResult::MATCH_FAILURE && !converted ? EOF
                                                                  : assignments;
   };
   while (*format) {
@@ -325,6 +276,23 @@ int wide_scanf_main(Source &source, const wchar_t *format,
       continue;
     }
     FormatSection section{};
+#ifndef LIBC_COPT_SCANF_DISABLE_INDEX_MODE
+    size_t index = 0;
+    const wchar_t *index_start = format;
+    while (*format >= L'0' && *format <= L'9') {
+      size_t digit = size_t(*format++ - L'0');
+      constexpr auto max = cpp::numeric_limits<size_t>::max();
+      index = index > (max - digit) / 10 ? max : index * 10 + digit;
+    }
+    if (*format == L'$') {
+      if (!index)
+        return assignments;
+      ++format;
+    } else {
+      index = 0;
+      format = index_start;
+    }
+#endif
     if (*format == L'*') {
       section.flags = NO_WRITE;
       ++format;
@@ -336,6 +304,10 @@ int wide_scanf_main(Source &source, const wchar_t *format,
       size_t digit = size_t(*format++ - L'0');
       constexpr auto max = cpp::numeric_limits<size_t>::max();
       width = width > (max - digit) / 10 ? max : width * 10 + digit;
+    }
+    if (*format == L'm') {
+      section.flags = FormatFlags(section.flags | ALLOCATE);
+      ++format;
     }
     if (*format == L'h') {
       section.length_modifier = LengthModifier::h;
@@ -372,6 +344,10 @@ int wide_scanf_main(Source &source, const wchar_t *format,
     if (!*format || *format > 127 || (has_width && width == 0))
       return assignments;
     section.conv_name = static_cast<char>(*format++);
+    if (section.conv_name == 'C' || section.conv_name == 'S') {
+      section.conv_name = section.conv_name == 'C' ? 'c' : 's';
+      section.length_modifier = LengthModifier::l;
+    }
     WideScanSet set;
     if (section.conv_name == '[') {
       if (*format == L'^') {
@@ -387,8 +363,17 @@ int wide_scanf_main(Source &source, const wchar_t *format,
         return assignments;
       set.end = format++;
     }
-    if ((section.flags & NO_WRITE) == 0)
-      section.output_ptr = args.next_var<void *>();
+    if ((section.flags & NO_WRITE) == 0) {
+#ifndef LIBC_COPT_SCANF_DISABLE_INDEX_MODE
+      if (index) {
+        internal::ArgList indexed(args_start);
+        for (size_t i = 1; i < index; ++i)
+          indexed.next_var<void *>();
+        section.output_ptr = indexed.next_var<void *>();
+      } else
+#endif
+        section.output_ptr = args.next_var<void *>();
+    }
     if (section.conv_name == 'n') {
       write_int_with_length(input.consumed(), section);
       converted = true;

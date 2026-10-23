@@ -23,7 +23,7 @@ namespace scanf_core {
 
 template <typename T>
 int scanf_main(Reader<T> *reader, const char *__restrict str,
-               internal::ArgList &args) {
+               internal::ArgList &args, int *conversion_status = nullptr) {
   Parser<internal::ArgList> parser(str, args);
   int ret_val = READ_OK;
   int conversions = 0;
@@ -45,7 +45,12 @@ int scanf_main(Reader<T> *reader, const char *__restrict str,
     }
   }
 
-  return ret_val == FILE_READ_ERROR && !completed_conversion ? -1 : conversions;
+  bool input_failure = ret_val == FILE_READ_ERROR ||
+                       ret_val == ALLOCATION_FAILURE ||
+                       ret_val == ENCODING_FAILURE;
+  if (conversion_status)
+    *conversion_status = ret_val;
+  return input_failure && !completed_conversion ? -1 : conversions;
 }
 
 } // namespace scanf_core

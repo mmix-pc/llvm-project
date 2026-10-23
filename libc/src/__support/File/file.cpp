@@ -503,6 +503,7 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
     // function. Note that read_limit >= pos is always true.
     if (__builtin_sub_overflow(offset, read_limit - pos, &offset) ||
         __builtin_sub_overflow(offset, wide_pushback_bytes, &offset) ||
+        __builtin_sub_overflow(offset, wide_lookahead_bytes, &offset) ||
         __builtin_sub_overflow(offset, byte_pushback != EOF, &offset))
       return Error(EOVERFLOW);
   }
@@ -512,6 +513,7 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
 
   pos = read_limit = 0;
   wide_pushback_bytes = 0;
+  wide_lookahead_bytes = 0;
   byte_pushback = EOF;
   prev_op = FileOp::SEEK;
   // Reset the eof flag as a seek might move the file position to some place
@@ -542,6 +544,8 @@ ErrorOr<off_t> File::tell_unlocked() {
     if (__builtin_sub_overflow(platform_offset, read_limit - pos,
                                &platform_offset) ||
         __builtin_sub_overflow(platform_offset, wide_pushback_bytes,
+                               &platform_offset) ||
+        __builtin_sub_overflow(platform_offset, wide_lookahead_bytes,
                                &platform_offset) ||
         __builtin_sub_overflow(platform_offset, byte_pushback != EOF,
                                &platform_offset))
@@ -588,8 +592,8 @@ int File::flush_unlocked() {
       return buf_result.error ? buf_result.error : EIO;
     }
   } else if (prev_op == FileOp::READ) {
-    size_t unread =
-        read_limit - pos + wide_pushback_bytes + (byte_pushback != EOF);
+    size_t unread = read_limit - pos + wide_pushback_bytes +
+                    wide_lookahead_bytes + (byte_pushback != EOF);
     if (unread > 0) {
       auto result =
           platform_seek(get_backend(), -static_cast<off_t>(unread), SEEK_CUR);
@@ -603,6 +607,7 @@ int File::flush_unlocked() {
     pos = read_limit = 0;
     byte_pushback = EOF;
     wide_pushback_bytes = 0;
+    wide_lookahead_bytes = 0;
     mbstate = internal::mbstate();
   }
   if (platform_flush) {
@@ -853,6 +858,29 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
   return {written, 0};
 }
 
+FileIOResult File::peek_wide_unlocked(wchar_t *wc) {
+  if (wide_pushback_bytes) {
+    *wc = wide_pushback;
+    return size_t(1);
+  }
+  if (wide_lookahead_bytes) {
+    *wc = wide_lookahead;
+    return size_t(1);
+  }
+  auto result = read_unlocked(wc, 1);
+  if (result.value == 1) {
+    uint8_t bytes[4];
+    auto encoded = encode_wide(*wc, bytes);
+    if (!encoded.has_value()) {
+      err = true;
+      return {0, encoded.error()};
+    }
+    wide_lookahead = *wc;
+    wide_lookahead_bytes = encoded.value();
+  }
+  return result;
+}
+
 FileIOResult File::read_unlocked(wchar_t *ws, size_t len) {
   switch (orientation) {
   case Orientation::BYTE:
@@ -870,6 +898,12 @@ FileIOResult File::read_unlocked(wchar_t *ws, size_t len) {
     if (wide_pushback_bytes != 0) {
       ws[i] = wide_pushback;
       wide_pushback_bytes = 0;
+      ++read_count;
+      continue;
+    }
+    if (wide_lookahead_bytes != 0) {
+      ws[i] = wide_lookahead;
+      wide_lookahead_bytes = 0;
       ++read_count;
       continue;
     }

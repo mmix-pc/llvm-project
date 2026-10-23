@@ -12,6 +12,7 @@
 #include "src/__support/CPP/scope.h"
 #include "src/__support/File/file.h"
 #include "src/__support/arg_list.h"
+#include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/macros/properties/architectures.h"
 #include "src/stdio/scanf_core/reader.h"
@@ -52,12 +53,17 @@ LIBC_INLINE void funlockfile(FILE *f) {
   reinterpret_cast<LIBC_NAMESPACE::File *>(f)->unlock();
 }
 
-LIBC_INLINE int getc(FILE *f) {
+LIBC_INLINE int getc(FILE *f, int *read_error = nullptr) {
   unsigned char c;
   auto result =
       reinterpret_cast<LIBC_NAMESPACE::File *>(f)->read_unlocked(&c, 1);
   size_t r = result.value;
-  if (result.has_error() || r != 1)
+  if (read_error)
+    *read_error = result.error;
+  if (result.has_error()) {
+    libc_errno = result.error;
+  }
+  if (r != 1)
     return EOF;
 
   return c;
@@ -87,11 +93,20 @@ namespace scanf_core {
 
 class StreamReader : public Reader<StreamReader> {
   ::FILE *stream;
+  int last_error = 0;
 
 public:
   LIBC_INLINE StreamReader(::FILE *stream) : stream(stream) {}
 
-  LIBC_INLINE int getc() { return internal::getc(stream); }
+  LIBC_INLINE int getc() {
+#if !defined(LIBC_COPT_STDIO_USE_SYSTEM_FILE) &&                               \
+    !defined(LIBC_TARGET_ARCH_IS_GPU)
+    return internal::getc(stream, &last_error);
+#else
+    return internal::getc(stream);
+#endif
+  }
+  LIBC_INLINE int read_error() const { return last_error; }
   LIBC_INLINE void ungetc(int c) {
     // Don't ungetc the EOF to prevent clearing EOF indicator on stream.
     if (c != EOF)
@@ -108,7 +123,14 @@ LIBC_INLINE int vfscanf_internal(::FILE *__restrict stream,
       internal::funlockfile(stream);
   });
   scanf_core::StreamReader reader(stream);
-  return scanf_core::scanf_main(&reader, format, args);
+  int status = READ_OK;
+  int result = scanf_core::scanf_main(&reader, format, args, &status);
+#if !defined(LIBC_COPT_STDIO_USE_SYSTEM_FILE) &&                               \
+    !defined(LIBC_TARGET_ARCH_IS_GPU)
+  if (status == ALLOCATION_FAILURE || status == ENCODING_FAILURE)
+    reinterpret_cast<File *>(stream)->set_error_unlocked();
+#endif
+  return result;
 }
 } // namespace scanf_core
 } // namespace LIBC_NAMESPACE_DECL

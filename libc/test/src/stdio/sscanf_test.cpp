@@ -55,6 +55,29 @@ TEST(LlvmLibcSScanfTest, FloatingLookahead) {
   EXPECT_EQ(next, 'e');
 }
 
+#ifndef LIBC_COPT_SCANF_DISABLE_FLOAT
+TEST(LlvmLibcSScanfTest, FloatingSubjectSequences) {
+  float value = 19;
+  int count = -1;
+  char next = '?';
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("0x1", "%2f%n", &value, &count), 0);
+  EXPECT_FP_EQ(value, 19.0f);
+  EXPECT_EQ(count, -1);
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf(".e1", "%f%n", &value, &count), 0);
+  EXPECT_FP_EQ(value, 19.0f);
+  EXPECT_EQ(count, -1);
+  EXPECT_EQ(
+      LIBC_NAMESPACE::sscanf("nan(payload)!", "%f%n%c", &value, &count, &next),
+      2);
+  EXPECT_TRUE(LIBC_NAMESPACE::fputil::FPBits<float>(value).is_nan());
+  EXPECT_EQ(count, 12);
+  EXPECT_EQ(next, '!');
+  value = 19;
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("nan(unclosed", "%f", &value), 0);
+  EXPECT_FP_EQ(value, 19.0f);
+}
+#endif
+
 TEST(LlvmLibcSScanfTest, PointerLookaheadAndSuppression) {
   char next = 0;
   int count = -1;
@@ -585,7 +608,7 @@ TEST(LlvmLibcSScanfTest, FloatConvMaxWidth) {
   EXPECT_FP_EQ(result, 0.0f);
 
   ret_val = LIBC_NAMESPACE::sscanf("0x1", "%2f", &result);
-  EXPECT_EQ(ret_val, 1);
+  EXPECT_EQ(ret_val, 0);
   EXPECT_FP_EQ(result, 0.0f);
 
   ret_val = LIBC_NAMESPACE::sscanf("100e", "%4f", &result);

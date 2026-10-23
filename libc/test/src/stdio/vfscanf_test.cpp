@@ -6,7 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "hdr/errno_macros.h"
+#include "hdr/stdio_macros.h"
 #include "src/__support/CPP/string_view.h"
+#include "src/__support/libc_errno.h"
 
 #ifndef LIBC_COPT_STDIO_USE_SYSTEM_FILE
 #include "src/stdio/fclose.h"
@@ -40,6 +43,21 @@ static int call_vfscanf(::FILE *stream, const char *__restrict format, ...) {
   va_end(vlist);
   return ret;
 }
+
+#ifndef LIBC_COPT_STDIO_USE_SYSTEM_FILE
+TEST(LlvmLibcVFScanfTest, ReadErrorPreservesErrno) {
+  auto path = libc_make_test_file_path("vfscanf_read_error.test");
+  ::FILE *file = scanf_test::fopen(path, "w");
+  ASSERT_NE(file, nullptr);
+  int value = 19;
+  LIBC_NAMESPACE::libc_errno = 0;
+  EXPECT_EQ(call_vfscanf(file, "%d", &value), EOF);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EBADF);
+  EXPECT_NE(scanf_test::ferror(file), 0);
+  EXPECT_EQ(value, 19);
+  EXPECT_EQ(scanf_test::fclose(file), 0);
+}
+#endif
 
 TEST(LlvmLibcVFScanfTest, WriteToFile) {
   const char *FILENAME = "vfscanf_output.test";

@@ -18,17 +18,17 @@ class StreamSource {
 
 public:
   explicit StreamSource(File *file) : file(file) {}
-  wint_t get() {
+  wint_t peek() {
     wchar_t c;
-    auto result = file->read_unlocked(&c, 1);
+    auto result = file->peek_wide_unlocked(&c);
     if (result.has_error())
       libc_errno = result.error;
     return result.value == 1 ? wint_t(c) : WEOF;
   }
-  void putback(wint_t c) {
-    auto result = file->ungetwc_unlocked(c);
-    if (!result.has_value())
-      libc_errno = result.error();
+  void take() {
+    wchar_t c;
+    // peek() already established an available character under the stream lock.
+    file->read_unlocked(&c, 1);
   }
 };
 } // namespace
@@ -46,6 +46,11 @@ LLVM_LIBC_FUNCTION(int, vfwscanf,
   }
   internal::ArgList list(args);
   StreamSource source(file);
-  return scanf_core::wide_scanf_main(source, format, list);
+  int status = scanf_core::READ_OK;
+  int result = scanf_core::wide_scanf_main(source, format, list, &status);
+  if (status == scanf_core::ALLOCATION_FAILURE ||
+      status == scanf_core::ENCODING_FAILURE)
+    file->set_error_unlocked();
+  return result;
 }
 } // namespace LIBC_NAMESPACE_DECL

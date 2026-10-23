@@ -81,16 +81,19 @@ public:
         cur_pos = cur_pos + static_cast<size_t>(result.parsed_len);
       }
 
-      // TODO(michaelrj): add posix allocate flag support.
-      // if (str[cur_pos] == 'm') {
-      //   ++cur_pos;
-      //   section.flags = FormatFlags::ALLOCATE;
-      // }
+      if (str[cur_pos] == 'm') {
+        ++cur_pos;
+        section.flags = FormatFlags(section.flags | FormatFlags::ALLOCATE);
+      }
 
       LengthModifier lm = parse_length_modifier(&cur_pos);
       section.length_modifier = lm;
 
       section.conv_name = str[cur_pos];
+      if (section.conv_name == 'C' || section.conv_name == 'S') {
+        section.conv_name = section.conv_name == 'C' ? 'c' : 's';
+        section.length_modifier = LengthModifier::l;
+      }
 
       // Literal percent and suppressed conversions have no output argument.
       if ((section.flags & FormatFlags::NO_WRITE) == 0 &&
@@ -147,15 +150,15 @@ public:
             // Technically there is no requirement to correct the ordering of
             // the range, but since the range operator is entirely
             // implementation defined it seems like a good convenience.
-            char a = str[cur_pos - 1];
-            char b = str[cur_pos + 1];
-            char start = (a < b ? a : b);
-            char end = (a < b ? b : a);
+            unsigned char a = str[cur_pos - 1];
+            unsigned char b = str[cur_pos + 1];
+            unsigned char start = (a < b ? a : b);
+            unsigned char end = (a < b ? b : a);
             scan_set.set_range(static_cast<size_t>(start),
                                static_cast<size_t>(end));
             cur_pos += 2;
           } else {
-            scan_set.set(static_cast<size_t>(str[cur_pos]));
+            scan_set.set(static_cast<unsigned char>(str[cur_pos]));
             ++cur_pos;
           }
         }

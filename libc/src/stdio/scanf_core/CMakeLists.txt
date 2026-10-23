@@ -91,6 +91,7 @@ add_header_library(
     converter_utils.h
     int_converter.h
     string_converter.h
+    string_output.h
     float_converter.h
     current_pos_converter.h
     ptr_converter.h
@@ -104,6 +105,10 @@ add_header_library(
     libc.src.__support.CPP.string_view
     libc.src.__support.CPP.limits
     libc.src.__support.char_vector
+    libc.hdr.func.free
+    libc.hdr.func.realloc
+    libc.src.__support.libc_errno
+    libc.src.__support.wchar.mbrtowc
     libc.src.__support.str_to_float
     ${use_system_file}
 )
@@ -130,6 +135,7 @@ add_header_library(
     vfscanf_internal.h
   DEPENDS
     libc.src.__support.CPP.scope
+    libc.src.__support.libc_errno
     .reader
     .scanf_main
     libc.src.__support.arg_list

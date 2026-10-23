@@ -40,6 +40,12 @@ public:
   }
 
   LIBC_INLINE size_t chars_read() { return cur_chars_read; }
+
+  LIBC_INLINE int error() const {
+    return static_cast<const Derived *>(this)->read_error();
+  }
+  // Strings and synthetic readers have no underlying I/O error.
+  LIBC_INLINE int read_error() const { return 0; }
 };
 
 } // namespace scanf_core

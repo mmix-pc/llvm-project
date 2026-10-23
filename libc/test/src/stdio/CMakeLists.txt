@@ -599,6 +599,7 @@ if(NOT LIBC_TARGET_ARCHITECTURE_IS_AMDGPU)
       fscanf_test.cpp
     DEPENDS
       libc.hdr.stdio_macros
+      libc.src.__support.libc_errno
       libc.src.stdio.fscanf
       ${fscanf_test_deps}
       libc.src.__support.CPP.string_view
@@ -614,6 +615,7 @@ if(NOT LIBC_TARGET_ARCHITECTURE_IS_AMDGPU)
       vfscanf_test.cpp
     DEPENDS
       libc.src.stdio.vfscanf
+      libc.src.__support.libc_errno
       ${fscanf_test_deps}
       libc.src.__support.CPP.string_view
     COMPILE_OPTIONS
@@ -652,6 +654,18 @@ add_libc_test(
     libc.test.UnitTest.FPTestHelpers
   COMPILE_OPTIONS
     ${sscanf_test_copts}
+)
+
+add_libc_test(
+  sscanf_wide_test
+  FULL_BUILD_ONLY
+  SUITE libc_stdio_unittests
+  SRCS sscanf_wide_test.cpp
+  DEPENDS
+    libc.src.stdio.sscanf
+    libc.src.stdio.vsscanf
+    libc.src.__support.libc_errno
+    libc.hdr.func.free
 )
 
 add_libc_test(

@@ -52,6 +52,20 @@ add_libc_test(
 )
 
 add_libc_test(
+  allocation_test
+  SUITE libc_stdio_unittests
+  SRCS allocation_test.cpp
+  DEPENDS
+    libc.src.stdio.scanf_core.scanf_main
+    libc.src.stdio.scanf_core.string_reader
+    libc.src.stdio.scanf_core.wide_scanf_main
+    libc.src.__support.libc_errno
+    libc.hdr.func.malloc
+    libc.hdr.func.realloc
+    libc.hdr.func.free
+)
+
+add_libc_test(
   va_list_test
   FULL_BUILD_ONLY
   SUITE libc_stdio_unittests

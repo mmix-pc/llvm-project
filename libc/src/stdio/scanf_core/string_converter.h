@@ -12,16 +12,18 @@
 #include "src/__support/CPP/limits.h"
 #include "src/__support/ctype_utils.h"
 #include "src/__support/macros/config.h"
+#include "src/__support/wchar/mbrtowc.h"
 #include "src/stdio/scanf_core/core_structs.h"
 #include "src/stdio/scanf_core/reader.h"
+#include "src/stdio/scanf_core/string_output.h"
 
 #include <stddef.h>
 
 namespace LIBC_NAMESPACE_DECL {
 namespace scanf_core {
 
-template <typename T>
-int convert_string(Reader<T> *reader, const FormatSection &to_conv) {
+template <typename T, typename CharT>
+int convert_string_to(Reader<T> *reader, const FormatSection &to_conv) {
   // %s "Matches a sequence of non-white-space characters"
 
   // %c "Matches a sequence of characters of exactly the number specified by the
@@ -40,50 +42,68 @@ int convert_string(Reader<T> *reader, const FormatSection &to_conv) {
     }
   }
 
-  char *output = reinterpret_cast<char *>(to_conv.output_ptr);
-
-  int cur_char = reader->getc();
-  if (cur_char < 0)
-    return FILE_READ_ERROR;
-  size_t i = 0;
-  for (; i < max_width && cur_char >= 0; ++i) {
-    // If this is %s and we've hit a space, or if this is %[] and we've found
-    // something not in the scanset.
-    if ((to_conv.conv_name == 's' &&
-         internal::isspace(static_cast<char>(cur_char))) ||
-        (to_conv.conv_name == '[' &&
-         !to_conv.scan_set.test(static_cast<size_t>(cur_char)))) {
+  StringOutput<CharT> output(to_conv);
+  internal::mbstate state{};
+  size_t count = 0;
+  bool at_end = false;
+  while (count < max_width) {
+    int c = reader->getc();
+    if (c < 0) {
+      at_end = true;
       break;
     }
-    // if the NO_WRITE flag is not set, write to the output.
-    if ((to_conv.flags & NO_WRITE) == 0)
-      output[i] = static_cast<char>(cur_char);
-    if (i + 1 == max_width) {
-      if (to_conv.conv_name != 'c' && (to_conv.flags & NO_WRITE) == 0)
-        output[i + 1] = '\0';
-      return READ_OK;
+    auto matches = [&](int ch) {
+      return to_conv.conv_name == 'c' ||
+             (to_conv.conv_name == 's' &&
+              !internal::isspace(static_cast<char>(ch))) ||
+             (to_conv.conv_name == '[' && to_conv.scan_set.test(size_t(ch)));
+    };
+    if (!matches(c)) {
+      reader->ungetc(c);
+      break;
     }
-    cur_char = reader->getc();
+    CharT value;
+    if constexpr (sizeof(CharT) == sizeof(char)) {
+      value = static_cast<CharT>(c);
+    } else {
+      for (;;) {
+        char byte = static_cast<char>(c);
+        auto result = internal::mbrtowc(&value, &byte, 1, &state);
+        if (!result.has_value()) {
+          libc_errno = result.error();
+          return ENCODING_FAILURE;
+        }
+        if (result.value() != size_t(-2))
+          break;
+        c = reader->getc();
+        if (c < 0 || !matches(c)) {
+          reader->ungetc(c);
+          if (c < 0 && reader->error())
+            return FILE_READ_ERROR;
+          libc_errno = EILSEQ;
+          return ENCODING_FAILURE;
+        }
+      }
+    }
+    if (!output.append(value))
+      return ALLOCATION_FAILURE;
+    ++count;
   }
-
-  // A nonmatching byte belongs to the next directive; EOF is not pushed back.
-  reader->ungetc(cur_char);
-
-  if (to_conv.conv_name == 'c' && i < max_width)
+  if (to_conv.conv_name == 'c' && count != max_width)
     return FILE_READ_ERROR;
-  if (i == 0)
-    return MATCHING_FAILURE;
-
-  // If this is %s or %[]
-  if (to_conv.conv_name != 'c' && (to_conv.flags & NO_WRITE) == 0) {
-    // Always null terminate the string. This may cause a write to the
-    // (max_width + 1) byte, which is correct. The max width describes the max
-    // number of characters read from the input string, and doesn't necessarily
-    // correspond to the output.
-    output[i] = '\0';
-  }
-
+  if (!count)
+    return at_end ? FILE_READ_ERROR : MATCHING_FAILURE;
+  if (to_conv.conv_name != 'c' && !output.append(CharT(0)))
+    return ALLOCATION_FAILURE;
+  output.publish();
   return READ_OK;
+}
+
+template <typename T>
+int convert_string(Reader<T> *reader, const FormatSection &to_conv) {
+  if (to_conv.length_modifier == LengthModifier::l)
+    return convert_string_to<T, wchar_t>(reader, to_conv);
+  return convert_string_to<T, char>(reader, to_conv);
 }
 
 } // namespace scanf_core

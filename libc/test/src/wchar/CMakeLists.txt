@@ -48,9 +48,14 @@ add_libc_test(
     libc.src.wchar.wscanf
     libc.src.wchar.vwscanf
     libc.src.wchar.fgetwc
+    libc.src.wchar.ungetwc
     libc.src.wchar.fwide
     libc.src.stdio.fopen
     libc.src.stdio.fclose
+    libc.src.stdio.fflush
+    libc.src.stdio.fseek
+    libc.src.stdio.fgetpos
+    libc.src.stdio.fsetpos
     libc.src.stdio.fwrite
     libc.src.stdio.ftell
     libc.src.stdio.feof

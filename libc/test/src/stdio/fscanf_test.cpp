@@ -6,18 +6,23 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "hdr/errno_macros.h"
 #include "hdr/stdio_macros.h"
 #include "src/__support/CPP/string_view.h"
+#include "src/__support/libc_errno.h"
 #include "src/stdio/fscanf.h"
-#include "test/UnitTest/Test.h"
 
 #ifndef LIBC_COPT_STDIO_USE_SYSTEM_FILE
+#include "src/__support/File/file.h"
 #include "src/stdio/fclose.h"
 #include "src/stdio/feof.h"
 #include "src/stdio/ferror.h"
 #include "src/stdio/fopen.h"
 #include "src/stdio/fwrite.h"
+#include "test/src/locale/LocaleGuard.h"
 #endif // LIBC_COPT_STDIO_USE_SYSTEM_FILE
+
+#include "test/UnitTest/Test.h"
 
 namespace scanf_test {
 #ifndef LIBC_COPT_STDIO_USE_SYSTEM_FILE
@@ -34,6 +39,101 @@ using ::fopen;
 using ::fwrite;
 #endif // LIBC_COPT_STDIO_USE_SYSTEM_FILE
 } // namespace scanf_test
+
+#ifndef LIBC_COPT_STDIO_USE_SYSTEM_FILE
+TEST(LlvmLibcFScanfTest, ReadErrorPreservesErrno) {
+  auto path = libc_make_test_file_path("scanf_read_error.test");
+  ::FILE *file = scanf_test::fopen(path, "w");
+  ASSERT_NE(file, nullptr);
+  int value = 19;
+  LIBC_NAMESPACE::libc_errno = 0;
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%d", &value), EOF);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EBADF);
+  EXPECT_NE(scanf_test::ferror(file), 0);
+  EXPECT_EQ(value, 19);
+  EXPECT_EQ(scanf_test::fclose(file), 0);
+}
+
+TEST(LlvmLibcFScanfTest, EncodingErrorSetsStreamIndicator) {
+  LocaleGuard locale;
+  auto path = libc_make_test_file_path("scanf_encoding_error.test");
+  ::FILE *file = scanf_test::fopen(path, "w");
+  ASSERT_NE(file, nullptr);
+  ASSERT_EQ(scanf_test::fwrite("\xff", 1, 1, file), size_t(1));
+  ASSERT_EQ(scanf_test::fclose(file), 0);
+  file = scanf_test::fopen(path, "r");
+  ASSERT_NE(file, nullptr);
+  wchar_t value = L'!';
+  LIBC_NAMESPACE::libc_errno = 0;
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%lc", &value), EOF);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EILSEQ);
+  EXPECT_NE(scanf_test::ferror(file), 0);
+  EXPECT_EQ(value, L'!');
+  EXPECT_EQ(scanf_test::fclose(file), 0);
+}
+
+TEST(LlvmLibcFScanfTest, ReadErrorInsideMultibyteCharacter) {
+  LocaleGuard locale;
+  class FailedInput : public LIBC_NAMESPACE::File {
+    bool supplied = false;
+    static LIBC_NAMESPACE::FileIOResult read_input(File *base, void *out,
+                                                   size_t) {
+      auto &self = *static_cast<FailedInput *>(base);
+      if (self.supplied)
+        return {0, EIO};
+      self.supplied = true;
+      *static_cast<unsigned char *>(out) = 0xc2;
+      return 1;
+    }
+
+  public:
+    FailedInput()
+        : File(nullptr, read_input, nullptr, nullptr, nullptr, 0, _IONBF, false,
+               mode_flags("r")) {}
+  } file;
+  wchar_t value = L'!';
+  LIBC_NAMESPACE::libc_errno = 0;
+  EXPECT_EQ(
+      LIBC_NAMESPACE::fscanf(reinterpret_cast<FILE *>(&file), "%lc", &value),
+      EOF);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EIO);
+  EXPECT_TRUE(file.error());
+  EXPECT_EQ(value, L'!');
+}
+#endif
+
+TEST(LlvmLibcFScanfTest, IncompleteMantissaPreservesNextByte) {
+  auto path = libc_make_test_file_path("scanf_incomplete_mantissa.test");
+  ::FILE *file = scanf_test::fopen(path, "w");
+  ASSERT_NE(file, nullptr);
+  ASSERT_EQ(scanf_test::fwrite(".e1!", 1, 4, file), size_t(4));
+  ASSERT_EQ(scanf_test::fclose(file), 0);
+  file = scanf_test::fopen(path, "r");
+  ASSERT_NE(file, nullptr);
+  float value = 19;
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%f", &value), 0);
+  EXPECT_TRUE(value == 19.0f);
+  char next = '?';
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%c", &next), 1);
+  EXPECT_EQ(next, 'e');
+  EXPECT_EQ(scanf_test::fclose(file), 0);
+}
+
+TEST(LlvmLibcFScanfTest, FloatWidthDoesNotProbeEof) {
+  auto path = libc_make_test_file_path("scanf_float_width.test");
+  ::FILE *file = scanf_test::fopen(path, "w");
+  ASSERT_NE(file, nullptr);
+  ASSERT_EQ(scanf_test::fwrite("1.5", 1, 3, file), size_t(3));
+  ASSERT_EQ(scanf_test::fclose(file), 0);
+  file = scanf_test::fopen(path, "r");
+  ASSERT_NE(file, nullptr);
+  float value = 0;
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%3f", &value), 1);
+  EXPECT_TRUE(value == 1.5f);
+  EXPECT_EQ(scanf_test::feof(file), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%f", &value), EOF);
+  EXPECT_EQ(scanf_test::fclose(file), 0);
+}
 
 TEST(LlvmLibcFScanfTest, FailedFloatPreservesLookahead) {
   auto path = libc_make_test_file_path("scanf_float_lookahead.test");

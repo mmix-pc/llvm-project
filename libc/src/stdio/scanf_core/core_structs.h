@@ -85,6 +85,7 @@ enum ErrorCodes : int {
   FILE_STATUS_ERROR = -2,
   MATCHING_FAILURE = -3,
   ALLOCATION_FAILURE = -4,
+  ENCODING_FAILURE = -5,
 };
 } // namespace scanf_core
 } // namespace LIBC_NAMESPACE_DECL

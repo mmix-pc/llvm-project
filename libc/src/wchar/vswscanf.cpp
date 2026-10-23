@@ -17,8 +17,8 @@ class StringSource {
 
 public:
   explicit StringSource(const wchar_t *buffer) : next(buffer) {}
-  wint_t get() { return *next ? wint_t(*next++) : WEOF; }
-  void putback(wint_t) {}
+  wint_t peek() { return *next ? wint_t(*next) : WEOF; }
+  void take() { ++next; }
 };
 } // namespace
 

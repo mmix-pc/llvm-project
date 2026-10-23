@@ -9,233 +9,140 @@
 #ifndef LLVM_LIBC_SRC_STDIO_SCANF_CORE_FLOAT_CONVERTER_H
 #define LLVM_LIBC_SRC_STDIO_SCANF_CORE_FLOAT_CONVERTER_H
 
+#include "hdr/errno_macros.h"
 #include "src/__support/CPP/limits.h"
 #include "src/__support/char_vector.h"
 #include "src/__support/ctype_utils.h"
-#include "src/__support/macros/config.h"
+#include "src/__support/libc_errno.h"
 #include "src/stdio/scanf_core/converter_utils.h"
-#include "src/stdio/scanf_core/core_structs.h"
 #include "src/stdio/scanf_core/reader.h"
-
-#include <stddef.h>
 
 namespace LIBC_NAMESPACE_DECL {
 namespace scanf_core {
 
-// All of the floating point conversions are the same for scanf, every name will
-// accept every style.
+// Both scanners consume the longest initial subsequence, not strtod's shorter
+// accepted prefix. Peek never reads beyond the field width, and the first byte
+// or wide character after the item remains available to the caller.
+template <typename Peek, typename Take>
+int scan_float_token(Peek source_peek, Take source_take, size_t width,
+                     const FormatSection &section) {
+  CharVector token;
+  bool allocation_failed = false;
+  auto peek = [&]() -> int { return width ? source_peek() : -1; };
+  auto take = [&]() {
+    if (!token.append(static_cast<char>(source_peek()))) {
+      allocation_failed = true;
+      libc_errno = ENOMEM;
+      width = 0;
+      return;
+    }
+    source_take();
+    --width;
+  };
+  auto lower = [](int c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+  auto digit = [](int c) {
+    if (c >= '0' && c <= '9')
+      return c - '0';
+    if (c >= 'a' && c <= 'f')
+      return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+      return c - 'A' + 10;
+    return -1;
+  };
+  if (peek() < 0)
+    return FILE_READ_ERROR;
+  if (peek() == '+' || peek() == '-')
+    take();
+  bool valid = false;
+  if (lower(peek()) == 'i') {
+    size_t n = 0;
+    constexpr char word[] = "infinity";
+    while (n < 8 && lower(peek()) == word[n]) {
+      take();
+      ++n;
+    }
+    valid = n == 3 || n == 8;
+  } else if (lower(peek()) == 'n') {
+    size_t n = 0;
+    constexpr char word[] = "nan";
+    while (n < 3 && lower(peek()) == word[n]) {
+      take();
+      ++n;
+    }
+    valid = n == 3;
+    if (valid && peek() == '(') {
+      take();
+      while ((peek() >= '0' && peek() <= '9') ||
+             (lower(peek()) >= 'a' && lower(peek()) <= 'z') || peek() == '_')
+        take();
+      valid = peek() == ')';
+      if (valid)
+        take();
+    }
+  } else {
+    int base = 10;
+    bool digits = false;
+    if (peek() == '0') {
+      take();
+      digits = true;
+      if (lower(peek()) == 'x') {
+        take();
+        base = 16;
+        digits = false;
+      }
+    }
+    auto read_digits = [&](int radix) {
+      bool any = false;
+      while (digit(peek()) >= 0 && digit(peek()) < radix) {
+        any = true;
+        take();
+      }
+      return any;
+    };
+    digits = read_digits(base) || digits;
+    if (peek() == '.') {
+      take();
+      digits = read_digits(base) || digits;
+    }
+    valid = digits;
+    if (digits && lower(peek()) == (base == 16 ? 'p' : 'e')) {
+      take();
+      if (peek() == '+' || peek() == '-')
+        take();
+      valid = read_digits(10);
+    }
+  }
+  if (allocation_failed)
+    return ALLOCATION_FAILURE;
+  if (!valid)
+    return MATCHING_FAILURE;
+  write_float_with_length(token.c_str(), section);
+  return READ_OK;
+}
+
 template <typename T>
 int convert_float(Reader<T> *reader, const FormatSection &to_conv) {
-  // %a/A/e/E/f/F/g/G "Matches an optionally signed floating-point number,
-  // infinity, or NaN, whose format is the same as expected for the subject
-  // sequence of the strtod function. The corresponding argument shall be a
-  // pointer to floating."
-
-  CharVector out_str = CharVector();
-  bool is_number = false;
-
-  size_t max_width = cpp::numeric_limits<size_t>::max();
-  if (to_conv.max_width > 0) {
-    max_width = to_conv.max_width;
-  }
-
-  int cur_char = reader->getc();
-  if (cur_char < 0)
-    return FILE_READ_ERROR;
-  // Handle the sign.
-  if (cur_char == '+' || cur_char == '-') {
-    if (!out_str.append(static_cast<char>(cur_char))) {
-      return ALLOCATION_FAILURE;
+  struct Lookahead {
+    Reader<T> *reader;
+    int next = -1;
+    bool cached = false;
+    ~Lookahead() {
+      if (cached)
+        reader->ungetc(next);
     }
-    if (out_str.length() == max_width) {
-      return MATCHING_FAILURE;
-    } else {
-      cur_char = reader->getc();
-    }
-  }
-
-  static constexpr char DECIMAL_POINT = '.';
-  static const char inf_string[] = "infinity";
-
-  // Handle inf
-
-  if (cur_char >= 0 &&
-      internal::tolower(static_cast<char>(cur_char)) == inf_string[0]) {
-    size_t inf_index = 0;
-
-    for (;
-         inf_index < (sizeof(inf_string) - 1) && out_str.length() < max_width &&
-         cur_char >= 0 &&
-         internal::tolower(static_cast<char>(cur_char)) == inf_string[inf_index];
-         ++inf_index) {
-      if (!out_str.append(static_cast<char>(cur_char))) {
-        return ALLOCATION_FAILURE;
+    int peek() {
+      if (!cached) {
+        next = reader->getc();
+        cached = true;
       }
-      cur_char = reader->getc();
+      return next;
     }
-
-    reader->ungetc(cur_char);
-    if (inf_index == 3 || inf_index == sizeof(inf_string) - 1) {
-      write_float_with_length(out_str.c_str(), to_conv);
-      return READ_OK;
-    } else {
-      return MATCHING_FAILURE;
-    }
-  }
-
-  static const char nan_string[] = "nan";
-
-  // Handle nan
-  if (cur_char >= 0 &&
-      internal::tolower(static_cast<char>(cur_char)) == nan_string[0]) {
-    size_t nan_index = 0;
-
-    for (;
-         nan_index < (sizeof(nan_string) - 1) && out_str.length() < max_width &&
-         cur_char >= 0 &&
-         internal::tolower(static_cast<char>(cur_char)) == nan_string[nan_index];
-         ++nan_index) {
-      if (!out_str.append(static_cast<char>(cur_char))) {
-        return ALLOCATION_FAILURE;
-      }
-      cur_char = reader->getc();
-    }
-
-    reader->ungetc(cur_char);
-    if (nan_index == sizeof(nan_string) - 1) {
-      write_float_with_length(out_str.c_str(), to_conv);
-      return READ_OK;
-    } else {
-      return MATCHING_FAILURE;
-    }
-  }
-
-  // Assume base of 10 by default but check if it is actually base 16.
-  int base = 10;
-
-  // If the string starts with 0 it might be in hex.
-  if (cur_char == '0') {
-    is_number = true;
-    // Read the next character to check.
-    if (!out_str.append(static_cast<char>(cur_char))) {
-      return ALLOCATION_FAILURE;
-    }
-    // If we've hit the end, then this is "0", which is valid.
-    if (out_str.length() == max_width) {
-      write_float_with_length(out_str.c_str(), to_conv);
-      return READ_OK;
-    } else {
-      cur_char = reader->getc();
-    }
-
-    // If that next character is an 'x' then this is a hexadecimal number.
-    if (cur_char >= 0 && internal::tolower(static_cast<char>(cur_char)) == 'x') {
-      base = 16;
-
-      if (!out_str.append(static_cast<char>(cur_char))) {
-        return ALLOCATION_FAILURE;
-      }
-      // If we've hit the end here, we have "0x" which is a valid prefix to a
-      // floating point number, and will be evaluated to 0.
-      if (out_str.length() == max_width) {
-        write_float_with_length(out_str.c_str(), to_conv);
-        return READ_OK;
-      } else {
-        cur_char = reader->getc();
-      }
-    }
-  }
-
-  const char exponent_mark = ((base == 10) ? 'e' : 'p');
-  bool after_decimal = false;
-
-  // The format for the remaining characters at this point is DD.DDe+/-DD for
-  // base 10 and XX.XXp+/-DD for base 16
-
-  // This handles the digits before and after the decimal point, but not the
-  // exponent.
-  while (out_str.length() < max_width) {
-    if (cur_char >= 0 && internal::isalnum(static_cast<char>(cur_char)) &&
-        internal::b36_char_to_int(static_cast<char>(cur_char)) < base) {
-      is_number = true;
-      if (!out_str.append(static_cast<char>(cur_char))) {
-        return ALLOCATION_FAILURE;
-      }
-      cur_char = reader->getc();
-    } else if (cur_char == DECIMAL_POINT && !after_decimal) {
-      after_decimal = true;
-      if (!out_str.append(static_cast<char>(cur_char))) {
-        return ALLOCATION_FAILURE;
-      }
-      cur_char = reader->getc();
-    } else {
-      break;
-    }
-  }
-
-  // Handle the exponent, which has an exponent mark, an optional sign, and
-  // decimal digits.
-  if (out_str.length() < max_width && cur_char >= 0 &&
-      internal::tolower(static_cast<char>(cur_char)) == exponent_mark) {
-    if (!out_str.append(static_cast<char>(cur_char))) {
-      return ALLOCATION_FAILURE;
-    }
-    if (out_str.length() == max_width) {
-      // This is laid out in the standard as being a matching error (100e is not
-      // a valid float) but may conflict with existing implementations.
-      return MATCHING_FAILURE;
-    } else {
-      cur_char = reader->getc();
-    }
-
-    if (cur_char == '+' || cur_char == '-') {
-      if (!out_str.append(static_cast<char>(cur_char))) {
-        return ALLOCATION_FAILURE;
-      }
-      if (out_str.length() == max_width) {
-        return MATCHING_FAILURE;
-      } else {
-        cur_char = reader->getc();
-      }
-    }
-
-    // It is specified by the standard that "100er" is a matching failure since
-    // the longest prefix of a possibly valid floating-point number (which is
-    // "100e") is not a valid floating-point number. If there is an exponent
-    // mark then there must be a digit after it else the number is not valid.
-    // Some implementations will roll back two characters (to just "100") and
-    // accept that since the prefix is not valid, and some will interpret an
-    // exponent mark followed by no digits as an additional exponent of 0
-    // (accepting "100e" and returning 100.0). Both of these behaviors are wrong
-    // by the standard, but they may be used in real code, see Hyrum's law. This
-    // code follows the standard, but may be incompatible due to code expecting
-    // these bugs.
-    if (cur_char < 0 || !internal::isdigit(static_cast<char>(cur_char))) {
-      reader->ungetc(cur_char);
-      return MATCHING_FAILURE;
-    }
-
-    while (cur_char >= 0 && internal::isdigit(static_cast<char>(cur_char)) &&
-           out_str.length() < max_width) {
-      if (!out_str.append(static_cast<char>(cur_char))) {
-        return ALLOCATION_FAILURE;
-      }
-      cur_char = reader->getc();
-    }
-  }
-
-  // We always read one more character than will be used, so we have to put the
-  // last one back.
-  reader->ungetc(cur_char);
-
-  // If we haven't actually found any digits, this is a matching failure (this
-  // catches cases like "+.")
-  if (!is_number) {
-    return MATCHING_FAILURE;
-  }
-  write_float_with_length(out_str.c_str(), to_conv);
-
-  return READ_OK;
+    void take() { cached = false; }
+  } input{reader};
+  size_t width = to_conv.max_width > 0 ? size_t(to_conv.max_width)
+                                       : cpp::numeric_limits<size_t>::max();
+  return scan_float_token([&] { return input.peek(); }, [&] { input.take(); },
+                          width, to_conv);
 }
 
 } // namespace scanf_core

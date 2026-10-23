@@ -182,6 +182,9 @@ private:
   // Wide pushback must survive byte-buffer refills, including partial UTF-8.
   wchar_t wide_pushback = 0;
   size_t wide_pushback_bytes = 0;
+  // Scanner lookahead is unread input, not a public ungetwc operation.
+  wchar_t wide_lookahead = 0;
+  size_t wide_lookahead_bytes = 0;
   // Wide output retains characters, including an incompletely written encoding.
   wchar_t *wide_output = nullptr;
   size_t wide_capacity = 0;
@@ -211,6 +214,7 @@ protected:
     wide_utf8 = false;
     mbstate = internal::mbstate();
     wide_pushback_bytes = 0;
+    wide_lookahead_bytes = 0;
     byte_pushback = EOF;
     wide_size = wide_prefix = 0;
     adjust_buf();
@@ -304,6 +308,9 @@ public:
   }
 
   FileIOResult read_unlocked(wchar_t *ws, size_t len);
+
+  // Inspect one character without consuming it or occupying public pushback.
+  FileIOResult peek_wide_unlocked(wchar_t *wc);
 
   FileIOResult read(wchar_t *ws, size_t len) {
     FileLock l(this);
@@ -408,6 +415,7 @@ public:
     wide_size = wide_prefix = 0;
     byte_pushback = EOF;
     wide_pushback_bytes = 0;
+    wide_lookahead_bytes = 0;
     mbstate = internal::mbstate();
   }
 
@@ -515,6 +523,7 @@ private:
       pos = read_limit = 0;
       byte_pushback = EOF;
       wide_pushback_bytes = 0;
+      wide_lookahead_bytes = 0;
     }
     prev_op = FileOp::WRITE;
   }

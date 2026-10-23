@@ -7,12 +7,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/errno_macros.h"
+#include "hdr/func/free.h"
 #include "hdr/stdio_macros.h"
 #include "hdr/wchar_macros.h"
 #include "src/stdio/fclose.h"
 #include "src/stdio/feof.h"
 #include "src/stdio/ferror.h"
+#include "src/stdio/fflush.h"
+#include "src/stdio/fgetpos.h"
 #include "src/stdio/fopen.h"
+#include "src/stdio/fseek.h"
+#include "src/stdio/fsetpos.h"
 #include "src/stdio/ftell.h"
 #include "src/stdio/fwrite.h"
 #include "src/stdio/setvbuf.h"
@@ -21,6 +26,7 @@
 #include "src/wchar/fwide.h"
 #include "src/wchar/fwscanf.h"
 #include "src/wchar/swscanf.h"
+#include "src/wchar/ungetwc.h"
 #include "src/wchar/vfwscanf.h"
 #include "src/wchar/vswscanf.h"
 #include "src/wchar/vwscanf.h"
@@ -79,6 +85,67 @@ TEST(LlvmLibcWideScanTest, IntegerWidthsAndSuppression) {
   EXPECT_EQ(scan(L"12", L"%*d"), 0);
   EXPECT_EQ(scan(L"\u0131", L"%d", &i), 0);
   EXPECT_EQ(i, 345);
+}
+
+#ifndef LIBC_COPT_SCANF_DISABLE_INDEX_MODE
+TEST(LlvmLibcWideScanTest, NumberedArguments) {
+  int first = -1, second = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::swscanf(L"11 22", L"%2$d %1$d", &first, &second),
+            2);
+  EXPECT_EQ(first, 22);
+  EXPECT_EQ(second, 11);
+  EXPECT_EQ(scan(L"11 99 % 22", L"%2$d %*d %% %1$d", &first, &second), 2);
+  EXPECT_EQ(first, 22);
+  EXPECT_EQ(second, 11);
+  ::FILE *file = input_file("11 22!", 6);
+  ASSERT_NE(file, nullptr);
+  EXPECT_EQ(stream_scan(file, L"%2$d %1$d", &first, &second), 2);
+  EXPECT_EQ(first, 22);
+  EXPECT_EQ(second, 11);
+  EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'!'));
+  EXPECT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+}
+#endif
+
+TEST(LlvmLibcWideScanTest, WideAliases) {
+  wchar_t ch = 0, str[3] = {};
+  EXPECT_EQ(scan(L"A BC", L"%C %S", &ch, str), 2);
+  EXPECT_EQ(ch, L'A');
+  EXPECT_EQ(str[0], L'B');
+  EXPECT_EQ(str[1], L'C');
+  EXPECT_EQ(str[2], wchar_t(0));
+}
+
+TEST(LlvmLibcWideScanTest, AllocatingStringsAndCharacters) {
+  LocaleGuard locale;
+  char *bytes = nullptr;
+  wchar_t *wide = nullptr;
+  EXPECT_EQ(scan(L"\u00a2 ab", L"%ms %mls", &bytes, &wide), 2);
+  ASSERT_NE(bytes, nullptr);
+  ASSERT_NE(wide, nullptr);
+  EXPECT_STREQ(bytes, "\xc2\xa2");
+  EXPECT_EQ(wide[0], L'a');
+  EXPECT_EQ(wide[1], L'b');
+  EXPECT_EQ(wide[2], wchar_t(0));
+  ::free(bytes);
+  ::free(wide);
+  EXPECT_EQ(scan(L"aba!", L"%m[ab]", &bytes), 1);
+  EXPECT_STREQ(bytes, "aba");
+  ::free(bytes);
+  EXPECT_EQ(scan(L"aba!", L"%ml[ab]", &wide), 1);
+  EXPECT_EQ(wide[0], L'a');
+  EXPECT_EQ(wide[1], L'b');
+  EXPECT_EQ(wide[2], L'a');
+  EXPECT_EQ(wide[3], wchar_t(0));
+  ::free(wide);
+  EXPECT_EQ(scan(L"\u00a2", L"%mc", &bytes), 1);
+  EXPECT_EQ(int(static_cast<unsigned char>(bytes[0])), 0xc2);
+  EXPECT_EQ(int(static_cast<unsigned char>(bytes[1])), 0xa2);
+  ::free(bytes);
+  EXPECT_EQ(scan(L"AB", L"%2mlc", &wide), 1);
+  EXPECT_EQ(wide[0], L'A');
+  EXPECT_EQ(wide[1], L'B');
+  ::free(wide);
 }
 
 TEST(LlvmLibcWideScanTest, IntegerLengthModifiers) {
@@ -249,6 +316,54 @@ TEST(LlvmLibcWideScanTest, LookaheadAcrossBufferBoundary) {
   EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'\u20ac'));
   EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'!'));
   EXPECT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+}
+
+TEST(LlvmLibcWideScanTest, LookaheadPreservesPublicPushback) {
+  LocaleGuard locale;
+  ::FILE *file = input_file("123\xe2\x82\xac!", 7);
+  ASSERT_NE(file, nullptr);
+  char buffer[1];
+  ASSERT_EQ(LIBC_NAMESPACE::setvbuf(file, buffer, _IOFBF, sizeof(buffer)), 0);
+  int value = 0;
+  EXPECT_EQ(LIBC_NAMESPACE::fwscanf(file, L"%d", &value), 1);
+  EXPECT_EQ(value, 123);
+  EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 3L);
+  EXPECT_EQ(LIBC_NAMESPACE::ungetwc(L'X', file), wint_t(L'X'));
+  EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'X'));
+  EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'\u20ac'));
+  EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'!'));
+  EXPECT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+}
+
+TEST(LlvmLibcWideScanTest, LookaheadSynchronizesPosition) {
+  LocaleGuard locale;
+  for (int operation = 0; operation != 3; ++operation) {
+    ::FILE *file = input_file("123\xe2\x82\xac!", 7);
+    ASSERT_NE(file, nullptr);
+    char buffer[1];
+    ASSERT_EQ(LIBC_NAMESPACE::setvbuf(file, buffer, _IOFBF, sizeof(buffer)), 0);
+    int value = 0;
+    EXPECT_EQ(LIBC_NAMESPACE::fwscanf(file, L"%d", &value), 1);
+    EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 3L);
+    fpos_t saved;
+    EXPECT_EQ(LIBC_NAMESPACE::fgetpos(file, &saved), 0);
+    if (operation == 0)
+      EXPECT_EQ(LIBC_NAMESPACE::fflush(file), 0);
+    else if (operation == 1)
+      EXPECT_EQ(LIBC_NAMESPACE::fseek(file, 0, SEEK_CUR), 0);
+    else {
+      EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'\u20ac'));
+      EXPECT_EQ(LIBC_NAMESPACE::fsetpos(file, &saved), 0);
+    }
+    EXPECT_EQ(LIBC_NAMESPACE::ftell(file), 3L);
+    EXPECT_EQ(LIBC_NAMESPACE::ungetwc(L'X', file), wint_t(L'X'));
+    wchar_t wc = 0;
+    EXPECT_EQ(LIBC_NAMESPACE::fwscanf(file, L"%lc", &wc), 1);
+    EXPECT_EQ(wc, L'X');
+    EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'\u20ac'));
+    EXPECT_EQ(LIBC_NAMESPACE::fgetwc(file), wint_t(L'!'));
+    EXPECT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+  }
 }
 
 TEST(LlvmLibcWideScanTest, StreamPrefixFailurePreservesNextCharacter) {
