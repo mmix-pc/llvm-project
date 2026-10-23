@@ -175,6 +175,31 @@ TEST(LlvmLibcStdioUnwindLockTest, LineBufferedGlobalFlush) {
   File::remove_file(&file);
 }
 
+TEST(LlvmLibcStdioUnwindLockTest, InputTriggeredFlush) {
+  ThrowingFile output(true), input;
+  ASSERT_EQ(output.set_buffer(output.buffer, sizeof(output.buffer), _IOLBF), 0);
+  ASSERT_EQ(output.write_unlocked("data", 4).value, size_t(4));
+  File::add_file(&output);
+  input.fail = false;
+  bool caught = false;
+  char byte;
+  try {
+    input.File::read(&byte, 1);
+  } catch (ProviderFailure) {
+    caught = true;
+  }
+  ASSERT_TRUE(caught);
+  EXPECT_EQ(output.writes, 1U);
+  EXPECT_EQ(input.reads, 0U);
+  check_unlocked(input);
+  check_unlocked(output);
+  output.fail = false;
+  EXPECT_EQ(input.File::read(&byte, 1).value, size_t(1));
+  EXPECT_EQ(byte, '7');
+  EXPECT_EQ(output.pending_output(), size_t(0));
+  File::remove_file(&output);
+}
+
 TEST(LlvmLibcStdioUnwindLockTest, CloseDuringLineBufferedFlush) {
   struct BlockingFile : File {
     uint8_t buffer[8]{};

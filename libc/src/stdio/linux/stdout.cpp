@@ -23,7 +23,7 @@ uint8_t stdout_buffer[STDOUT_BUFFER_SIZE];
 static LinuxFile StdOut(1, stdout_buffer, STDOUT_BUFFER_SIZE,
                         File::AUTO_BUFFERING, false,
                         File::ModeFlags(File::OpenMode::APPEND),
-                        /*owns_object=*/false);
+                        /*owns_object=*/false, linux_file_close, 1);
 
 LLVM_LIBC_VARIABLE(FILE *, stdout) = reinterpret_cast<FILE *>(&StdOut);
 

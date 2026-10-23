@@ -20,6 +20,8 @@ add_object_library(
     libc.hdr.types.wint_t
     libc.hdr.wchar_macros
     libc.src.__support.CPP.new
+    libc.src.__support.CPP.atomic
+    libc.src.__support.CPP.scope
     libc.src.__support.CPP.span
     libc.src.__support.threads.mutex
     libc.src.__support.error_or

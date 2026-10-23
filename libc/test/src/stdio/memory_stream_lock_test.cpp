@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/func/free.h"
+#include "src/__support/File/file.h"
 #include "src/stdio/fclose.h"
 #include "src/stdio/fflush.h"
 #include "src/stdio/flockfile.h"
@@ -52,7 +53,57 @@ void *try_lock(void *arg) {
   LIBC::funlockfile(stream);
   return arg;
 }
+
+void *read_one(void *arg) {
+  auto *input = static_cast<LIBC::File *>(arg);
+  char byte;
+  return input->read(&byte, 1).value == 1 && byte == 'r' ? nullptr : arg;
+}
 } // namespace
+
+TEST(LlvmLibcMemoryStreamLockTest, InputSkipsBusyOutputAndRegistry) {
+  auto read = [](LIBC::File *, void *buffer,
+                 size_t size) -> LIBC::FileIOResult {
+    if (size)
+      *static_cast<char *>(buffer) = 'r';
+    return size ? size_t(1) : size_t(0);
+  };
+  LIBC::File input(nullptr, read, nullptr, nullptr, nullptr, 0, _IONBF, false,
+                   LIBC::File::mode_flags("r"));
+  char *memory;
+  size_t length;
+  FILE *f = LIBC::open_memstream(&memory, &length);
+  ASSERT_NE(f, nullptr);
+  auto *output = reinterpret_cast<LIBC::File *>(f);
+  char buffer[8];
+  ASSERT_EQ(output->set_buffer(buffer, sizeof(buffer), _IOLBF), 0);
+  ASSERT_EQ(LIBC::fwrite("x", 1, 1, f), size_t(1));
+  // The worker must not wait for a lock held by the thread joining it.
+  const bool locks[] = {false, true};
+  for (bool registry : locks) {
+    if (registry)
+      LIBC::File::lock_list();
+    else
+      LIBC::flockfile(f);
+    pthread_t thread;
+    int created = ::pthread_create(&thread, nullptr, read_one, &input);
+    void *result = &input;
+    int joined = created == 0 ? ::pthread_join(thread, &result) : -1;
+    if (registry)
+      LIBC::File::unlock_list();
+    else
+      LIBC::funlockfile(f);
+    ASSERT_EQ(created, 0);
+    EXPECT_EQ(joined, 0);
+    EXPECT_EQ(result, nullptr);
+    EXPECT_EQ(output->pending_output(), size_t(1));
+  }
+  EXPECT_EQ(read_one(&input), nullptr);
+  EXPECT_EQ(length, size_t(1));
+  EXPECT_EQ(memory[0], 'x');
+  EXPECT_EQ(LIBC::fclose(f), 0);
+  ::free(memory);
+}
 
 TEST(LlvmLibcMemoryStreamLockTest, TryLockPreservesRecursiveOwnership) {
   char *memory;

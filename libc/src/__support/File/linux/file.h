@@ -28,10 +28,11 @@ public:
   constexpr LinuxFile(int file_descriptor, uint8_t *buffer, size_t buffer_size,
                       int buffer_mode, bool owned, File::ModeFlags modeflags,
                       bool owns_object = true,
-                      CloseFunc *close_func = &linux_file_close)
+                      CloseFunc *close_func = &linux_file_close,
+                      int standard_index = -1)
       : File(&linux_file_write, &linux_file_read, &linux_file_seek, close_func,
              buffer, buffer_size, buffer_mode, owned, modeflags, nullptr, true,
-             nullptr, nullptr, linux_file_buffer_mode),
+             nullptr, nullptr, linux_file_buffer_mode, standard_index),
         fd(file_descriptor), owns_object(owns_object) {}
 
   int get_fd() const { return fd; }

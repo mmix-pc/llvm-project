@@ -14,6 +14,7 @@
 #include "hdr/types/off_t.h"
 #include "hdr/types/wchar_t.h"
 #include "hdr/types/wint_t.h"
+#include "src/__support/CPP/atomic.h"
 #include "src/__support/CPP/new.h"
 #include "src/__support/error_or.h"
 #include "src/__support/macros/config.h"
@@ -130,6 +131,8 @@ private:
   SeekFunc *platform_seek;
   CloseFunc *platform_close;
   BufferModeFunc *platform_buffer_mode;
+  int standard_stream_index;
+  static cpp::Atomic<File *> standard_streams[3];
   FlushFunc *platform_flush;
   WideWriteFunc *platform_wide_write;
   DestroyFunc *destroy_object;
@@ -227,10 +230,11 @@ public:
                  uint8_t *buffer, size_t buffer_size, int buffer_mode,
                  bool owned, ModeFlags modeflags, FlushFunc *ff = nullptr,
                  bool descriptor = true, WideWriteFunc *wwf = nullptr,
-                 DestroyFunc *df = nullptr, BufferModeFunc *bmf = nullptr)
+                 DestroyFunc *df = nullptr, BufferModeFunc *bmf = nullptr,
+                 int standard_index = -1)
       : platform_write(wf), platform_read(rf), platform_seek(sf),
         platform_close(cf), platform_buffer_mode(bmf),
-        platform_flush(ff),
+        standard_stream_index(standard_index), platform_flush(ff),
         platform_wide_write(wwf), destroy_object(df),
         has_descriptor(descriptor), mutex(/*timed=*/false, /*recursive=*/true,
                                           /*robust=*/false, /*pshared=*/false),
@@ -489,10 +493,18 @@ public:
 
 private:
   void initialize_buffer_mode_unlocked() {
+    // Standard streams have static lifetime and are not in the owned-file
+    // list. Publish before their first I/O without reversing its lock order.
+    if (standard_stream_index >= 0) {
+      standard_streams[standard_stream_index].store(this,
+                                                    cpp::MemoryOrder::RELEASE);
+      standard_stream_index = -1;
+    }
     if (bufmode == AUTO_BUFFERING)
       bufmode =
           platform_buffer_mode ? platform_buffer_mode(get_backend()) : _IOFBF;
   }
+  void flush_line_buffered_before_read();
   void begin_output() {
     // Reading through EOF permits a following write without positioning.
     if (prev_op == FileOp::READ) {

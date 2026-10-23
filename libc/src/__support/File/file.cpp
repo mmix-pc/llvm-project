@@ -14,6 +14,7 @@
 #include "hdr/types/off_t.h"
 #include "hdr/wchar_macros.h"
 #include "src/__support/CPP/new.h"
+#include "src/__support/CPP/scope.h"
 #include "src/__support/CPP/span.h"
 #include "src/__support/alloc-checker.h"
 #include "src/__support/error_or.h"
@@ -24,6 +25,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 File *File::list_all = nullptr;
+cpp::Atomic<File *> File::standard_streams[3]{};
 Mutex File::list_lock(/*timed=*/false, /*recursive=*/false, /*robust=*/false,
                       /*pshared=*/false);
 
@@ -286,6 +288,8 @@ FileIOResult File::read_unlocked_impl(void *data, size_t len) {
   prev_op = FileOp::READ;
 
   if (bufmode == _IONBF) { // unbuffered.
+    if (len)
+      flush_line_buffered_before_read();
     return read_unlocked_nbf(static_cast<uint8_t *>(data), len);
   } else if (bufmode == _IOFBF) { // fully buffered
     return read_unlocked_fbf(static_cast<uint8_t *>(data), len);
@@ -293,6 +297,25 @@ FileIOResult File::read_unlocked_impl(void *data, size_t len) {
     // There is no line buffered mode for read. Use fully buffered instead.
     return read_unlocked_fbf(static_cast<uint8_t *>(data), len);
   }
+}
+
+void File::flush_line_buffered_before_read() {
+  auto flush = [this](File *file) {
+    if (!file || file == this || !file->try_lock())
+      return;
+    cpp::scope_exit unlock([file] { file->unlock(); });
+    if (file->line_buffered() && file->writing())
+      (void)file->flush_unlocked();
+  };
+  for (auto &slot : standard_streams)
+    flush(slot.load(cpp::MemoryOrder::ACQUIRE));
+  // Input already holds its stream lock. POSIX permits skipping busy output
+  // when deadlock cannot be excluded; do not block on the registry either.
+  if (list_lock.try_lock() != MutexError::NONE)
+    return;
+  cpp::scope_exit unlock([] { list_lock.unlock(); });
+  for (File *file = list_all; file; file = file->next)
+    flush(file);
 }
 
 size_t File::copy_data_from_buf(uint8_t *data, size_t len) {
@@ -327,6 +350,8 @@ size_t File::copy_data_from_buf(uint8_t *data, size_t len) {
 FileIOResult File::read_unlocked_fbf(uint8_t *data, size_t len) {
   size_t total = copy_data_from_buf(data, len);
   while (total < len && !eof) {
+    if (bufmode == _IOLBF)
+      flush_line_buffered_before_read();
     size_t remaining = len - total;
     bool direct = remaining > bufsize;
     auto result = platform_read(get_backend(), direct ? data + total : buf,

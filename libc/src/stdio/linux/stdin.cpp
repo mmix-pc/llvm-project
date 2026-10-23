@@ -22,7 +22,7 @@ constexpr size_t STDIN_BUFFER_SIZE = 512;
 uint8_t stdin_buffer[STDIN_BUFFER_SIZE];
 static LinuxFile StdIn(0, stdin_buffer, STDIN_BUFFER_SIZE, File::AUTO_BUFFERING,
                        false, File::ModeFlags(File::OpenMode::READ),
-                       /*owns_object=*/false);
+                       /*owns_object=*/false, linux_file_close, 0);
 
 LLVM_LIBC_VARIABLE(FILE *, stdin) = reinterpret_cast<FILE *>(&StdIn);
 

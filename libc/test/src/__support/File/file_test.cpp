@@ -508,6 +508,33 @@ TEST(LlvmLibcFileTest, UngetcReturnsConvertedByte) {
   }
 }
 
+TEST(LlvmLibcFileTest, InputFlushesLineBufferedOutputAtRequiredBoundaries) {
+  const int modes[] = {_IONBF, _IOLBF, _IOFBF};
+  for (int mode : modes) {
+    char input_buffer[8], output_buffer[8];
+    auto *input =
+        new_string_file(input_buffer, sizeof(input_buffer), mode, false, "r");
+    auto *output = new_string_file(output_buffer, sizeof(output_buffer), _IOLBF,
+                                   false, "w");
+    input->reset_and_fill("abcdefgh", 8);
+    File::add_file(output);
+    ASSERT_EQ(output->write("one", 3).value, size_t(3));
+    char byte;
+    ASSERT_EQ(input->read(&byte, 1).value, size_t(1));
+    EXPECT_EQ(byte, 'a');
+    EXPECT_EQ(output->get_pos(), mode == _IOFBF ? size_t(0) : size_t(3));
+    ASSERT_EQ(output->write("two", 3).value, size_t(3));
+    ASSERT_EQ(input->read(&byte, 1).value, size_t(1));
+    EXPECT_EQ(byte, 'b');
+    // A line-buffered input satisfied from its buffer does not trigger I/O.
+    EXPECT_EQ(output->get_pos(), mode == _IONBF   ? size_t(6)
+                                 : mode == _IOLBF ? size_t(3)
+                                                  : size_t(0));
+    EXPECT_EQ(input->close(), 0);
+    EXPECT_EQ(output->close(), 0);
+  }
+}
+
 namespace {
 class ChunkedReadFile : public File {
   static FileIOResult read_chunk(File *file, void *output, size_t length) {
