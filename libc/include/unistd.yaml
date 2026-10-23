@@ -533,6 +533,7 @@ functions:
       - type: int *
       - type: int
   - name: pread
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t
@@ -542,6 +543,7 @@ functions:
       - type: size_t
       - type: off_t
   - name: pwrite
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t

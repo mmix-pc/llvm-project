@@ -340,7 +340,10 @@ class TestHeaderGenIntegration(unittest.TestCase):
 
     def test_file_wait_exception_specifications(self):
         for header, function, declaration in (
+            ("fcntl", "creat", "int creat(const char *, mode_t);"),
             ("fcntl", "fcntl", "int fcntl(int, int, ...);"),
+            ("unistd", "pread", "ssize_t pread(int, void *, size_t, off_t);"),
+            ("unistd", "pwrite", "ssize_t pwrite(int, const void *, size_t, off_t);"),
             ("unistd", "lockf", "int lockf(int, int, off_t);"),
             ("unistd", "fsync", "int fsync(int);"),
             ("sys/mman", "msync", "int msync(void *, size_t, int);"),
