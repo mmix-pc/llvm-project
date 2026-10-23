@@ -27,6 +27,21 @@
 
 using LlvmLibcFgetwsTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
+TEST_F(LlvmLibcFgetwsTest, SmallCountOrientsFreshStream) {
+  const auto path = libc_make_test_file_path("fgetws-small-orientation.test");
+  FILE *file = LIBC_NAMESPACE::fopen(path, "w+");
+  ASSERT_NE(file, nullptr);
+  EXPECT_EQ(LIBC_NAMESPACE::fwide(file, 0), 0);
+  wchar_t buffer[] = {L'!', L'?'};
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::fgetws(buffer, 1, file), buffer);
+  EXPECT_EQ(buffer[0], wchar_t(0));
+  EXPECT_EQ(buffer[1], L'?');
+  EXPECT_GT(LIBC_NAMESPACE::fwide(file, 0), 0);
+  ASSERT_ERRNO_EQ(EDOM);
+  EXPECT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+}
+
 // TODO: Refactor these tests to use standard wide-character string comparison
 // assert macros (e.g., EXPECT_STREQ for wchar_t) once they are supported
 // natively by the LLVM-libc test framework, instead of calling wcscmp.

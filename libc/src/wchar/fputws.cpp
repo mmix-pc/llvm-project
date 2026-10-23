@@ -39,7 +39,7 @@ LLVM_LIBC_FUNCTION(int, fputws,
     return -1;
   }
 
-  return static_cast<int>(result.value);
+  return 0;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

@@ -33,13 +33,18 @@ LLVM_LIBC_FUNCTION(wchar_t *, fgetws,
   LIBC_CRASH_ON_NULLPTR(stream);
 
   auto *f = reinterpret_cast<File *>(stream);
+  File::FileLock lock(f);
 
   if (count == 1) {
+    if (f->try_set_orientation_unlocked(File::Orientation::WIDE) !=
+        File::Orientation::WIDE) {
+      f->set_error_unlocked();
+      libc_errno = EINVAL;
+      return nullptr;
+    }
     ws[0] = L'\0';
     return ws;
   }
-
-  File::FileLock lock(f);
 
   wchar_t *result = ws;
   int chars_read = 0;
