@@ -26,6 +26,7 @@
 #include "src/unistd/environ.h"
 #include "src/unistd/execve.h"
 #include "src/unistd/fork.h"
+#include "src/wchar/fwide.h"
 #include "test/IntegrationTest/test.h"
 #include <fcntl.h>
 #include <signal.h>
@@ -48,6 +49,7 @@ void exited(int status, int code) {
 void reading(const char *mode) {
   ::FILE *f = LIBC_NAMESPACE::popen("printf abc; exit 7", mode);
   ASSERT_NE(f, nullptr);
+  ASSERT_TRUE(LIBC_NAMESPACE::fwide(f, 0) < 0);
   int fd = LIBC_NAMESPACE::fileno(f);
   ASSERT_TRUE(fd >= 0);
   int flags = LIBC_NAMESPACE::fcntl(fd, F_GETFD);
@@ -64,6 +66,7 @@ void writing(const char *mode) {
   ::FILE *f = LIBC_NAMESPACE::popen(
       "IFS= read -r value; test \"$value\" = payload", mode);
   ASSERT_NE(f, nullptr);
+  ASSERT_TRUE(LIBC_NAMESPACE::fwide(f, 0) < 0);
   int flags = LIBC_NAMESPACE::fcntl(LIBC_NAMESPACE::fileno(f), F_GETFD);
   ASSERT_TRUE(flags >= 0);
   ASSERT_EQ(bool(flags & FD_CLOEXEC), mode[1] == 'e');

@@ -62,6 +62,7 @@ if(LIBC_TARGET_OS STREQUAL "linux")
         libc.src.stdio.fputs
         libc.src.stdio.popen
         libc.src.stdio.pclose
+        libc.src.wchar.fwide
         libc.src.sys.resource.getrlimit
         libc.src.sys.resource.setrlimit
         libc.src.sys.wait.waitpid
