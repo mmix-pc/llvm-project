@@ -3,6 +3,12 @@ add_custom_target(libc_unistd_unittests)
 add_subdirectory(testdata)
 
 if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    mmix_fsync_test
+    SUITE libc_unistd_unittests
+    SRCS mmix_fsync_test.cpp
+    DEPENDS libc.src.errno.errno libc.src.__support.OSUtil.osutil
+  )
   foreach(name fchownat fdatasync)
     add_libc_test(
       ${name}_syscall_test
