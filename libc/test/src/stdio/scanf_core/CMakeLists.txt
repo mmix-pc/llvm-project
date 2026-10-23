@@ -50,3 +50,15 @@ add_libc_test(
   COMPILE_OPTIONS
     ${use_system_file}
 )
+
+add_libc_test(
+  va_list_test
+  FULL_BUILD_ONLY
+  SUITE libc_stdio_unittests
+  SRCS va_list_test.cpp
+  DEPENDS
+    libc.src.stdio.scanf_core.vfscanf_internal
+    libc.src.stdio.stdin
+    libc.src.stdio.fmemopen
+    libc.src.stdio.fclose
+)
