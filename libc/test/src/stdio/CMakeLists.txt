@@ -79,7 +79,10 @@ add_libc_test(
   SUITE libc_stdio_unittests
   SRCS open_memstream_alloc_test.cpp
     ${memory_stream_overlay_sources}
+    ${LIBC_SOURCE_DIR}/src/wchar/fputwc.cpp
   DEPENDS ${memory_stream_overlay_deps}
+    libc.hdr.wchar_macros
+    libc.src.__support.libc_assert
 )
 
 # Provider exceptions need the native host C++ runtime, not a target probe.

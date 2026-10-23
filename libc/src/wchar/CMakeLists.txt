@@ -1,3 +1,21 @@
+add_entrypoint_object(
+  open_wmemstream
+  SRCS open_wmemstream.cpp
+  HDRS open_wmemstream.h
+  DEPENDS
+    libc.hdr.types.FILE
+    libc.hdr.types.size_t
+    libc.hdr.types.wchar_t
+    libc.hdr.func.free
+    libc.hdr.func.malloc
+    libc.hdr.func.realloc
+    libc.src.__support.File.file
+    libc.src.__support.File.memory_file
+    libc.src.__support.alloc_checker
+    libc.src.__support.common
+    libc.src.errno.errno
+)
+
 foreach(name vswscanf vfwscanf)
   add_entrypoint_object(
     ${name}

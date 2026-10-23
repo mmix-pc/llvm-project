@@ -1,6 +1,33 @@
 add_custom_target(libc_wchar_unittests)
 
 add_libc_test(
+  open_wmemstream_test
+  SUITE libc_wchar_unittests
+  SRCS open_wmemstream_test.cpp ${LIBC_SOURCE_DIR}/src/wchar/open_wmemstream.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.func.free
+    libc.hdr.func.malloc
+    libc.hdr.func.realloc
+    libc.hdr.stdio_macros
+    libc.src.__support.File.file
+    libc.src.__support.File.memory_file
+    libc.src.__support.alloc_checker
+    libc.src.__support.common
+    libc.src.stdio.fclose
+    libc.src.stdio.fflush
+    libc.src.stdio.fgetpos
+    libc.src.stdio.fileno
+    libc.src.stdio.fseek
+    libc.src.stdio.fsetpos
+    libc.src.stdio.ftell
+    libc.src.wchar.fputwc
+    libc.src.wchar.fputws
+    libc.src.wchar.fwide
+    libc.test.UnitTest.ErrnoCheckingTest
+)
+
+add_libc_test(
   wcsftime_test
   SUITE libc_wchar_unittests
   SRCS wcsftime_test.cpp

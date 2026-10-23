@@ -62,6 +62,9 @@ public:
   using UnlockFunc = void(File *);
 
   using WriteFunc = FileIOResult(File *, const void *, size_t);
+  // Native wide sinks consume wchar_t units without locale encoding. Their
+  // seek callback also uses wide-character offsets, with no pending bytes.
+  using WideWriteFunc = FileIOResult(File *, const wchar_t *, size_t);
   using ReadFunc = FileIOResult(File *, void *, size_t);
   // The SeekFunc is expected to return the current offset of the external
   // file position indicator.
@@ -123,6 +126,7 @@ private:
   SeekFunc *platform_seek;
   CloseFunc *platform_close;
   FlushFunc *platform_flush;
+  WideWriteFunc *platform_wide_write;
   bool has_descriptor;
   bool close_on_flush_error;
 
@@ -214,9 +218,11 @@ public:
   constexpr File(WriteFunc *wf, ReadFunc *rf, SeekFunc *sf, CloseFunc *cf,
                  uint8_t *buffer, size_t buffer_size, int buffer_mode,
                  bool owned, ModeFlags modeflags, FlushFunc *ff = nullptr,
-                 bool descriptor = true, bool close_on_error = false)
+                 bool descriptor = true, bool close_on_error = false,
+                 WideWriteFunc *wwf = nullptr)
       : platform_write(wf), platform_read(rf), platform_seek(sf),
-        platform_close(cf), platform_flush(ff), has_descriptor(descriptor),
+        platform_close(cf), platform_flush(ff), platform_wide_write(wwf),
+        has_descriptor(descriptor),
         close_on_flush_error(close_on_error),
         mutex(/*timed=*/false, /*recursive=*/true,
               /*robust=*/false, /*pshared=*/false),

@@ -20,6 +20,8 @@
 #include "src/stdio/fwrite.h"
 #include "src/stdio/open_memstream.h"
 #include "src/stdio/setvbuf.h"
+#include "src/wchar/fputwc.h"
+#include "src/wchar/open_wmemstream.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 
 // Only the production memory streams participate in global flush traversal.
@@ -43,6 +45,7 @@ extern "C" void *memory_stream_test_realloc(void *pointer,
 // Parse host allocator declarations before redirecting the production call.
 #define realloc memory_stream_test_realloc
 #include "src/stdio/open_memstream.cpp"
+#include "src/wchar/open_wmemstream.cpp"
 #undef realloc
 
 using LlvmLibcMemstreamAllocTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
@@ -109,6 +112,34 @@ TEST_F(LlvmLibcMemstreamAllocTest, FailedCloseTransfersLastValidAllocation) {
   EXPECT_EQ(length, size_t(3));
   EXPECT_STREQ(memory, "abc");
   // The closed stream cannot remain in the global list after either error.
+  EXPECT_EQ(LIBC::fflush(nullptr), 0);
+  ::free(memory);
+}
+
+TEST_F(LlvmLibcMemstreamAllocTest, WideGrowthFailurePreservesPublishedStorage) {
+  wchar_t *memory;
+  size_t length;
+  FILE *f = LIBC::open_wmemstream(&memory, &length);
+  ASSERT_NE(f, nullptr);
+  ASSERT_EQ(LIBC::fputwc(L'x', f), wint_t(L'x'));
+  ASSERT_EQ(LIBC::fflush(f), 0);
+  wchar_t *saved = memory;
+  fail_reallocation = true;
+  EXPECT_EQ(LIBC::fputwc(L'y', f), wint_t(-1));
+  fail_reallocation = false;
+  ASSERT_ERRNO_EQ(ENOMEM);
+  EXPECT_NE(LIBC::ferror(f), 0);
+  EXPECT_EQ(LIBC::ftell(f), 1L);
+  EXPECT_EQ(memory, saved);
+  EXPECT_EQ(length, size_t(1));
+  EXPECT_EQ(memory[0], L'x');
+  EXPECT_EQ(memory[1], L'\0');
+  LIBC::clearerr(f);
+  ASSERT_EQ(LIBC::fputwc(L'y', f), wint_t(L'y'));
+  ASSERT_EQ(LIBC::fclose(f), 0);
+  EXPECT_EQ(length, size_t(2));
+  EXPECT_EQ(memory[1], L'y');
+  EXPECT_EQ(memory[2], L'\0');
   EXPECT_EQ(LIBC::fflush(nullptr), 0);
   ::free(memory);
 }

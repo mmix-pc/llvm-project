@@ -696,6 +696,16 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
     err = true;
     return {0, EBADF};
   }
+  if (platform_wide_write) {
+    begin_output();
+    auto result = platform_wide_write(this, ws, len);
+    if (result.has_error() || result.value != len) {
+      err = true;
+      if (!result.has_error())
+        result.error = EIO;
+    }
+    return result;
+  }
   if (bufmode != _IONBF && !wide_output) {
     size_t capacity = bufsize / sizeof(wchar_t);
     if (!capacity)

@@ -1145,3 +1145,68 @@ TEST(LlvmLibcFileTest, FileLockRAII) {
   ASSERT_EQ(f->write("def", 3).value, size_t(3));
   ASSERT_EQ(f->close(), 0);
 }
+
+namespace {
+class NativeWideFile : public File {
+  static FileIOResult byte_write(File *, const void *, size_t) {
+    return {0, EBADF};
+  }
+  static FileIOResult byte_read(File *, void *, size_t) { return {0, EBADF}; }
+  static int close_file(File *) { return 0; }
+  static ErrorOr<off_t> seek_file(File *file, off_t offset, int whence) {
+    auto *f = static_cast<NativeWideFile *>(file);
+    if (whence != SEEK_CUR || offset != 0)
+      return LIBC_NAMESPACE::Error(EINVAL);
+    return static_cast<off_t>(f->position);
+  }
+  static FileIOResult wide_write(File *file, const wchar_t *data, size_t size) {
+    auto *f = static_cast<NativeWideFile *>(file);
+    size_t count = size < f->limit ? size : f->limit;
+    for (size_t i = 0; i < count; ++i)
+      f->last = data[i];
+    f->position += count;
+    return {count, f->injected_error};
+  }
+
+public:
+  size_t position = 0;
+  size_t limit = 8;
+  wchar_t last = 0;
+  int injected_error = 0;
+
+  NativeWideFile()
+      : File(byte_write, byte_read, seek_file, close_file, nullptr, 0, _IONBF,
+             false, ModeFlags(OpenMode::WRITE), nullptr, false, false,
+             wide_write) {}
+};
+} // namespace
+
+TEST(LlvmLibcFileTest, NativeWideSinkUsesCharacterOffsetsWithoutEncoding) {
+  LocaleGuard locale;
+  NativeWideFile file;
+  const wchar_t text[] = {L'a', 0x20ac, 0x1f642};
+  auto result = file.write(text, 3);
+  ASSERT_EQ(result.error, 0);
+  EXPECT_EQ(result.value, size_t(3));
+  EXPECT_EQ(file.last, wchar_t(0x1f642));
+  EXPECT_EQ(file.tell().value(), off_t(3));
+  EXPECT_EQ(file.get_orientation(), File::Orientation::WIDE);
+  EXPECT_EQ(file.flush(), 0);
+  EXPECT_EQ(file.tell().value(), off_t(3));
+}
+
+TEST(LlvmLibcFileTest, NativeWideSinkRetainsPartialProgressAndError) {
+  LocaleGuard locale;
+  NativeWideFile file;
+  file.limit = 1;
+  auto result = file.write(L"ab", 2);
+  EXPECT_EQ(result.value, size_t(1));
+  EXPECT_EQ(result.error, EIO);
+  EXPECT_TRUE(file.error());
+  EXPECT_EQ(file.tell().value(), off_t(1));
+  file.injected_error = ENOSPC;
+  result = file.write(L"cd", 2);
+  EXPECT_EQ(result.value, size_t(1));
+  EXPECT_EQ(result.error, ENOSPC);
+  EXPECT_EQ(file.tell().value(), off_t(2));
+}
