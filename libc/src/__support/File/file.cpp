@@ -533,10 +533,13 @@ int File::flush_unlocked() {
     size_t unread =
         read_limit - pos + wide_pushback_bytes + (byte_pushback != EOF);
     if (unread > 0) {
-      if (!platform_seek(get_backend(), -static_cast<off_t>(unread), SEEK_CUR)
-               .has_value()) {
-        // We ignore seek errors for non-seekable files (like pipes) as per
-        // POSIX.
+      auto result =
+          platform_seek(get_backend(), -static_cast<off_t>(unread), SEEK_CUR);
+      // Preserve the nonseekable-stream policy, but do not discard unread
+      // input when synchronization of a seekable stream actually fails.
+      if (!result.has_value() && result.error() != ESPIPE) {
+        err = true;
+        return result.error();
       }
     }
     pos = read_limit = 0;

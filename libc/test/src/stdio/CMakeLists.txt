@@ -2,6 +2,17 @@ add_custom_target(libc_stdio_unittests)
 
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
+    input_flush_test
+    SUITE libc_stdio_unittests
+    SRCS input_flush_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.stdio_macros
+      libc.src.__support.File.file
+      libc.src.errno.errno
+      libc.src.stdio.fflush
+  )
+  add_libc_test(
     ctermid_test
     SUITE libc_stdio_unittests
     SRCS ctermid_test.cpp ${LIBC_SOURCE_DIR}/src/stdio/linux/ctermid.cpp
