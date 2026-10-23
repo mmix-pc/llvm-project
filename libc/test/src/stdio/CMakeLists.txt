@@ -799,6 +799,28 @@ add_libc_test(
     libc.test.UnitTest.ErrnoSetterMatcher
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    fgets_recovery_test
+    FULL_BUILD_ONLY
+    SUITE libc_stdio_unittests
+    SRCS fgets_recovery_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.src.__support.CPP.scope
+      libc.src.__support.libc_errno
+      libc.src.stdio.fclose
+      libc.src.stdio.fdopen
+      libc.src.stdio.feof
+      libc.src.stdio.ferror
+      libc.src.stdio.fgets
+      libc.src.unistd.close
+      libc.src.unistd.pipe2
+      libc.src.unistd.write
+  )
+endif()
+
 add_libc_test(
   ftell_test
   SUITE

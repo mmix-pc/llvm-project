@@ -33,25 +33,21 @@ LLVM_LIBC_FUNCTION(char *, fgets,
   // i is an int because it's frequently compared to count, which is also int.
   int i = 0;
 
-  // TODO: rewrite this logic. If there's an error it should return nullptr. See
-  // fgetws for example.
   for (; i < (count - 1) && c != '\n'; ++i) {
     auto result = stream->read_unlocked(&c, 1);
     size_t r = result.value;
-    if (result.has_error())
+    if (result.has_error()) {
       libc_errno = result.error;
+      return nullptr;
+    }
 
     if (r != 1)
       break;
     str[i] = c;
   }
 
-  bool has_error = stream->error_unlocked();
-  bool has_eof = stream->iseof_unlocked();
-
-  // If the requested read size makes no sense, an error occurred, or no bytes
-  // were read due to an EOF, then return nullptr and don't write the null byte.
-  if (has_error || (i == 0 && has_eof))
+  // A retained error indicator does not make this invocation fail.
+  if (i == 0 && stream->iseof_unlocked())
     return nullptr;
 
   str[i] = '\0';
