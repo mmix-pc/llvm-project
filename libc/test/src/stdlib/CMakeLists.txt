@@ -427,6 +427,18 @@ add_libc_test(
 )
 
 add_libc_test(
+  realpath_allocation_test
+  SUITE libc-stdlib-tests
+  SRCS realpath_allocation_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.func.malloc
+    libc.hdr.limits_macros
+    libc.src.errno.errno
+    libc.src.stdlib.realpath
+)
+
+add_libc_test(
   memalignment_test
   SUITE
     libc-stdlib-tests
