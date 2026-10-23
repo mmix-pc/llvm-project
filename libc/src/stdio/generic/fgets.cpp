@@ -21,6 +21,10 @@ LLVM_LIBC_FUNCTION(char *, fgets,
                     ::FILE *__restrict raw_stream)) {
   if (count < 1)
     return nullptr;
+  if (count == 1) {
+    str[0] = '\0';
+    return str;
+  }
 
   unsigned char c = '\0';
   auto stream = reinterpret_cast<LIBC_NAMESPACE::File *__restrict>(raw_stream);

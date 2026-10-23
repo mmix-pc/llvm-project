@@ -729,6 +729,7 @@ add_libc_test(
     libc.src.stdio.ferror
     libc.src.stdio.fgets
     libc.src.stdio.fopen
+    libc.src.stdio.ftell
     libc.src.stdio.fwrite
     libc.test.UnitTest.ErrnoCheckingTest
     libc.test.UnitTest.ErrnoSetterMatcher

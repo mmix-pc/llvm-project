@@ -13,6 +13,7 @@
 #include "src/stdio/fgets.h"
 #include "src/stdio/fopen.h"
 #include "src/stdio/fwrite.h"
+#include "src/stdio/ftell.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/ErrnoSetterMatcher.h"
 #include "test/UnitTest/Test.h"
@@ -20,6 +21,38 @@
 using LlvmLibcFgetsTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 using namespace LIBC_NAMESPACE::testing::ErrnoSetterMatcher;
 using LIBC_NAMESPACE::cpp::scope_exit;
+
+#ifndef LIBC_TARGET_ARCH_IS_GPU
+TEST_F(LlvmLibcFgetsTest, SmallCountsPreserveIndicatorsAndPosition) {
+  constexpr char FILENAME[] = "testdata/fgets-small.test";
+  const char *modes[] = {"w", "r"};
+  const int counts[] = {1, 0, -1};
+  for (const char *mode : modes) {
+    FILE *file = LIBC_NAMESPACE::fopen(FILENAME, mode);
+    ASSERT_NE(file, nullptr);
+    scope_exit close_file([&] { LIBC_NAMESPACE::fclose(file); });
+    char buffer[] = {'!', '?'};
+    // A write-only stream sets error; the empty readable stream sets EOF.
+    ASSERT_EQ(LIBC_NAMESPACE::fgets(buffer, 2, file), nullptr);
+    int error = LIBC_NAMESPACE::ferror(file);
+    int eof = LIBC_NAMESPACE::feof(file);
+    ASSERT_TRUE(error || eof);
+    long position = LIBC_NAMESPACE::ftell(file);
+    for (int count : counts) {
+      buffer[0] = '!';
+      LIBC_NAMESPACE::libc_errno = EDOM;
+      EXPECT_EQ(LIBC_NAMESPACE::fgets(buffer, count, file),
+                count == 1 ? buffer : nullptr);
+      EXPECT_EQ(buffer[0], count == 1 ? '\0' : '!');
+      EXPECT_EQ(buffer[1], '?');
+      ASSERT_ERRNO_EQ(EDOM);
+      EXPECT_EQ(LIBC_NAMESPACE::ferror(file), error);
+      EXPECT_EQ(LIBC_NAMESPACE::feof(file), eof);
+      EXPECT_EQ(LIBC_NAMESPACE::ftell(file), position);
+    }
+  }
+}
+#endif
 
 TEST_F(LlvmLibcFgetsTest, WriteAndReadCharacters) {
   constexpr char FILENAME[] = "testdata/fgets.test";
