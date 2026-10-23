@@ -32,13 +32,14 @@ TEST_F(LlvmLibcSwprintfTest, EmptyAndZeroCapacity) {
   LocaleGuard locale;
   wchar_t buf[] = {L'!', L'!'};
   EXPECT_EQ(swprintf(buf, 0, L""), -1);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
   EXPECT_EQ(buf[0], L'!');
   EXPECT_EQ(swprintf(buf, 1, L""), 0);
   EXPECT_EQ(buf[0], L'\0');
   EXPECT_EQ(buf[1], L'!');
   EXPECT_EQ(swprintf(buf, 1, L"x"), -1);
   EXPECT_EQ(buf[0], L'\0');
-  ASSERT_ERRNO_EQ(0);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
 }
 
 TEST_F(LlvmLibcSwprintfTest, ExactFitAndTruncation) {
@@ -50,7 +51,7 @@ TEST_F(LlvmLibcSwprintfTest, ExactFitAndTruncation) {
   EXPECT_TRUE(basic_string_view<wchar_t>(buf + 1) == L"\u4e2dX");
   EXPECT_EQ(buf[0], L'!');
   EXPECT_EQ(buf[4], L'!');
-  ASSERT_ERRNO_EQ(0);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
 }
 
 TEST_F(LlvmLibcSwprintfTest, PreservesErrno) {
@@ -58,9 +59,11 @@ TEST_F(LlvmLibcSwprintfTest, PreservesErrno) {
   wchar_t buf[4];
   LIBC_NAMESPACE::libc_errno = EDOM;
   EXPECT_EQ(swprintf(buf, 4, L"%d", 12), 2);
-  EXPECT_EQ(swprintf(buf, 4, L"longer"), -1);
-  EXPECT_EQ(swprintf(buf, 0, L""), -1);
   ASSERT_ERRNO_EQ(EDOM);
+  EXPECT_EQ(swprintf(buf, 4, L"longer"), -1);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
+  EXPECT_EQ(swprintf(buf, 0, L""), -1);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
 }
 
 TEST_F(LlvmLibcSwprintfTest, MixedConversions) {
@@ -113,6 +116,7 @@ TEST_F(LlvmLibcSwprintfTest, CharactersStringsAndCounts) {
   n = -1;
   EXPECT_EQ(swprintf(buf, 2, L"%ls%n", L"AB", &n), -1);
   EXPECT_EQ(n, -1);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
 #endif
 }
 
@@ -134,6 +138,28 @@ TEST_F(LlvmLibcSwprintfTest, CountOverflow) {
   EXPECT_EQ(swprintf(buf, 4, L"x%*ls", INT_MAX, L""), -1);
   EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"x");
   ASSERT_ERRNO_EQ(EOVERFLOW);
+}
+
+TEST_F(LlvmLibcSwprintfTest, MinimumDynamicWidthOverflows) {
+  wchar_t buf[4];
+  EXPECT_EQ(swprintf(buf, 4, L"%*ls", INT_MIN, L""), -1);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
+}
+
+TEST_F(LlvmLibcSwprintfTest, PosixAliasesAndEmptyGrouping) {
+  const bool modes[] = {false, true};
+  for (bool utf8 : modes) {
+    LocaleGuard locale(utf8);
+    wchar_t buf[64];
+    EXPECT_EQ(
+        swprintf(buf, 64, L"%C%S|%'d|%'08u", wint_t(L'A'), L"B", 1234, 1234U),
+        16);
+    EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"AB|1234|00001234");
+#ifndef LIBC_COPT_PRINTF_DISABLE_INDEX_MODE
+    EXPECT_EQ(swprintf(buf, 64, L"%2$S%1$C", wint_t(L'A'), L"B"), 2);
+    EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"BA");
+#endif
+  }
 }
 
 #ifndef LIBC_COPT_PRINTF_DISABLE_INDEX_MODE

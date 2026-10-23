@@ -141,9 +141,11 @@ public:
       } else if (internal::isdigit(str[cur_pos])) {
         auto result = internal::strtointeger<int>(str + cur_pos, 10);
         section.min_width = result.value;
+        section.width_overflow = result.error != 0;
         cur_pos = cur_pos + static_cast<size_t>(result.parsed_len);
       }
       if (section.min_width < 0) {
+        section.width_overflow = section.min_width == INT_MIN;
         section.min_width =
             (section.min_width == INT_MIN) ? INT_MAX : -section.min_width;
         section.flags = static_cast<FormatFlags>(section.flags |
@@ -183,6 +185,10 @@ public:
         // valid or invalid options.
         section.has_conv = true;
         break;
+      case ('C'):
+        section.conv_name = 'c';
+        section.length_modifier = LengthModifier::l;
+        [[fallthrough]];
       case ('c'):
         if (section.length_modifier == LengthModifier::l) {
 #ifdef LIBC_COPT_PRINTF_DISABLE_WIDE
@@ -314,6 +320,10 @@ public:
       case ('p'):
         WRITE_ARG_VAL_SIMPLEST(section.conv_val_ptr, void *, conv_index);
         break;
+      case ('S'):
+        section.conv_name = 's';
+        section.length_modifier = LengthModifier::l;
+        [[fallthrough]];
       case ('s'):
         WRITE_ARG_VAL_SIMPLEST(section.conv_val_ptr, void *, conv_index);
         break;
@@ -361,6 +371,11 @@ private:
         break;
       case '0':
         flags = static_cast<FormatFlags>(flags | FormatFlags::LEADING_ZEROES);
+        break;
+      case '\'':
+        // The supported C and C.UTF-8 locales have empty numeric grouping.
+        // FIXME: Apply locale grouping when regional numeric data is supported.
+        flags = static_cast<FormatFlags>(flags | FormatFlags::GROUP_DIGITS);
         break;
       default:
         found_flag = false;
@@ -620,6 +635,9 @@ private:
         case ('%'):
           conv_size = type_desc_from_type<void>();
           break;
+        case ('C'):
+          lm = LengthModifier::l;
+          [[fallthrough]];
         case ('c'):
           if (lm == LengthModifier::l) {
 #ifdef LIBC_COPT_PRINTF_DISABLE_WIDE
@@ -731,6 +749,7 @@ private:
 #endif // LIBC_COPT_PRINTF_DISABLE_WRITE_INT
         case ('p'):
         case ('s'):
+        case ('S'):
           conv_size = type_desc_from_type<void *>();
           break;
         default:

@@ -40,8 +40,7 @@ LLVM_LIBC_FUNCTION(int, swprintf,
   auto result = printf_core::wide_printf_main(&writer, format, args);
   if (!result.has_value()) {
     // Unlike snprintf, truncation fails without a would-have-written count.
-    if (result.error() != -printf_core::BUFFER_TOO_SMALL)
-      libc_errno = printf_core::internal_error_to_errno(result.error());
+    libc_errno = printf_core::internal_error_to_errno(result.error());
     return -1;
   }
   // WideWriter checks INT_MAX before each write.

@@ -39,6 +39,7 @@ LIBC_INLINE static int internal_error_to_errno(int internal_error) {
   case ALLOCATION_ERROR:
     return ENOMEM;
   case OVERFLOW_ERROR:
+  case BUFFER_TOO_SMALL:
     return EOVERFLOW;
   case ILLEGAL_WIDE_CHAR:
   case MB_CONVERSION_ERROR:

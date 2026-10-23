@@ -413,6 +413,45 @@ add_libc_test(
     libc.src.stdio.snprintf
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    printf_precision_test
+    SUITE libc_stdio_unittests
+    SRCS printf_precision_test.cpp
+    DEPENDS
+      libc.hdr.sys_mman_macros
+      libc.hdr.unistd_macros
+      libc.src.stdio.snprintf
+      libc.src.sys.mman.mmap
+      libc.src.sys.mman.mprotect
+      libc.src.sys.mman.munmap
+      libc.src.unistd.sysconf
+  )
+endif()
+
+if(NOT LIBC_CONF_PRINTF_DISABLE_WIDE)
+  add_libc_test(
+    printf_encoding_test
+    SUITE libc_stdio_unittests
+    SRCS printf_encoding_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.src.stdio.snprintf
+      libc.test.src.locale_guard
+      libc.test.UnitTest.ErrnoCheckingTest
+  )
+  add_libc_test(
+    printf_extensions_test
+    SUITE libc_stdio_unittests
+    SRCS printf_extensions_test.cpp
+    DEPENDS
+      libc.hdr.types.wint_t
+      libc.src.stdio.snprintf
+      libc.test.src.locale_guard
+    COMPILE_OPTIONS ${sprintf_test_copts}
+  )
+endif()
+
 if(LLVM_LIBC_FULL_BUILD)
   # In fullbuild mode, fprintf's tests use the internal FILE for other functions.
   list(APPEND fprintf_test_deps
@@ -913,6 +952,7 @@ add_libc_test(
   SUITE libc_stdio_unittests
   SRCS asprintf_allocation_test.cpp
   DEPENDS
+    libc.test.src.locale_guard
     libc.src.__support.printf_core.vasprintf_internal
     libc.src.__support.printf_core.error_mapper
     libc.src.__support.CPP.limits

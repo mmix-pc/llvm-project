@@ -174,7 +174,31 @@ TEST(LlvmLibcWidePrintfParserTest, NumericFieldOverflow) {
   evaluate(sections, L"%99999999999999999999.99999999999999999999d", 1);
   EXPECT_TRUE(sections[0].has_conv);
   EXPECT_EQ(sections[0].min_width, INT_MAX);
+  EXPECT_TRUE(sections[0].width_overflow);
   EXPECT_EQ(sections[0].precision, INT_MAX);
+}
+
+TEST(LlvmLibcWidePrintfParserTest, MinimumDynamicWidth) {
+  WideSection sections[2];
+  evaluate(sections, L"%*d", INT_MIN, 1);
+  EXPECT_TRUE(sections[0].has_conv);
+  EXPECT_TRUE(sections[0].width_overflow);
+  EXPECT_EQ(sections[0].min_width, INT_MAX);
+}
+
+TEST(LlvmLibcWidePrintfParserTest, PosixAliasesAndGrouping) {
+  WideSection sections[4];
+  const wchar_t *text = L"B";
+  evaluate(sections, L"%C%S%'d", wint_t(L'A'), text, 1234);
+  EXPECT_EQ(sections[0].conv_name, 'c');
+  EXPECT_TRUE(sections[0].length_modifier == LengthModifier::l);
+  EXPECT_EQ(sections[0].conv_val_raw, AnyFloatStorageType(L'A'));
+  EXPECT_EQ(sections[1].conv_name, 's');
+  EXPECT_TRUE(sections[1].length_modifier == LengthModifier::l);
+  EXPECT_EQ(static_cast<const void *>(sections[1].conv_val_ptr),
+            static_cast<const void *>(text));
+  EXPECT_TRUE((sections[2].flags & FormatFlags::GROUP_DIGITS) != 0);
+  EXPECT_EQ(sections[2].conv_name, 'd');
 }
 
 #ifndef LIBC_COPT_PRINTF_DISABLE_BITINT

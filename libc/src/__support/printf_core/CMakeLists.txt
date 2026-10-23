@@ -215,6 +215,7 @@ add_header_library(
   HDRS
     vasprintf_internal.h
   DEPENDS
+    libc.src.__support.CPP.limits
     libc.hdr.func.malloc
     libc.hdr.func.free
     libc.hdr.func.realloc

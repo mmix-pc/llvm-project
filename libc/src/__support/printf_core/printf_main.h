@@ -31,6 +31,8 @@ ErrorOr<size_t> printf_main_modular(Writer<write_mode> *writer,
   for (FormatSection cur_section = parser.get_next_section();
        !cur_section.raw_string.empty();
        cur_section = parser.get_next_section()) {
+    if (cur_section.has_conv && cur_section.width_overflow)
+      return Error(-OVERFLOW_ERROR);
     if (cur_section.has_conv)
       result = convert(writer, cur_section);
     else

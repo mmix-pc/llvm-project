@@ -341,6 +341,7 @@ TEST(LlvmLibcPrintfParserTest, EvalOneArgWithOverflowingWidthAndPrecision) {
   expected.raw_string = {str, 28};
   expected.flags = LIBC_NAMESPACE::printf_core::FormatFlags::LEFT_JUSTIFIED;
   expected.min_width = INT_MAX;
+  expected.width_overflow = true;
   expected.precision = INT_MAX;
   expected.conv_val_raw =
       static_cast<LIBC_NAMESPACE::fputil::FPBits<double>::StorageType>(arg1);
@@ -364,6 +365,7 @@ TEST(LlvmLibcPrintfParserTest,
   expected.raw_string = {str, 5};
   expected.flags = LIBC_NAMESPACE::printf_core::FormatFlags::LEFT_JUSTIFIED;
   expected.min_width = INT_MAX;
+  expected.width_overflow = true;
   expected.precision = arg2;
   expected.conv_val_raw =
       static_cast<LIBC_NAMESPACE::fputil::FPBits<double>::StorageType>(arg3);

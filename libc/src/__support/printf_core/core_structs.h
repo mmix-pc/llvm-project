@@ -60,9 +60,9 @@ enum FormatFlags : uint8_t {
   SPACE_PREFIX = 0x04,   // space
   ALTERNATE_FORM = 0x08, // #
   LEADING_ZEROES = 0x10, // 0
+  GROUP_DIGITS = 0x20,   // '
 
-  // These flags come from the GNU extensions which aren't yet implemented.
-  //  group_decimals = 0x20, // '
+  // This GNU extension is not implemented.
   //  locale_digits = 0x40,  // I
 };
 
@@ -76,6 +76,7 @@ template <typename CharT> struct BasicFormatSection {
   LengthModifier length_modifier = LengthModifier::none;
   size_t bit_width = 0;
   int min_width = 0;
+  bool width_overflow = false;
   int precision = -1;
 
   AnyFloatStorageType conv_val_raw;
@@ -95,8 +96,9 @@ template <typename CharT> struct BasicFormatSection {
     if (has_conv) {
       if (!((static_cast<uint8_t>(flags) ==
              static_cast<uint8_t>(other.flags)) &&
-            (min_width == other.min_width) && (precision == other.precision) &&
-            (bit_width == other.bit_width) &&
+            (min_width == other.min_width) &&
+            (width_overflow == other.width_overflow) &&
+            (precision == other.precision) && (bit_width == other.bit_width) &&
             (length_modifier == other.length_modifier) &&
             (conv_name == other.conv_name)))
         return false;

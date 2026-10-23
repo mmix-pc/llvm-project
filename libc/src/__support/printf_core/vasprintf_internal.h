@@ -12,6 +12,7 @@
 #include "hdr/func/free.h"
 #include "hdr/func/malloc.h"
 #include "hdr/func/realloc.h"
+#include "src/__support/CPP/limits.h"
 #include "src/__support/arg_list.h"
 #include "src/__support/error_or.h"
 #include "src/__support/printf_core/core_structs.h"
@@ -23,16 +24,16 @@ namespace printf_core {
 
 LIBC_INLINE int resize_overflow_hook(cpp::string_view new_str,
                                      ResizingBuffer *wb) {
+  constexpr size_t MAX_COUNT = cpp::numeric_limits<int>::max();
+  if (wb->buff_cur > MAX_COUNT || new_str.size() > MAX_COUNT - wb->buff_cur)
+    return OVERFLOW_ERROR;
   size_t new_size = new_str.size() + wb->buff_cur;
   const bool isBuffOnStack = (wb->buff == wb->init_buff);
   char *new_buff = static_cast<char *>(
       isBuffOnStack ? malloc(new_size + 1)
                     : realloc(wb->buff, new_size + 1)); // +1 for null
-  if (new_buff == nullptr) {
-    if (wb->buff != wb->init_buff)
-      free(wb->buff);
+  if (new_buff == nullptr)
     return ALLOCATION_ERROR;
-  }
   if (isBuffOnStack)
     inline_memcpy(new_buff, wb->buff, wb->buff_cur);
   wb->buff = new_buff;
@@ -43,6 +44,30 @@ LIBC_INLINE int resize_overflow_hook(cpp::string_view new_str,
 }
 
 constexpr size_t DEFAULT_BUFFER_SIZE = 200;
+
+// Keep ownership until formatting and the public return-count check succeed.
+LIBC_INLINE ErrorOr<size_t> finish_asprintf(char **ret, ResizingBuffer &wb,
+                                            ErrorOr<size_t> result) {
+  *ret = nullptr;
+  if (result.has_value() &&
+      result.value() > static_cast<size_t>(cpp::numeric_limits<int>::max()))
+    result = Error(-OVERFLOW_ERROR);
+  if (!result.has_value()) {
+    if (wb.buff != wb.init_buff)
+      free(wb.buff);
+    return result;
+  }
+  if (wb.buff == wb.init_buff) {
+    *ret = static_cast<char *>(malloc(result.value() + 1));
+    if (*ret == nullptr)
+      return Error(-ALLOCATION_ERROR);
+    inline_memcpy(*ret, wb.buff, result.value());
+  } else {
+    *ret = wb.buff;
+  }
+  (*ret)[result.value()] = '\0';
+  return result;
+}
 
 template <bool use_modular = false>
 LIBC_INLINE ErrorOr<size_t> vasprintf_internal(char **ret,
@@ -59,20 +84,7 @@ LIBC_INLINE ErrorOr<size_t> vasprintf_internal(char **ret,
     else
       return printf_core::printf_main(&writer, format, args);
   }();
-  if (!ret_val.has_value()) {
-    *ret = nullptr;
-    return ret_val;
-  }
-  if (wb.buff == init_buff_on_stack) {
-    *ret = static_cast<char *>(malloc(ret_val.value() + 1));
-    if (*ret == nullptr)
-      return Error(-ALLOCATION_ERROR);
-    inline_memcpy(*ret, wb.buff, ret_val.value());
-  } else {
-    *ret = wb.buff;
-  }
-  (*ret)[ret_val.value()] = '\0';
-  return ret_val;
+  return finish_asprintf(ret, wb, ret_val);
 }
 } // namespace printf_core
 } // namespace LIBC_NAMESPACE_DECL

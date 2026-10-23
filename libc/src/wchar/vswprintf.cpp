@@ -20,8 +20,7 @@ LLVM_LIBC_FUNCTION(int, vswprintf,
   printf_core::WideWriter writer(buffer, size);
   auto result = printf_core::wide_printf_main(&writer, format, args);
   if (!result.has_value()) {
-    if (result.error() != -printf_core::BUFFER_TOO_SMALL)
-      libc_errno = printf_core::internal_error_to_errno(result.error());
+    libc_errno = printf_core::internal_error_to_errno(result.error());
     return -1;
   }
   return static_cast<int>(result.value());

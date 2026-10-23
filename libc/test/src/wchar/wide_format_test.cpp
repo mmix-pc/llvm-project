@@ -41,6 +41,16 @@ TEST(LlvmLibcWideFormatTest, BufferAndVaList) {
   EXPECT_EQ(format(nullptr, 0, L"abcd"), -1);
 }
 
+TEST(LlvmLibcWideFormatTest, VaListTruncationReportsOverflow) {
+  wchar_t buffer[2] = {L'!', L'!'};
+  LIBC_NAMESPACE::libc_errno = 0;
+  EXPECT_EQ(format(buffer, 2, L"ab"), -1);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EOVERFLOW);
+  LIBC_NAMESPACE::libc_errno = 0;
+  EXPECT_EQ(format(buffer, 0, L""), -1);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EOVERFLOW);
+}
+
 TEST(LlvmLibcWideFormatTest, StreamOutput) {
   LocaleGuard locale;
   auto name = libc_make_test_file_path("wide-format.test");

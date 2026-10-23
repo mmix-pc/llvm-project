@@ -39,13 +39,15 @@ LIBC_INLINE int char_writer(WriterT *writer,
   }
 #endif // LIBC_COPT_PRINTF_NO_NULLPTR_CHECKS
 
-  string_len = internal::string_length(str_ptr);
+  if (to_conv.precision < 0) {
+    string_len = internal::string_length(str_ptr);
+  } else {
+    const size_t limit = static_cast<size_t>(to_conv.precision);
+    while (string_len < limit && str_ptr[string_len] != '\0')
+      ++string_len;
+  }
 
-  if (to_conv.precision >= 0 &&
-      static_cast<size_t>(to_conv.precision) < string_len)
-    string_len = to_conv.precision;
-
-  size_t padding_spaces = to_conv.min_width > static_cast<int>(string_len)
+  size_t padding_spaces = static_cast<size_t>(to_conv.min_width) > string_len
                               ? to_conv.min_width - string_len
                               : 0;
 
@@ -86,13 +88,20 @@ LIBC_INLINE int wchar_writer(Writer<write_mode> *writer,
   internal::StringConverter<char32_t> length_counter(wstr_ptr, &mbstate,
                                                      precision);
 
-  for (auto converted = length_counter.pop<char8_t>();
-       converted.has_value() && converted.value() != '\0';
-       converted = length_counter.pop<char8_t>()) {
+  for (;;) {
+    auto converted = length_counter.pop<char8_t>();
+    if (!converted.has_value()) {
+      // -1 denotes the precision boundary, not an invalid character.
+      if (converted.error() != -1)
+        return MB_CONVERSION_ERROR;
+      break;
+    }
+    if (converted.value() == '\0')
+      break;
     ++string_len;
   }
 
-  size_t padding_spaces = to_conv.min_width > static_cast<int>(string_len)
+  size_t padding_spaces = static_cast<size_t>(to_conv.min_width) > string_len
                               ? to_conv.min_width - string_len
                               : 0;
 
@@ -105,9 +114,10 @@ LIBC_INLINE int wchar_writer(Writer<write_mode> *writer,
   mbstate = internal::mbstate();
   internal::StringConverter<char32_t> out_conv(wstr_ptr, &mbstate, precision);
 
-  for (auto converted = out_conv.pop<char8_t>();
-       converted.has_value() && converted.value() != '\0';
-       converted = out_conv.pop<char8_t>()) {
+  for (size_t i = 0; i < string_len; ++i) {
+    auto converted = out_conv.pop<char8_t>();
+    if (!converted.has_value())
+      return MB_CONVERSION_ERROR;
     RET_IF_RESULT_NEGATIVE(writer->write(static_cast<char>(converted.value())));
   }
 

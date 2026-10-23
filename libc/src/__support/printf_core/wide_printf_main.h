@@ -25,6 +25,8 @@ LIBC_INLINE ErrorOr<size_t> wide_printf_main(WideWriter *writer,
   Parser<internal::ArgList, wchar_t> parser(format, args);
   for (auto section = parser.get_next_section(); !section.raw_string.empty();
        section = parser.get_next_section()) {
+    if (section.has_conv && section.width_overflow)
+      return Error(-OVERFLOW_ERROR);
     int result = convert_wide(writer, section);
     if (result < 0)
       return Error(-result);

@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/stdio/asprintf.h"
-#include "src/__support/CPP/limits.h"
 #include "src/__support/arg_list.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
@@ -36,12 +35,6 @@ LLVM_LIBC_FUNCTION(int, asprintf,
     libc_errno = printf_core::internal_error_to_errno(ret_val.error());
     return -1;
   }
-  if (ret_val.value() > static_cast<size_t>(cpp::numeric_limits<int>::max())) {
-    libc_errno =
-        printf_core::internal_error_to_errno(-printf_core::OVERFLOW_ERROR);
-    return -1;
-  }
-
   return static_cast<int>(ret_val.value());
 }
 
