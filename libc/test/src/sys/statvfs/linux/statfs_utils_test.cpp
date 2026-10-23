@@ -53,3 +53,25 @@ TEST(LlvmLibcStatfsUtilsTest, MountFlags) {
   EXPECT_EQ(LIBC_NAMESPACE::statfs_utils::statfs_to_statvfs(input).f_flag,
             0x3fdfUL);
 }
+
+TEST(LlvmLibcStatfsUtilsTest, FragmentUnitsAndIndependentCounts) {
+  struct statfs input{};
+  input.f_bsize = 4096;
+  input.f_frsize = 1024;
+  input.f_blocks = 12345;
+  input.f_bfree = 2345;
+  input.f_bavail = 345;
+  input.f_files = 6789;
+  input.f_ffree = 789;
+  input.f_namelen = 255;
+  auto output = LIBC_NAMESPACE::statfs_utils::statfs_to_statvfs(input);
+  EXPECT_EQ(output.f_bsize, 4096UL);
+  EXPECT_EQ(output.f_frsize, 1024UL);
+  EXPECT_EQ(output.f_blocks, static_cast<decltype(output.f_blocks)>(12345));
+  EXPECT_EQ(output.f_bfree, static_cast<decltype(output.f_bfree)>(2345));
+  EXPECT_EQ(output.f_bavail, static_cast<decltype(output.f_bavail)>(345));
+  EXPECT_EQ(output.f_files, static_cast<decltype(output.f_files)>(6789));
+  EXPECT_EQ(output.f_ffree, static_cast<decltype(output.f_ffree)>(789));
+  EXPECT_EQ(output.f_favail, static_cast<decltype(output.f_favail)>(789));
+  EXPECT_EQ(output.f_namemax, 255UL);
+}
