@@ -342,6 +342,7 @@ class TestHeaderGenIntegration(unittest.TestCase):
         for header, function, declaration in (
             ("fcntl", "fcntl", "int fcntl(int, int, ...);"),
             ("unistd", "lockf", "int lockf(int, int, off_t);"),
+            ("unistd", "fsync", "int fsync(int);"),
             ("sys/mman", "msync", "int msync(void *, size_t, int);"),
         ):
             with self.subTest(function=function):

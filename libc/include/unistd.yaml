@@ -371,6 +371,7 @@ functions:
     arguments:
       - type: void
   - name: fsync
+    noexcept: false
     standards:
       - posix
     return_type: int
