@@ -18,6 +18,7 @@ set(MMIX_WIDE_ENTRYPOINTS
   libc.src.wchar.fgetws
   libc.src.wchar.fputws
   libc.src.wchar.fwide
+  libc.src.wchar.open_wmemstream
   libc.src.wchar.getwchar
   libc.src.wchar.putwc
   libc.src.wchar.putwchar

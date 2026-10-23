@@ -22,6 +22,8 @@ set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio.stdout
   libc.src.stdio.stderr
   libc.src.stdio.fopen
+  libc.src.stdio.ctermid
+  libc.src.stdio.ftrylockfile
   libc.src.stdio.fmemopen
   libc.src.stdio.open_memstream
   libc.src.stdio.fdopen
