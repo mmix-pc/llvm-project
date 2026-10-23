@@ -466,6 +466,31 @@ TEST(LlvmLibcFileTest, AppendUpdate) {
   ASSERT_EQ(f->close(), 0);
 }
 
+TEST(LlvmLibcFileTest, UngetcPreservesErrorIndicator) {
+  const int modes[] = {_IOFBF, _IONBF};
+  for (int mode : modes) {
+    char buffer[8];
+    StringFile *f = new_string_file(buffer, sizeof(buffer), mode, false, "r");
+    char input;
+    ASSERT_EQ(f->read(&input, 1).value, size_t(0));
+    ASSERT_TRUE(f->iseof());
+    f->set_error_unlocked();
+    EXPECT_EQ(f->ungetc(EOF), EOF);
+    EXPECT_TRUE(f->error());
+    EXPECT_TRUE(f->iseof());
+
+    ASSERT_EQ(f->ungetc('x'), int('x'));
+    EXPECT_TRUE(f->error());
+    EXPECT_FALSE(f->iseof());
+    ASSERT_EQ(f->read(&input, 1).value, size_t(1));
+    EXPECT_EQ(input, 'x');
+    EXPECT_TRUE(f->error());
+    f->clearerr();
+    EXPECT_FALSE(f->error());
+    EXPECT_EQ(f->close(), 0);
+  }
+}
+
 TEST(LlvmLibcFileTest, SmallBuffer) {
   LocaleGuard locale;
   const char WRITE_DATA[] = "small buffer";

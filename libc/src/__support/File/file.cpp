@@ -401,7 +401,6 @@ int File::ungetc_unlocked(int c) {
   }
 
   eof = false; // There is atleast one character that can be read now.
-  err = false; // This operation was a success.
   prev_op = FileOp::READ;
   return c;
 }
