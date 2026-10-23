@@ -158,6 +158,7 @@ add_generic_entrypoint_object(
   HDRS
     ../ftell.h
   DEPENDS
+    libc.src.__support.CPP.limits
     libc.src.errno.errno
     libc.src.__support.File.file
     libc.src.__support.File.platform_file

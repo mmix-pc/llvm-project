@@ -8,6 +8,7 @@
 
 #include "hdr/types/size_t.h"
 #include "hdr/wchar_macros.h"
+#include "src/__support/CPP/limits.h"
 #include "src/__support/CPP/new.h"
 #include "src/__support/File/file.h"
 #include "src/__support/alloc-checker.h"
@@ -489,6 +490,80 @@ TEST(LlvmLibcFileTest, UngetcPreservesErrorIndicator) {
     EXPECT_FALSE(f->error());
     EXPECT_EQ(f->close(), 0);
   }
+}
+
+TEST(LlvmLibcFileTest, PushbackAfterSuccessfulOutputFlush) {
+  const int modes[] = {_IOFBF, _IONBF};
+  for (int mode : modes) {
+    char buffer[16];
+    auto *file = new_string_file(buffer, sizeof(buffer), mode, false, "w+");
+    ASSERT_EQ(file->write("a", 1).value, size_t(1));
+    ASSERT_EQ(file->flush(), 0);
+    ASSERT_EQ(file->ungetc('x'), int('x'));
+    char c;
+    EXPECT_EQ(file->read(&c, 1).value, size_t(1));
+    EXPECT_EQ(c, 'x');
+    EXPECT_EQ(file->tell().value(), off_t(1));
+    EXPECT_EQ(file->get_str()[0], 'a');
+    EXPECT_EQ(file->close(), 0);
+
+    file = new_string_file(buffer, sizeof(buffer), mode, false, "w+");
+    ASSERT_EQ(file->write(L"a", 1).value, size_t(1));
+    ASSERT_EQ(file->flush(), 0);
+    ASSERT_EQ(file->ungetwc(L'x').value(), wint_t(L'x'));
+    wchar_t wc;
+    EXPECT_EQ(file->read(&wc, 1).value, size_t(1));
+    EXPECT_EQ(wc, L'x');
+    EXPECT_EQ(file->tell().value(), off_t(1));
+    EXPECT_EQ(file->get_str()[0], 'a');
+    EXPECT_EQ(file->close(), 0);
+  }
+}
+
+class LimitPositionFile : public File {
+  uint8_t storage[16];
+  off_t offset;
+  static ErrorOr<off_t> seek_at_limit(File *file, off_t, int) {
+    return static_cast<LimitPositionFile *>(file)->offset;
+  }
+  static FileIOResult supply(File *, void *ptr, size_t size) {
+    auto *bytes = static_cast<unsigned char *>(ptr);
+    for (size_t i = 0; i != size; ++i)
+      bytes[i] = 'a';
+    return size;
+  }
+  static FileIOResult sink(File *, const void *, size_t size) { return size; }
+  static int retire(File *) { return 0; }
+
+public:
+  explicit LimitPositionFile(off_t where)
+      : File(sink, supply, seek_at_limit, retire, storage, sizeof(storage),
+             _IOFBF, false, mode_flags("r+")),
+        offset(where) {}
+};
+
+TEST(LlvmLibcFileTest, BufferedPositionOverflow) {
+  constexpr off_t MAX = LIBC_NAMESPACE::cpp::numeric_limits<off_t>::max();
+  constexpr off_t MIN = LIBC_NAMESPACE::cpp::numeric_limits<off_t>::min();
+  LimitPositionFile byte(MAX - 1);
+  ASSERT_EQ(byte.write("abc", 3).value, size_t(3));
+  EXPECT_EQ(byte.tell().error(), EOVERFLOW);
+  EXPECT_EQ(byte.get_position().error(), EOVERFLOW);
+  LimitPositionFile wide(MAX - 1);
+  ASSERT_EQ(wide.write(L"abc", 3).value, size_t(3));
+  EXPECT_EQ(wide.tell().error(), EOVERFLOW);
+  EXPECT_EQ(wide.get_position().error(), EOVERFLOW);
+
+  LimitPositionFile input(16);
+  char c;
+  ASSERT_EQ(input.read(&c, 1).value, size_t(1));
+  EXPECT_EQ(input.tell().value(), off_t(1));
+  EXPECT_EQ(input.File::seek(MIN, SEEK_CUR).error(), EOVERFLOW);
+  // Failed arithmetic must not discard the unread buffer.
+  EXPECT_EQ(input.tell().value(), off_t(1));
+  EXPECT_EQ(byte.close(), 0);
+  EXPECT_EQ(wide.close(), 0);
+  EXPECT_EQ(input.close(), 0);
 }
 
 TEST(LlvmLibcFileTest, UngetcReturnsConvertedByte) {

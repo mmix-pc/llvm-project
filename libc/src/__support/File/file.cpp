@@ -440,9 +440,9 @@ int File::ungetc_unlocked(int c) {
   // There is no meaning to unget if:
   // 1. You are trying to push back EOF.
   // 2. Read operations are not allowed on this file.
-  // 3. The previous operation was a write operation.
-  if (c == EOF || !read_allowed() || (prev_op == FileOp::WRITE) ||
-      byte_pushback != EOF)
+  // 3. Pending output has not been synchronized.
+  if (c == EOF || !read_allowed() ||
+      (prev_op == FileOp::WRITE && (pos || wide_size)) || byte_pushback != EOF)
     return EOF;
 
   switch (orientation) {
@@ -501,7 +501,10 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
     // More data could have been read out from the platform file than was
     // required. So, we have to adjust the offset we pass to platform seek
     // function. Note that read_limit >= pos is always true.
-    offset -= (read_limit - pos) + wide_pushback_bytes + (byte_pushback != EOF);
+    if (__builtin_sub_overflow(offset, read_limit - pos, &offset) ||
+        __builtin_sub_overflow(offset, wide_pushback_bytes, &offset) ||
+        __builtin_sub_overflow(offset, byte_pushback != EOF, &offset))
+      return Error(EOVERFLOW);
   }
   auto result = platform_seek(get_backend(), offset, whence);
   if (!result.has_value())
@@ -532,14 +535,23 @@ ErrorOr<off_t> File::tell_unlocked() {
                          ? SEEK_END
                          : SEEK_CUR;
   auto result = platform_seek(get_backend(), 0, seek_target);
-  if (!result.has_value() || result.value() < 0)
+  if (!result.has_value())
     return Error(result.error());
   off_t platform_offset = result.value();
-  if (prev_op == FileOp::READ)
-    return platform_offset - (read_limit - pos) - wide_pushback_bytes -
-           (byte_pushback != EOF);
-  if (prev_op == FileOp::WRITE)
-    return platform_offset + pos + pending_wide_bytes();
+  if (prev_op == FileOp::READ) {
+    if (__builtin_sub_overflow(platform_offset, read_limit - pos,
+                               &platform_offset) ||
+        __builtin_sub_overflow(platform_offset, wide_pushback_bytes,
+                               &platform_offset) ||
+        __builtin_sub_overflow(platform_offset, byte_pushback != EOF,
+                               &platform_offset))
+      return Error(EOVERFLOW);
+  } else if (prev_op == FileOp::WRITE) {
+    if (__builtin_add_overflow(platform_offset, pos, &platform_offset) ||
+        __builtin_add_overflow(platform_offset, pending_wide_bytes(),
+                               &platform_offset))
+      return Error(EOVERFLOW);
+  }
   return platform_offset;
 }
 
@@ -894,8 +906,9 @@ ErrorOr<wint_t> File::ungetwc_unlocked(wint_t wc) {
   // There is no meaning to unget if:
   // 1. You are trying to push back EOF.
   // 2. Read operations are not allowed on this file.
-  // 3. The previous operation was a write operation.
-  if (wc == WEOF || !read_allowed() || (prev_op == FileOp::WRITE))
+  // 3. Pending output has not been synchronized.
+  if (wc == WEOF || !read_allowed() ||
+      (prev_op == FileOp::WRITE && (pos || wide_size)))
     return WEOF;
   switch (orientation) {
   case Orientation::BYTE:

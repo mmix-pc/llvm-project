@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/stdio/ftell.h"
+#include "src/__support/CPP/limits.h"
 #include "src/__support/File/file.h"
 
 #include "src/__support/libc_errno.h"
@@ -20,10 +21,11 @@ LLVM_LIBC_FUNCTION(long, ftell, (::FILE * stream)) {
     libc_errno = result.error();
     return -1;
   }
-  // tell() returns an off_t (64-bit signed integer), but this function returns
-  // a long (32-bit signed integer in 32-bit systems). We add a cast here to
-  // silence a "implicit conversion loses integer precision" warning when
-  // compiling for 32-bit systems.
+  if (result.value() > cpp::numeric_limits<long>::max() ||
+      result.value() < cpp::numeric_limits<long>::min()) {
+    libc_errno = EOVERFLOW;
+    return -1;
+  }
   return static_cast<long>(result.value());
 }
 
