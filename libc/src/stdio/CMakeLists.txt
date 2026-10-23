@@ -23,6 +23,8 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/generic)
 
+add_stdio_entrypoint_object(ctermid)
+
 if(NOT LLVM_LIBC_FULL_BUILD)
   set(use_system_file "COMPILE_OPTIONS")
   libc_add_definition(use_system_file "LIBC_COPT_STDIO_USE_SYSTEM_FILE")

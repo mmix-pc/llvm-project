@@ -1,5 +1,19 @@
 add_custom_target(libc_stdio_unittests)
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    ctermid_test
+    SUITE libc_stdio_unittests
+    SRCS ctermid_test.cpp ${LIBC_SOURCE_DIR}/src/stdio/linux/ctermid.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.stdio_macros
+      libc.src.__support.common
+      libc.src.string.memory_utils.inline_memcpy
+      libc.test.UnitTest.ErrnoCheckingTest
+  )
+endif()
+
 set(memory_stream_test_deps
   libc.hdr.errno_macros
   libc.hdr.stdio_macros

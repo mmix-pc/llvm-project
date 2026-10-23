@@ -1,3 +1,13 @@
+add_entrypoint_object(
+  ctermid
+  SRCS ctermid.cpp
+  HDRS ../ctermid.h
+  DEPENDS
+    libc.hdr.stdio_macros
+    libc.src.__support.common
+    libc.src.string.memory_utils.inline_memcpy
+)
+
 # The spawn providers used by pipe streams are only built with the full libc.
 if(LLVM_LIBC_FULL_BUILD)
   set(pipe_process_source pipe_process.cpp)
