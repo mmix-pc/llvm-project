@@ -82,15 +82,18 @@ class WideMemoryFile final : public File {
   static int close(File *file) {
     auto *f = static_cast<WideMemoryFile *>(file);
     flush(f);
-    delete f;
     return 0;
+  }
+
+  static void destroy(File *file) {
+    delete static_cast<WideMemoryFile *>(file);
   }
 
 public:
   WideMemoryFile(wchar_t **output, size_t *size, wchar_t *memory)
       : File(write_bytes, read_bytes, seek, close, nullptr, 0, _IONBF, false,
              ModeFlags(OpenMode::WRITE), flush, /*descriptor=*/false,
-             /*close_on_error=*/true, write_wide),
+             /*close_on_error=*/true, write_wide, destroy),
         output(output), output_size(size), memory(memory) {
     try_set_orientation_unlocked(Orientation::WIDE);
     flush(this);

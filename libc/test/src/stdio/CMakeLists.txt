@@ -182,6 +182,36 @@ add_libc_test(
     libc.test.UnitTest.ErrnoSetterMatcher
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    memory_reopen_test
+    SUITE libc_stdio_unittests
+    SRCS memory_reopen_test.cpp ${LIBC_SOURCE_DIR}/src/wchar/open_wmemstream.cpp
+    DEPENDS
+      libc.hdr.func.free
+      libc.hdr.func.malloc
+      libc.hdr.func.realloc
+      libc.src.__support.File.file
+      libc.src.__support.File.memory_file
+      libc.src.__support.alloc_checker
+      libc.src.__support.common
+      libc.src.stdio.fclose
+      libc.src.stdio.fflush
+      libc.src.stdio.fileno
+      libc.src.stdio.flockfile
+      libc.src.stdio.fmemopen
+      libc.src.stdio.fread
+      libc.src.stdio.freopen
+      libc.src.stdio.ftell
+      libc.src.stdio.funlockfile
+      libc.src.stdio.fwrite
+      libc.src.stdio.open_memstream
+      libc.src.wchar.fputws
+      libc.src.wchar.fwide
+      libc.test.UnitTest.ErrnoCheckingTest
+  )
+endif()
+
 add_libc_test(
   fileop_test
   SUITE

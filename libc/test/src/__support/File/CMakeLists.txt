@@ -83,11 +83,19 @@ if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
     SRCS
       linux_file_allocation_test.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/generic/freopen.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/fmemopen.cpp
     DEPENDS
       libc.src.errno.errno
+      libc.hdr.func.free
+      libc.hdr.func.malloc
       libc.src.__support.CPP.new
       libc.src.__support.File.file
+      libc.src.__support.File.memory_file
       libc.src.__support.File.platform_file
+      libc.src.__support.alloc_checker
+      libc.src.__support.common
+      libc.src.string.memory_utils.inline_memcpy
+      libc.src.string.memory_utils.inline_memset
     LINK_LIBRARIES
       "-Wl,--wrap=malloc"
       "-Wl,--wrap=free"

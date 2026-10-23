@@ -331,7 +331,7 @@ int get_fileno(File *f) {
     libc_errno = EBADF;
     return -1;
   }
-  auto *lf = reinterpret_cast<LinuxFile *>(f);
+  auto *lf = reinterpret_cast<LinuxFile *>(f->get_backend());
   return lf->get_fd();
 }
 
@@ -341,10 +341,41 @@ int reopenfile(File *f, const char *path, const char *mode) {
 }
 
 int reopenfile_unlocked(File *f, const char *path, const char *mode) {
-  if (!f->has_file_descriptor())
+  if (f->has_file_descriptor()) {
+    auto *lf = reinterpret_cast<LinuxFile *>(f->get_backend());
+    if (f != lf)
+      f->flush_unlocked();
+    int error = lf->reopen_unlocked(path, mode);
+    if (f != lf)
+      f->install_backend_unlocked(lf);
+    return error;
+  }
+  if (!path) {
+    f->flush_unlocked();
     return EBADF;
-  auto *lf = reinterpret_cast<LinuxFile *>(f);
-  return lf->reopen_unlocked(path, mode);
+  }
+  if (!f->release_backend_unlocked())
+    return EBADF;
+
+  auto flags = File::mode_flags(mode);
+  if (!flags)
+    return EINVAL;
+  constexpr mode_t OPEN_MODE =
+      S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
+  auto fd = linux_file_open(path, mode_flags_to_open_flags(flags), OPEN_MODE);
+  if (!fd)
+    return fd.error();
+  // The public File retains its buffer and registry position. This object is
+  // only the backend context; publishing it would cause duplicate flushing.
+  AllocChecker ac;
+  auto *backend = new (ac) LinuxFile(fd.value(), nullptr, 0, _IONBF, false,
+                                    flags, true, linux_file_close, true);
+  if (!ac) {
+    linux_syscalls::close(fd.value());
+    return ENOMEM;
+  }
+  f->install_backend_unlocked(backend);
+  return 0;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

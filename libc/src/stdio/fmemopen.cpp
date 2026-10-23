@@ -86,14 +86,18 @@ class FixedMemoryFile final : public File {
     auto *f = static_cast<FixedMemoryFile *>(file);
     if (f->owns_memory)
       ::free(f->memory);
-    delete f;
     return 0;
+  }
+
+  static void destroy(File *file) {
+    delete static_cast<FixedMemoryFile *>(file);
   }
 
 public:
   FixedMemoryFile(char *memory, size_t size, ModeFlags mode, bool owned)
       : File(write, read, seek, close, staging, sizeof(staging), _IOFBF, false,
-             mode, flush, /*descriptor=*/false, /*close_on_error=*/true),
+             mode, flush, /*descriptor=*/false, /*close_on_error=*/true,
+             /*wwf=*/nullptr, destroy),
         memory(memory), capacity(size), owns_memory(owned),
         append(mode & ModeFlags(OpenMode::APPEND)) {
     if (mode & ModeFlags(OpenMode::READ))

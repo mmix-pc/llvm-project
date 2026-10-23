@@ -70,6 +70,9 @@ public:
   // file position indicator.
   using SeekFunc = ErrorOr<off_t>(File *, off_t, int);
   using CloseFunc = int(File *);
+  // Optional separate object lifetime for backends which can be replaced.
+  // When provided, CloseFunc releases only the association, not this object.
+  using DestroyFunc = void(File *);
   // Runs under the stream lock after buffered I/O has been synchronized.
   using FlushFunc = int(File *);
 
@@ -127,6 +130,8 @@ private:
   CloseFunc *platform_close;
   FlushFunc *platform_flush;
   WideWriteFunc *platform_wide_write;
+  DestroyFunc *destroy_object;
+  File *backend = nullptr;
   bool has_descriptor;
   bool close_on_flush_error;
 
@@ -219,10 +224,10 @@ public:
                  uint8_t *buffer, size_t buffer_size, int buffer_mode,
                  bool owned, ModeFlags modeflags, FlushFunc *ff = nullptr,
                  bool descriptor = true, bool close_on_error = false,
-                 WideWriteFunc *wwf = nullptr)
+                 WideWriteFunc *wwf = nullptr, DestroyFunc *df = nullptr)
       : platform_write(wf), platform_read(rf), platform_seek(sf),
         platform_close(cf), platform_flush(ff), platform_wide_write(wwf),
-        has_descriptor(descriptor),
+        destroy_object(df), has_descriptor(descriptor),
         close_on_flush_error(close_on_error),
         mutex(/*timed=*/false, /*recursive=*/true,
               /*robust=*/false, /*pshared=*/false),
@@ -340,7 +345,12 @@ public:
     // Hence, we call platform_close after releasing
     // the file lock. Another thread doing file operations while a thread is
     // closing the file is undefined behavior as per POSIX.
-    int close_error = platform_close(this);
+    // A replacement backend may be destroyed by close; the original storage
+    // survives until its separate destroy callback runs.
+    auto *destroy = destroy_object;
+    int close_error = platform_close(get_backend());
+    if (destroy)
+      destroy(this);
     return flush_error ? flush_error : close_error;
   }
 
@@ -408,6 +418,16 @@ public:
     return mutex.rebind_owner_after_fork(previous, survivor);
   }
   bool has_file_descriptor() const { return has_descriptor; }
+
+  File *get_backend() { return backend ? backend : this; }
+
+  // Replacing an association retains this object's address, mutex, buffering
+  // storage and registry entry. The caller holds the stream lock. Replacement
+  // backends must be unpublished, own no generic File buffering storage, and
+  // release their object from CloseFunc. Only objects with DestroyFunc can
+  // replace their backend.
+  bool release_backend_unlocked();
+  void install_backend_unlocked(File *replacement);
 
   bool error_unlocked() const { return err; }
   void set_error_unlocked() { err = true; }

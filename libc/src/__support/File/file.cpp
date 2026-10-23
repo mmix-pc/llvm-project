@@ -56,6 +56,35 @@ File *File::get_first_file() { return File::list_all; }
 void File::lock_list() { File::list_lock.lock(); }
 void File::unlock_list() { File::list_lock.unlock(); }
 
+bool File::release_backend_unlocked() {
+  if (!destroy_object)
+    return false;
+  flush_unlocked();
+  platform_close(get_backend());
+  backend = nullptr;
+  // A failed replacement still needs to destroy the original object, without
+  // closing or publishing the old association a second time.
+  platform_close = [](File *) { return 0; };
+  platform_flush = nullptr;
+  platform_wide_write = nullptr;
+  has_descriptor = false;
+  reset_stream_state_unlocked(0);
+  return true;
+}
+
+void File::install_backend_unlocked(File *replacement) {
+  backend = replacement;
+  platform_write = replacement->platform_write;
+  platform_read = replacement->platform_read;
+  platform_seek = replacement->platform_seek;
+  platform_close = replacement->platform_close;
+  platform_flush = replacement->platform_flush;
+  platform_wide_write = replacement->platform_wide_write;
+  has_descriptor = replacement->has_descriptor;
+  close_on_flush_error = replacement->close_on_flush_error;
+  reset_stream_state_unlocked(replacement->mode);
+}
+
 FileIOResult File::write_unlocked(const void *data, size_t len) {
   switch (orientation) {
   case Orientation::WIDE:
@@ -104,7 +133,7 @@ FileIOResult File::write_unlocked_nbf(const uint8_t *data, size_t len) {
     }
   }
 
-  FileIOResult write_result = platform_write(this, data, len);
+  FileIOResult write_result = platform_write(get_backend(), data, len);
   if (write_result.has_error() || write_result < len)
     err = true;
   return write_result;
@@ -149,7 +178,7 @@ FileIOResult File::write_unlocked_fbf(const uint8_t *data, size_t len) {
   // is full.
   const size_t write_size = pos;
 
-  FileIOResult buf_result = platform_write(this, buf, write_size);
+  FileIOResult buf_result = platform_write(get_backend(), buf, write_size);
   size_t bytes_written = buf_result.value;
 
   // If less bytes were written than expected, then an error occurred. Return
@@ -175,7 +204,7 @@ FileIOResult File::write_unlocked_fbf(const uint8_t *data, size_t len) {
   } else {
 
     FileIOResult result =
-        platform_write(this, remainder.data(), remainder.size());
+        platform_write(get_backend(), remainder.data(), remainder.size());
     bytes_written = result.value;
 
     // If less bytes were written than expected, then an error occurred. Return
@@ -306,7 +335,7 @@ FileIOResult File::read_unlocked_fbf(uint8_t *data, size_t len) {
                              to_fetch);
 
   if (to_fetch > bufsize) {
-    FileIOResult result = platform_read(this, dataref.data(), to_fetch);
+    FileIOResult result = platform_read(get_backend(), dataref.data(), to_fetch);
     size_t fetched_size = result.value;
     if (result.has_error() || fetched_size < to_fetch) {
       if (!result.has_error())
@@ -319,7 +348,7 @@ FileIOResult File::read_unlocked_fbf(uint8_t *data, size_t len) {
   }
 
   // Fetch and buffer another buffer worth of data.
-  FileIOResult result = platform_read(this, buf, bufsize);
+  FileIOResult result = platform_read(get_backend(), buf, bufsize);
   size_t fetched_size = result.value;
   read_limit += fetched_size;
   size_t transfer_size = fetched_size >= to_fetch ? to_fetch : fetched_size;
@@ -343,7 +372,8 @@ FileIOResult File::read_unlocked_nbf(uint8_t *data, size_t len) {
   // Directly copy the data into |data|.
   cpp::span<uint8_t> dataref(static_cast<uint8_t *>(data) + available_data,
                              len - available_data);
-  FileIOResult result = platform_read(this, dataref.data(), dataref.size());
+  FileIOResult result =
+      platform_read(get_backend(), dataref.data(), dataref.size());
 
   if (result.has_error() || result < dataref.size()) {
     if (!result.has_error())
@@ -421,7 +451,7 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
     // function. Note that read_limit >= pos is always true.
     offset -= (read_limit - pos) + wide_pushback_bytes + (byte_pushback != EOF);
   }
-  auto result = platform_seek(this, offset, whence);
+  auto result = platform_seek(get_backend(), offset, whence);
   if (!result.has_value())
     return Error(result.error());
 
@@ -449,7 +479,7 @@ ErrorOr<off_t> File::tell_unlocked() {
                              (mode & ModeFlags(OpenMode::APPEND))
                          ? SEEK_END
                          : SEEK_CUR;
-  auto result = platform_seek(this, 0, seek_target);
+  auto result = platform_seek(get_backend(), 0, seek_target);
   if (!result.has_value() || result.value() < 0)
     return Error(result.error());
   off_t platform_offset = result.value();
@@ -484,7 +514,7 @@ int File::flush_unlocked() {
       return error;
   }
   if (prev_op == FileOp::WRITE && pos > 0) {
-    FileIOResult buf_result = platform_write(this, buf, pos);
+    FileIOResult buf_result = platform_write(get_backend(), buf, pos);
     const size_t consumed = buf_result.value < pos ? buf_result.value : pos;
     for (size_t i = consumed; i < pos; ++i)
       buf[i - consumed] = buf[i];
@@ -497,7 +527,7 @@ int File::flush_unlocked() {
     size_t unread =
         read_limit - pos + wide_pushback_bytes + (byte_pushback != EOF);
     if (unread > 0) {
-      if (!platform_seek(this, -static_cast<off_t>(unread), SEEK_CUR)
+      if (!platform_seek(get_backend(), -static_cast<off_t>(unread), SEEK_CUR)
                .has_value()) {
         // We ignore seek errors for non-seekable files (like pipes) as per
         // POSIX.
@@ -509,7 +539,7 @@ int File::flush_unlocked() {
     mbstate = internal::mbstate();
   }
   if (platform_flush) {
-    int error = platform_flush(this);
+    int error = platform_flush(get_backend());
     if (error)
       err = true;
     return error;
@@ -658,7 +688,7 @@ int File::flush_wide_unlocked() {
       length += size - skip;
       ends[characters++] = length;
     }
-    auto result = platform_write(this, bytes, length);
+    auto result = platform_write(get_backend(), bytes, length);
     size_t consumed = result.value < length ? result.value : length;
     size_t complete = 0;
     while (complete < characters && ends[complete] <= consumed)
@@ -698,7 +728,7 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
   }
   if (platform_wide_write) {
     begin_output();
-    auto result = platform_wide_write(this, ws, len);
+    auto result = platform_wide_write(get_backend(), ws, len);
     if (result.has_error() || result.value != len) {
       err = true;
       if (!result.has_error())

@@ -8,6 +8,7 @@
 
 #include "src/__support/File/linux/file.h"
 #include "src/__support/libc_errno.h"
+#include "src/stdio/fmemopen.h"
 #include "src/stdio/freopen.h"
 #include "test/UnitTest/Test.h"
 #include <errno.h>
@@ -377,4 +378,45 @@ TEST(LlvmLibcLinuxFileAllocationTest, ReopenNeedsNoSpareDescriptor) {
   EXPECT_EQ(LIBC_NAMESPACE::get_fileno(file), fd);
   EXPECT_EQ(::fcntl(fd, F_GETFD) & FD_CLOEXEC, FD_CLOEXEC);
   EXPECT_EQ(file->close(), 0);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, ReplacementAllocationFailureConsumesBoth) {
+  int expected_fd = next_descriptor();
+  ASSERT_GE(expected_fd, 0);
+  start_tracking(3);
+  // The memory buffer and File succeed; allocation of the replacement backend
+  // fails after its descriptor has opened and the old memory has been freed.
+  FILE *stream = LIBC_NAMESPACE::fmemopen(nullptr, 32, "w+");
+  if (!stream) {
+    tracking = false;
+    ASSERT_NE(stream, nullptr);
+  }
+  auto *replacement = LIBC_NAMESPACE::freopen("/dev/null", "w", stream);
+  int error = LIBC_NAMESPACE::libc_errno;
+  tracking = false;
+  EXPECT_EQ(replacement, static_cast<FILE *>(nullptr));
+  EXPECT_EQ(error, ENOMEM);
+  EXPECT_EQ(allocation_count, 3U);
+  EXPECT_EQ(live_allocations, 0U);
+  EXPECT_EQ(next_descriptor(), expected_fd);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, ReplacementCloseReleasesBothObjects) {
+  int expected_fd = next_descriptor();
+  ASSERT_GE(expected_fd, 0);
+  start_tracking(0);
+  FILE *stream = LIBC_NAMESPACE::fmemopen(nullptr, 32, "w+");
+  tracking = false;
+  ASSERT_NE(stream, nullptr);
+  ASSERT_EQ(live_allocations, 2U);
+  tracking = true;
+  auto *replacement = LIBC_NAMESPACE::freopen("/dev/null", "w", stream);
+  tracking = false;
+  ASSERT_EQ(replacement, stream);
+  EXPECT_EQ(allocation_count, 3U);
+  // The old backing memory is gone; the public object and new backend remain.
+  EXPECT_EQ(live_allocations, 2U);
+  EXPECT_EQ(reinterpret_cast<LIBC_NAMESPACE::File *>(replacement)->close(), 0);
+  EXPECT_EQ(live_allocations, 0U);
+  EXPECT_EQ(next_descriptor(), expected_fd);
 }
