@@ -105,7 +105,8 @@ TEST_F(LlvmLibcFmemopenTest, FullBufferAndCloseAfterFlushFailure) {
   EXPECT_EQ(LIBC::fwrite("abcde", 1, 5, f), size_t(4));
   ASSERT_ERRNO_EQ(ENOSPC);
   EXPECT_NE(LIBC::ferror(f), 0);
-  EXPECT_STREQ(guarded + 1, "abc");
+  for (unsigned i = 0; i != 4; ++i)
+    EXPECT_EQ(guarded[i + 1], "abcd"[i]);
   EXPECT_EQ(guarded[0], '!');
   EXPECT_EQ(guarded[5], '!');
   EXPECT_EQ(LIBC::fclose(f), 0);
@@ -151,8 +152,31 @@ TEST_F(LlvmLibcFmemopenTest, LineBufferedErrorsKeepErrno) {
   ASSERT_ERRNO_EQ(ENOSPC);
   EXPECT_NE(LIBC::ferror(f), 0);
   EXPECT_EQ(memory[0], 'a');
-  EXPECT_EQ(memory[1], '\0');
+  EXPECT_EQ(memory[1], 'b');
   EXPECT_EQ(LIBC::fclose(f), 0);
+}
+
+TEST_F(LlvmLibcFmemopenTest, ExactCapacityPreservesAllAcceptedBytes) {
+  const char *modes[] = {"w", "wb", "w+", "w+b", "a", "a+"};
+  const int buffering_modes[] = {_IONBF, _IOFBF};
+  for (const char *mode : modes) {
+    for (int buffering : buffering_modes) {
+      char guarded[] = {'!', 0, '?', '?', '?', '!'};
+      FILE *f = LIBC::fmemopen(guarded + 1, 4, mode);
+      ASSERT_NE(f, nullptr);
+      ASSERT_EQ(LIBC::setvbuf(f, nullptr, buffering, 0), 0);
+      ASSERT_EQ(LIBC::fwrite("abcd", 1, 4, f), size_t(4));
+      ASSERT_EQ(LIBC::fflush(f), 0);
+      EXPECT_EQ(LIBC::ftell(f), 4L);
+      for (unsigned i = 0; i != 4; ++i)
+        EXPECT_EQ(guarded[i + 1], "abcd"[i]);
+      ASSERT_EQ(LIBC::fclose(f), 0);
+      for (unsigned i = 0; i != 4; ++i)
+        EXPECT_EQ(guarded[i + 1], "abcd"[i]);
+      EXPECT_EQ(guarded[0], '!');
+      EXPECT_EQ(guarded[5], '!');
+    }
+  }
 }
 
 TEST_F(LlvmLibcFmemopenTest, InvalidModeDoesNotModifyBuffer) {

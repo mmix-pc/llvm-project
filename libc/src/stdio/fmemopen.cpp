@@ -74,10 +74,9 @@ class FixedMemoryFile final : public File {
   static int flush(File *file) {
     auto *f = static_cast<FixedMemoryFile *>(file);
     if (f->needs_termination && f->capacity) {
+      // A terminator must not replace a byte already accepted by the write.
       if (f->length < f->capacity)
         f->memory[f->length] = '\0';
-      else if (!f->append)
-        f->memory[f->capacity - 1] = '\0';
       f->needs_termination = false;
     }
     return 0;
