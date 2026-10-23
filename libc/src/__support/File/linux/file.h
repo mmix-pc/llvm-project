@@ -18,6 +18,7 @@ FileIOResult linux_file_read(File *, void *, size_t);
 ErrorOr<int> linux_file_open(const char *, int, mode_t);
 ErrorOr<off_t> linux_file_seek(File *, off_t, int);
 int linux_file_close(File *);
+int linux_file_buffer_mode(File *);
 
 class LinuxFile : public File {
   int fd;
@@ -28,9 +29,9 @@ public:
                       int buffer_mode, bool owned, File::ModeFlags modeflags,
                       bool owns_object = true,
                       CloseFunc *close_func = &linux_file_close)
-      : File(&linux_file_write, &linux_file_read, &linux_file_seek,
-             close_func, buffer, buffer_size, buffer_mode, owned, modeflags,
-             nullptr, true),
+      : File(&linux_file_write, &linux_file_read, &linux_file_seek, close_func,
+             buffer, buffer_size, buffer_mode, owned, modeflags, nullptr, true,
+             nullptr, nullptr, linux_file_buffer_mode),
         fd(file_descriptor), owns_object(owns_object) {}
 
   int get_fd() const { return fd; }

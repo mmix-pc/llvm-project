@@ -70,6 +70,7 @@ public:
   // file position indicator.
   using SeekFunc = ErrorOr<off_t>(File *, off_t, int);
   using CloseFunc = int(File *);
+  using BufferModeFunc = int(File *);
   // Optional separate object lifetime for backends which can be replaced.
   // When provided, CloseFunc releases only the association, not this object.
   using DestroyFunc = void(File *);
@@ -128,6 +129,7 @@ private:
   ReadFunc *platform_read;
   SeekFunc *platform_seek;
   CloseFunc *platform_close;
+  BufferModeFunc *platform_buffer_mode;
   FlushFunc *platform_flush;
   WideWriteFunc *platform_wide_write;
   DestroyFunc *destroy_object;
@@ -212,6 +214,8 @@ protected:
   }
 
 public:
+  // Resolve the initial mode on first use; explicit setvbuf overrides it.
+  static constexpr int AUTO_BUFFERING = -1;
   // We want this constructor to be constexpr so that global file objects
   // like stdout do not require invocation of the constructor which can
   // potentially lead to static initialization order fiasco. Consequently,
@@ -222,13 +226,14 @@ public:
   constexpr File(WriteFunc *wf, ReadFunc *rf, SeekFunc *sf, CloseFunc *cf,
                  uint8_t *buffer, size_t buffer_size, int buffer_mode,
                  bool owned, ModeFlags modeflags, FlushFunc *ff = nullptr,
-                 bool descriptor = true,
-                 WideWriteFunc *wwf = nullptr, DestroyFunc *df = nullptr)
+                 bool descriptor = true, WideWriteFunc *wwf = nullptr,
+                 DestroyFunc *df = nullptr, BufferModeFunc *bmf = nullptr)
       : platform_write(wf), platform_read(rf), platform_seek(sf),
-        platform_close(cf), platform_flush(ff), platform_wide_write(wwf),
-        destroy_object(df), has_descriptor(descriptor),
-        mutex(/*timed=*/false, /*recursive=*/true,
-              /*robust=*/false, /*pshared=*/false),
+        platform_close(cf), platform_buffer_mode(bmf),
+        platform_flush(ff),
+        platform_wide_write(wwf), destroy_object(df),
+        has_descriptor(descriptor), mutex(/*timed=*/false, /*recursive=*/true,
+                                          /*robust=*/false, /*pshared=*/false),
         ungetc_buf{}, buf(buffer), bufsize(buffer_size), bufmode(buffer_mode),
         own_buf(owned), mode(modeflags), pos(0), prev_op(FileOp::NONE),
         read_limit(0), eof(false), err(false),
@@ -373,7 +378,10 @@ public:
   bool writing() const {
     return write_allowed() && (!read_allowed() || prev_op == FileOp::WRITE);
   }
-  bool line_buffered() const { return bufmode == _IOLBF; }
+  bool line_buffered() {
+    initialize_buffer_mode_unlocked();
+    return bufmode == _IOLBF;
+  }
   size_t buffer_capacity() const {
     if (bufmode == _IONBF)
       return 0;
@@ -480,6 +488,11 @@ public:
   static ModeFlags mode_flags(const char *mode);
 
 private:
+  void initialize_buffer_mode_unlocked() {
+    if (bufmode == AUTO_BUFFERING)
+      bufmode =
+          platform_buffer_mode ? platform_buffer_mode(get_backend()) : _IOFBF;
+  }
   void begin_output() {
     // Reading through EOF permits a following write without positioning.
     if (prev_op == FileOp::READ) {

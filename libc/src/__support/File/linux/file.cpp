@@ -10,6 +10,7 @@
 
 #include "hdr/fcntl_macros.h" // For mode_t and other flags to the open syscall
 #include "hdr/stdio_macros.h"
+#include "hdr/sys_ioctl_macros.h"
 #include "hdr/sys_stat_macros.h" // For S_IS*, S_IF*, and S_IR* flags.
 #include "hdr/types/off_t.h"
 #include "src/__support/CPP/new.h"
@@ -18,6 +19,7 @@
 #include "src/__support/OSUtil/linux/syscall_wrappers/dup3.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/fcntl.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/ftruncate.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/ioctl.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/lseek.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/read.h"
@@ -27,6 +29,15 @@
 #include "src/__support/macros/config.h"
 
 namespace LIBC_NAMESPACE_DECL {
+
+int linux_file_buffer_mode(File *file) {
+  int discipline;
+  auto result = linux_syscalls::ioctl(static_cast<LinuxFile *>(file)->get_fd(),
+                                      TIOCGETD, &discipline);
+  // Only a definite non-terminal result selects full buffering. The raw
+  // wrapper does not disturb errno during a successful stdio operation.
+  return !result && result.error() == ENOTTY ? _IOFBF : _IOLBF;
+}
 
 ErrorOr<off_t> linux_file_seek(File *f, off_t offset, int whence) {
   auto *lf = reinterpret_cast<LinuxFile *>(f);

@@ -20,7 +20,8 @@ namespace LIBC_NAMESPACE_DECL {
 
 constexpr size_t STDOUT_BUFFER_SIZE = 1024;
 uint8_t stdout_buffer[STDOUT_BUFFER_SIZE];
-static LinuxFile StdOut(1, stdout_buffer, STDOUT_BUFFER_SIZE, _IOLBF, false,
+static LinuxFile StdOut(1, stdout_buffer, STDOUT_BUFFER_SIZE,
+                        File::AUTO_BUFFERING, false,
                         File::ModeFlags(File::OpenMode::APPEND),
                         /*owns_object=*/false);
 

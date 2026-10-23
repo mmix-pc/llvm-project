@@ -78,6 +78,7 @@ void File::install_backend_unlocked(File *replacement) {
   platform_read = replacement->platform_read;
   platform_seek = replacement->platform_seek;
   platform_close = replacement->platform_close;
+  platform_buffer_mode = replacement->platform_buffer_mode;
   platform_flush = replacement->platform_flush;
   platform_wide_write = replacement->platform_wide_write;
   has_descriptor = replacement->has_descriptor;
@@ -104,6 +105,7 @@ FileIOResult File::write_unlocked_impl(const void *data, size_t len) {
     return {0, EBADF};
   }
 
+  initialize_buffer_mode_unlocked();
   begin_output();
 
   if (bufmode == _IONBF) { // unbuffered.
@@ -280,6 +282,7 @@ FileIOResult File::read_unlocked_impl(void *data, size_t len) {
     return {0, EBADF};
   }
 
+  initialize_buffer_mode_unlocked();
   prev_op = FileOp::READ;
 
   if (bufmode == _IONBF) { // unbuffered.
@@ -688,6 +691,7 @@ int File::flush_wide_unlocked() {
 }
 
 FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
+  initialize_buffer_mode_unlocked();
   switch (orientation) {
   case Orientation::BYTE:
     err = true;

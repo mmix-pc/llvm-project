@@ -473,3 +473,39 @@ TEST(LlvmLibcLinuxFileAllocationTest, FcloseFlushFailureConsumesResources) {
   EXPECT_GE(::fcntl(reused, F_GETFD), 0);
   EXPECT_EQ(::close(reused), 0);
 }
+
+TEST(LlvmLibcLinuxFileAllocationTest, AutomaticBufferModeUsesRealDevice) {
+  int master = ::posix_openpt(O_RDWR | O_NOCTTY);
+  ASSERT_GE(master, 0);
+  ASSERT_EQ(::grantpt(master), 0);
+  ASSERT_EQ(::unlockpt(master), 0);
+  char *name = ::ptsname(master);
+  ASSERT_NE(name, nullptr);
+  const char *paths[] = {"/dev/null", name};
+  for (unsigned i = 0; i < 2; ++i) {
+    int fd = ::open(paths[i], O_RDWR | O_NOCTTY);
+    ASSERT_GE(fd, 0);
+    unsigned char buffer[32];
+    LIBC_NAMESPACE::LinuxFile file(
+        fd, buffer, sizeof(buffer), LIBC_NAMESPACE::File::AUTO_BUFFERING, false,
+        LIBC_NAMESPACE::File::mode_flags("r+"), false);
+    LIBC_NAMESPACE::libc_errno = EDOM;
+    EXPECT_EQ(file.line_buffered(), i == 1);
+    EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
+    EXPECT_EQ(file.close(), 0);
+  }
+  EXPECT_EQ(::close(master), 0);
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, ExplicitBufferModeOverridesDetection) {
+  int fd = ::open("/dev/null", O_WRONLY);
+  ASSERT_GE(fd, 0);
+  unsigned char buffer[32];
+  LIBC_NAMESPACE::LinuxFile file(fd, buffer, sizeof(buffer),
+                                 LIBC_NAMESPACE::File::AUTO_BUFFERING, false,
+                                 LIBC_NAMESPACE::File::mode_flags("w"), false);
+  EXPECT_EQ(file.set_buffer(buffer, sizeof(buffer), _IOLBF), 0);
+  ASSERT_EQ(file.write("x", 1).value, size_t(1));
+  EXPECT_TRUE(file.line_buffered());
+  EXPECT_EQ(file.close(), 0);
+}
