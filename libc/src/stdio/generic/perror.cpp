@@ -20,8 +20,9 @@ namespace LIBC_NAMESPACE_DECL {
 
 static int write_out(cpp::string_view str_view, ::FILE *f) {
   if (str_view.size() > 0) {
-    auto result = reinterpret_cast<LIBC_NAMESPACE::File *>(f)->write_unlocked(
-        str_view.data(), str_view.size());
+    auto result =
+        reinterpret_cast<LIBC_NAMESPACE::File *>(f)->write_diagnostic_unlocked(
+            str_view.data(), str_view.size());
     if (result.has_error())
       return result.error;
   }

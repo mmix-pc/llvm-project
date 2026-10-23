@@ -101,6 +101,52 @@ FileIOResult File::write_unlocked(const void *data, size_t len) {
   return write_unlocked_impl(data, len);
 }
 
+FileIOResult File::write_diagnostic_unlocked(const char *data, size_t len) {
+  if (!len)
+    return size_t(0);
+  if (orientation != Orientation::WIDE) {
+    auto result = write_unlocked_impl(data, len);
+    if (result.value != len && !result.has_error()) {
+      err = true;
+      result.error = EIO;
+    }
+    return result;
+  }
+
+  internal::mbstate state;
+  internal::LocaleCharacterConverter converter(&state);
+  size_t consumed = 0;
+  for (size_t i = 0; i < len; ++i) {
+    int error = converter.push(static_cast<char8_t>(data[i]));
+    if (error) {
+      err = true;
+      return {consumed, error};
+    }
+    if (!converter.isFull())
+      continue;
+    auto decoded = converter.pop<char32_t>();
+    if (!decoded.has_value()) {
+      err = true;
+      return {consumed, decoded.error()};
+    }
+    wchar_t wc = static_cast<wchar_t>(decoded.value());
+    auto result = write_unlocked(&wc, 1);
+    if (result.value == 1)
+      consumed = i + 1;
+    if (result.has_error())
+      return {consumed, result.error};
+    if (result.value != 1) {
+      err = true;
+      return {consumed, EIO};
+    }
+  }
+  if (!converter.isEmpty()) {
+    err = true;
+    return {consumed, EILSEQ};
+  }
+  return consumed;
+}
+
 FileIOResult File::write_unlocked_impl(const void *data, size_t len) {
   if (!write_allowed()) {
     err = true;

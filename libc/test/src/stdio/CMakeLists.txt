@@ -99,6 +99,24 @@ add_libc_test(
 # Provider exceptions need the native host C++ runtime, not a target probe.
 if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPILING)
   add_libc_test(
+    perror_unwind_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc_stdio_unittests
+    SRCS perror_unwind_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/generic/perror.cpp
+      ${LIBC_SOURCE_DIR}/src/__support/File/file.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.stdio_macros
+      libc.src.__support.File.file
+      libc.src.__support.StringUtil.error_to_string
+      libc.src.errno.errno
+    COMPILE_OPTIONS -fexceptions -funwind-tables -ULIBC_COPT_STDIO_USE_SYSTEM_FILE
+      -DFile=PerrorUnwindFile
+    LINK_LIBRARIES pthread
+  )
+
+  add_libc_test(
     memory_stream_lock_test
     OVERLAY_BUILD_ONLY
     SUITE libc_stdio_unittests
@@ -648,13 +666,21 @@ add_libc_test(
 
 add_libc_test(
   perror_test
+  FULL_BUILD_ONLY
   SUITE
     libc_stdio_unittests
   SRCS
     perror_test.cpp
   DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.stdio_macros
+    libc.src.__support.CPP.string_view
+    libc.src.__support.File.file
+    libc.src.__support.StringUtil.error_to_string
     libc.src.stdio.perror
+    libc.src.stdio.stderr
     libc.src.errno.errno
+    libc.test.src.locale_guard
 )
 
 add_libc_test(

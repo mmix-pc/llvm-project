@@ -249,6 +249,10 @@ public:
   // Buffered write of |len| bytes from |data| without the file lock.
   FileIOResult write_unlocked(const void *data, size_t len);
 
+  // Diagnostic output preserves orientation. For wide streams, decode the
+  // current locale's input and use the stream's captured output encoding.
+  FileIOResult write_diagnostic_unlocked(const char *data, size_t len);
+
   // Buffered write of |len| bytes from |data| under the file lock.
   FileIOResult write(const void *data, size_t len) {
     FileLock l(this);
