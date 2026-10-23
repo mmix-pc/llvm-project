@@ -103,6 +103,20 @@ add_libc_test(
 # Provider exceptions need the native host C++ runtime, not a target probe.
 if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPILING)
   add_libc_test(
+    rewind_lock_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc_stdio_unittests
+    SRCS rewind_lock_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.stdio_macros
+      libc.src.__support.File.file
+      libc.src.errno.errno
+    COMPILE_OPTIONS -ULIBC_COPT_STDIO_USE_SYSTEM_FILE
+    LINK_LIBRARIES pthread
+  )
+
+  add_libc_test(
     perror_unwind_test
     OVERLAY_BUILD_ONLY
     SUITE libc_stdio_unittests

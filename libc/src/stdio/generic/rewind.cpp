@@ -18,8 +18,9 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(void, rewind, (::FILE * stream)) {
   LIBC_CRASH_ON_NULLPTR(stream);
   File *FilePtr = reinterpret_cast<File *>(stream);
+  File::FileLock Lock(FilePtr);
   auto Result = FilePtr->seek(0, SEEK_SET);
-  FilePtr->clearerr();
+  FilePtr->clearerr_unlocked();
 
   if (!Result.has_value())
     libc_errno = Result.error();
