@@ -508,6 +508,71 @@ TEST(LlvmLibcFileTest, UngetcReturnsConvertedByte) {
   }
 }
 
+namespace {
+class ChunkedReadFile : public File {
+  static FileIOResult read_chunk(File *file, void *output, size_t length) {
+    auto *self = static_cast<ChunkedReadFile *>(file);
+    ++self->calls;
+    if (self->fail_at && self->calls == self->fail_at)
+      return {0, EINTR};
+    size_t count = self->remaining < 2 ? self->remaining : 2;
+    if (count > length)
+      count = length;
+    for (size_t i = 0; i < count; ++i)
+      static_cast<char *>(output)[i] = self->next++;
+    self->remaining -= count;
+    return count;
+  }
+
+public:
+  size_t remaining = 8;
+  unsigned calls = 0, fail_at = 0;
+  char next = 'a';
+  ChunkedReadFile(uint8_t *buffer, size_t size, int mode)
+      : File(nullptr, read_chunk, nullptr, nullptr, buffer, size, mode, false,
+             mode_flags("r")) {}
+};
+} // namespace
+
+TEST(LlvmLibcFileTest, PositiveShortReadsAreNotEOF) {
+  const int modes[] = {_IOFBF, _IOLBF, _IONBF};
+  for (int mode : modes) {
+    uint8_t buffer[4];
+    ChunkedReadFile file(buffer, sizeof(buffer), mode);
+    char data[8];
+    auto result = file.read(data, sizeof(data));
+    EXPECT_FALSE(result.has_error());
+    ASSERT_EQ(result.value, sizeof(data));
+    EXPECT_MEM_EQ(MemoryView(data, sizeof(data)), MemoryView("abcdefgh", 8));
+    EXPECT_FALSE(file.iseof());
+    EXPECT_EQ(file.read(data, 1).value, size_t(0));
+    EXPECT_TRUE(file.iseof());
+    EXPECT_FALSE(file.error());
+  }
+}
+
+TEST(LlvmLibcFileTest, ShortReadsPreservePrefixOnInterruption) {
+  const int modes[] = {_IOFBF, _IOLBF, _IONBF};
+  for (int mode : modes) {
+    uint8_t buffer[4];
+    ChunkedReadFile file(buffer, sizeof(buffer), mode);
+    file.fail_at = 2;
+    char data[8];
+    auto result = file.read(data, sizeof(data));
+    EXPECT_EQ(result.error, EINTR);
+    ASSERT_EQ(result.value, size_t(2));
+    EXPECT_MEM_EQ(MemoryView(data, 2), MemoryView("ab", 2));
+    EXPECT_FALSE(file.iseof());
+    EXPECT_TRUE(file.error());
+    file.clearerr();
+    result = file.read(data, 6);
+    ASSERT_EQ(result.value, size_t(6));
+    EXPECT_FALSE(result.has_error());
+    EXPECT_MEM_EQ(MemoryView(data, 6), MemoryView("cdefgh", 6));
+    EXPECT_FALSE(file.iseof());
+  }
+}
+
 TEST(LlvmLibcFileTest, SmallBuffer) {
   LocaleGuard locale;
   const char WRITE_DATA[] = "small buffer";
