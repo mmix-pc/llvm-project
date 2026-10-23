@@ -151,6 +151,28 @@ TEST(LlvmLibcScandirOwnership, ReadFailure) {
   libc_errno = 0;
 }
 
+TEST(LlvmLibcScandirOwnership, SelectedCountOverflowPrecedesAllocation) {
+  reset();
+  {
+    LIBC_NAMESPACE::internal::DirectoryScan scan{7};
+    const size_t maximum =
+        LIBC_NAMESPACE::cpp::numeric_limits<int>::max();
+    // Inject only the count boundary; no INT_MAX-sized array is constructed.
+    scan.count = maximum;
+    int error = scan.append(nullptr);
+    size_t count = scan.count;
+    scan.count = 0; // Restore the real ownership state before destruction.
+    EXPECT_EQ(error, EOVERFLOW);
+    EXPECT_EQ(count, maximum);
+    EXPECT_EQ(scan.capacity, size_t(0));
+    EXPECT_EQ(scan.entries, static_cast<dirent **>(nullptr));
+    EXPECT_EQ(allocations, 0U);
+  }
+  track = false;
+  EXPECT_EQ(closed, 1U);
+  EXPECT_EQ(live_count, size_t(0));
+}
+
 TEST(LlvmLibcScandirOwnership, InvalidRecordsDoNotEscape) {
   for (unsigned kind = 1; kind <= 4; ++kind) {
     reset();
