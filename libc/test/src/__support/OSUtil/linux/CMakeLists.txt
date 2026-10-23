@@ -3,6 +3,21 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_ARCHITECTURE})
 endif()
 
 add_libc_test(
+  stat_via_statx_test
+  SUITE libc-osutil-tests
+  SRCS stat_via_statx_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fcntl_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.types.struct_stat
+    libc.src.__support.CPP.limits
+    libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+    libc.src.__support.OSUtil.linux.stat.stat_via_statx
+    libc.src.__support.OSUtil.osutil
+)
+
+add_libc_test(
   rt_sigprocmask_test
   SUITE libc-osutil-tests
   SRCS rt_sigprocmask_test.cpp

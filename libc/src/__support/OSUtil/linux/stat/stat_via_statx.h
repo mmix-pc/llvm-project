@@ -14,17 +14,16 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_STAT_STAT_VIA_STATX_H
 #define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_STAT_STAT_VIA_STATX_H
 
+#include "hdr/errno_macros.h"
 #include "hdr/stdint_proxy.h"
 #include "hdr/types/struct_stat.h"
+#include "src/__support/CPP/limits.h"
 #include "src/__support/OSUtil/linux/stat/kernel_statx_types.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/statx.h"
 #include "src/__support/common.h"
 #include "src/__support/error_or.h"
 #include "src/__support/macros/config.h"
-
-// It is safe to include this kernel header as it is designed to be
-// included from user programs without causing any name pollution.
-#include <linux/kdev_t.h>
+#include "src/sys/sysmacros/makedev.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -39,13 +38,25 @@ LIBC_INLINE ErrorOr<void> stat_via_statx(int dirfd, const char *__restrict path,
   if (!result)
     return Error(result.error());
 
-  statbuf->st_dev = MKDEV(xbuf.stx_dev_major, xbuf.stx_dev_minor);
+  // Validate the required representability constraints before changing output.
+  constexpr uint64_t MAX_INO =
+      cpp::numeric_limits<decltype(statbuf->st_ino)>::max();
+  constexpr uint64_t MAX_SIZE =
+      cpp::numeric_limits<decltype(statbuf->st_size)>::max();
+  constexpr uint64_t MAX_BLOCKS =
+      cpp::numeric_limits<decltype(statbuf->st_blocks)>::max();
+  if (xbuf.stx_ino > MAX_INO || xbuf.stx_size > MAX_SIZE ||
+      xbuf.stx_blocks > MAX_BLOCKS)
+    return Error(EOVERFLOW);
+
+  statbuf->st_dev = LIBC_NAMESPACE::makedev(xbuf.stx_dev_major, xbuf.stx_dev_minor);
   statbuf->st_ino = static_cast<decltype(statbuf->st_ino)>(xbuf.stx_ino);
   statbuf->st_mode = xbuf.stx_mode;
   statbuf->st_nlink = xbuf.stx_nlink;
   statbuf->st_uid = xbuf.stx_uid;
   statbuf->st_gid = xbuf.stx_gid;
-  statbuf->st_rdev = MKDEV(xbuf.stx_rdev_major, xbuf.stx_rdev_minor);
+  statbuf->st_rdev =
+      LIBC_NAMESPACE::makedev(xbuf.stx_rdev_major, xbuf.stx_rdev_minor);
   statbuf->st_size = xbuf.stx_size;
   statbuf->st_atim.tv_sec = xbuf.stx_atime.tv_sec;
   statbuf->st_atim.tv_nsec = xbuf.stx_atime.tv_nsec;
