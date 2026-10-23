@@ -255,6 +255,27 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("void guarded_may_throw(void);", content)
         self.assertIn("#ifdef ENABLE_THROWING_CALLBACK", content)
 
+    def test_stream_io_exception_specifications(self):
+        functions = [
+            "fgetc_unlocked", "fputc_unlocked", "putc_unlocked", "putchar_unlocked",
+            "fputs_unlocked", "fgets_unlocked", "getdelim", "getline",
+            "dprintf", "vdprintf", "rewind", "getc_unlocked",
+            "getchar_unlocked", "perror", "scanf", "vscanf",
+        ]
+        output = self.output_dir / "stdio-io.h"
+        self.run_script(self.source_dir.parents[2] / "include/stdio.yaml",
+                        output, functions + ["clearerr", "feof", "ferror"])
+        lines = output.read_text().splitlines()
+        for function in functions:
+            with self.subTest(function=function):
+                declaration = next(line for line in lines
+                                   if function + "(" in line)
+                self.assertNotIn("__NOEXCEPT", declaration)
+        for function in ("clearerr", "feof", "ferror"):
+            declaration = next(line for line in lines
+                               if function + "(" in line)
+            self.assertIn("__NOEXCEPT", declaration)
+
     def test_pthread_once_exception_specification(self):
         output_file = self.output_dir / "pthread.h"
         self.run_script(self.source_dir.parents[2] / "include/pthread.yaml",

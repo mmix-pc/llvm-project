@@ -88,6 +88,7 @@ functions:
       - type: FILE *
       - type: const fpos_t *
   - name: fputc_unlocked
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -95,6 +96,7 @@ functions:
       - type: int
       - type: FILE *
   - name: putc_unlocked
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -102,12 +104,14 @@ functions:
       - type: int
       - type: FILE *
   - name: putchar_unlocked
+    noexcept: false
     standards:
       - posix
     return_type: int
     arguments:
       - type: int
   - name: fputs_unlocked
+    noexcept: false
     standards:
       - gnu
     return_type: int
@@ -115,6 +119,7 @@ functions:
       - type: const char *__restrict
       - type: FILE *__restrict
   - name: fgets_unlocked
+    noexcept: false
     standards:
       - gnu
     return_type: char *
@@ -129,6 +134,7 @@ functions:
     arguments:
       - type: FILE *
   - name: getdelim
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t
@@ -138,6 +144,7 @@ functions:
       - type: int
       - type: FILE *__restrict
   - name: getline
+    noexcept: false
     standards:
       - posix
     return_type: ssize_t
@@ -146,6 +153,7 @@ functions:
       - type: size_t *__restrict
       - type: FILE *__restrict
   - name: dprintf
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -154,6 +162,7 @@ functions:
       - type: const char *__restrict
       - type: ...
   - name: vdprintf
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -236,6 +245,7 @@ functions:
     arguments:
       - type: FILE *
   - name: fgetc_unlocked
+    noexcept: false
     standards:
       - gnu
     return_type: int
@@ -375,6 +385,7 @@ functions:
       - type: long
       - type: int
   - name: rewind
+    noexcept: false
     standards:
       - stdc
     return_type: void
@@ -437,6 +448,7 @@ functions:
     arguments:
       - type: FILE *
   - name: getc_unlocked
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -449,6 +461,7 @@ functions:
     return_type: int
     arguments: []
   - name: getchar_unlocked
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -469,6 +482,7 @@ functions:
     arguments:
       - type: FILE *
   - name: perror
+    noexcept: false
     standards:
       - stdc
     return_type: void
@@ -520,6 +534,7 @@ functions:
       - type: const char *
       - type: const char *
   - name: scanf
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -527,6 +542,7 @@ functions:
       - type: const char *__restrict
       - type: '...'
   - name: vscanf
+    noexcept: false
     standards:
       - stdc
     return_type: int
