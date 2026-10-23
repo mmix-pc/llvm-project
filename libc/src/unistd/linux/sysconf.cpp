@@ -597,8 +597,9 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
   case _SC_OPEN_MAX:
     return get_limit(RLIMIT_NOFILE);
   case _SC_STREAM_MAX:
-    // Report the stable stdio guarantee, not the current descriptor quota.
-    return FOPEN_MAX;
+    // Streams have no fixed admission limit; FOPEN_MAX is a minimum guarantee.
+    // Memory streams do not consume the descriptor quota. Preserve errno.
+    return -1;
   case _SC_CHILD_MAX:
   case _SC_SIGQUEUE_MAX:
     // Linux enforces mutable per-user/resource quotas, not a stable limit on

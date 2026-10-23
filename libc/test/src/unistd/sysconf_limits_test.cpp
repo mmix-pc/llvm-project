@@ -64,7 +64,7 @@ TEST(LlvmLibcSysconfLimitsTest, StableLimitsDoNotQueryResources) {
       last_resource = -1;
       libc_errno = EDOM;
       EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_ARG_MAX), 131072L);
-      EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_STREAM_MAX), long(FOPEN_MAX));
+      EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_STREAM_MAX), -1L);
       EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_CHILD_MAX), -1L);
       EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_SIGQUEUE_MAX), -1L);
       EXPECT_EQ(last_resource, -1);
@@ -84,6 +84,19 @@ TEST(LlvmLibcSysconfLimitsTest, PositiveErrno) {
       EXPECT_EQ(LIBC_NAMESPACE::sysconf(name), -1L);
       EXPECT_EQ(int(libc_errno), error);
     }
+  }
+  query_error = 0;
+}
+
+TEST(LlvmLibcSysconfLimitsTest, IndeterminateStreamLimit) {
+  query_error = EIO;
+  const int errors[] = {0, EDOM};
+  for (int saved_errno : errors) {
+    last_resource = -1;
+    libc_errno = saved_errno;
+    EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_STREAM_MAX), -1L);
+    EXPECT_EQ(int(libc_errno), saved_errno);
+    EXPECT_EQ(last_resource, -1);
   }
   query_error = 0;
 }
