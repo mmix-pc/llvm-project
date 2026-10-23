@@ -44,7 +44,8 @@ LLVM_LIBC_FUNCTION(int, ppoll,
                          mask ? &filtered : nullptr, 8);
 #endif
   if (result < 0) {
-    libc_errno = static_cast<int>(-result);
+    // Linux uses ENOMEM for transient poll-list/wait-table allocation failure.
+    libc_errno = result == -ENOMEM ? EAGAIN : static_cast<int>(-result);
     return -1;
   }
   return static_cast<int>(result);

@@ -8,6 +8,7 @@
 
 #include "src/poll/poll.h"
 #include "src/poll/ppoll.h"
+#include "hdr/sys_select_macros.h"
 #include "src/sys/select/pselect.h"
 #include "src/sys/select/select.h"
 #include "src/__support/OSUtil/syscall.h"
@@ -134,7 +135,7 @@ TEST(LlvmLibcMmixReadiness, MaskTranslationPreservesInputsAndError) {
     word = ~0UL;
   fd_set r{}, w{}, e{};
   pollfd fds[2]{};
-  const long results[] = {0, 2, -EINTR, -EBADF, -EINVAL};
+  const long results[] = {0, 2, -EINTR, -EBADF, -EINVAL, -ENOMEM};
   for (long result : results) {
     reply = result;
     calls = 0;
@@ -157,7 +158,8 @@ TEST(LlvmLibcMmixReadiness, MaskTranslationPreservesInputsAndError) {
     EXPECT_EQ(seen_number, long(SYS_ppoll));
     EXPECT_EQ(seen_args[0], reinterpret_cast<long>(fds));
     EXPECT_EQ(seen_args[1], 2L);
-    EXPECT_EQ(int(libc_errno), result < 0 ? int(-result) : EDOM);
+    EXPECT_EQ(int(libc_errno), result == -ENOMEM ? EAGAIN
+                                             : result < 0 ? int(-result) : EDOM);
     EXPECT_EQ(calls, 2U);
     EXPECT_TRUE(has_mask);
     EXPECT_EQ(seen_size, 8UL);
@@ -183,4 +185,23 @@ TEST(LlvmLibcMmixReadiness, InvalidTimeoutsNeverEnterWait) {
   EXPECT_EQ(LIBC_NAMESPACE::injected_select(0, nullptr, nullptr, nullptr, &invalid_tv), -1);
   EXPECT_EQ(int(libc_errno), EINVAL);
   EXPECT_EQ(calls, 0U);
+}
+
+TEST(LlvmLibcMmixReadiness, DescriptorBoundsNeverEnterWait) {
+  calls = 0;
+  timespec timeout{};
+  timeval tv{};
+  const int invalid_counts[] = {-1, FD_SETSIZE + 1};
+  for (int count : invalid_counts) {
+    EXPECT_EQ(LIBC_NAMESPACE::injected_pselect(count, nullptr, nullptr, nullptr,
+                                               &timeout, nullptr), -1);
+    EXPECT_EQ(int(libc_errno), EINVAL);
+    EXPECT_EQ(LIBC_NAMESPACE::injected_select(count, nullptr, nullptr, nullptr, &tv), -1);
+    EXPECT_EQ(int(libc_errno), EINVAL);
+  }
+  EXPECT_EQ(calls, 0U);
+  reply = 0;
+  EXPECT_EQ(LIBC_NAMESPACE::injected_pselect(FD_SETSIZE, nullptr, nullptr, nullptr,
+                                             &timeout, nullptr), 0);
+  EXPECT_EQ(calls, 1U);
 }

@@ -1,6 +1,7 @@
 add_custom_target(libc_poll_unittests)
 
-if(LIBC_TARGET_OS_IS_LINUX)
+# These provider-body tests require LLVM libc's signal-set representation.
+if(LIBC_TARGET_OS_IS_LINUX AND LLVM_LIBC_FULL_BUILD)
   foreach(mode IN ITEMS raw cancellable)
     set(readiness_options)
     if(mode STREQUAL "cancellable")
@@ -12,6 +13,7 @@ if(LIBC_TARGET_OS_IS_LINUX)
       SRCS mmix_readiness_test.cpp
       DEPENDS
         libc.hdr.types.fd_set
+        libc.hdr.sys_select_macros
         libc.hdr.types.sigset_t
         libc.hdr.types.nfds_t
         libc.hdr.types.struct_pollfd
@@ -24,6 +26,8 @@ if(LIBC_TARGET_OS_IS_LINUX)
       COMPILE_OPTIONS ${readiness_options}
     )
   endforeach()
+endif()
+if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
     ppoll_test
     SUITE libc_poll_unittests

@@ -8,6 +8,7 @@
 
 #include "src/sys/select/pselect.h"
 
+#include "hdr/sys_select_macros.h"
 #include "src/__support/OSUtil/syscall.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
@@ -24,6 +25,10 @@ LLVM_LIBC_FUNCTION(int, pselect,
                     fd_set *__restrict write_set, fd_set *__restrict error_set,
                     const timespec *__restrict timeout,
                     const sigset_t *__restrict mask)) {
+  if (nfds < 0 || nfds > FD_SETSIZE) {
+    libc_errno = EINVAL;
+    return -1;
+  }
   timespec copy{};
   if (timeout) {
     if (timeout->tv_sec < 0 || timeout->tv_nsec < 0 ||

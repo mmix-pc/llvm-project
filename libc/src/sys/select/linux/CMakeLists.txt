@@ -11,6 +11,7 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     SRCS mmix/pselect.cpp
     HDRS ../pselect.h
     DEPENDS
+      libc.hdr.sys_select_macros
       libc.hdr.types.fd_set libc.hdr.types.sigset_t
       libc.hdr.types.struct_timespec libc.include.sys_syscall
       libc.src.__support.OSUtil.osutil libc.src.errno.errno
