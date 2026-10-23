@@ -34,9 +34,11 @@ LIBC_INLINE struct statvfs statfs_to_statvfs(const struct statfs &in) {
   out.f_files = static_cast<decltype(out.f_files)>(in.f_files);
   out.f_ffree = static_cast<decltype(out.f_ffree)>(in.f_ffree);
   out.f_favail = static_cast<decltype(out.f_favail)>(in.f_ffree);
-  out.f_fsid = in.f_fsid.__val[0];
+  out.f_fsid = static_cast<uint32_t>(in.f_fsid.__val[0]);
   if constexpr (sizeof(decltype(out.f_fsid)) == sizeof(uint64_t))
-    out.f_fsid |= static_cast<decltype(out.f_fsid)>(in.f_fsid.__val[1]) << 32;
+    out.f_fsid |= static_cast<decltype(out.f_fsid)>(
+                      static_cast<uint32_t>(in.f_fsid.__val[1]))
+                  << 32;
   out.f_flag = in.f_flags & ~ST_VALID;
   out.f_namemax = in.f_namelen;
   return out;

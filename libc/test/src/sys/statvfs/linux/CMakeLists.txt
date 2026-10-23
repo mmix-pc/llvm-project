@@ -5,6 +5,7 @@ add_libc_test(
   SUITE libc_sys_statvfs_unittests
   SRCS statfs_utils_test.cpp
   DEPENDS
+    libc.hdr.stdint_proxy
     libc.src.sys.statvfs.linux.statfs_utils
 )
 

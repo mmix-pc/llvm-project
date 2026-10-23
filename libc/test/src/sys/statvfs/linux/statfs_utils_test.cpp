@@ -6,8 +6,36 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "hdr/stdint_proxy.h"
 #include "src/sys/statvfs/linux/statfs_utils.h"
 #include "test/UnitTest/Test.h"
+
+TEST(LlvmLibcStatfsUtilsTest, FilesystemIdWordsAreZeroExtended) {
+  const struct {
+    int low;
+    int high;
+    uint64_t expected;
+  } cases[] = {
+      {0, 0, 0x0000000000000000ULL},
+      {0x7fffffff, 0, 0x000000007fffffffULL},
+      {-0x7fffffff - 1, 0, 0x0000000080000000ULL},
+      {-1, 0, 0x00000000ffffffffULL},
+      {0, 0x12345678, 0x1234567800000000ULL},
+      {0x7fffffff, 0x12345678, 0x123456787fffffffULL},
+      {-0x7fffffff - 1, 0x12345678, 0x1234567880000000ULL},
+      {-1, 0x12345678, 0x12345678ffffffffULL},
+      {0x12345678, -0x7fffffff - 1, 0x8000000012345678ULL},
+      {-1, -1, 0xffffffffffffffffULL},
+  };
+  for (const auto &test : cases) {
+    struct statfs input{};
+    input.f_fsid.__val[0] = test.low;
+    input.f_fsid.__val[1] = test.high;
+    auto output = LIBC_NAMESPACE::statfs_utils::statfs_to_statvfs(input);
+    EXPECT_EQ(output.f_fsid,
+              static_cast<decltype(output.f_fsid)>(test.expected));
+  }
+}
 
 TEST(LlvmLibcStatfsUtilsTest, MountFlags) {
   struct statfs input{};
