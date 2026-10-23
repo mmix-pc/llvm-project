@@ -124,7 +124,7 @@ ErrorOr<File *> openfile(const char *path, const char *mode, bool close_on_exec)
   }
   AllocChecker ac;
   auto *file = new (ac) LinuxFile(fd.value(), buffer, File::DEFAULT_BUFFER_SIZE,
-                                  _IOFBF, true, modeflags);
+                                  File::AUTO_BUFFERING, true, modeflags);
   if (!ac) {
     delete[] buffer;
     linux_syscalls::close(fd.value());
@@ -163,15 +163,23 @@ ErrorOr<LinuxFile *> create_file_from_fd(int fd, const char *mode) {
     return Error(EINVAL);
   }
 
-  bool do_seek = false;
+  if (modeflags & static_cast<ModeFlags>(OpenMode::CLOEXEC)) {
+    auto descriptor_flags = linux_syscalls::fcntl(fd, F_GETFD);
+    if (!descriptor_flags.has_value())
+      return Error(descriptor_flags.error());
+    auto changed = linux_syscalls::fcntl(
+        fd, F_SETFD,
+        reinterpret_cast<void *>(descriptor_flags.value() | FD_CLOEXEC));
+    if (!changed.has_value())
+      return Error(changed.error());
+  }
+
   if ((modeflags & static_cast<ModeFlags>(OpenMode::APPEND)) &&
       !(fd_flags & O_APPEND)) {
-    do_seek = true;
-    if (!linux_syscalls::fcntl(fd, F_SETFL,
-                               reinterpret_cast<void *>(fd_flags | O_APPEND))
-             .has_value()) {
-      return Error(EBADF);
-    }
+    auto changed = linux_syscalls::fcntl(
+        fd, F_SETFL, reinterpret_cast<void *>(fd_flags | O_APPEND));
+    if (!changed.has_value())
+      return Error(changed.error());
   }
 
   uint8_t *buffer;
@@ -183,22 +191,13 @@ ErrorOr<LinuxFile *> create_file_from_fd(int fd, const char *mode) {
     }
   }
   AllocChecker ac;
-  auto *file = new (ac)
-      LinuxFile(fd, buffer, File::DEFAULT_BUFFER_SIZE, _IOFBF, true, modeflags);
+  auto *file = new (ac) LinuxFile(fd, buffer, File::DEFAULT_BUFFER_SIZE,
+                                  File::AUTO_BUFFERING, true, modeflags);
   if (!ac) {
     delete[] buffer;
     return Error(ENOMEM);
   }
   File::add_file(file);
-  if (do_seek) {
-    result = file->seek(0, SEEK_END);
-    if (!result.has_value()) {
-      File::remove_file(file);
-      delete[] buffer;
-      delete file;
-      return Error(result.error());
-    }
-  }
   return file;
 }
 
