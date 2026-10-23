@@ -11,7 +11,10 @@
 #include "hdr/types/struct_stat.h"
 #include "src/fcntl/open.h"
 #include "src/sys/stat/fchmodat.h"
+#include "src/sys/stat/fstat.h"
 #include "src/unistd/close.h"
+#include "src/unistd/symlink.h"
+#include "src/unistd/unlink.h"
 #include "src/unistd/write.h"
 #include "test/UnitTest/ErrnoCheckingTest.h"
 #include "test/UnitTest/ErrnoSetterMatcher.h"
@@ -64,4 +67,83 @@ TEST_F(LlvmLibcFchmodatTest, NonExistentFile) {
   ASSERT_THAT(
       LIBC_NAMESPACE::fchmodat(AT_FDCWD, "non-existent-file", S_IRUSR, 0),
       Fails(ENOENT));
+}
+
+class LlvmLibcFchmodatFlagsTest
+    : public LIBC_NAMESPACE::testing::ErrnoCheckingTest {
+protected:
+  static constexpr const char *TARGET = "testdata/fchmodat-flags.test";
+  static constexpr const char *LINK = "testdata/fchmodat-flags-link.test";
+  int fd = -1;
+  bool has_link = false;
+
+  void TearDown() override {
+    if (has_link)
+      EXPECT_THAT(LIBC_NAMESPACE::unlink(LINK), Succeeds(0));
+    if (fd >= 0) {
+      EXPECT_THAT(LIBC_NAMESPACE::close(fd), Succeeds(0));
+      EXPECT_THAT(LIBC_NAMESPACE::unlink(TARGET), Succeeds(0));
+    }
+    ErrnoCheckingTest::TearDown();
+  }
+};
+
+TEST_F(LlvmLibcFchmodatFlagsTest, InvalidFlagsDoNotChangeMode) {
+  fd = LIBC_NAMESPACE::open(TARGET, O_CREAT | O_EXCL | O_RDWR, 0600);
+  ASSERT_GE(fd, 0);
+  ASSERT_THAT(LIBC_NAMESPACE::fchmodat(AT_FDCWD, TARGET, 0600, 0), Succeeds(0));
+  const int invalid_flags[] = {AT_SYMLINK_FOLLOW, AT_REMOVEDIR, -1,
+                               AT_SYMLINK_NOFOLLOW | AT_SYMLINK_FOLLOW};
+  for (int flags : invalid_flags) {
+    EXPECT_THAT(LIBC_NAMESPACE::fchmodat(AT_FDCWD, TARGET, 0400, flags),
+                Fails(EINVAL));
+    struct stat st;
+    ASSERT_THAT(LIBC_NAMESPACE::fstat(fd, &st), Succeeds(0));
+    EXPECT_EQ(st.st_mode & mode_t(0777), mode_t(0600));
+  }
+}
+
+TEST_F(LlvmLibcFchmodatFlagsTest, NoFollowNeverChangesSymlinkTarget) {
+  fd = LIBC_NAMESPACE::open(TARGET, O_CREAT | O_EXCL | O_RDWR, 0600);
+  ASSERT_GE(fd, 0);
+  ASSERT_THAT(LIBC_NAMESPACE::fchmodat(AT_FDCWD, TARGET, 0600, 0), Succeeds(0));
+  ASSERT_THAT(LIBC_NAMESPACE::symlink("fchmodat-flags.test", LINK),
+              Succeeds(0));
+  has_link = true;
+
+  // A filesystem may support changing the symlink's mode, or reject it. In
+  // either case the target must stay unchanged, including on older kernels.
+  int result =
+      LIBC_NAMESPACE::fchmodat(AT_FDCWD, LINK, 0400, AT_SYMLINK_NOFOLLOW);
+  if (result == -1) {
+    ASSERT_ERRNO_EQ(EOPNOTSUPP);
+  } else {
+    EXPECT_EQ(result, 0);
+    ASSERT_ERRNO_SUCCESS();
+  }
+  struct stat st;
+  ASSERT_THAT(LIBC_NAMESPACE::fstat(fd, &st), Succeeds(0));
+  EXPECT_EQ(st.st_mode & mode_t(0777), mode_t(0600));
+
+  // The same path must still follow the symlink when flags are zero.
+  EXPECT_THAT(LIBC_NAMESPACE::fchmodat(AT_FDCWD, LINK, 0400, 0), Succeeds(0));
+  ASSERT_THAT(LIBC_NAMESPACE::fstat(fd, &st), Succeeds(0));
+  EXPECT_EQ(st.st_mode & mode_t(0777), mode_t(0400));
+}
+
+TEST_F(LlvmLibcFchmodatFlagsTest, NoFollowOnRegularFile) {
+  fd = LIBC_NAMESPACE::open(TARGET, O_CREAT | O_EXCL | O_RDWR, 0600);
+  ASSERT_GE(fd, 0);
+  ASSERT_THAT(LIBC_NAMESPACE::fchmodat(AT_FDCWD, TARGET, 0600, 0), Succeeds(0));
+  int result =
+      LIBC_NAMESPACE::fchmodat(AT_FDCWD, TARGET, 0400, AT_SYMLINK_NOFOLLOW);
+  if (result == -1) {
+    ASSERT_ERRNO_EQ(EOPNOTSUPP);
+  } else {
+    EXPECT_EQ(result, 0);
+    ASSERT_ERRNO_SUCCESS();
+  }
+  struct stat st;
+  ASSERT_THAT(LIBC_NAMESPACE::fstat(fd, &st), Succeeds(0));
+  EXPECT_EQ(st.st_mode & mode_t(0777), mode_t(result == 0 ? 0400 : 0600));
 }

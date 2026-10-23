@@ -3,6 +3,29 @@ add_custom_target(libc_sys_stat_unittests)
 add_subdirectory(testdata)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
+  foreach(variant IN ITEMS default legacy modern unavailable)
+    set(fchmodat_options "")
+    if(variant STREQUAL "legacy" OR variant STREQUAL "unavailable")
+      list(APPEND fchmodat_options -DLIBC_TEST_FCHMODAT_NO_MODERN)
+    endif()
+    if(variant STREQUAL "modern" OR variant STREQUAL "unavailable")
+      list(APPEND fchmodat_options -DLIBC_TEST_FCHMODAT_NO_LEGACY)
+    endif()
+    add_libc_test(
+      fchmodat_syscall_${variant}_test
+      SUITE libc_sys_stat_unittests
+      SRCS fchmodat_syscall_test.cpp
+      COMPILE_OPTIONS ${fchmodat_options}
+      DEPENDS
+        libc.hdr.errno_macros
+        libc.hdr.fcntl_macros
+        libc.hdr.types.mode_t
+        libc.src.__support.OSUtil.linux.syscall_wrappers.fchmodat
+        libc.src.__support.common
+        libc.src.errno.errno
+    )
+  endforeach()
+
   add_libc_test(
     mmix_futimens_test
     SUITE libc_sys_stat_unittests
@@ -64,7 +87,10 @@ add_libc_test(
     libc.src.errno.errno
     libc.src.fcntl.open
     libc.src.sys.stat.fchmodat
+    libc.src.sys.stat.fstat
     libc.src.unistd.close
+    libc.src.unistd.symlink
+    libc.src.unistd.unlink
     libc.src.unistd.write
     libc.test.UnitTest.ErrnoCheckingTest
     libc.test.UnitTest.ErrnoSetterMatcher

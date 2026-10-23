@@ -14,6 +14,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_OSUTIL_SYSCALL_WRAPPERS_FCHMODAT_H
 #define LLVM_LIBC_SRC___SUPPORT_OSUTIL_SYSCALL_WRAPPERS_FCHMODAT_H
 
+#include "hdr/errno_macros.h"
+#include "hdr/fcntl_macros.h"
 #include "hdr/types/mode_t.h"
 #include "src/__support/OSUtil/linux/syscall.h" // syscall_impl
 #include "src/__support/common.h"
@@ -26,7 +28,30 @@ namespace linux_syscalls {
 
 LIBC_INLINE ErrorOr<int> fchmodat(int fd, const char *path, mode_t mode,
                                   int flags) {
-  int ret = syscall_impl<int>(SYS_fchmodat, fd, path, mode, flags);
+  if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
+    return Error(EINVAL);
+
+  int ret = -ENOSYS;
+#ifdef SYS_fchmodat2
+  ret = syscall_impl<int>(SYS_fchmodat2, fd, path, mode, flags);
+  if (ret != -ENOSYS) {
+    if (ret < 0)
+      return Error(-ret);
+    return ret;
+  }
+#endif
+
+  // The legacy syscall has no flags argument. Never follow a symlink as a
+  // fallback for a request to change the symlink itself.
+  if (flags != 0)
+    return Error(EOPNOTSUPP);
+#ifdef SYS_fchmodat
+  ret = syscall_impl<int>(SYS_fchmodat, fd, path, mode);
+#elif !defined(SYS_fchmodat2)
+  (void)fd;
+  (void)path;
+  (void)mode;
+#endif
   if (ret < 0)
     return Error(-ret);
   return ret;
