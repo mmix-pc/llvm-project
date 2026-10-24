@@ -118,6 +118,20 @@ add_libc_test(
     libc.src.wchar.wcsdup
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    wcsdup_allocation_test
+    SUITE libc_wchar_unittests
+    SRCS wcsdup_allocation_test.cpp
+    DEPENDS libc.src.wchar.wcsdup libc.src.__support.libc_errno
+      libc.hdr.errno_macros libc.hdr.func.free
+  )
+  if(TARGET libc.test.src.wchar.wcsdup_allocation_test.__build__)
+    target_link_options(libc.test.src.wchar.wcsdup_allocation_test.__build__
+      PRIVATE -Wl,--wrap=malloc)
+  endif()
+endif()
+
 add_libc_test(
   btowc_test
   SUITE
