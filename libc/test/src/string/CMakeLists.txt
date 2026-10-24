@@ -315,6 +315,26 @@ add_libc_test(
     libc.src.string.strndup
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    strndup_boundary_test
+    SUITE libc-string-tests
+    SRCS strndup_boundary_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.func.free
+      libc.hdr.sys_mman_macros
+      libc.hdr.unistd_macros
+      libc.src.__support.libc_errno
+      libc.src.string.strndup
+      libc.src.sys.mman.mmap
+      libc.src.sys.mman.mprotect
+      libc.src.sys.mman.munmap
+      libc.src.unistd.sysconf
+    LINK_LIBRARIES "-Wl,--wrap=malloc"
+  )
+endif()
+
 add_libc_test(
   strnlen_test
   SUITE

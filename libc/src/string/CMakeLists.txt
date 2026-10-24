@@ -310,6 +310,8 @@ add_entrypoint_object(
     .string_utils
     libc.include.stdlib
     libc.src.__support.CPP.new
+    libc.src.__support.alloc_checker
+    libc.src.__support.libc_errno
     libc.include.llvm-libc-types.size_t
 )
 

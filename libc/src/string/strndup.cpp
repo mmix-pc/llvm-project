@@ -10,6 +10,7 @@
 #include "src/__support/CPP/new.h"
 #include "src/__support/alloc-checker.h"
 #include "src/__support/common.h"
+#include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/string/memory_utils/inline_memcpy.h"
 #include "src/string/string_utils.h"
@@ -21,14 +22,14 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(char *, strndup, (const char *src, size_t size)) {
   if (src == nullptr)
     return nullptr;
-  size_t len = internal::string_length(src);
-  if (len > size)
-    len = size;
+  size_t len = internal::strnlen(src, size);
   AllocChecker ac;
   char *dest = new (ac) char[len + 1];
-  if (!ac)
+  if (!ac) {
+    libc_errno = ENOMEM;
     return nullptr;
-  inline_memcpy(dest, src, len + 1);
+  }
+  inline_memcpy(dest, src, len);
   dest[len] = '\0';
   return dest;
 }
