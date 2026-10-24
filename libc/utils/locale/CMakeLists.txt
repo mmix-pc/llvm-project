@@ -1,5 +1,9 @@
 enable_testing()
 add_test(
+  NAME locale_transliteration_category_test
+  COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_transliteration_category.py
+)
+add_test(
   NAME locale_encoding_source_test
   COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_encoding_source.py
 )
