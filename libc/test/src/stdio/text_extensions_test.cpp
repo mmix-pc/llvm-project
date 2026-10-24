@@ -100,6 +100,11 @@ TEST(LlvmLibcTextExtensionsTest, DelimiterAndAllocationFailure) {
   EXPECT_TRUE(f.value()->error());
   fail_allocation = false;
   f.value()->clearerr();
+  // A failed growth retains caller storage. Restart from a known position;
+  // no content or position after the failed read is required by the interface.
+  ASSERT_TRUE(f.value()->seek(0, SEEK_SET).has_value());
+  EXPECT_EQ(getline(&line, &capacity, stream), ssize_t(sizeof(data) - 1));
+  EXPECT_STREQ(line, data);
   ::free(line);
   EXPECT_EQ(f.value()->close(), 0);
   EXPECT_EQ(LIBC_NAMESPACE::remove(path), 0);

@@ -85,10 +85,13 @@ if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
       ${LIBC_SOURCE_DIR}/src/stdio/generic/fclose.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/generic/freopen.cpp
       ${LIBC_SOURCE_DIR}/src/stdio/fmemopen.cpp
+      ${LIBC_SOURCE_DIR}/src/stdio/open_memstream.cpp
+      ${LIBC_SOURCE_DIR}/src/wchar/open_wmemstream.cpp
     DEPENDS
       libc.src.errno.errno
       libc.hdr.func.free
       libc.hdr.func.malloc
+      libc.hdr.func.realloc
       libc.src.__support.CPP.new
       libc.src.__support.File.file
       libc.src.__support.File.memory_file

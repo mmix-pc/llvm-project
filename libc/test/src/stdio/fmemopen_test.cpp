@@ -198,9 +198,12 @@ TEST_F(LlvmLibcFmemopenTest, ExactCapacityPreservesAllAcceptedBytes) {
   for (const char *mode : modes) {
     for (int buffering : buffering_modes) {
       char guarded[] = {'!', 0, '?', '?', '?', '!'};
+      char staging[8];
       FILE *f = LIBC::fmemopen(guarded + 1, 4, mode);
       ASSERT_NE(f, nullptr);
-      ASSERT_EQ(LIBC::setvbuf(f, nullptr, buffering, 0), 0);
+      ASSERT_EQ(LIBC::setvbuf(f, buffering == _IOFBF ? staging : nullptr,
+                             buffering, buffering == _IOFBF ? sizeof(staging) : 0),
+                0);
       ASSERT_EQ(LIBC::fwrite("abcd", 1, 4, f), size_t(4));
       ASSERT_EQ(LIBC::fflush(f), 0);
       EXPECT_EQ(LIBC::ftell(f), 4L);

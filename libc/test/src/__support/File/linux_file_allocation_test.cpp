@@ -11,6 +11,8 @@
 #include "src/stdio/fclose.h"
 #include "src/stdio/fmemopen.h"
 #include "src/stdio/freopen.h"
+#include "src/stdio/open_memstream.h"
+#include "src/wchar/open_wmemstream.h"
 #include "test/UnitTest/Test.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -110,6 +112,40 @@ TEST(LlvmLibcLinuxFileAllocationTest, OpenFailureClosesDescriptor) {
       EXPECT_EQ(live_allocations, 0U);
       EXPECT_EQ(next_descriptor(), expected_fd);
     }
+  }
+}
+
+TEST(LlvmLibcLinuxFileAllocationTest, MemoryConstructorFailureReleasesStorage) {
+  for (int kind = 0; kind < 3; ++kind) {
+    for (unsigned failure = 1; failure <= 2; ++failure) {
+      char *bytes = nullptr;
+      wchar_t *wide = nullptr;
+      size_t length = 0;
+      start_tracking(failure);
+      ::FILE *file = kind == 0 ? LIBC_NAMESPACE::fmemopen(nullptr, 32, "w+")
+                     : kind == 1 ? LIBC_NAMESPACE::open_memstream(&bytes, &length)
+                                 : LIBC_NAMESPACE::open_wmemstream(&wide, &length);
+      tracking = false;
+      ASSERT_EQ(file, nullptr);
+      EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOMEM);
+      EXPECT_EQ(allocation_count, failure);
+      EXPECT_EQ(live_allocations, 0U);
+    }
+    char *bytes = nullptr;
+    wchar_t *wide = nullptr;
+    size_t length = 0;
+    start_tracking(0);
+    ::FILE *file = kind == 0 ? LIBC_NAMESPACE::fmemopen(nullptr, 32, "w+")
+                   : kind == 1 ? LIBC_NAMESPACE::open_memstream(&bytes, &length)
+                               : LIBC_NAMESPACE::open_wmemstream(&wide, &length);
+    tracking = false;
+    ASSERT_NE(file, nullptr);
+    EXPECT_EQ(live_allocations, 2U);
+    EXPECT_EQ(LIBC_NAMESPACE::fclose(file), 0);
+    EXPECT_EQ(live_allocations, kind == 0 ? 0U : 1U);
+    ::free(bytes);
+    ::free(wide);
+    EXPECT_EQ(live_allocations, 0U);
   }
 }
 

@@ -8,9 +8,11 @@
 
 #include "hdr/errno_macros.h"
 #include "hdr/func/free.h"
+#include "hdr/func/malloc.h"
 #include "hdr/func/realloc.h"
 #include "hdr/stdio_macros.h"
 #include "src/__support/File/file.h"
+#include "src/string/memory_utils/inline_memcpy.h"
 #include "src/stdio/clearerr.h"
 #include "src/stdio/fclose.h"
 #include "src/stdio/ferror.h"
@@ -33,12 +35,26 @@ FILE *stderr = nullptr;
 
 namespace {
 bool fail_reallocation = false;
+bool force_move = false;
+size_t allocation_size;
+unsigned moves;
 }
 
 extern "C" void *memory_stream_test_realloc(void *pointer,
                                             size_t size) noexcept {
   if (fail_reallocation)
     return nullptr;
+  if (force_move) {
+    void *replacement = ::malloc(size);
+    if (!replacement)
+      return nullptr;
+    LIBC_NAMESPACE::inline_memcpy(replacement, pointer,
+                                 allocation_size < size ? allocation_size : size);
+    ::free(pointer);
+    allocation_size = size;
+    ++moves;
+    return replacement;
+  }
   return ::realloc(pointer, size);
 }
 
@@ -142,4 +158,60 @@ TEST_F(LlvmLibcMemstreamAllocTest, WideGrowthFailurePreservesPublishedStorage) {
   EXPECT_EQ(memory[2], L'\0');
   EXPECT_EQ(LIBC::fflush(nullptr), 0);
   ::free(memory);
+}
+
+TEST_F(LlvmLibcMemstreamAllocTest, MovingGrowthRepublishesByteAndWideStorage) {
+  char *bytes = nullptr;
+  size_t length = 0;
+  FILE *file = LIBC::open_memstream(&bytes, &length);
+  ASSERT_NE(file, nullptr);
+  allocation_size = 1;
+  moves = 0;
+  force_move = true;
+  size_t count = LIBC::fwrite("abc", 1, 3, file);
+  int result = LIBC::fflush(file);
+  force_move = false;
+  ASSERT_EQ(count, size_t(3));
+  ASSERT_EQ(result, 0);
+  EXPECT_EQ(moves, 1U);
+  uintptr_t old_address = reinterpret_cast<uintptr_t>(bytes);
+  force_move = true;
+  count = LIBC::fwrite("defgh", 1, 5, file);
+  result = LIBC::fflush(file);
+  force_move = false;
+  ASSERT_EQ(count, size_t(5));
+  ASSERT_EQ(result, 0);
+  EXPECT_EQ(moves, 2U);
+  EXPECT_NE(reinterpret_cast<uintptr_t>(bytes), old_address);
+  EXPECT_EQ(length, size_t(8));
+  EXPECT_STREQ(bytes, "abcdefgh");
+  ASSERT_EQ(LIBC::fclose(file), 0);
+  ::free(bytes);
+
+  wchar_t *wide = nullptr;
+  file = LIBC::open_wmemstream(&wide, &length);
+  ASSERT_NE(file, nullptr);
+  allocation_size = sizeof(wchar_t);
+  moves = 0;
+  force_move = true;
+  wint_t character = LIBC::fputwc(L'x', file);
+  result = LIBC::fflush(file);
+  force_move = false;
+  ASSERT_EQ(character, wint_t(L'x'));
+  ASSERT_EQ(result, 0);
+  old_address = reinterpret_cast<uintptr_t>(wide);
+  force_move = true;
+  character = LIBC::fputwc(L'y', file);
+  result = LIBC::fflush(file);
+  force_move = false;
+  ASSERT_EQ(character, wint_t(L'y'));
+  ASSERT_EQ(result, 0);
+  EXPECT_EQ(moves, 2U);
+  EXPECT_NE(reinterpret_cast<uintptr_t>(wide), old_address);
+  EXPECT_EQ(length, size_t(2));
+  EXPECT_EQ(wide[0], L'x');
+  EXPECT_EQ(wide[1], L'y');
+  EXPECT_EQ(wide[2], L'\0');
+  ASSERT_EQ(LIBC::fclose(file), 0);
+  ::free(wide);
 }
