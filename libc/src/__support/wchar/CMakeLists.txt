@@ -7,6 +7,18 @@ add_header_library(
     libc.hdr.types.char32_t
 )
 
+add_object_library(
+  scalar_codec
+  SRCS scalar_codec.cpp
+  HDRS scalar_codec.h
+  DEPENDS
+    .character_converter
+    libc.hdr.errno_macros
+    libc.hdr.stdint_proxy
+    libc.src.__support.CPP.span
+    libc.src.__support.error_or
+)
+
 add_header_library(
   string_converter
   HDRS
@@ -109,4 +121,10 @@ add_header_library(
     .string_converter
     .character_converter
     .mbstate
+)
+add_object_library(
+  iso2022_cn
+  SRCS iso2022_cn.cpp
+  HDRS iso2022_cn.h
+  DEPENDS libc.src.locale.encoding_data libc.hdr.errno_macros
 )

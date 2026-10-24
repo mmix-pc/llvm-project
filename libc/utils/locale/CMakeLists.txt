@@ -1,5 +1,17 @@
 enable_testing()
 add_test(
+  NAME locale_encoding_source_test
+  COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_encoding_source.py
+)
+add_test(
+  NAME locale_messages_category_test
+  COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_messages_category.py
+)
+add_test(
+  NAME locale_time_category_test
+  COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_time_category.py
+)
+add_test(
   NAME locale_monetary_category_test
   COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_monetary_category.py
 )

@@ -20,6 +20,27 @@ add_object_library(
 )
 
 add_object_library(
+  encoding_data
+  SRCS encoding_data.cpp
+  HDRS encoding_data.h
+  DEPENDS .locale_data libc.hdr.errno_macros
+)
+
+add_object_library(
+  messages_data
+  SRCS messages_data.cpp
+  HDRS messages_data.h
+  DEPENDS .locale_data .category_validation libc.hdr.errno_macros
+)
+
+add_object_library(
+  time_data
+  SRCS time_data.cpp
+  HDRS time_data.h
+  DEPENDS .locale_data .category_validation libc.hdr.errno_macros
+)
+
+add_object_library(
   numeric_data
   SRCS numeric_data.cpp
   HDRS numeric_data.h

@@ -1,6 +1,27 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  encoding_data_test
+  SUITE libc-locale-tests
+  SRCS encoding_data_test.cpp
+  DEPENDS libc.src.locale.encoding_data
+)
+
+add_libc_test(
+  messages_data_test
+  SUITE libc-locale-tests
+  SRCS messages_data_test.cpp
+  DEPENDS libc.src.locale.messages_data libc.hdr.langinfo_macros
+)
+
+add_libc_test(
+  time_data_test
+  SUITE libc-locale-tests
+  SRCS time_data_test.cpp
+  DEPENDS libc.src.locale.time_data libc.hdr.langinfo_macros
+)
+
+add_libc_test(
   monetary_data_test
   SUITE libc-locale-tests
   SRCS monetary_data_test.cpp

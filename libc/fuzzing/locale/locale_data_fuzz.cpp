@@ -7,9 +7,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/locale/ctype_data.h"
+#include "src/locale/encoding_data.h"
 #include "src/locale/locale_data.h"
+#include "src/locale/messages_data.h"
 #include "src/locale/monetary_data.h"
 #include "src/locale/numeric_data.h"
+#include "src/locale/time_data.h"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   using LIBC_NAMESPACE::internal::LocaleDataFile;
@@ -18,7 +21,20 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   if (!view)
     return 0;
   (void)LIBC_NAMESPACE::internal::NumericLocaleData::read(*view);
+  (void)LIBC_NAMESPACE::internal::MessagesLocaleData::read(*view);
+  auto encoding = LIBC_NAMESPACE::internal::ChineseEncodingData::read(*view);
+  if (encoding) {
+    (void)encoding->decode(LIBC_NAMESPACE::internal::ChineseEncodingData::CNS1,
+                           uint32_t(size));
+    (void)encoding->encode(LIBC_NAMESPACE::internal::ChineseEncodingData::GB2312,
+                           uint32_t(size));
+  }
   (void)LIBC_NAMESPACE::internal::MonetaryLocaleData::read(*view);
+  auto time = LIBC_NAMESPACE::internal::TimeLocaleData::read(*view);
+  if (time) {
+    (void)time->text(LIBC_NAMESPACE::internal::TimeLocaleData::MON, size);
+    (void)time->count(LIBC_NAMESPACE::internal::TimeLocaleData::ERAS);
+  }
   auto characters = LIBC_NAMESPACE::internal::CTypeLocaleData::read(*view);
   if (characters) {
     (void)characters->contains(LIBC_NAMESPACE::internal::CTypeLocaleData::ALPHA,

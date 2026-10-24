@@ -160,3 +160,63 @@ completeness still require their owning runtime checks.
 .. code-block:: sh
 
    python3 ctype_source.py /readonly/locales tr_TR tr_TR-ctype-review.json
+
+Time Text Tables
+----------------
+
+``time_category.py`` emits category 2 tables. Field IDs 1 through 16 are abday,
+day, abmon, mon, alt_mon, ab_alt_mon, am_pm, d_t_fmt, d_fmt, t_fmt, t_fmt_ampm,
+era, era_d_fmt, era_t_fmt, era_d_t_fmt and alt_digits. Each field's key
+``id << 16`` holds one word containing its count. Following keys contain
+individual UTF-8 strings. Day tables have seven entries, month tables twelve,
+am_pm two and individual formats one. Era entries are bounded to 1024;
+alternative digits are bounded to 100. Empty names are rejected, but empty
+AM/PM and format strings are preserved.
+
+The selected glibc profile inherits missing alternate months from the ordinary
+month table. Missing eras, era formats and alternative digits have explicitly
+recorded empty defaults. Other required fields cannot be omitted. GNU source
+extensions remain in the review output, not silently exported as standard
+items. ``TimeLocaleData`` validates cardinality, item kinds and UTF-8, and
+provides checked access without assuming aligned storage. This component does
+not validate era calendars or interpret format programs; those checks must
+precede runtime locale publication. No private data version compatibility is
+promised while this schema is under development.
+
+Message Text
+------------
+
+``messages_category.py`` emits category 5 keys 1 through 4: yesexpr, noexpr,
+yesstr and nostr. Every item is a UTF-8 string. The expressions are required;
+absent legacy response strings become explicitly recorded empty values.
+``MessagesLocaleData`` checks their presence, kinds and text encoding without
+interpreting the expressions. Locale-aware ERE validation must succeed before
+publication; Python regular expressions cannot substitute for it. These records
+do not implement message catalogs or translation-domain bindings.
+
+Chinese Encoding Maps
+---------------------
+
+``encoding_source.py`` reads the selected GB2312 charmap and ICU EUC-TW mapping
+source. It retains notices, source hashes and excluded mapping records. Only
+CNS planes 1 and 2 participate in ISO-2022-CN. ICU flag 0 contributes exact
+encoding and decoding; flag 3 contributes decoding only. Other flags remain
+explicit non-exact review records, not silently inverted encoder entries.
+Duplicate coordinates or ambiguous exact encodings are rejected.
+
+Category 0 keys 0x201 through 0x206 contain alternating decode/encode word-pair
+tables for GB2312, CNS plane 1 and CNS plane 2. Decode keys are 7-bit row/column
+coordinates; values are Unicode scalars. Encode pairs reverse these domains,
+but are not constructed by blindly reversing the decoder. Every table is sorted
+by its lookup key and bounded by the 94-by-94 repertoire. The runtime reader
+checks scalar/coordinate domains, ordering and exact encoder round trips.
+Input bytes are read without alignment or native-endian assumptions.
+
+The internal ISO-2022-CN state machine consumes one byte at a time and reports
+incomplete prefixes, complete shifts or scalars. It rejects undesignated SO/SS2,
+retains G1 across SS2 and SI, and clears cached designations on LF or a complete
+NUL. Encoding prefers the current exact G1 mapping, then GB2312/CNS1/CNS2.
+Output and reset commit only when the entire result fits. The largest scalar
+output is eight bytes. Public iconv suffix policy, descriptor ownership and
+restartable mbstate_t integration are separate responsibilities; these helpers
+alone do not expose the encoding or change MB_LEN_MAX.
