@@ -3,6 +3,7 @@ add_custom_target(libc-fuzzer)
 
 add_subdirectory(__support)
 add_subdirectory(arpa)
+add_subdirectory(locale)
 # TODO(#85680): Re-enable math fuzzing after headers are sorted out
 add_subdirectory(math)
 add_subdirectory(stdlib)

@@ -13,6 +13,13 @@ add_object_library(
 )
 
 add_object_library(
+  ctype_data
+  SRCS ctype_data.cpp
+  HDRS ctype_data.h
+  DEPENDS .locale_data libc.hdr.errno_macros
+)
+
+add_object_library(
   numeric_data
   SRCS numeric_data.cpp
   HDRS numeric_data.h

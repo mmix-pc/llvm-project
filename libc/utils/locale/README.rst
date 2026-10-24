@@ -122,3 +122,41 @@ empty or three uppercase ASCII letters followed by one Unicode scalar. This
 checks the representation, not membership in a currency registry. The component
 does not implement localeconv, strfmon, category encoding conversion or locale
 publication. Its non-owning views require retained immutable storage.
+
+Character Source Profile
+------------------------
+
+``ctype_source.py`` expands category-scoped copy and transliteration include
+dependencies from an explicit source directory. Source names cannot escape
+that directory. The graph, input bytes and rule counts are bounded; missing
+files, cycles, unsupported directives and malformed scalar ranges fail. Each
+source retains its hash and original preamble. Classification intervals, case
+pairs and ordered transliteration alternatives have separate normalized forms.
+Local case entries override inherited entries without dropping unrelated pairs;
+class entries add membership. Local transliteration rules override imports;
+alternative order and empty replacements are preserved.
+
+The selected profile accepts Unicode-symbol and literal UTF-8 sequences,
+including Turkish case tailoring and German transliteration alternatives.
+It does not validate collation, supply a codec, resolve recursive transliteration
+at runtime, or approve every input's redistribution. Output remains explicitly
+non-publishable until the full data and runtime pipeline is qualified.
+
+``character_records`` emits category 0 classification and case tables as
+big-endian word pairs. Class keys 1 through 11 are upper, lower, alpha, digit,
+space, cntrl, punct, graph, print, xdigit and blank. Each pair is an inclusive
+scalar interval. Keys 0x101 through 0x103 are toupper, tolower and totitle;
+pairs are source/destination scalars. Missing mappings are identities. Named
+extension classes and transliteration are retained in normalization but not
+silently placed in these standard tables.
+
+``CTypeLocaleData`` validates sorted, non-overlapping scalar intervals, sorted
+unique map keys and required subset/disjoint relationships between classes.
+Lookup is binary and does not cast unaligned serialized words. This is a
+character-table component, not a complete LC_CTYPE: codec identity, encoding
+tables, transliteration execution, byte-domain policy and source-profile
+completeness still require their owning runtime checks.
+
+.. code-block:: sh
+
+   python3 ctype_source.py /readonly/locales tr_TR tr_TR-ctype-review.json

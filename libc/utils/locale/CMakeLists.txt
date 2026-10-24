@@ -17,6 +17,11 @@ add_custom_target(check-locale-file
     -s ${CMAKE_CURRENT_SOURCE_DIR} -p "test_*.py"
 )
 add_test(
+  NAME locale_ctype_source_test
+  COMMAND ${CMAKE_COMMAND} -E env TMPDIR=${CMAKE_CURRENT_BINARY_DIR}
+    ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_ctype_source.py
+)
+add_test(
   NAME locale_simple_categories_test
   COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_simple_categories.py
 )

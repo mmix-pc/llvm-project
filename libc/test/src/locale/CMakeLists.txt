@@ -8,6 +8,13 @@ add_libc_test(
 )
 
 add_libc_test(
+  ctype_data_test
+  SUITE libc-locale-tests
+  SRCS ctype_data_test.cpp
+  DEPENDS libc.src.locale.ctype_data
+)
+
+add_libc_test(
   numeric_data_test
   SUITE libc-locale-tests
   SRCS numeric_data_test.cpp
