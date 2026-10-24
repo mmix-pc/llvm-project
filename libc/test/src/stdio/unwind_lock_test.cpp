@@ -14,6 +14,7 @@
 #include "src/stdio/vfscanf.h"
 #include "src/stdio_ext/_flushlbf.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/locale/LocaleGuard.h"
 #include <pthread.h>
 #include <stdarg.h>
 
@@ -152,6 +153,63 @@ TEST(LlvmLibcStdioUnwindLockTest, GlobalFlush) {
   EXPECT_EQ(LIBC_NAMESPACE::fflush(nullptr), 0);
   check_unlocked(file);
   File::remove_file(&file);
+}
+
+namespace {
+class ProgressThenUnwindFile : public File {
+  uint8_t buffer[8]{};
+  static FileIOResult write_bytes(File *base, const void *data, size_t size) {
+    auto *file = static_cast<ProgressThenUnwindFile *>(base);
+    if (++file->calls == 2 && file->fail)
+      throw ProviderFailure{};
+    size_t count = file->calls == 1 && size > 2 ? 2 : size;
+    for (size_t i = 0; i < count; ++i)
+      file->output[file->written++] = static_cast<const char *>(data)[i];
+    return count;
+  }
+  static int close_file(File *) { return 0; }
+
+public:
+  char output[32]{};
+  size_t written = 0;
+  unsigned calls = 0;
+  bool fail = true;
+  ProgressThenUnwindFile()
+      : File(write_bytes, nullptr, nullptr, close_file, buffer, sizeof(buffer),
+             _IOFBF, false, mode_flags("w")) {}
+};
+} // namespace
+
+TEST(LlvmLibcStdioUnwindLockTest, PartialOutputSurvivesLaterUnwind) {
+  LocaleGuard locale;
+  for (unsigned kind = 0; kind != 3; ++kind) {
+    ProgressThenUnwindFile file;
+    if (kind == 2)
+      ASSERT_EQ(file.write(L"\u20acX", 2).value, size_t(2));
+    else
+      ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
+    bool caught = false;
+    try {
+      if (kind == 1)
+        file.write("ghij", 4);
+      else
+        file.flush();
+    } catch (ProviderFailure) {
+      caught = true;
+    }
+    ASSERT_TRUE(caught);
+    EXPECT_EQ(file.calls, 2U);
+    EXPECT_EQ(file.written, size_t(2));
+    check_unlocked(file);
+    file.fail = false;
+    ASSERT_EQ(file.flush(), 0);
+    const char *expected = kind == 2 ? "\xe2\x82\xacX" : "abcdef";
+    size_t length = kind == 2 ? 4 : 6;
+    EXPECT_EQ(file.written, length);
+    for (size_t i = 0; i != length; ++i)
+      EXPECT_EQ(file.output[i], expected[i]);
+    EXPECT_EQ(file.close(), 0);
+  }
 }
 
 TEST(LlvmLibcStdioUnwindLockTest, LineBufferedGlobalFlush) {

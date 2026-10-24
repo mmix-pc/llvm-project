@@ -87,6 +87,26 @@ void File::install_backend_unlocked(File *replacement) {
   reset_stream_state_unlocked(replacement->mode);
 }
 
+// Positive short writes make progress, not an error. Keep the committed count
+// on failure, and never retry a backend error (including EINTR).
+static FileIOResult write_all(File::WriteFunc *write, File *backend,
+                             const void *data, size_t len,
+                             size_t *progress = nullptr) {
+  const auto *bytes = static_cast<const uint8_t *>(data);
+  size_t written = 0;
+  while (written < len) {
+    auto result = write(backend, bytes + written, len - written);
+    written += result.value;
+    if (progress)
+      *progress = written;
+    if (result.has_error())
+      return {written, result.error};
+    if (!result.value)
+      return {written, EIO};
+  }
+  return written;
+}
+
 FileIOResult File::write_unlocked(const void *data, size_t len) {
   switch (orientation) {
   case Orientation::WIDE:
@@ -159,9 +179,8 @@ FileIOResult File::write_unlocked_impl(const void *data, size_t len) {
   if (bufmode == _IONBF) { // unbuffered.
     FileIOResult ret_val =
         write_unlocked_nbf(static_cast<const uint8_t *>(data), len);
-    int flush_error = flush_unlocked();
     if (!ret_val.has_error())
-      ret_val.error = flush_error;
+      ret_val.error = flush_unlocked();
     return ret_val;
   }
   // The fallback array guarantees input pushback; it is not an output buffer.
@@ -182,7 +201,7 @@ FileIOResult File::write_unlocked_nbf(const uint8_t *data, size_t len) {
     }
   }
 
-  FileIOResult write_result = platform_write(get_backend(), data, len);
+  FileIOResult write_result = write_all(platform_write, get_backend(), data, len);
   if (write_result.has_error() || write_result < len)
     err = true;
   return write_result;
@@ -227,18 +246,24 @@ FileIOResult File::write_unlocked_fbf(const uint8_t *data, size_t len) {
   // is full.
   const size_t write_size = pos;
 
-  FileIOResult buf_result = platform_write(get_backend(), buf, write_size);
-  size_t bytes_written = buf_result.value;
+  FileIOResult buf_result(0);
+  size_t bytes_written = 0;
+  {
+    // Also commit completed writes if a later backend call unwinds. Retain
+    // only previously accepted bytes, not uncommitted data from this request.
+    cpp::scope_exit commit([&] {
+      pos = bytes_written < init_pos ? init_pos - bytes_written : 0;
+      for (size_t i = 0; i < pos; ++i)
+        buf[i] = buf[i + bytes_written];
+    });
+    buf_result =
+        write_all(platform_write, get_backend(), buf, write_size, &bytes_written);
+  }
 
   // If less bytes were written than expected, then an error occurred. Return
   // the number of bytes that have been written from |data|.
   if (buf_result.has_error() || bytes_written < write_size) {
     err = true;
-    // Preserve previously accepted data, but not uncommitted new bytes whose
-    // count is returned to the caller for retry.
-    pos = bytes_written < init_pos ? init_pos - bytes_written : 0;
-    for (size_t i = 0; i < pos; ++i)
-      buf[i] = buf[i + bytes_written];
     return {bytes_written <= init_pos ? 0 : bytes_written - init_pos,
             buf_result.error ? buf_result.error : EIO};
   }
@@ -253,7 +278,8 @@ FileIOResult File::write_unlocked_fbf(const uint8_t *data, size_t len) {
   } else {
 
     FileIOResult result =
-        platform_write(get_backend(), remainder.data(), remainder.size());
+        write_all(platform_write, get_backend(), remainder.data(),
+                  remainder.size());
     bytes_written = result.value;
 
     // If less bytes were written than expected, then an error occurred. Return
@@ -582,11 +608,16 @@ int File::flush_unlocked() {
       return error;
   }
   if (prev_op == FileOp::WRITE && pos > 0) {
-    FileIOResult buf_result = platform_write(get_backend(), buf, pos);
-    const size_t consumed = buf_result.value < pos ? buf_result.value : pos;
-    for (size_t i = consumed; i < pos; ++i)
-      buf[i - consumed] = buf[i];
-    pos -= consumed;
+    FileIOResult buf_result(0);
+    size_t consumed = 0;
+    {
+      cpp::scope_exit commit([&] {
+        for (size_t i = consumed; i < pos; ++i)
+          buf[i - consumed] = buf[i];
+        pos -= consumed;
+      });
+      buf_result = write_all(platform_write, get_backend(), buf, pos, &consumed);
+    }
     if (buf_result.has_error() || pos > 0) {
       err = true;
       return buf_result.error ? buf_result.error : EIO;
@@ -760,19 +791,25 @@ int File::flush_wide_unlocked() {
       length += size - skip;
       ends[characters++] = length;
     }
-    auto result = platform_write(get_backend(), bytes, length);
-    size_t consumed = result.value < length ? result.value : length;
-    size_t complete = 0;
-    while (complete < characters && ends[complete] <= consumed)
-      ++complete;
-    // Keep the first incomplete character, without replaying its written prefix.
-    wide_prefix = complete ? consumed - ends[complete - 1]
-                           : wide_prefix + consumed;
-    for (size_t i = complete; i < wide_size; ++i)
-      wide_output[i - complete] = wide_output[i];
-    wide_size -= complete;
-    if (!wide_size)
-      wide_prefix = 0;
+    FileIOResult result(0);
+    size_t consumed = 0;
+    {
+      cpp::scope_exit commit([&] {
+        size_t complete = 0;
+        while (complete < characters && ends[complete] <= consumed)
+          ++complete;
+        // Keep an incomplete character without replaying its written prefix,
+        // including when the next backend call unwinds.
+        wide_prefix = complete ? consumed - ends[complete - 1]
+                               : wide_prefix + consumed;
+        for (size_t i = complete; i < wide_size; ++i)
+          wide_output[i - complete] = wide_output[i];
+        wide_size -= complete;
+        if (!wide_size)
+          wide_prefix = 0;
+      });
+      result = write_all(platform_write, get_backend(), bytes, length, &consumed);
+    }
     if (result.has_error() || consumed != length) {
       err = true;
       return result.has_error() ? result.error : EIO;

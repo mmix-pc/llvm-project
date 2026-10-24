@@ -39,7 +39,7 @@ class DiagnosticFile : public File {
     for (size_t i = 0; i < count; ++i)
       file.output[file.length++] = static_cast<const char *>(data)[i];
     file.output[file.length] = '\0';
-    return {count, file.write_error};
+    return {count, file.calls >= file.error_at_call ? file.write_error : 0};
   }
 
 public:
@@ -48,6 +48,7 @@ public:
   size_t write_limit = sizeof(output);
   unsigned calls = 0;
   int write_error = 0;
+  unsigned error_at_call = 0;
   bool changed_orientation = false;
   Orientation expected_orientation;
 
@@ -206,10 +207,19 @@ TEST(LlvmLibcPerrorTest, DiagnosticResultCountsConsumedInputBytes) {
   DiagnosticFile partial(File::Orientation::WIDE);
   partial.write_limit = 1;
   result = partial.write_diagnostic_unlocked(text, sizeof(text) - 1);
+  EXPECT_EQ(result.value, sizeof(text) - 1);
+  EXPECT_EQ(result.error, 0);
+  EXPECT_STREQ(partial.output, text);
+  EXPECT_EQ(partial.calls, 3U);
+
+  DiagnosticFile partial_error(File::Orientation::WIDE);
+  partial_error.write_limit = 1;
+  partial_error.write_error = EAGAIN;
+  result = partial_error.write_diagnostic_unlocked(text, sizeof(text) - 1);
   EXPECT_EQ(result.value, size_t(0));
-  EXPECT_EQ(result.error, EIO);
-  EXPECT_EQ(partial.length, size_t(1));
-  EXPECT_EQ(partial.calls, 1U);
+  EXPECT_EQ(result.error, EAGAIN);
+  EXPECT_EQ(partial_error.length, size_t(1));
+  EXPECT_EQ(partial_error.calls, 1U);
 
   DiagnosticFile byte_error(File::Orientation::BYTE);
   byte_error.write_limit = 2;
@@ -221,9 +231,11 @@ TEST(LlvmLibcPerrorTest, DiagnosticResultCountsConsumedInputBytes) {
 
   DiagnosticFile wide_error(File::Orientation::WIDE);
   wide_error.write_limit = 1;
+  wide_error.write_error = EINTR;
+  wide_error.error_at_call = 2;
   result = wide_error.write_diagnostic_unlocked("x\xc2\xa2", 3);
   EXPECT_EQ(result.value, size_t(1));
-  EXPECT_EQ(result.error, EIO);
+  EXPECT_EQ(result.error, EINTR);
   EXPECT_EQ(wide_error.length, size_t(2));
   EXPECT_EQ(wide_error.calls, 2U);
 

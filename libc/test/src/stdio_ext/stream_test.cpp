@@ -150,10 +150,12 @@ TEST(LlvmLibcStreamExtensionsTest, ByteBufferAndShortWrite) {
   EXPECT_EQ(f.write("abcd", 4).value, size_t(4));
   EXPECT_EQ(LIBC_NAMESPACE::__fpending(f.handle()), size_t(4));
   f.limit = 2;
+  f.failure = EIO;
   EXPECT_EQ(f.flush(), EIO);
   EXPECT_EQ(LIBC_NAMESPACE::__fpending(f.handle()), size_t(2));
   EXPECT_EQ(f.tell().value(), off_t(4));
   f.limit = sizeof(f.data);
+  f.failure = 0;
   EXPECT_EQ(f.flush(), 0);
   EXPECT_EQ(LIBC_NAMESPACE::__fpending(f.handle()), size_t(0));
   EXPECT_EQ(f.length, size_t(4));
@@ -205,6 +207,7 @@ TEST(LlvmLibcStreamExtensionsTest, WideCharactersAndPartialEncoding) {
   EXPECT_EQ(LIBC_NAMESPACE::__fpending(f.handle()), size_t(3));
   EXPECT_EQ(f.tell().value(), off_t(5));
   f.limit = 2;
+  f.failure = EIO;
   EXPECT_EQ(f.flush(), EIO); // 'a' and the first byte of the Euro sign.
   EXPECT_EQ(f.pending_output(), size_t(2));
   EXPECT_EQ(f.tell().value(), off_t(5));
@@ -212,6 +215,7 @@ TEST(LlvmLibcStreamExtensionsTest, WideCharactersAndPartialEncoding) {
   EXPECT_EQ(f.flush(), EIO);
   EXPECT_EQ(f.pending_output(), size_t(2));
   f.limit = sizeof(f.data);
+  f.failure = 0;
   EXPECT_EQ(f.flush(), 0);
   EXPECT_EQ(f.pending_output(), size_t(0));
   EXPECT_EQ(f.length, size_t(5));
@@ -241,6 +245,7 @@ TEST(LlvmLibcStreamExtensionsTest, PurgeOutputDoesNotPublish) {
   Stream f;
   EXPECT_EQ(f.write("abcd", 4).value, size_t(4));
   f.limit = 1;
+  f.failure = EIO;
   EXPECT_EQ(f.flush(), EIO);
   unsigned writes = f.writes, seeks = f.seeks, publications = f.publications;
   LIBC_NAMESPACE::__fpurge(f.handle());
@@ -278,6 +283,7 @@ TEST(LlvmLibcStreamExtensionsTest, PurgeWideInputAndPartialOutput) {
   Stream f;
   EXPECT_EQ(f.write(L"a\u20acb", 3).value, size_t(3));
   f.limit = 2;
+  f.failure = EIO;
   EXPECT_EQ(f.flush(), EIO);
   LIBC_NAMESPACE::__fpurge(f.handle());
   EXPECT_EQ(f.pending_output(), size_t(0));
@@ -286,6 +292,7 @@ TEST(LlvmLibcStreamExtensionsTest, PurgeWideInputAndPartialOutput) {
   EXPECT_EQ(f.flush(), 0);
   EXPECT_EQ(f.length, size_t(2));
   f.limit = sizeof(f.data);
+  f.failure = 0;
   EXPECT_TRUE(f.seek(0, SEEK_SET).has_value());
   wchar_t wc;
   EXPECT_EQ(f.read(&wc, 1).value, size_t(1));
@@ -302,6 +309,7 @@ TEST(LlvmLibcStreamExtensionsTest, GlobalSelectionDeduplicationAndErrors) {
   full.write("cd", 2);
   failed.write("ef", 2);
   failed.limit = 1;
+  failed.failure = EIO;
   File::add_file(&line);
   File::add_file(&full);
   File::add_file(&input);
@@ -319,4 +327,22 @@ TEST(LlvmLibcStreamExtensionsTest, GlobalSelectionDeduplicationAndErrors) {
   EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EIO);
   EXPECT_TRUE(failed.error());
   LIBC_NAMESPACE::stdout = LIBC_NAMESPACE::stderr = nullptr;
+}
+
+TEST(LlvmLibcStreamExtensionsTest, PositiveShortWritesCompletePendingOutput) {
+  LocaleGuard locale;
+  Stream bytes, wide;
+  bytes.limit = wide.limit = 1;
+  EXPECT_EQ(bytes.write("abc", 3).value, size_t(3));
+  EXPECT_EQ(wide.write(L"a\u20ac", 2).value, size_t(2));
+  EXPECT_EQ(bytes.flush(), 0);
+  EXPECT_EQ(wide.flush(), 0);
+  EXPECT_EQ(bytes.pending_output(), size_t(0));
+  EXPECT_EQ(wide.pending_output(), size_t(0));
+  EXPECT_EQ(bytes.length, size_t(3));
+  EXPECT_EQ(wide.length, size_t(4));
+  EXPECT_EQ(bytes.writes, 3U);
+  EXPECT_EQ(wide.writes, 4U);
+  EXPECT_FALSE(bytes.error());
+  EXPECT_FALSE(wide.error());
 }

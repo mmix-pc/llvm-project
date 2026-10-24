@@ -1137,12 +1137,20 @@ class ShortWriteFile : public File {
   size_t pos;
   char str[SIZE] = {0};
   size_t max_write;
+  size_t fail_after = SIZE;
+  int failure = EIO;
+  unsigned calls = 0;
 
   static FileIOResult short_write(LIBC_NAMESPACE::File *f, const void *data,
                                   size_t len) {
     ShortWriteFile *sf = static_cast<ShortWriteFile *>(f);
+    ++sf->calls;
+    if (sf->pos >= sf->fail_after)
+      return {0, sf->failure};
     // Simulate a short write: write at most max_write bytes per call.
     size_t to_write = len < sf->max_write ? len : sf->max_write;
+    if (to_write > sf->fail_after - sf->pos)
+      to_write = sf->fail_after - sf->pos;
     for (size_t i = 0; i < to_write && sf->pos < SIZE; ++i, ++sf->pos)
       sf->str[sf->pos] = reinterpret_cast<const char *>(data)[i];
     return to_write;
@@ -1187,12 +1195,14 @@ public:
   size_t get_pos() const { return pos; }
   char *get_str() { return str; }
   void set_max_write(size_t maximum) { max_write = maximum; }
+  void fail_at(size_t offset, int error = EIO) {
+    fail_after = offset;
+    failure = error;
+  }
+  unsigned write_calls() const { return calls; }
 };
 
-// Verify that a short platform_write of a multi-byte UTF-8 character is
-// detected and reported as a failure. POSIX write(2) may perform short
-// writes on pipes, sockets, and FIFOs, so a 3-byte character could have
-// only 2 bytes accepted by the kernel.
+// A real error after a partial UTF-8 character preserves its committed prefix.
 TEST(LlvmLibcFileTest, PartialWideCharWriteDetected) {
   LocaleGuard locale;
   LIBC_NAMESPACE::AllocChecker ac;
@@ -1201,6 +1211,7 @@ TEST(LlvmLibcFileTest, PartialWideCharWriteDetected) {
       nullptr, 0, _IONBF, true, LIBC_NAMESPACE::File::mode_flags("w"),
       /*max_write_bytes=*/2);
   ASSERT_FALSE(f == nullptr);
+  f->fail_at(2, EAGAIN);
 
   // € (U+20AC) encodes to 3 UTF-8 bytes: 0xE2 0x82 0xAC.
   // With max_write=2, only 2 of the 3 bytes will be accepted.
@@ -1209,6 +1220,7 @@ TEST(LlvmLibcFileTest, PartialWideCharWriteDetected) {
 
   // The incomplete character must not be counted as written.
   EXPECT_TRUE(result.has_error());
+  EXPECT_EQ(result.error, EAGAIN);
   EXPECT_EQ(result.value, size_t(0));
 
   // The error indicator on the stream should be set.
@@ -1222,11 +1234,14 @@ TEST(LlvmLibcFileTest, ShortFlushDoesNotReplayCommittedPrefix) {
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 2);
+  file.fail_at(2);
   ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
   EXPECT_EQ(file.flush(), EIO);
   EXPECT_EQ(file.get_pos(), size_t(2));
+  file.fail_at(4);
   EXPECT_EQ(file.flush(), EIO);
   EXPECT_EQ(file.get_pos(), size_t(4));
+  file.fail_at(512);
   EXPECT_EQ(file.flush(), 0);
   EXPECT_EQ(file.get_pos(), size_t(6));
   EXPECT_MEM_EQ(MemoryView("abcdef", 6), MemoryView(file.get_str(), 6));
@@ -1237,12 +1252,14 @@ TEST(LlvmLibcFileTest, ShortSeekPreservesOnlyUnconsumedData) {
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 2);
+  file.fail_at(2);
   ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
   auto result = file.seek(0, SEEK_SET);
   ASSERT_FALSE(result.has_value());
   EXPECT_EQ(result.error(), EIO);
   EXPECT_EQ(file.get_pos(), size_t(2));
   file.set_max_write(8);
+  file.fail_at(512);
   ASSERT_TRUE(file.seek(0, SEEK_SET).has_value());
   EXPECT_EQ(file.get_pos(), size_t(0));
   EXPECT_MEM_EQ(MemoryView("abcdef", 6), MemoryView(file.get_str(), 6));
@@ -1255,6 +1272,7 @@ TEST(LlvmLibcFileTest, ShortCloseConsumesStream) {
   auto *file = new (ac) ShortWriteFile(buffer, sizeof(buffer), _IOFBF, false,
                                       File::mode_flags("w"), 2);
   ASSERT_TRUE(bool(ac));
+  file->fail_at(2);
   File *previous = File::get_first_file();
   File::add_file(file);
   ASSERT_EQ(file->write("abcdef", 6).value, size_t(6));
@@ -1267,11 +1285,13 @@ TEST(LlvmLibcFileTest, ShortBufferedWriteRetainsOldDataWithoutAcceptingNewData) 
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 4);
+  file.fail_at(4);
   ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
   auto result = file.write("ghijkl", 6);
   EXPECT_EQ(result.value, size_t(0));
   EXPECT_EQ(result.error, EIO);
   file.set_max_write(32);
+  file.fail_at(512);
   ASSERT_EQ(file.write("ghijkl", 6).value, size_t(6));
   ASSERT_EQ(file.flush(), 0);
   EXPECT_EQ(file.get_pos(), size_t(12));
@@ -1283,12 +1303,14 @@ TEST(LlvmLibcFileTest, ShortPreflushRetainsOldDataWithoutWritingNewData) {
   char buffer[8];
   ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
                       File::mode_flags("w"), 4);
+  file.fail_at(4);
   ASSERT_EQ(file.write("abcdef", 6).value, size_t(6));
   const char data[] = "ghijklmnopqrstuvwxyz";
   auto result = file.write(data, 20);
   EXPECT_EQ(result.value, size_t(0));
   EXPECT_EQ(result.error, EIO);
   file.set_max_write(32);
+  file.fail_at(512);
   ASSERT_EQ(file.write(data, 20).value, size_t(20));
   EXPECT_EQ(file.get_pos(), size_t(26));
   EXPECT_MEM_EQ(MemoryView("abcdefghijklmnopqrstuvwxyz", 26),
@@ -1307,6 +1329,76 @@ TEST(LlvmLibcFileTest, ZeroProgressFlushDoesNotReportSuccess) {
   EXPECT_EQ(file.flush(), 0);
   EXPECT_EQ(file.get_pos(), size_t(4));
   EXPECT_MEM_EQ(MemoryView("data", 4), MemoryView(file.get_str(), 4));
+}
+
+TEST(LlvmLibcFileTest, PositiveShortWritesCompleteAcrossBufferModes) {
+  LocaleGuard locale;
+  const int modes[] = {_IONBF, _IOFBF, _IOLBF};
+  const size_t lengths[] = {6, 16, 20};
+  const char data[] = "abc\nefghijklmnopqrst";
+  for (int mode : modes) {
+    for (size_t len : lengths) {
+      char buffer[8];
+      ShortWriteFile file(buffer, sizeof(buffer), mode, false,
+                          File::mode_flags("w"), 2);
+      auto result = file.write(data, len);
+      EXPECT_EQ(result.value, len);
+      EXPECT_EQ(result.error, 0);
+      ASSERT_EQ(file.flush(), 0);
+      EXPECT_FALSE(file.error());
+      EXPECT_EQ(file.get_pos(), len);
+      EXPECT_MEM_EQ(MemoryView(data, len), MemoryView(file.get_str(), len));
+    }
+  }
+}
+
+TEST(LlvmLibcFileTest, ShortWritesStopOnZeroOrErrorWithoutRetry) {
+  LocaleGuard locale;
+  const int modes[] = {_IONBF, _IOFBF, _IOLBF};
+  const int errors[] = {0, EINTR, EAGAIN};
+  const size_t stops[] = {2, 10};
+  const char data[] = "abcdefghijklmno\n";
+  for (int mode : modes) {
+    for (int error : errors) {
+      for (size_t stop : stops) {
+        char buffer[8];
+        ShortWriteFile file(buffer, sizeof(buffer), mode, false,
+                            File::mode_flags("w"), 2);
+        file.fail_at(stop, error);
+        auto result = file.write(data, 16);
+        EXPECT_EQ(result.value, stop);
+        EXPECT_EQ(result.error, error ? error : EIO);
+        EXPECT_TRUE(file.error());
+        EXPECT_EQ(file.write_calls(), unsigned(stop / 2 + 1));
+        file.fail_at(512);
+        file.clearerr();
+        result = file.write(data + stop, 16 - stop);
+        EXPECT_EQ(result.value, size_t(16 - stop));
+        EXPECT_EQ(result.error, 0);
+        EXPECT_EQ(file.flush(), 0);
+        EXPECT_EQ(file.get_pos(), size_t(16));
+        EXPECT_MEM_EQ(MemoryView(data, 16), MemoryView(file.get_str(), 16));
+      }
+    }
+  }
+}
+
+TEST(LlvmLibcFileTest, WideFlushRetainsOnlyUnwrittenEncodingBytes) {
+  LocaleGuard locale;
+  char buffer[16];
+  ShortWriteFile file(buffer, sizeof(buffer), _IOFBF, false,
+                      File::mode_flags("w"), 1);
+  ASSERT_EQ(file.write(L"\u20acX", 2).value, size_t(2));
+  file.fail_at(2, EINTR);
+  EXPECT_EQ(file.flush(), EINTR);
+  EXPECT_EQ(file.write_calls(), 3U);
+  EXPECT_EQ(file.get_pos(), size_t(2));
+  file.fail_at(512);
+  file.clearerr();
+  EXPECT_EQ(file.flush(), 0);
+  EXPECT_EQ(file.get_pos(), size_t(4));
+  EXPECT_MEM_EQ(MemoryView("\xe2\x82\xacX", 4),
+                MemoryView(file.get_str(), 4));
 }
 
 TEST(LlvmLibcFileTest, FileLockRAII) {
