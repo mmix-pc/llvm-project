@@ -95,16 +95,16 @@ TEST_F(LlvmLibcBuiltinLocaleTest, ObjectsAndGlobalSnapshots) {
   EXPECT_EQ(LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "C", LC_GLOBAL_LOCALE),
             nullptr);
   EXPECT_EQ(LIBC_NAMESPACE::newlocale(LC_CTYPE_MASK, "C", copy), copy);
-  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(CODESET, copy), "ANSI_X3.4-1968");
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(CODESET, copy), "ISO-8859-1");
   EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(CODESET, loc), "UTF-8");
   EXPECT_EQ(LIBC_NAMESPACE::uselocale(LC_GLOBAL_LOCALE), loc);
   LIBC_NAMESPACE::freelocale(loc);
-  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(CODESET, copy), "ANSI_X3.4-1968");
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(CODESET, copy), "ISO-8859-1");
   LIBC_NAMESPACE::freelocale(copy);
   copy = LIBC_NAMESPACE::duplocale(LC_GLOBAL_LOCALE);
   ASSERT_NE(copy, nullptr);
   EXPECT_NE(LIBC_NAMESPACE::setlocale(LC_ALL, "C.UTF-8"), nullptr);
-  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(CODESET, copy), "ANSI_X3.4-1968");
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(CODESET, copy), "ISO-8859-1");
   EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(CODESET), "UTF-8");
   LIBC_NAMESPACE::freelocale(copy);
 }
@@ -119,6 +119,12 @@ TEST_F(LlvmLibcBuiltinLocaleTest, LanginfoData) {
     EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(ABDAY_2, loc), "Mon");
     EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(MON_12, loc), "December");
     EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(ABMON_1, loc), "Jan");
+    for (int month = 0; month != 12; ++month) {
+      EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(ALTMON_1 + month, loc),
+                   LIBC_NAMESPACE::nl_langinfo_l(MON_1 + month, loc));
+      EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(ABALTMON_1 + month, loc),
+                   LIBC_NAMESPACE::nl_langinfo_l(ABMON_1 + month, loc));
+    }
     EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(D_T_FMT, loc),
                  "%a %b %e %H:%M:%S %Y");
     EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(RADIXCHAR, loc), ".");
@@ -186,6 +192,8 @@ TEST_F(LlvmLibcBuiltinLocaleTest, AllBytesRoundTrip) {
     locale_t loc = LIBC_NAMESPACE::newlocale(LC_CTYPE_MASK, name, nullptr);
     ASSERT_NE(loc, nullptr);
     locale_t previous = LIBC_NAMESPACE::uselocale(loc);
+    EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(CODESET), "ISO-8859-1");
+    EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(CODESET, loc), "ISO-8859-1");
     EXPECT_EQ(LIBC_NAMESPACE::__ctype_get_mb_cur_max(), size_t(1));
     for (unsigned c = 0; c <= 255; ++c) {
       mbstate_t state{};

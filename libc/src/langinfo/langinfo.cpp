@@ -34,11 +34,17 @@ char *langinfo(nl_item item, locale_t loc) {
     value = months[item - MON_1];
   else if (item >= ABMON_1 && item <= ABMON_12)
     value = abmonths[item - ABMON_1];
+  else if (item >= ALTMON_1 && item <= ALTMON_12)
+    value = months[item - ALTMON_1];
+  else if (item >= ABALTMON_1 && item <= ABALTMON_12)
+    value = abmonths[item - ABALTMON_1];
   else {
     switch (item) {
     case CODESET:
+      // The C converter maps every byte to the same-valued Unicode scalar;
+      // the encoding name does not change C classification or collation.
       value = locale_snapshot(loc).data[LC_CTYPE]->utf8 ? "UTF-8"
-                                                        : "ANSI_X3.4-1968";
+                                                       : "ISO-8859-1";
       break;
     case D_T_FMT:
       value = "%a %b %e %H:%M:%S %Y";
