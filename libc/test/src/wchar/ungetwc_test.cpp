@@ -139,6 +139,8 @@ TEST_F(LlvmLibcUngetwcTest, OrientUnorientedStream) {
   // Verify stream is now wide-oriented
   EXPECT_GT(LIBC_NAMESPACE::fwide(file, 0), 0);
 
+  // Restore the defined position before fclose synchronizes unread input.
+  ASSERT_EQ(LIBC_NAMESPACE::fgetwc(file), static_cast<wint_t>(L'A'));
   ASSERT_EQ(LIBC_NAMESPACE::fclose(file), 0);
 }
 

@@ -1325,6 +1325,72 @@ TEST(LlvmLibcFileTest, FileLockRAII) {
   ASSERT_EQ(f->close(), 0);
 }
 
+class ClosingInputFile : public File {
+  uint8_t storage[8];
+  static FileIOResult read_bytes(File *file, void *data, size_t len) {
+    auto *self = static_cast<ClosingInputFile *>(file);
+    size_t count = 6 - self->offset;
+    if (count > len)
+      count = len;
+    for (size_t i = 0; i < count; ++i)
+      static_cast<char *>(data)[i] = "abcdef"[self->offset + i];
+    self->offset += count;
+    return count;
+  }
+  static ErrorOr<off_t> seek_bytes(File *file, off_t offset, int whence) {
+    auto *self = static_cast<ClosingInputFile *>(file);
+    ++self->seeks;
+    if (self->seek_error)
+      return LIBC_NAMESPACE::Error(self->seek_error);
+    if (whence != SEEK_CUR)
+      return LIBC_NAMESPACE::Error(EINVAL);
+    self->offset += offset;
+    return self->offset;
+  }
+  static int close_file(File *file) {
+    auto *self = static_cast<ClosingInputFile *>(file);
+    ++self->closes;
+    return self->close_error;
+  }
+
+public:
+  off_t offset = 0;
+  int seek_error = 0, close_error = 0;
+  unsigned seeks = 0, closes = 0;
+  ClosingInputFile()
+      : File(nullptr, read_bytes, seek_bytes, close_file, storage,
+             sizeof(storage), _IOFBF, false, mode_flags("r")) {}
+};
+
+TEST(LlvmLibcFileTest, CloseInputConsumesResourcesAfterSynchronizationFailure) {
+  const int errors[] = {0, EIO, EINTR, ESPIPE};
+  for (int error : errors) {
+    ClosingInputFile file;
+    file.seek_error = error;
+    file.close_error = EBADF;
+    char c;
+    ASSERT_EQ(file.read(&c, 1).value, size_t(1));
+    EXPECT_EQ(file.close(), error && error != ESPIPE ? error : EBADF);
+    EXPECT_EQ(file.seeks, 1U);
+    EXPECT_EQ(file.closes, 1U);
+    EXPECT_EQ(file.offset, off_t(error ? 6 : 1));
+  }
+}
+
+TEST(LlvmLibcFileTest, CloseDiscardAndEofDoNotSeek) {
+  const bool states[] = {false, true};
+  for (bool at_eof : states) {
+    ClosingInputFile file;
+    char bytes[8];
+    auto result = file.read(bytes, at_eof ? sizeof(bytes) : 1);
+    ASSERT_EQ(result.value, size_t(at_eof ? 6 : 1));
+    ASSERT_EQ(file.iseof(), at_eof);
+    EXPECT_EQ(file.close(at_eof), 0);
+    EXPECT_EQ(file.seeks, 0U);
+    EXPECT_EQ(file.closes, 1U);
+  }
+}
+
 namespace {
 class NativeWideFile : public File {
   static FileIOResult byte_write(File *, const void *, size_t) {

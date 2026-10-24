@@ -283,8 +283,7 @@ public:
   ErrorOr<Position> get_position();
   ErrorOr<int> set_position(const Position &position);
 
-  // If buffer has data written to it, flush it out. Does nothing if the
-  // buffer is currently being used as a read buffer.
+  // Flush output or synchronize the position of buffered input.
   int flush() {
     FileLock lock(this);
     return flush_unlocked();
@@ -325,7 +324,7 @@ public:
   }
 
   // Does the following:
-  // 1. If in write mode, Write out any data present in the buffer.
+  // 1. Flush output or synchronize unread input with the underlying position.
   // 2. Call platform_close.
   // platform_close releases platform resources and any owned file object.
   // Cancellation cleanup can discard pending output without repeating a
@@ -337,7 +336,8 @@ public:
       // Publish even empty memory buffers. A flush failure does not preserve
       // the association: fclose consumes the stream regardless of its result.
       bool need_flush =
-          platform_flush || (prev_op == FileOp::WRITE && (pos || wide_size));
+          platform_flush || (prev_op == FileOp::WRITE && (pos || wide_size)) ||
+          (prev_op == FileOp::READ && !eof);
       flush_error = flush_buffer && need_flush ? flush_unlocked() : 0;
       pos = read_limit = 0;
       wide_size = wide_prefix = 0;

@@ -591,3 +591,35 @@ TEST(LlvmLibcLinuxFileAllocationTest, FdopenSetsCloseOnExec) {
   EXPECT_NE(::fcntl(fd, F_GETFD) & FD_CLOEXEC, 0);
   EXPECT_EQ(result.value()->close(), 0);
 }
+
+TEST(LlvmLibcLinuxFileAllocationTest, CloseSynchronizesUnreadInput) {
+  const bool pushbacks[] = {false, true};
+  for (bool pushback : pushbacks) {
+    char path[] = "close-input-XXXXXX";
+    int fd = ::mkstemp(path);
+    ASSERT_GE(fd, 0);
+    ASSERT_EQ(::unlink(path), 0);
+    ASSERT_EQ(::write(fd, "abcdef", 6), ssize_t(6));
+    ASSERT_EQ(::lseek(fd, 0, SEEK_SET), off_t(0));
+    int duplicate = ::dup(fd);
+    ASSERT_GE(duplicate, 0);
+    auto result = LIBC_NAMESPACE::create_file_from_fd(fd, "r");
+    ASSERT_TRUE(result.has_value());
+    auto *file = result.value();
+    unsigned char buffer[6];
+    ASSERT_EQ(file->set_buffer(buffer, sizeof(buffer), _IOFBF), 0);
+    char byte;
+    ASSERT_EQ(file->read(&byte, 1).value, size_t(1));
+    ASSERT_EQ(byte, 'a');
+    ASSERT_FALSE(file->iseof());
+    if (pushback)
+      ASSERT_EQ(file->ungetc('a'), int('a'));
+    EXPECT_EQ(LIBC_NAMESPACE::fclose(reinterpret_cast<FILE *>(file)), 0);
+    EXPECT_EQ(::fcntl(fd, F_GETFD), -1);
+    // The duplicate becomes active only after fclose synchronizes the stream.
+    EXPECT_EQ(::lseek(duplicate, 0, SEEK_CUR), off_t(pushback ? 0 : 1));
+    EXPECT_EQ(::read(duplicate, &byte, 1), ssize_t(1));
+    EXPECT_EQ(byte, pushback ? 'a' : 'b');
+    EXPECT_EQ(::close(duplicate), 0);
+  }
+}
