@@ -128,3 +128,11 @@ add_object_library(
   HDRS iso2022_cn.h
   DEPENDS libc.src.locale.encoding_data libc.hdr.errno_macros
 )
+
+add_object_library(
+  encoding_converter
+  SRCS encoding_converter.cpp
+  HDRS encoding_converter.h
+  DEPENDS .iso2022_cn .scalar_codec libc.src.locale.transliteration_data
+    libc.hdr.errno_macros libc.src.__support.CPP.string_view
+)

@@ -27,6 +27,13 @@ add_object_library(
 )
 
 add_object_library(
+  transliteration_data
+  SRCS transliteration_data.cpp
+  HDRS transliteration_data.h
+  DEPENDS .locale_data libc.hdr.errno_macros
+)
+
+add_object_library(
   messages_data
   SRCS messages_data.cpp
   HDRS messages_data.h

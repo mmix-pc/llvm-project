@@ -13,6 +13,7 @@
 #include "src/locale/monetary_data.h"
 #include "src/locale/numeric_data.h"
 #include "src/locale/time_data.h"
+#include "src/locale/transliteration_data.h"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   using LIBC_NAMESPACE::internal::LocaleDataFile;
@@ -22,12 +23,20 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     return 0;
   (void)LIBC_NAMESPACE::internal::NumericLocaleData::read(*view);
   (void)LIBC_NAMESPACE::internal::MessagesLocaleData::read(*view);
+  auto transliteration =
+      LIBC_NAMESPACE::internal::TransliterationData::read(*view);
+  if (transliteration && transliteration->size()) {
+    auto rule = transliteration->rule(0);
+    (void)rule->alternative(size);
+    uint32_t source[] = {uint32_t(size)};
+    (void)transliteration->find(source);
+  }
   auto encoding = LIBC_NAMESPACE::internal::ChineseEncodingData::read(*view);
   if (encoding) {
     (void)encoding->decode(LIBC_NAMESPACE::internal::ChineseEncodingData::CNS1,
                            uint32_t(size));
-    (void)encoding->encode(LIBC_NAMESPACE::internal::ChineseEncodingData::GB2312,
-                           uint32_t(size));
+    (void)encoding->encode(
+        LIBC_NAMESPACE::internal::ChineseEncodingData::GB2312, uint32_t(size));
   }
   (void)LIBC_NAMESPACE::internal::MonetaryLocaleData::read(*view);
   auto time = LIBC_NAMESPACE::internal::TimeLocaleData::read(*view);

@@ -220,3 +220,41 @@ Output and reset commit only when the entire result fits. The largest scalar
 output is eight bytes. Public iconv suffix policy, descriptor ownership and
 restartable mbstate_t integration are separate responsibilities; these helpers
 alone do not expose the encoding or change MB_LEN_MAX.
+
+Transliteration Records
+----------------------
+
+``transliteration_category.py`` serializes the normalized LC_CTYPE rules without
+changing alternative order or resolving them against a destination encoding.
+Category 0 key 0x300 contains the rule count. Keys starting at 0x10000 contain
+word records in lexicographic Unicode-scalar source order: source length,
+source scalars, alternative count, and each alternative's length and scalars.
+Empty alternatives represent deletion. Source sequences are nonempty and
+NUL-free. Each sequence and alternative list is bounded to 256 items, the rule
+count to 65536 and the total payload to 4M words. The reader checks every bound,
+scalar, key order and exact record length before permitting lookup. Source
+``default_missing`` stays in review metadata rather than silently overriding
+the conversion fallback policy.
+
+The internal converter commits complete characters or shifts, leaves incomplete
+input unconsumed, and stages complete output before changing destination state.
+Default nonidentical conversion emits ``?``; discard and ignore are distinct
+policies. Ignore searches at source-code-unit boundaries for a complete valid
+successor and never applies invalid shift bytes. A trailing invalid run without
+such a successor remains an error. Reset with an output span emits any required
+SI atomically; reset without output clears the state without emission.
+
+Transliteration rules are supplied for each call, not captured by the converter.
+The eventual locale integration must retain the calling thread's selected rules
+for that call. The first complete matching source key and first entirely
+representable alternative are selected; failed alternatives publish neither
+bytes nor shift-state changes. Missing rules fall back to ``?``. All admitted
+regional sources currently use single-scalar keys; multi-scalar records have
+separate constructed tests. Descriptor allocation, file discovery, public
+iconv names/indicators and current-locale acquisition remain separate integration
+work. These components do not alone expose a public converter or install a
+complete locale. The internal name selector accepts ASCII (also US-ASCII),
+ISO-8859-1, UTF-8, UTF-16LE/BE, UTF-32LE/BE and ISO-2022-CN, with ASCII-insensitive
+case matching. It accepts one destination indicator, rejects source indicators
+and combinations, and does not guess the byte order of UTF-16 or UTF-32. Empty
+names are left for the public locale-aware layer to resolve.

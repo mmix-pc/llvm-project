@@ -1,6 +1,14 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  transliteration_data_test
+  SUITE libc-locale-tests
+  SRCS transliteration_data_test.cpp
+  DEPENDS libc.src.locale.transliteration_data
+    libc.src.__support.wchar.encoding_converter libc.hdr.errno_macros
+)
+
+add_libc_test(
   encoding_data_test
   SUITE libc-locale-tests
   SRCS encoding_data_test.cpp

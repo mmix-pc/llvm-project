@@ -1,6 +1,13 @@
 add_custom_target(libc-support-wchar-tests)
 
 add_libc_test(
+  encoding_converter_test
+  SUITE libc-support-wchar-tests
+  SRCS encoding_converter_test.cpp
+  DEPENDS libc.src.__support.wchar.encoding_converter libc.hdr.errno_macros
+)
+
+add_libc_test(
   scalar_codec_test
   SUITE libc-support-wchar-tests
   SRCS scalar_codec_test.cpp

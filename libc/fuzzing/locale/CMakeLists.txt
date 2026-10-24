@@ -5,4 +5,5 @@ add_libc_fuzzer(
     libc.src.locale.ctype_data libc.src.locale.monetary_data
     libc.src.locale.time_data libc.src.locale.messages_data
     libc.src.locale.encoding_data
+    libc.src.locale.transliteration_data
 )
