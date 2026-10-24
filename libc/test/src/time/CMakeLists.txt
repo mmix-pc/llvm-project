@@ -1,5 +1,19 @@
 add_custom_target(libc_time_unittests)
 
+add_libc_test(
+  strftime_capacity_test
+  SUITE libc_time_unittests
+  FULL_BUILD_ONLY
+  SRCS strftime_capacity_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.src.__support.libc_errno
+    libc.src.locale.locale
+    libc.src.time.strftime
+    libc.src.time.strftime_l
+    libc.src.wchar.wcsftime
+)
+
 set(timezone_test_support_deps
   libc.src.__support.CPP.string
   libc.src.__support.CPP.string_view

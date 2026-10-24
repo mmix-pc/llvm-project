@@ -261,6 +261,8 @@ add_entrypoint_object(
   HDRS
     strftime.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.src.__support.libc_errno
     libc.hdr.types.size_t
     libc.hdr.types.struct_tm
     libc.src.time.strftime_core.strftime_main
@@ -275,6 +277,8 @@ add_entrypoint_object(
   HDRS
     strftime_l.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.src.__support.libc_errno
     libc.hdr.types.locale_t
     libc.hdr.types.size_t
     libc.hdr.types.struct_tm

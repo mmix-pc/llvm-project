@@ -7,9 +7,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/time/strftime.h"
+#include "hdr/errno_macros.h"
 #include "hdr/types/size_t.h"
 #include "hdr/types/struct_tm.h"
 #include "src/__support/common.h"
+#include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/macros/null_check.h"
 #include "src/__support/printf_core/writer.h"
@@ -25,12 +27,20 @@ LLVM_LIBC_FUNCTION(size_t, strftime,
   LIBC_CRASH_ON_NULLPTR(format);
   LIBC_CRASH_ON_NULLPTR(timeptr);
 
+  int saved_errno = libc_errno;
   printf_core::DropOverflowBuffer wb(buffer, (buffsz > 0 ? buffsz - 1 : 0));
   printf_core::Writer writer(wb);
   auto ret = strftime_core::strftime_main(&writer, format, timeptr);
   if (buffsz > 0) // if the buffsz is 0 the buffer may be a null pointer.
     wb.buff[wb.buff_cur] = '\0';
-  return (!ret.has_value() || ret.value() >= buffsz) ? 0 : ret.value();
+  if (!ret.has_value())
+    return 0;
+  if (ret.value() >= buffsz) {
+    libc_errno = ERANGE;
+    return 0;
+  }
+  libc_errno = saved_errno;
+  return ret.value();
 }
 
 } // namespace LIBC_NAMESPACE_DECL
