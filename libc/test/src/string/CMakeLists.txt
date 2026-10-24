@@ -317,6 +317,14 @@ add_libc_test(
 
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
+    strdup_allocation_test
+    SUITE libc-string-tests
+    SRCS strdup_allocation_test.cpp
+    DEPENDS libc.hdr.errno_macros libc.hdr.func.free
+      libc.src.__support.libc_errno libc.src.string.strdup
+    LINK_LIBRARIES "-Wl,--wrap=malloc"
+  )
+  add_libc_test(
     strndup_boundary_test
     SUITE libc-string-tests
     SRCS strndup_boundary_test.cpp
