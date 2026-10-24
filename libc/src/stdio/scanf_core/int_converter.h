@@ -96,18 +96,16 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
   if (cur_char < 0)
     return FILE_READ_ERROR;
 
+  // Consume the current character before reading again. Width exhaustion is
+  // not an input failure and must not probe the underlying stream.
+  auto read_next = [&]() -> int {
+    return --max_width > 0 ? reader->getc() : -1;
+  };
+
   char result_sign = '+';
   if (cur_char == '+' || cur_char == '-') {
     result_sign = static_cast<char>(cur_char);
-    if (max_width > 1) {
-      --max_width;
-      cur_char = reader->getc();
-    } else {
-      // If the max width has been hit already, then the return value must be 0
-      // since no actual digits of the number have been parsed yet.
-      write_int_with_length(0, to_conv);
-      return MATCHING_FAILURE;
-    }
+    cur_char = read_next();
   }
   const bool is_negative = result_sign == '-';
 
@@ -118,14 +116,8 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
     if (cur_char == '0') {
       is_number = true;
 
-      // Read the next character to check.
-      if (max_width > 1) {
-        --max_width;
-        cur_char = reader->getc();
-      } else {
-        write_int_with_length(0, to_conv);
-        return READ_OK;
-      }
+      // Check for a prefix only within the remaining field width.
+      cur_char = read_next();
 
       if (cur_char >= 0 && internal::tolower(static_cast<char>(cur_char)) == 'x') {
         // This is a valid hex prefix.
@@ -142,12 +134,7 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
         // the execution of the directive fails: this condition is a matching
         // failure"
         base = 16;
-        if (max_width > 1) {
-          --max_width;
-          cur_char = reader->getc();
-        } else {
-          return MATCHING_FAILURE;
-        }
+        cur_char = read_next();
 
       } else {
         if (base == 0) {
@@ -160,9 +147,8 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
         base = 10;
       } else {
         // If the first character isn't a valid digit, then there are no valid
-        // digits at all. The number is 0.
+        // digits at all. Leave the destination unchanged.
         reader->ungetc(cur_char);
-        write_int_with_length(0, to_conv);
         return MATCHING_FAILURE;
       }
     }
@@ -186,11 +172,9 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
   }
 
   bool has_overflow = false;
-  size_t i = 0;
-  for (; i < max_width && cur_char >= 0 &&
-         internal::isalnum(static_cast<char>(cur_char)) &&
+  for (; cur_char >= 0 && internal::isalnum(static_cast<char>(cur_char)) &&
          internal::b36_char_to_int(static_cast<char>(cur_char)) < base;
-       ++i, cur_char = reader->getc()) {
+       cur_char = read_next()) {
 
     uintmax_t cur_digit = internal::b36_char_to_int(static_cast<char>(cur_char));
 
@@ -212,8 +196,8 @@ int convert_int(Reader<T> *reader, const FormatSection &to_conv) {
     }
   }
 
-  // We always read one more character than will be used, so we have to put the
-  // last one back.
+  // Return an unmatched lookahead byte, if any. EOF and width exhaustion use
+  // a negative sentinel, which ungetc ignores.
   reader->ungetc(cur_char);
 
   if (!is_number)

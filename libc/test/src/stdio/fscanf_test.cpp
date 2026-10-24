@@ -41,6 +41,150 @@ using ::fwrite;
 } // namespace scanf_test
 
 #ifndef LIBC_COPT_STDIO_USE_SYSTEM_FILE
+namespace {
+class CountingInput : public LIBC_NAMESPACE::File {
+  LIBC_NAMESPACE::cpp::string_view input;
+  int end_error;
+  size_t offset = 0;
+
+  static LIBC_NAMESPACE::FileIOResult read_input(File *base, void *out,
+                                                 size_t) {
+    auto &self = *static_cast<CountingInput *>(base);
+    ++self.read_calls;
+    if (self.offset == self.input.size())
+      return {0, self.end_error};
+    *static_cast<char *>(out) = self.input[self.offset++];
+    return 1;
+  }
+
+public:
+  size_t read_calls = 0;
+
+  CountingInput(LIBC_NAMESPACE::cpp::string_view input, int end_error)
+      : File(nullptr, read_input, nullptr, nullptr, nullptr, 0, _IONBF, false,
+             mode_flags("r")),
+        input(input), end_error(end_error) {}
+};
+} // namespace
+
+TEST(LlvmLibcFScanfTest, IntegerWidthDoesNotReadPastBoundary) {
+  struct {
+    const char *input;
+    const char *format;
+    int matches;
+    int value;
+    bool is_unsigned;
+    bool suppressed;
+  } cases[] = {{"7", "%1d%n", 1, 7, false, false},
+               {"-7", "%2d%n", 1, -7, false, false},
+               {"+7", "%2i%n", 1, 7, false, false},
+               {"0", "%1i%n", 1, 0, false, false},
+               {"-0", "%2i%n", 1, 0, false, false},
+               {"07", "%2i%n", 1, 7, false, false},
+               {"0x7", "%3i%n", 1, 7, false, false},
+               {"-0X7", "%4i%n", 1, -7, false, false},
+               {"7", "%1u%n", 1, 7, true, false},
+               {"07", "%2o%n", 1, 7, true, false},
+               {"0", "%1x%n", 1, 0, true, false},
+               {"f", "%1x%n", 1, 15, true, false},
+               {"+0XF", "%4X%n", 1, 15, true, false},
+               {"-", "%1d%n", 0, 37, false, false},
+               {"+", "%1i%n", 0, 37, false, false},
+               {"-", "%1u%n", 0, 37, true, false},
+               {"+", "%1o%n", 0, 37, true, false},
+               {"-", "%1x%n", 0, 37, true, false},
+               {"+", "%1X%n", 0, 37, true, false},
+               {"0x", "%2i%n", 0, 37, false, false},
+               {"-0X", "%3i%n", 0, 37, false, false},
+               {"0x", "%2x%n", 0, 37, true, false},
+               {"+0X", "%3X%n", 0, 37, true, false},
+               {"7", "%*1d%n", 1, 37, false, true},
+               {"-0X7", "%*4i%n", 1, 37, false, true},
+               {"0XF", "%*3X%n", 1, 37, false, true},
+               {"-", "%*1d%n", 0, 37, false, true},
+               {"0x", "%*2i%n", 0, 37, false, true}};
+  const int end_errors[] = {0, EAGAIN};
+  for (int end_error : end_errors) {
+    for (const auto &test : cases) {
+      LIBC_NAMESPACE::cpp::string_view input(test.input);
+      // EAGAIN models an empty nonblocking pipe with its writer still open.
+      // One byte per backend call also detects a read that would block.
+      CountingInput source(input, end_error);
+      auto *file = reinterpret_cast<FILE *>(&source);
+      int count = -1;
+      LIBC_NAMESPACE::libc_errno = 0;
+      if (test.suppressed) {
+        EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, test.format, &count), 0);
+      } else if (test.is_unsigned) {
+        unsigned value = 37;
+        EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, test.format, &value, &count),
+                  test.matches);
+        EXPECT_EQ(value, static_cast<unsigned>(test.value));
+      } else {
+        int value = 37;
+        EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, test.format, &value, &count),
+                  test.matches);
+        EXPECT_EQ(value, test.value);
+      }
+      EXPECT_EQ(count, test.matches ? int(input.size()) : -1);
+      EXPECT_EQ(source.read_calls, input.size());
+      EXPECT_EQ(scanf_test::feof(file), 0);
+      EXPECT_EQ(scanf_test::ferror(file), 0);
+      EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), 0);
+
+      // Only an explicit subsequent read may observe EOF or EAGAIN.
+      char next = '?';
+      EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%c", &next), EOF);
+      EXPECT_EQ(next, '?');
+      EXPECT_EQ(source.read_calls, input.size() + 1);
+      EXPECT_EQ(scanf_test::feof(file) != 0, end_error == 0);
+      EXPECT_EQ(scanf_test::ferror(file) != 0, end_error != 0);
+      EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), end_error);
+    }
+  }
+}
+
+TEST(LlvmLibcFScanfTest, IntegerLookaheadWithinWidth) {
+  struct {
+    const char *input;
+    const char *format;
+    int result;
+    int value;
+    int count;
+    char next;
+    bool eof;
+  } cases[] = {{"7!", "%2d%n", 1, 7, 1, '!', false},
+               {"09", "%2i%n", 1, 0, 1, '9', false},
+               {"0xG", "%4i%n", 0, 37, -1, 'G', false},
+               {"+!", "%i%n", 0, 37, -1, '!', false},
+               {"0", "%2i%n", 1, 0, 1, '?', true},
+               {"7", "%d%n", 1, 7, 1, '?', true},
+               {"-", "%2d%n", 0, 37, -1, '?', true},
+               {"0x", "%3i%n", 0, 37, -1, '?', true},
+               {"", "%1i%n", EOF, 37, -1, '?', true}};
+  for (const auto &test : cases) {
+    LIBC_NAMESPACE::cpp::string_view input(test.input);
+    CountingInput source(input, 0);
+    auto *file = reinterpret_cast<FILE *>(&source);
+    int value = 37;
+    int count = -1;
+    EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, test.format, &value, &count),
+              test.result);
+    EXPECT_EQ(value, test.value);
+    EXPECT_EQ(count, test.count);
+    EXPECT_EQ(scanf_test::feof(file) != 0, test.eof);
+    EXPECT_EQ(scanf_test::ferror(file), 0);
+    EXPECT_EQ(source.read_calls, input.size() + size_t(test.eof));
+    if (!test.eof) {
+      char next = '?';
+      EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%c", &next), 1);
+      EXPECT_EQ(next, test.next);
+      // The unmatched byte was already read and must come from pushback.
+      EXPECT_EQ(source.read_calls, input.size());
+    }
+  }
+}
+
 TEST(LlvmLibcFScanfTest, ReadErrorPreservesErrno) {
   auto path = libc_make_test_file_path("scanf_read_error.test");
   ::FILE *file = scanf_test::fopen(path, "w");
@@ -101,6 +245,75 @@ TEST(LlvmLibcFScanfTest, ReadErrorInsideMultibyteCharacter) {
   EXPECT_EQ(value, L'!');
 }
 #endif
+
+TEST(LlvmLibcFScanfTest,
+     IntegerMatchingFailurePreservesDestinationAndNextByte) {
+  struct {
+    const char *input;
+    const char *format;
+    char next;
+  } cases[] = {{"-1", "%1d%n", '1'},   {"+1", "%1d%n", '1'},
+               {"-1", "%1i%n", '1'},   {"+1", "%1i%n", '1'},
+               {"!", "%i%n", '!'},     {"+!", "%i%n", '!'},
+               {"-!", "%i%n", '!'},    {"0x1", "%2i%n", '1'},
+               {"-0X1", "%3i%n", '1'}, {"0xG", "%i%n", 'G'}};
+  auto path = libc_make_test_file_path("scanf_integer_matching_failure.test");
+  for (const auto &test : cases) {
+    LIBC_NAMESPACE::cpp::string_view input(test.input);
+    ::FILE *file = scanf_test::fopen(path, "w");
+    ASSERT_NE(file, nullptr);
+    ASSERT_EQ(scanf_test::fwrite(input.data(), 1, input.size(), file),
+              input.size());
+    ASSERT_EQ(scanf_test::fclose(file), 0);
+    file = scanf_test::fopen(path, "r");
+    ASSERT_NE(file, nullptr);
+    int value = 37;
+    int count = -1;
+    EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, test.format, &value, &count), 0);
+    EXPECT_EQ(value, 37);
+    EXPECT_EQ(count, -1);
+    EXPECT_EQ(scanf_test::feof(file), 0);
+    EXPECT_EQ(scanf_test::ferror(file), 0);
+    char next = '?';
+    EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%c", &next), 1);
+    EXPECT_EQ(next, test.next);
+    EXPECT_EQ(scanf_test::fclose(file), 0);
+  }
+}
+
+TEST(LlvmLibcFScanfTest, IntegerWidthDoesNotProbeEof) {
+  struct {
+    const char *input;
+    const char *format;
+    int value;
+  } cases[] = {{"7", "%1d%n", 7},    {"-7", "%2d%n", -7}, {"0", "%1i%n", 0},
+               {"+0", "%2i%n", 0},   {"07", "%2i%n", 7},  {"0x7", "%3i%n", 7},
+               {"-0X7", "%4i%n", -7}};
+  auto path = libc_make_test_file_path("scanf_integer_width.test");
+  for (const auto &test : cases) {
+    LIBC_NAMESPACE::cpp::string_view input(test.input);
+    ::FILE *file = scanf_test::fopen(path, "w");
+    ASSERT_NE(file, nullptr);
+    ASSERT_EQ(scanf_test::fwrite(input.data(), 1, input.size(), file),
+              input.size());
+    ASSERT_EQ(scanf_test::fclose(file), 0);
+    file = scanf_test::fopen(path, "r");
+    ASSERT_NE(file, nullptr);
+    int value = 37;
+    int count = -1;
+    EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, test.format, &value, &count), 1);
+    EXPECT_EQ(value, test.value);
+    EXPECT_EQ(count, int(input.size()));
+    EXPECT_EQ(scanf_test::feof(file), 0);
+    EXPECT_EQ(scanf_test::ferror(file), 0);
+    char next = '?';
+    EXPECT_EQ(LIBC_NAMESPACE::fscanf(file, "%c", &next), EOF);
+    EXPECT_EQ(next, '?');
+    EXPECT_NE(scanf_test::feof(file), 0);
+    EXPECT_EQ(scanf_test::ferror(file), 0);
+    EXPECT_EQ(scanf_test::fclose(file), 0);
+  }
+}
 
 TEST(LlvmLibcFScanfTest, IncompleteMantissaPreservesNextByte) {
   auto path = libc_make_test_file_path("scanf_incomplete_mantissa.test");

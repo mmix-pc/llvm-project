@@ -247,13 +247,14 @@ TEST(LlvmLibcSScanfTest, IntConvMaxLengthTests) {
   EXPECT_EQ(ret_val, 1);
   EXPECT_EQ(result, 1);
 
+  result = 37;
   ret_val = LIBC_NAMESPACE::sscanf("-1", "%1d", &result);
   EXPECT_EQ(ret_val, 0);
-  EXPECT_EQ(result, 0);
+  EXPECT_EQ(result, 37);
 
   ret_val = LIBC_NAMESPACE::sscanf("+1", "%1d", &result);
   EXPECT_EQ(ret_val, 0);
-  EXPECT_EQ(result, 0);
+  EXPECT_EQ(result, 37);
 
   ret_val = LIBC_NAMESPACE::sscanf("01", "%1d", &result);
   EXPECT_EQ(ret_val, 1);
@@ -294,6 +295,91 @@ TEST(LlvmLibcSScanfTest, IntConvMaxLengthTests) {
   ret_val = LIBC_NAMESPACE::sscanf("123456789", "%10i", &result);
   EXPECT_EQ(ret_val, 1);
   EXPECT_EQ(result, 123456789);
+}
+
+TEST(LlvmLibcSScanfTest, IntConvMatchingFailurePreservesDestination) {
+  const char *signed_formats[] = {"%1d%n%c", "%1i%n%c"};
+  const char *unsigned_formats[] = {"%1u%n%c", "%1o%n%c", "%1x%n%c", "%1X%n%c"};
+  const char *sign_inputs[] = {"-1", "+1", "-", "+"};
+  for (const char *input : sign_inputs) {
+    for (const char *format : signed_formats) {
+      int value = 37;
+      int count = -1;
+      char next = '?';
+      EXPECT_EQ(LIBC_NAMESPACE::sscanf(input, format, &value, &count, &next),
+                0);
+      EXPECT_EQ(value, 37);
+      EXPECT_EQ(count, -1);
+      EXPECT_EQ(next, '?');
+    }
+    for (const char *format : unsigned_formats) {
+      unsigned value = 37;
+      int count = -1;
+      char next = '?';
+      EXPECT_EQ(LIBC_NAMESPACE::sscanf(input, format, &value, &count, &next),
+                0);
+      EXPECT_EQ(value, 37U);
+      EXPECT_EQ(count, -1);
+      EXPECT_EQ(next, '?');
+    }
+  }
+
+  const char *invalid_inputs[] = {"!", "+!", "-!",  "+",
+                                  "-", "0x", "-0X", "0xG"};
+  for (const char *input : invalid_inputs) {
+    int value = 37;
+    int count = -1;
+    EXPECT_EQ(LIBC_NAMESPACE::sscanf(input, "%i%n", &value, &count), 0);
+    EXPECT_EQ(value, 37);
+    EXPECT_EQ(count, -1);
+  }
+
+  int first = -1;
+  int second = 37;
+  int count = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("7 -1", "%d %1d%n", &first, &second, &count),
+            1);
+  EXPECT_EQ(first, 7);
+  EXPECT_EQ(second, 37);
+  EXPECT_EQ(count, -1);
+}
+
+TEST(LlvmLibcSScanfTest, IntConvWidthPreservesNextByte) {
+  struct {
+    const char *input;
+    const char *format;
+    int value;
+    int count;
+    char next;
+  } cases[] = {
+      {"123", "%1d%n%c", 1, 1, '2'},    {"-12", "%2d%n%c", -1, 2, '2'},
+      {"+12", "%2i%n%c", 1, 2, '2'},    {"0x1", "%1i%n%c", 0, 1, 'x'},
+      {"-0x1", "%2i%n%c", 0, 2, 'x'},   {"0778", "%3i%n%c", 077, 3, '8'},
+      {"0x12", "%3i%n%c", 1, 3, '2'},   {"-0X12", "%4i%n%c", -1, 4, '2'},
+      {" \t+7!", "%2i%n%c", 7, 4, '!'}, {"09", "%i%n%c", 0, 1, '9'},
+      {"12!", "%4d%n%c", 12, 2, '!'}};
+  for (const auto &test : cases) {
+    int value = 37;
+    int count = -1;
+    char next = '?';
+    EXPECT_EQ(
+        LIBC_NAMESPACE::sscanf(test.input, test.format, &value, &count, &next),
+        2);
+    EXPECT_EQ(value, test.value);
+    EXPECT_EQ(count, test.count);
+    EXPECT_EQ(next, test.next);
+  }
+
+  int count = -1;
+  char next = '?';
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("-0x12", "%*4i%n%c", &count, &next), 1);
+  EXPECT_EQ(count, 4);
+  EXPECT_EQ(next, '2');
+  count = -1;
+  next = '?';
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf("0x1", "%*2i%n%c", &count, &next), 0);
+  EXPECT_EQ(count, -1);
+  EXPECT_EQ(next, '?');
 }
 
 TEST(LlvmLibcSScanfTest, IntConvNoWriteTests) {
