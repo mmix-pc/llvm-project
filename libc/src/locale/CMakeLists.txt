@@ -1,3 +1,17 @@
+add_object_library(
+  locale_data
+  SRCS locale_data.cpp
+  HDRS locale_data.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.func.free
+    libc.src.__support.alloc_checker
+    libc.src.__support.CPP.atomic
+    libc.src.__support.CPP.span
+    libc.src.__support.error_or
+)
+
 set(encoding_deps)
 if(LLVM_LIBC_FULL_BUILD)
   list(APPEND encoding_deps .locale)

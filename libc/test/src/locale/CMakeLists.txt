@@ -1,6 +1,20 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  locale_data_test
+  SUITE libc-locale-tests
+  SRCS locale_data_test.cpp
+  DEPENDS libc.src.locale.locale_data libc.hdr.errno_macros
+)
+if(LIBC_TARGET_OS_IS_LINUX AND TARGET libc.test.src.locale.locale_data_test.__build__)
+  target_compile_definitions(libc.test.src.locale.locale_data_test.__build__ PRIVATE
+    LOCALE_DATA_ALLOCATION_TEST)
+  target_link_options(libc.test.src.locale.locale_data_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=free)
+endif()
+
+
+add_libc_test(
   locale_no_environment_test
   SUITE libc-locale-tests
   SRCS
