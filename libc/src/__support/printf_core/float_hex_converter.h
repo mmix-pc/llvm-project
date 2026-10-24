@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_PRINTF_CORE_FLOAT_HEX_CONVERTER_H
 #define LLVM_LIBC_SRC___SUPPORT_PRINTF_CORE_FLOAT_HEX_CONVERTER_H
 
+#include "src/__support/CPP/limits.h"
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/FPUtil/FPBits.h"
 #include "src/__support/FPUtil/rounding_mode.h"
@@ -122,9 +123,9 @@ convert_float_hex_exp(WriterT *writer,
 
   // Precision only tracks the number of digits after the hexadecimal point, so
   // we have to add one to account for the digit before the hexadecimal point.
-  if (to_conv.precision + 1 < static_cast<int>(mant_len) &&
-      to_conv.precision + 1 > 0) {
-    const size_t intended_digits = to_conv.precision + 1;
+  if (to_conv.precision >= 0 &&
+      static_cast<size_t>(to_conv.precision) < mant_len - 1) {
+    const size_t intended_digits = static_cast<size_t>(to_conv.precision) + 1;
     const size_t shift_amount =
         (mant_len - intended_digits) * BITS_IN_HEX_DIGIT;
 
@@ -219,10 +220,7 @@ convert_float_hex_exp(WriterT *writer,
   exp_buffer[exp_cur - 1] = exp_is_negative ? '-' : '+';
   --exp_cur;
 
-  // these are signed to prevent underflow due to negative values. The eventual
-  // values will always be non-negative.
   size_t trailing_zeroes = 0;
-  int padding;
 
   // prefix is "0x", and always appears.
   constexpr size_t PREFIX_LEN = 2;
@@ -244,12 +242,24 @@ convert_float_hex_exp(WriterT *writer,
   const char exp_separator = internal::islower(to_conv.conv_name) ? 'p' : 'P';
   constexpr int EXP_SEPARATOR_LEN = 1;
 
-  padding = static_cast<int>(to_conv.min_width - (sign_char > 0 ? 1 : 0) -
-                             PREFIX_LEN - mant_digits - trailing_zeroes -
-                             static_cast<int>(has_hexadecimal_point) -
-                             EXP_SEPARATOR_LEN - (EXP_LEN - exp_cur));
-  if (padding < 0)
-    padding = 0;
+  // Precision is at most INT_MAX; the remaining terms are bounded by the
+  // floating-point representation, so this sum fits in size_t, but not int.
+  size_t total_len = PREFIX_LEN + mant_digits + trailing_zeroes +
+                     (sign_char > 0 ? 1 : 0) +
+                     static_cast<size_t>(has_hexadecimal_point) +
+                     EXP_SEPARATOR_LEN + (EXP_LEN - exp_cur);
+  size_t padding = 0;
+  if (to_conv.min_width > 0 &&
+      static_cast<size_t>(to_conv.min_width) > total_len) {
+    padding = static_cast<size_t>(to_conv.min_width) - total_len;
+    total_len += padding;
+  }
+
+  // Reject an unrepresentable count before writing any padding or zeroes.
+  constexpr size_t MAX_COUNT = cpp::numeric_limits<int>::max();
+  const size_t chars_written = writer->get_chars_written();
+  if (chars_written > MAX_COUNT || total_len > MAX_COUNT - chars_written)
+    return OVERFLOW_ERROR;
 
   if ((to_conv.flags & FormatFlags::LEFT_JUSTIFIED) ==
       FormatFlags::LEFT_JUSTIFIED) {

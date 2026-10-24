@@ -146,6 +146,60 @@ TEST_F(LlvmLibcSwprintfTest, MinimumDynamicWidthOverflows) {
   ASSERT_ERRNO_EQ(EOVERFLOW);
 }
 
+#ifndef LIBC_COPT_PRINTF_DISABLE_FLOAT
+TEST_F(LlvmLibcSwprintfTest, HexPrecisionOverflow) {
+  LocaleGuard locale;
+  wchar_t buf[] = {L'!', L'!', L'!'};
+  EXPECT_LT(swprintf(buf, 0, L"%.*a", INT_MAX, 1.0), 0);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
+  EXPECT_EQ(buf[0], L'!');
+
+  // Zero capacity fails before conversion. Nonzero capacity must reach the
+  // shared converter and reject the count before writing any of the field.
+  const int precisions[] = {INT_MAX, INT_MAX - 1, INT_MAX - 6};
+  const wchar_t *formats[] = {L"%.*a", L"%.*A", L"%-#.*a", L"%+020.*A"};
+  const wchar_t *long_formats[] = {L"%.*La", L"%.*LA"};
+  for (int precision : precisions) {
+    for (const wchar_t *format : formats) {
+      EXPECT_LT(swprintf(buf, 2, format, precision, 1.0), 0);
+      ASSERT_ERRNO_EQ(EOVERFLOW);
+      EXPECT_EQ(buf[0], L'\0');
+      EXPECT_EQ(buf[2], L'!');
+    }
+    for (const wchar_t *format : long_formats) {
+      EXPECT_LT(swprintf(buf, 2, format, precision, 1.0L), 0);
+      ASSERT_ERRNO_EQ(EOVERFLOW);
+      EXPECT_EQ(buf[0], L'\0');
+      EXPECT_EQ(buf[2], L'!');
+    }
+  }
+
+  // Include characters already written and field width in the count budget.
+  EXPECT_LT(swprintf(buf, 3, L"x%.*a", INT_MAX - 7, 1.0), 0);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"x");
+  EXPECT_LT(swprintf(buf, 3, L"x%*.*a", INT_MAX, 0, 1.0), 0);
+  ASSERT_ERRNO_EQ(EOVERFLOW);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"x");
+}
+
+TEST_F(LlvmLibcSwprintfTest, HexPrecisionControls) {
+  LocaleGuard locale;
+  wchar_t buf[32];
+  EXPECT_EQ(swprintf(buf, 32, L"%.*a", INT_MIN, 1.0), 6);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"0x1p+0");
+  EXPECT_EQ(swprintf(buf, 32, L"%.*a", 0, 1.0), 6);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"0x1p+0");
+  EXPECT_EQ(swprintf(buf, 32, L"%.*a", 1, 1.5), 8);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"0x1.8p+0");
+  EXPECT_EQ(swprintf(buf, 32, L"%.*a", INT_MAX, __builtin_inf()), 3);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"inf");
+  EXPECT_EQ(swprintf(buf, 32, L"%.*A", INT_MAX, __builtin_nan("")), 3);
+  EXPECT_TRUE(basic_string_view<wchar_t>(buf) == L"NAN");
+  ASSERT_ERRNO_SUCCESS();
+}
+#endif
+
 TEST_F(LlvmLibcSwprintfTest, PosixAliasesAndEmptyGrouping) {
   const bool modes[] = {false, true};
   for (bool utf8 : modes) {
