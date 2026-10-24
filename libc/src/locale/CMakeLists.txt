@@ -12,6 +12,26 @@ add_object_library(
     libc.src.__support.error_or
 )
 
+add_object_library(
+  numeric_data
+  SRCS numeric_data.cpp
+  HDRS numeric_data.h
+  DEPENDS .locale_data .category_validation libc.hdr.errno_macros
+)
+
+add_object_library(
+  monetary_data
+  SRCS monetary_data.cpp
+  HDRS monetary_data.h
+  DEPENDS .locale_data .category_validation libc.hdr.errno_macros
+)
+
+add_header_library(
+  category_validation
+  HDRS category_validation.h
+  DEPENDS .locale_data libc.src.__support.wchar.character_converter
+)
+
 set(encoding_deps)
 if(LLVM_LIBC_FULL_BUILD)
   list(APPEND encoding_deps .locale)

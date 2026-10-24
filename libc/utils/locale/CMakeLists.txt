@@ -1,5 +1,13 @@
 enable_testing()
 add_test(
+  NAME locale_monetary_category_test
+  COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_monetary_category.py
+)
+add_test(
+  NAME locale_numeric_category_test
+  COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_numeric_category.py
+)
+add_test(
   NAME locale_file_test
   COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_locale_file.py
 )

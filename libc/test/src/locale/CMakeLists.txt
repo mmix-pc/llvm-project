@@ -1,6 +1,20 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  monetary_data_test
+  SUITE libc-locale-tests
+  SRCS monetary_data_test.cpp
+  DEPENDS libc.src.locale.monetary_data
+)
+
+add_libc_test(
+  numeric_data_test
+  SUITE libc-locale-tests
+  SRCS numeric_data_test.cpp
+  DEPENDS libc.src.locale.numeric_data libc.hdr.errno_macros
+)
+
+add_libc_test(
   locale_data_test
   SUITE libc-locale-tests
   SRCS locale_data_test.cpp
@@ -12,7 +26,6 @@ if(LIBC_TARGET_OS_IS_LINUX AND TARGET libc.test.src.locale.locale_data_test.__bu
   target_link_options(libc.test.src.locale.locale_data_test.__build__ PRIVATE
     -Wl,--wrap=malloc,--wrap=free)
 endif()
-
 
 add_libc_test(
   locale_no_environment_test

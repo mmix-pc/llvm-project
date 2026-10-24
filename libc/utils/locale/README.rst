@@ -77,3 +77,48 @@ normalizer does not implement a general localedef input language.
 
    python3 simple_categories.py /readonly/locales/de_DE de_DE-review.json
    python3 -B -m unittest discover -s . -p 'test_*.py'
+
+Numeric Category
+----------------
+
+``numeric_category.py`` converts all three required NUMERIC source fields into
+category 1 records: decimal_point (key 1, string), thousands_sep (key 2, string),
+and grouping (key 3, bytes). Both strings use normalized UTF-8. The decimal
+point must be one non-NUL Unicode scalar; the separator may also be empty.
+``NumericLocaleData`` applies the same validation independently in the reader,
+using the existing UTF-8 decoder rather than the thread's current locale.
+
+Grouping widths are 1 through 126. A trailing zero repeats the last width;
+a sole zero means no grouping. The private stop sentinel is 127, permitted
+only immediately before the trailing zero. It must be translated to the
+target's CHAR_MAX when building a public lconv. Source zero and -1 stop
+grouping; neither is confused with the output's repeat-last terminator.
+Unsupported input and missing fields fail rather than selecting C defaults.
+
+These records validate only NUMERIC. A file containing them without the other
+required category schemas is still not a publishable locale. Strings are not
+implicitly converted to the selected LC_CTYPE by this storage component.
+
+Monetary Category
+-----------------
+
+``monetary_category.py`` emits category 4. String keys 1 through 6 are
+int_curr_symbol, currency_symbol, mon_decimal_point, mon_thousands_sep,
+positive_sign and negative_sign. Key 7 contains grouping bytes with the same
+private sentinels as NUMERIC. Keys 8 through 21 contain one big-endian word
+each: int_frac_digits, frac_digits, p_cs_precedes, p_sep_by_space, n_cs_precedes,
+n_sep_by_space, p_sign_posn, n_sign_posn, int_p_cs_precedes, int_p_sep_by_space,
+int_n_cs_precedes, int_n_sep_by_space, int_p_sign_posn and int_n_sign_posn.
+
+The producer requires all base fields. Under the selected glibc source profile,
+absent international formatting fields inherit the corresponding local fields;
+explicit international values take precedence. Every inheritance is recorded.
+The private unspecified value 127 must become the target's CHAR_MAX when
+constructing a public lconv. No native char representation is serialized.
+
+``MonetaryLocaleData`` independently checks required fields, UTF-8, separator
+lengths, grouping and each numeric domain. International currency symbols are
+empty or three uppercase ASCII letters followed by one Unicode scalar. This
+checks the representation, not membership in a currency registry. The component
+does not implement localeconv, strfmon, category encoding conversion or locale
+publication. Its non-owning views require retained immutable storage.
