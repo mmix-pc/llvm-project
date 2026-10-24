@@ -21,6 +21,9 @@ headers = root / "c"
 # Source-only error constants, not Linux UAPI qualification.
 shutil.copyfile(source / "libc/include/llvm-libc-macros/generic-error-number-macros.h",
                 headers / "linux/errno.h")
+# File's checked offset arithmetic needs this additional Linux error constant.
+errno_header = headers / "linux/errno.h"
+errno_header.write_text(errno_header.read_text() + "\n#define EOVERFLOW 75\n")
 shutil.copyfile(source / "llvm/test/Other/MMIX/Inputs/linux-wait-selectors.h",
                 headers / "linux/wait.h")
 shutil.copyfile(source / "libc/include/__llvm-libc-common.h", headers / "__llvm-libc-common.h")
