@@ -43,6 +43,7 @@ set(MMIX_WIDE_ENTRYPOINTS
   libc.src.wchar.wcpcpy
   libc.src.wchar.wcpncpy
   libc.src.wchar.wcscspn
+  libc.src.wchar.wcsdup
   libc.src.wchar.wcslen
   libc.src.wchar.wcsnlen
   libc.src.wchar.wcslcat

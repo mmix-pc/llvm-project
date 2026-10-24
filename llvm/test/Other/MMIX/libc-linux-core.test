@@ -71,7 +71,7 @@ run("cmake", "-DLIBC_SOURCE=" + str(libc), "-DOUTPUT=" + str(selection),
     "-P", root / "selection.cmake")
 entries = selection.read_text().splitlines()
 assert len(entries) == len(set(entries)), entries
-assert {"strings/ffs", "strings/ffsl", "strings/ffsll"} <= set(entries), entries
+assert {"strings/ffs", "strings/ffsl", "strings/ffsll", "unistd/swab"} <= set(entries), entries
 # Keep the original memory providers, including compiler-emitted memmove in
 # generic qsort's fixed-size swap. Do not replace it with a test helper.
 entries += ["string/" + name for name in ("memcpy", "memmove", "memset", "memcmp", "strlen")]
@@ -80,7 +80,7 @@ headers = crt / "lifecycle/guard/args/headers"
 # adding host kernel headers to the target compilation.
 (headers / "linux").mkdir(exist_ok=True)
 shutil.copyfile(root / "text/wait.h", headers / "linux/wait.h")
-for name in ("ctype", "inttypes", "string", "strings", "stdlib", "fenv", "stdio"):
+for name in ("ctype", "inttypes", "string", "strings", "stdlib", "fenv", "stdio", "unistd"):
     run(sys.executable, libc / "utils/hdrgen/main.py", "-o", headers / (name + ".h"),
         libc / "include" / (name + ".yaml"))
 
@@ -112,7 +112,7 @@ for opt in ("0", "2"):
     # simultaneously checks public signatures and ordinary archive extraction.
     consumer = out / "consumer.c"
     lines = ["#include <ctype.h>", "#include <inttypes.h>", "#include <stdlib.h>",
-             "#include <string.h>", "#include <strings.h>"]
+             "#include <string.h>", "#include <strings.h>", "#include <unistd.h>"]
     for entry in entries:
         name = entry.split("/")[-1]
         lines.append(f"__typeof__(&{name}) volatile use_{name} = &{name};")

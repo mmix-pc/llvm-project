@@ -18,7 +18,7 @@ include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
 foreach(name swprintf vswprintf fwprintf vfwprintf wprintf vwprintf
              swscanf vswscanf fwscanf vfwscanf wscanf vwscanf
              btowc wctob wcscat wcschr wcscmp wcscpy wcscspn wcslen
-             wcsncat wcsncmp wcsncpy wcspbrk wcsrchr wcsspn wcsstr wcstok
+             wcsdup wcsncat wcsncmp wcsncpy wcspbrk wcsrchr wcsspn wcsstr wcstok
              wcstof wcstod wcstold wcstol wcstoll wcstoul wcstoull
              wmemchr wmemcmp wmemcpy wmemmove wmemset)
   if(NOT "libc.src.wchar.${name}" IN_LIST TARGET_LLVMLIBC_ENTRYPOINTS)

@@ -38,6 +38,7 @@ set(MMIX_CORE_ENTRYPOINTS
   libc.src.strings.ffsll
   libc.src.strings.strcasecmp
   libc.src.strings.strncasecmp
+  libc.src.unistd.swab
   libc.src.stdlib.abs
   libc.src.stdlib.labs
   libc.src.stdlib.llabs
