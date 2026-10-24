@@ -5,6 +5,29 @@ add_custom_target(stdio-integration-tests)
 add_dependencies(libc-integration-tests stdio-integration-tests)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
+  if(NOT CMAKE_CROSSCOMPILING)
+    add_integration_test(
+      popen_setup_failure_test
+      SUITE stdio-integration-tests
+      SRCS popen_setup_failure_test.cpp
+      DEPENDS
+        libc.hdr.errno_macros
+        libc.include.fcntl
+        libc.include.sys_wait
+        libc.src.errno.errno
+        libc.src.fcntl.fcntl
+        libc.src.stdio.fgetc
+        libc.src.stdio.popen
+        libc.src.stdio.pclose
+        libc.src.sys.wait.waitpid
+        libc.src.unistd.close
+    )
+    get_fq_target_name(popen_setup_failure_test.__build__ setup_failure_target)
+    if(TARGET ${setup_failure_target})
+      target_link_options(${setup_failure_target} PRIVATE
+        "-Wl,--wrap=malloc" "-Wl,--wrap=free")
+    endif()
+  endif()
   add_integration_test(
     popen_registration_failure_test
     SUITE stdio-integration-tests
