@@ -388,6 +388,7 @@ add_libc_test(
   SRCS
     wmemcmp_test.cpp
   DEPENDS
+    libc.hdr.stdint_proxy
     libc.src.wchar.wmemcmp
 )
 

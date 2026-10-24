@@ -22,7 +22,7 @@ LLVM_LIBC_FUNCTION(int, wmemcmp,
   LIBC_CRASH_ON_NULLPTR(s2);
   for (size_t i = 0; i < n; ++i) {
     if (s1[i] != s2[i])
-      return (int)(s1[i] - s2[i]);
+      return s1[i] < s2[i] ? -1 : 1;
   }
   // If it reaches the end, all n values must be the same.
   return 0;

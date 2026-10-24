@@ -6,10 +6,24 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "hdr/stdint_proxy.h"
 #include "hdr/types/size_t.h"
 #include "hdr/types/wchar_t.h"
 #include "src/wchar/wmemcmp.h"
 #include "test/UnitTest/Test.h"
+
+TEST(LlvmLibcWMemcmpTest, ExtremeElements) {
+  const wchar_t low[] = {WCHAR_MIN, 0};
+  const wchar_t high[] = {WCHAR_MAX, 0};
+  EXPECT_LT(LIBC_NAMESPACE::wmemcmp(low, high, 1), 0);
+  EXPECT_GT(LIBC_NAMESPACE::wmemcmp(high, low, 1), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::wmemcmp(low, low, 1), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::wmemcmp(low, high, 0), 0);
+  const wchar_t prefix_low[] = {0, WCHAR_MIN};
+  const wchar_t prefix_high[] = {0, WCHAR_MAX};
+  EXPECT_LT(LIBC_NAMESPACE::wmemcmp(prefix_low, prefix_high, 2), 0);
+  EXPECT_GT(LIBC_NAMESPACE::wmemcmp(prefix_high, prefix_low, 2), 0);
+}
 
 TEST(LlvmLibcWMemcmpTest, CmpZeroByte) {
   // Comparing zero bytes should result in 0.
