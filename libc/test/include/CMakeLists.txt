@@ -1,6 +1,15 @@
 add_custom_target(libc_include_tests)
 add_dependencies(check-libc libc_include_tests-build)
 
+add_libc_test(
+  generic_error_number_macros_test
+  C_TEST
+  SUITE libc_include_tests
+  SRCS generic_error_number_macros_test.c
+  COMPILE_OPTIONS -std=c17 -pedantic-errors
+  DEPENDS libc.include.llvm-libc-macros.generic_error_number_macros
+)
+
 foreach(language IN ITEMS c cpp)
   add_libc_test(
     text_conversion_types_${language}_test
