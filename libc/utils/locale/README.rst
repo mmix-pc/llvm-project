@@ -290,3 +290,23 @@ ignored elements. The order-preserving key has no embedded NUL; byte and wide
 outputs each count their own elements. A short output returns the full required
 length without writing beyond capacity. No allocation, locale selection or
 public strcoll/wcscoll qualification follows from this internal component.
+
+Regional Composition
+--------------------
+
+``regional_locale.py`` composes all six categories for the selected en_US,
+de_DE and tr_TR UTF-8 profiles. It records the encoding name at CTYPE key 0x200,
+retains transliteration alternatives and collects unchanged source files with
+their notices alongside locale.dat and review.json. It verifies source hashes
+again while collecting them and refuses an existing destination. The output is
+an explicit staging package, not an installation into the runtime search path.
+
+.. code-block:: sh
+
+   python3 regional_locale.py --source-root /readonly/locales \
+     --locale tr_TR --output /staging/tr_TR.UTF-8
+
+The review remains runtime-unqualified. In particular, time-format and era
+semantics, locale-aware message expressions, category ownership/publication and
+installed consumers still require their runtime acceptance. Six structurally
+valid categories must not be advertised as a usable regional locale.
