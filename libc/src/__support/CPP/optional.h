@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_CPP_OPTIONAL_H
 #define LLVM_LIBC_SRC___SUPPORT_CPP_OPTIONAL_H
 
+#include "src/__support/CPP/new.h"
 #include "src/__support/CPP/type_traits.h"
 #include "src/__support/CPP/utility.h"
 #include "src/__support/macros/attributes.h"
@@ -74,6 +75,21 @@ template <typename T> class optional {
 
   OptionalStorage<T> storage;
 
+  template <typename U> LIBC_INLINE constexpr void assign_value(U &&value) {
+    if (storage.in_use) {
+      storage.stored_value = forward<U>(value);
+    } else {
+      if constexpr (is_trivially_copyable_v<T>) {
+        // Union copy assignment starts the active member's lifetime and also
+        // permits trivial value assignment in C++17 constant expressions.
+        storage = OptionalStorage<T>(in_place, forward<U>(value));
+      } else {
+        ::new (static_cast<void *>(&storage.stored_value)) T(forward<U>(value));
+      }
+      storage.in_use = true;
+    }
+  }
+
 public:
   LIBC_INLINE constexpr optional() = default;
   LIBC_INLINE constexpr optional(nullopt_t) {}
@@ -95,13 +111,13 @@ public:
   }
 
   LIBC_INLINE constexpr optional &operator=(T &&t) {
-    storage = move(t);
+    assign_value(move(t));
     return *this;
   }
   LIBC_INLINE constexpr optional &operator=(optional &&) = default;
 
   LIBC_INLINE constexpr optional &operator=(const T &t) {
-    storage = t;
+    assign_value(t);
     return *this;
   }
   LIBC_INLINE constexpr optional &operator=(const optional &) = default;
