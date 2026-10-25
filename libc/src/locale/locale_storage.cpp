@@ -79,25 +79,38 @@ ErrorOr<__locale_data *> create_collation_category(LocaleDataFile &file,
 
 ErrorOr<__locale_data *> create_ctype_category(LocaleDataFile &file) {
   auto encoding = file.view().find(0, 0x200);
-  if (!encoding || encoding->kind != LocaleDataView::Kind::STRING ||
-      encoding->bytes.size() != sizeof("UTF-8"))
+  if (!encoding || encoding->kind != LocaleDataView::Kind::STRING)
     return Error(EINVAL);
-  constexpr char UTF8[] = "UTF-8";
-  for (size_t i = 0; i != sizeof(UTF8); ++i)
-    if (encoding->bytes[i] != uint8_t(UTF8[i]))
+  cpp::string_view name(reinterpret_cast<const char *>(encoding->bytes.data()),
+                        encoding->bytes.size() - 1);
+  bool utf8 = name == "UTF-8";
+  cpp::optional<ChineseEncodingData> mapping;
+  if (!utf8) {
+    if (name != "ISO-2022-CN")
       return Error(EINVAL);
+    auto validated = ChineseEncodingData::read(file.view());
+    if (!validated)
+      return Error(validated.error());
+    mapping = *validated;
+  }
   auto data = CTypeLocaleData::read(file.view());
   if (!data)
     return Error(data.error());
-  auto category = create_locale_category(file, true);
-  if (category)
+  auto category = create_locale_category(file, utf8);
+  if (category) {
     (*category)->ctype = *data;
+    (*category)->chinese_encoding = mapping;
+  }
   return category;
 }
 
 void release_locale_category(__locale_data *data) {
   if (data->storage &&
       data->references.fetch_sub(1, cpp::MemoryOrder::ACQ_REL) == 1) {
+    ::free(data->grouping);
+    ::free(data->currency);
+    ::free(data->eras);
+    ::free(data->alternative_digits);
     data->storage->release();
     data->~__locale_data();
     ::free(data);

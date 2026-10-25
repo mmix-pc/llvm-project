@@ -9,6 +9,9 @@
 #include "hdr/langinfo_macros.h"
 #include "src/locale/messages_data.h"
 #include "test/UnitTest/Test.h"
+#ifdef REGIONAL_MESSAGES_TEST
+#include "src/locale/regional.h"
+#endif
 
 using LIBC_NAMESPACE::internal::LocaleDataView;
 using LIBC_NAMESPACE::internal::MessagesLocaleData;
@@ -108,3 +111,30 @@ TEST(LlvmLibcMessagesDataTest, RejectInvalidUtf8) {
     }
   }
 }
+
+#ifdef REGIONAL_MESSAGES_TEST
+TEST(LlvmLibcMessagesDataTest, CompileBeforePublicationAndRestoreSelection) {
+  using namespace LIBC_NAMESPACE::internal;
+  struct RestoreSelection {
+    locale_t old = thread_locale;
+    ~RestoreSelection() { thread_locale = old; }
+  } restore;
+  auto caller = locale_from_mask(0);
+  thread_locale = &caller;
+  for (unsigned i = 0; i != 3; ++i) {
+    const char *strings[] = {i == 1 ? "[" : "^[+1yY]",
+                             i == 2 ? "(" : "^[-0nN]", "yes", "no"};
+    Fixture f(strings);
+    auto file = LocaleDataFile::copy({f.bytes, f.size});
+    ASSERT_TRUE(file.has_value());
+    auto category = create_regional_category(**file, LC_MESSAGES);
+    (*file)->release();
+    ASSERT_TRUE(category.has_value());
+    auto candidate = locale_from_mask(LOCALE_MASK);
+    candidate.data[LC_MESSAGES] = *category;
+    EXPECT_EQ(validate_locale_messages(candidate), i ? EINVAL : 0);
+    EXPECT_EQ(thread_locale, &caller);
+    release_locale(candidate);
+  }
+}
+#endif

@@ -1,5 +1,21 @@
 add_custom_target(libc-locale-tests)
 
+add_libc_test(
+  conventions_test
+  SUITE libc-locale-tests
+  SRCS conventions_test.cpp
+  DEPENDS libc.src.locale.conventions libc.src.locale.localeconv
+    libc.src.locale.uselocale libc.src.langinfo.nl_langinfo
+    libc.src.langinfo.nl_langinfo_l libc.hdr.langinfo_macros
+    libc.src.__support.CPP.limits libc.src.__support.libc_errno
+)
+if(LIBC_TARGET_OS_IS_LINUX AND TARGET libc.test.src.locale.conventions_test.__build__)
+  target_compile_definitions(libc.test.src.locale.conventions_test.__build__ PRIVATE
+    CONVENTIONS_ALLOCATION_TEST)
+  target_link_options(libc.test.src.locale.conventions_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=free)
+endif()
+
 set(character_api_deps
   libc.src.locale.locale_storage libc.src.locale.uselocale
   libc.src.strings.strcasecmp libc.src.strings.strcasecmp_l
@@ -110,18 +126,31 @@ add_libc_test(
   DEPENDS libc.src.locale.encoding_data
 )
 
+set(regional_messages_test_deps)
+set(regional_messages_test_options)
+if(TARGET libc.src.locale.regional)
+  list(APPEND regional_messages_test_deps libc.src.locale.regional)
+  list(APPEND regional_messages_test_options -DREGIONAL_MESSAGES_TEST)
+endif()
 add_libc_test(
   messages_data_test
   SUITE libc-locale-tests
   SRCS messages_data_test.cpp
-  DEPENDS libc.src.locale.messages_data libc.hdr.langinfo_macros
+  DEPENDS libc.src.locale.messages_data libc.hdr.langinfo_macros ${regional_messages_test_deps}
+  COMPILE_OPTIONS ${regional_messages_test_options}
 )
 
+set(time_category_test_deps)
+if(LLVM_LIBC_FULL_BUILD)
+  list(APPEND time_category_test_deps libc.src.locale.time_category
+    libc.src.langinfo.nl_langinfo libc.src.langinfo.nl_langinfo_l
+    libc.src.locale.uselocale)
+endif()
 add_libc_test(
   time_data_test
   SUITE libc-locale-tests
   SRCS time_data_test.cpp
-  DEPENDS libc.src.locale.time_data libc.hdr.langinfo_macros
+  DEPENDS libc.src.locale.time_data libc.hdr.langinfo_macros ${time_category_test_deps}
 )
 
 add_libc_test(
@@ -166,7 +195,8 @@ add_libc_test(
     ${LIBC_SOURCE_DIR}/src/locale/locale_name.cpp
   COMPILE_OPTIONS -DLIBC_TARGET_OS_IS_BAREMETAL
   DEPENDS
-    libc.src.locale.locale
+    libc.src.locale.locale_storage
+    libc.hdr.errno_macros
     libc.src.__support.CPP.string_view
 )
 

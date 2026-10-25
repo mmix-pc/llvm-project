@@ -105,6 +105,12 @@ add_object_library(
 )
 
 add_header_library(
+  convention_types
+  HDRS numeric_data.h monetary_data.h time_data.h messages_data.h transliteration_data.h encoding_data.h
+  DEPENDS .locale_data libc.src.__support.CPP.string_view
+)
+
+add_header_library(
   category_validation
   HDRS category_validation.h
   DEPENDS .locale_data libc.src.__support.wchar.character_converter
@@ -163,13 +169,14 @@ add_object_library(
     libc.src.__support.CPP.string_view
     .collation_data
     .ctype_data
+    .convention_types
 )
 
 add_object_library(
   locale_storage
   SRCS locale_storage.cpp
   HDRS locale_storage.h
-  DEPENDS .locale .locale_data libc.src.__support.alloc_checker
+  DEPENDS .locale .locale_data .encoding_data libc.src.__support.alloc_checker
     libc.hdr.errno_macros libc.hdr.func.free
 )
 
@@ -180,9 +187,43 @@ add_entrypoint_object(
   DEPENDS .locale_storage libc.hdr.types.locale_t
 )
 
+add_object_library(
+  conventions
+  SRCS conventions.cpp
+  HDRS conventions.h
+  DEPENDS .locale_storage .numeric_data .monetary_data
+    libc.src.__support.alloc_checker libc.src.__support.CPP.limits
+    libc.hdr.errno_macros
+)
+
+add_object_library(
+  time_category
+  SRCS time_category.cpp
+  HDRS time_category.h
+  DEPENDS .locale_storage .time_data libc.src.__support.alloc_checker
+    libc.hdr.errno_macros
+)
+
 set(locale_environment_deps)
 if(NOT LIBC_TARGET_OS_IS_BAREMETAL)
   list(APPEND locale_environment_deps libc.src.stdlib.environ_internal)
+endif()
+
+set(regional_locale_deps)
+set(regional_locale_options)
+if(LIBC_TARGET_OS_IS_LINUX AND
+   "libc.src.regex.regcomp" IN_LIST TARGET_LIBC_ENTRYPOINTS AND
+   "libc.src.regex.regfree" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+  add_object_library(
+    regional
+    SRCS regional.cpp
+    HDRS regional.h
+    DEPENDS .linux_locale_file .locale_storage .conventions .time_category
+      .messages_data .transliteration_data libc.src.regex.regcomp libc.src.regex.regfree
+      libc.hdr.regex_macros
+  )
+  list(APPEND regional_locale_deps .regional)
+  list(APPEND regional_locale_options -DLIBC_LOCALE_HAS_REGIONAL_DATA)
 endif()
 
 add_object_library(
@@ -190,9 +231,12 @@ add_object_library(
   SRCS
     locale_name.cpp
   DEPENDS
-    .locale
+    .locale_storage
     libc.src.__support.CPP.string_view
+    libc.hdr.errno_macros
     ${locale_environment_deps}
+    ${regional_locale_deps}
+  COMPILE_OPTIONS ${regional_locale_options}
 )
 
 add_entrypoint_object(
@@ -203,6 +247,8 @@ add_entrypoint_object(
     localeconv.h
   DEPENDS
     libc.include.locale
+    .locale
+    libc.src.__support.CPP.limits
   CXX_STANDARD
     20 # For designated initializers
 )

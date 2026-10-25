@@ -66,6 +66,9 @@ ErrorOr<LocaleDataFile *> read_locale_file(size_t size, cpp::string_view name,
 ErrorOr<LocaleDataFile *> load_locale_file_at(int root_fd,
                                               cpp::string_view name);
 ErrorOr<LocaleDataFile *> load_locale_file(cpp::string_view name);
+// The encoding package is separate from locale names and is never selected by
+// a caller-provided path. Its internal identity is ISO-2022-CN.
+ErrorOr<LocaleDataFile *> load_chinese_encoding_file();
 
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

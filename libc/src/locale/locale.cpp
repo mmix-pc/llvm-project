@@ -57,6 +57,11 @@ bool locale_is_utf8() {
   return locale_snapshot(thread_locale).data[LC_CTYPE]->utf8;
 }
 
+const ChineseEncodingData *locale_chinese_encoding() {
+  auto *category = locale_snapshot(thread_locale).data[LC_CTYPE];
+  return category->chinese_encoding ? &*category->chinese_encoding : nullptr;
+}
+
 void format_locale_name(const __locale_t &loc, int category,
                         char (&buffer)[LOCALE_NAME_SIZE]) {
   char *out = buffer;

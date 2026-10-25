@@ -13,6 +13,7 @@
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/locale/locale.h"
+#include "src/locale/locale_storage.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -24,14 +25,15 @@ LLVM_LIBC_FUNCTION(char *, setlocale, (int category, const char *locale_name)) {
   auto result = internal::global_locale_snapshot();
   if (locale_name) {
     int mask = category == LC_ALL ? internal::LOCALE_MASK : 1 << category;
-    if (!internal::resolve_locale(mask, locale_name, result)) {
-      libc_errno = ENOENT;
+    auto selected = internal::resolve_locale(mask, locale_name, result);
+    if (!selected) {
+      libc_errno = selected.error();
       return nullptr;
     }
-    if (!internal::publish_global_locale(result)) {
-      libc_errno = ENOMEM;
-      return nullptr;
-    }
+    // The resolver already owns every new reference; transfer rather than
+    // attempting a second retain after the transaction has succeeded.
+    result = *selected;
+    internal::release_locale(internal::exchange_global_locale(result));
   }
   return internal::locale_name(result, category);
 }

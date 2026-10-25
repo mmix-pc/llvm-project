@@ -30,18 +30,10 @@ ErrorOr<int> open_at(int parent, const char *path, int flags) {
   return linux_syscalls::syscall_checked<int>(
       SYS_openat, parent, path, flags | O_CLOEXEC | O_NOFOLLOW, 0);
 }
-} // namespace
 
-ErrorOr<LocaleDataFile *> load_locale_file_at(int root_fd,
-                                              cpp::string_view name) {
-  const char *selected = locale_file_name(name);
-  if (!selected)
-    return Error(ENOENT);
-  auto directory = open_at(root_fd, selected, O_RDONLY | O_DIRECTORY);
-  if (!directory)
-    return Error(directory.error());
-  Descriptor parent{*directory};
-  auto opened = open_at(parent.fd, "locale.dat", O_RDONLY | O_NONBLOCK);
+ErrorOr<LocaleDataFile *> load_file_at(int parent, const char *path,
+                                     cpp::string_view identity) {
+  auto opened = open_at(parent, path, O_RDONLY | O_NONBLOCK);
   if (!opened)
     return Error(opened.error());
   Descriptor file{*opened};
@@ -54,7 +46,7 @@ ErrorOr<LocaleDataFile *> load_locale_file_at(int root_fd,
   if ((stat.stx_mask & TYPE_AND_SIZE) != TYPE_AND_SIZE ||
       !S_ISREG(stat.stx_mode) || stat.stx_size > LocaleDataView::MAX_SIZE)
     return Error(EINVAL);
-  return read_locale_file(size_t(stat.stx_size), selected,
+  return read_locale_file(size_t(stat.stx_size), identity,
                           [&](uint8_t *buffer, size_t size) -> ErrorOr<size_t> {
                             auto count =
                                 linux_syscalls::read(file.fd, buffer, size);
@@ -62,6 +54,31 @@ ErrorOr<LocaleDataFile *> load_locale_file_at(int root_fd,
                               return Error(count.error());
                             return size_t(*count);
                           });
+}
+} // namespace
+
+ErrorOr<LocaleDataFile *> load_locale_file_at(int root_fd,
+                                              cpp::string_view name) {
+  const char *selected = locale_file_name(name);
+  if (!selected)
+    return Error(ENOENT);
+  auto directory = open_at(root_fd, selected, O_RDONLY | O_DIRECTORY);
+  if (!directory)
+    return Error(directory.error());
+  Descriptor parent{*directory};
+  return load_file_at(parent.fd, "locale.dat", selected);
+}
+
+ErrorOr<LocaleDataFile *> load_chinese_encoding_file() {
+  auto root = open_at(AT_FDCWD, LIBC_LOCALE_DATA_ROOT, O_RDONLY | O_DIRECTORY);
+  if (!root)
+    return Error(root.error());
+  Descriptor directory{*root};
+  auto opened = open_at(directory.fd, "encodings", O_RDONLY | O_DIRECTORY);
+  if (!opened)
+    return Error(opened.error());
+  Descriptor encodings{*opened};
+  return load_file_at(encodings.fd, "ISO-2022-CN.dat", "ISO-2022-CN");
 }
 
 ErrorOr<LocaleDataFile *> load_locale_file(cpp::string_view name) {

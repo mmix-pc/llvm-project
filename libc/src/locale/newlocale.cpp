@@ -27,27 +27,24 @@ LLVM_LIBC_FUNCTION(locale_t, newlocale,
     libc_errno = EINVAL;
     return nullptr;
   }
-  auto result = base ? *base : internal::locale_from_mask(0);
-  if (!internal::resolve_locale(category_mask, locale_name, result)) {
-    libc_errno = ENOENT;
-    return nullptr;
-  }
-  if (!internal::retain_locale(result)) {
-    libc_errno = ENOMEM;
+  auto result = internal::resolve_locale(
+      category_mask, locale_name, base ? *base : internal::locale_from_mask(0));
+  if (!result) {
+    libc_errno = result.error();
     return nullptr;
   }
   // Reuse base only after successful resolution; failure leaves it untouched.
   if (!base) {
-    base = internal::allocate_locale_object(result);
+    base = internal::allocate_locale_object(*result);
   } else {
     internal::release_locale(*base);
   }
   if (!base) {
-    internal::release_locale(result);
+    internal::release_locale(*result);
     libc_errno = ENOMEM;
     return nullptr;
   }
-  internal::update_locale_object(base, result);
+  internal::update_locale_object(base, *result);
   return base;
 }
 

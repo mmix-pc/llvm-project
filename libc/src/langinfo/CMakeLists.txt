@@ -3,6 +3,7 @@ add_object_library(
   SRCS langinfo.cpp
   HDRS langinfo.h
   DEPENDS libc.hdr.langinfo_macros libc.hdr.types.nl_item libc.src.locale.locale
+    libc.src.locale.time_data
 )
 add_entrypoint_object(
   nl_langinfo

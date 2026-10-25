@@ -9,6 +9,12 @@
 #include "hdr/langinfo_macros.h"
 #include "src/locale/time_data.h"
 #include "test/UnitTest/Test.h"
+#ifdef LIBC_FULL_BUILD
+#include "src/langinfo/nl_langinfo.h"
+#include "src/langinfo/nl_langinfo_l.h"
+#include "src/locale/time_category.h"
+#include "src/locale/uselocale.h"
+#endif
 
 using LIBC_NAMESPACE::internal::LocaleDataView;
 using LIBC_NAMESPACE::internal::TimeLocaleData;
@@ -117,6 +123,74 @@ TEST(LlvmLibcTimeDataTest, TablesAndEmptyValues) {
   EXPECT_FALSE(time->text(TimeLocaleData::FIELD_COUNT, 0).has_value());
   EXPECT_EQ(time->count(TimeLocaleData::FIELD_COUNT), size_t(0));
 }
+
+#ifdef LIBC_FULL_BUILD
+TEST(LlvmLibcTimeDataTest, RegionalQueriesRetainBackingStorage) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture f;
+  const char *strings[] = {
+      "abday",  "day",   "abmon", "mon", "altmon", "abaltmon",
+      "period", "%a %Y", "%Y",    "%H",  "%I %p",  "+:1:2000/1/1:+*:era:%Y",
+      "%Y-%m",  "%H:%M", "%Y %H", "zero"};
+  for (unsigned i = 0; i != 16; ++i)
+    f.values[i] = strings[i];
+  f.counts[TimeLocaleData::ERAS] = 2;
+  f.counts[TimeLocaleData::ALTERNATIVE_DIGITS] = 2;
+  f.build();
+  auto file = LocaleDataFile::copy({f.bytes, f.size});
+  ASSERT_TRUE(file.has_value());
+  auto category = create_time_category(**file);
+  (*file)->release();
+  ASSERT_TRUE(category.has_value());
+  auto locale = locale_from_mask(0);
+  locale.data[LC_TIME] = *category;
+  auto previous = LIBC_NAMESPACE::uselocale(&locale);
+  struct Range {
+    nl_item first;
+    unsigned count;
+    unsigned field;
+  };
+  const Range ranges[] = {
+      {ABDAY_1, 7, 0},   {DAY_1, 7, 1},       {ABMON_1, 12, 2}, {MON_1, 12, 3},
+      {ALTMON_1, 12, 4}, {ABALTMON_1, 12, 5}, {AM_STR, 2, 6}};
+  for (auto range : ranges)
+    for (unsigned i = 0; i != range.count; ++i) {
+      EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(range.first + i),
+                   strings[range.field]);
+      EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(range.first + i, &locale),
+                   strings[range.field]);
+    }
+  const nl_item formats[] = {D_T_FMT,   D_FMT,     T_FMT,      T_FMT_AMPM,
+                             ERA_D_FMT, ERA_T_FMT, ERA_D_T_FMT};
+  for (unsigned i = 0; i != 7; ++i)
+    EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(formats[i]),
+                 strings[i < 4 ? i + 7 : i + 8]);
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(ERA),
+               "+:1:2000/1/1:+*:era:%Y;+:1:2000/1/1:+*:era:%Y");
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(ALT_DIGITS), "zero;zero");
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(-1), "");
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(RADIXCHAR), ".");
+  LIBC_NAMESPACE::uselocale(previous);
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(DAY_1, &locale), "day");
+  release_locale(locale);
+}
+
+TEST(LlvmLibcTimeDataTest, EmptyEraAndAlternativeDigitQueries) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture f;
+  f.build();
+  auto file = LocaleDataFile::copy({f.bytes, f.size});
+  ASSERT_TRUE(file.has_value());
+  auto category = create_time_category(**file);
+  (*file)->release();
+  ASSERT_TRUE(category.has_value());
+  auto locale = locale_from_mask(0);
+  locale.data[LC_TIME] = *category;
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(ERA, &locale), "");
+  EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(ALT_DIGITS, &locale), "");
+  release_locale(locale);
+}
+#endif
 
 TEST(LlvmLibcTimeDataTest, RejectMissingOrMistypedCount) {
   for (unsigned field = 0; field != 16; ++field) {

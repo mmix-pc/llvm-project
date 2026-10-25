@@ -15,6 +15,12 @@
 #include "src/__support/macros/config.h"
 #include "src/locale/collation_data.h"
 #include "src/locale/ctype_data.h"
+#include "src/locale/encoding_data.h"
+#include "src/locale/monetary_data.h"
+#include "src/locale/numeric_data.h"
+#include "src/locale/time_data.h"
+#include "src/locale/messages_data.h"
+#include "src/locale/transliteration_data.h"
 
 #include "hdr/locale_macros.h"
 #include "hdr/types/locale_t.h"
@@ -38,6 +44,22 @@ struct __locale_data {
   LIBC_NAMESPACE::cpp::optional<LIBC_NAMESPACE::internal::CollationData>
       collation;
   LIBC_NAMESPACE::cpp::optional<LIBC_NAMESPACE::internal::CTypeLocaleData> ctype;
+  LIBC_NAMESPACE::cpp::optional<LIBC_NAMESPACE::internal::ChineseEncodingData>
+      chinese_encoding;
+  LIBC_NAMESPACE::cpp::optional<LIBC_NAMESPACE::internal::NumericLocaleData>
+      numeric;
+  LIBC_NAMESPACE::cpp::optional<LIBC_NAMESPACE::internal::MonetaryLocaleData>
+      monetary;
+  LIBC_NAMESPACE::cpp::optional<LIBC_NAMESPACE::internal::TimeLocaleData> time;
+  LIBC_NAMESPACE::cpp::optional<LIBC_NAMESPACE::internal::MessagesLocaleData>
+      messages;
+  LIBC_NAMESPACE::cpp::optional<LIBC_NAMESPACE::internal::TransliterationData>
+      transliteration;
+  // Target-representation strings are constructed before publication.
+  char *grouping = nullptr;
+  char *currency = nullptr;
+  char *eras = nullptr;
+  char *alternative_digits = nullptr;
 
   constexpr __locale_data(
       const char *name, bool utf8,
@@ -61,13 +83,15 @@ unsigned locale_mask(const __locale_t &loc);
 __locale_t global_locale_snapshot();
 // Acquires all new references before replacing the global state.
 bool publish_global_locale(const __locale_t &loc);
-// Ownership transfer primitive used only by publish_global_locale.
+// Ownership transfer after all new categories have been acquired and validated.
 __locale_t exchange_global_locale(const __locale_t &loc);
 __locale_t locale_snapshot(locale_t loc);
 bool locale_is_utf8();
 // Resolution is transactional. Applications synchronize environment mutation
 // and setlocale with all operations affected by the global locale.
-bool resolve_locale(int mask, const char *name, __locale_t &result);
+// Success returns one owned reference for each category; base remains borrowed.
+ErrorOr<__locale_t> resolve_locale(int mask, const char *name,
+                                  const __locale_t &base);
 // The returned thread-local buffer is reused by the next setlocale call.
 char *locale_name(const __locale_t &loc, int category);
 void format_locale_name(const __locale_t &loc, int category,
