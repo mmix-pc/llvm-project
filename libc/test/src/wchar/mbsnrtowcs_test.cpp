@@ -172,6 +172,32 @@ TEST_F(LlvmLibcMBSNRToWCSTest, InvalidMiddleByte) {
   ASSERT_EQ(src, original + 5);
 }
 
+TEST_F(LlvmLibcMBSNRToWCSTest, ErrorAfterConvertedPrefix) {
+  LocaleGuard locale;
+  const char input[] = "A\xc2\xa2\xf0\x9f\xff";
+  const char *source = input;
+  mbstate_t state{};
+  wchar_t output[] = {0x1234, 0x1234, 0x1234};
+  ASSERT_EQ(LIBC_NAMESPACE::mbsnrtowcs(output, &source, sizeof(input) - 1,
+                                     3, &state), size_t(-1));
+  ASSERT_ERRNO_EQ(EILSEQ);
+  ASSERT_EQ(source, input + 3);
+  ASSERT_EQ(output[0], wchar_t('A'));
+  ASSERT_EQ(output[1], wchar_t(0xa2));
+  ASSERT_EQ(output[2], wchar_t(0x1234));
+}
+
+TEST_F(LlvmLibcMBSNRToWCSTest, ErrorAfterPrefixWithNullDestination) {
+  LocaleGuard locale;
+  const char input[] = "A\xc2\xa2\xff";
+  const char *source = input;
+  mbstate_t state{};
+  ASSERT_EQ(LIBC_NAMESPACE::mbsnrtowcs(nullptr, &source, sizeof(input) - 1,
+                                     0, &state), size_t(-1));
+  ASSERT_ERRNO_EQ(EILSEQ);
+  ASSERT_EQ(source, input);
+}
+
 TEST_F(LlvmLibcMBSNRToWCSTest, NullDestination) {
   LocaleGuard locale;
   // Four laughing cat emojis "😹😹😹😹"

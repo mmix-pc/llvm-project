@@ -49,9 +49,9 @@ mbsnrtowcs(wchar_t *__restrict dst, const char **__restrict src,
     converted = str_conv.pop<char32_t>();
   }
 
+  if (dst != nullptr)
+    *src += str_conv.getSourceIndex();
   if (converted.error() == -1) { // if we hit conversion limit
-    if (dst != nullptr)
-      *src += str_conv.getSourceIndex();
     return dst_idx;
   }
 

@@ -143,10 +143,21 @@ TEST_F(LlvmLibcMBSRToWCSTest, InvalidMiddleByte) {
   const char *original = src;
   wchar_t dest[3];
   size_t n = LIBC_NAMESPACE::mbsrtowcs(dest, &src, 5, nullptr);
-  // Should return error, set errno, and not update the pointer
+  // Keep the converted prefix and point at the next, invalid character.
   ASSERT_EQ(static_cast<int>(n), -1);
   ASSERT_ERRNO_EQ(EILSEQ);
-  ASSERT_EQ(src, original);
+  ASSERT_EQ(src, original + 4);
+  ASSERT_EQ(static_cast<int>(dest[0]), 128569);
+}
+
+TEST_F(LlvmLibcMBSRToWCSTest, ErrorAfterPrefixWithNullDestination) {
+  LocaleGuard locale;
+  const char input[] = "A\xc2\xa2\xff";
+  const char *source = input;
+  mbstate_t state{};
+  ASSERT_EQ(LIBC_NAMESPACE::mbsrtowcs(nullptr, &source, 0, &state), size_t(-1));
+  ASSERT_ERRNO_EQ(EILSEQ);
+  ASSERT_EQ(source, input);
 }
 
 TEST_F(LlvmLibcMBSRToWCSTest, NullDestination) {
