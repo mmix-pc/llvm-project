@@ -13,6 +13,21 @@ add_object_library(
 )
 
 add_object_library(
+  collation_key
+  SRCS collation_key.cpp
+  HDRS collation_key.h
+  DEPENDS .collation_data libc.src.__support.CPP.optional libc.hdr.errno_macros
+    libc.hdr.types.wchar_t
+)
+
+add_object_library(
+  collation_data
+  SRCS collation_data.cpp
+  HDRS collation_data.h
+  DEPENDS .locale_data libc.hdr.errno_macros
+)
+
+add_object_library(
   ctype_data
   SRCS ctype_data.cpp
   HDRS ctype_data.h

@@ -6,4 +6,6 @@ add_libc_fuzzer(
     libc.src.locale.time_data libc.src.locale.messages_data
     libc.src.locale.encoding_data
     libc.src.locale.transliteration_data
+    libc.src.locale.collation_data
+    libc.src.locale.collation_key
 )

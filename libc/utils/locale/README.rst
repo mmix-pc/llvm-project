@@ -258,3 +258,35 @@ ISO-8859-1, UTF-8, UTF-16LE/BE, UTF-32LE/BE and ISO-2022-CN, with ASCII-insensit
 case matching. It accepts one destination indicator, rejects source indicators
 and combinations, and does not guess the byte order of UTF-16 or UTF-32. Empty
 names are left for the public locale-aware layer to resolve.
+
+Collation Source And Keys
+-------------------------
+
+``collation_source.py`` reads the selected four-level source profile, including
+category copy dependencies, abstract symbols, explicit symbol/character ranges,
+multi-character elements, expansions, IGNORE and regional reordering. Unknown
+active directives, missing weights, cycles and duplicate sequence keys fail.
+Files, symbols, records and sequence sizes are bounded. The review preserves
+source hashes, dependency edges and notices; this is not a general localedef.
+
+The selected sources omit UNDEFINED. The producer warns and uses the POSIX
+default: unlisted scalars sort after explicit entries, share a primary weight
+and have codepoint-ordered subsequent weights. This is not glibc's observed
+fallback behavior. Explicit source weights and regional reordering are retained.
+
+``collation_category.py`` emits category 3. Key 1 contains the record count,
+maximum explicit weight, implicit-policy ID 1 and four fallback direction flags.
+Keys starting at 0x1000 hold records in scalar-sequence order: source length,
+source scalars, four direction flags, then each level's weight count and weights.
+Direction 1 is forward, 2 backward and bit 4 enables position sensitivity.
+The position flag is uniform within each level. Empty weight lists mean IGNORE.
+The reader bounds all counts, validates scalar/weight domains and requires exact
+record consumption. Implicit rules need no table enumerating unlisted scalars.
+
+``collation_key`` resolves longest elements into caller-owned scratch storage.
+Comparison and transformation use the same four-pass token stream. Backward
+sections reverse elements without reversing expansions. Position levels count
+ignored elements. The order-preserving key has no embedded NUL; byte and wide
+outputs each count their own elements. A short output returns the full required
+length without writing beyond capacity. No allocation, locale selection or
+public strcoll/wcscoll qualification follows from this internal component.

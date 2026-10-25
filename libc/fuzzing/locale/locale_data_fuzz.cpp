@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "src/locale/collation_data.h"
+#include "src/locale/collation_key.h"
 #include "src/locale/ctype_data.h"
 #include "src/locale/encoding_data.h"
 #include "src/locale/locale_data.h"
@@ -23,6 +25,19 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     return 0;
   (void)LIBC_NAMESPACE::internal::NumericLocaleData::read(*view);
   (void)LIBC_NAMESPACE::internal::MessagesLocaleData::read(*view);
+  auto collation = LIBC_NAMESPACE::internal::CollationData::read(*view);
+  if (collation) {
+    uint32_t source[] = {uint32_t(size)};
+    auto rule = collation->lookup(source);
+    if (rule) {
+      (void)rule->direction(size);
+      auto weights = rule->weights(size % 4);
+      if (weights)
+        (void)weights->at(size);
+      uint8_t key[16];
+      (void)LIBC_NAMESPACE::internal::transform_collation({&*rule, 1}, key);
+    }
+  }
   auto transliteration =
       LIBC_NAMESPACE::internal::TransliterationData::read(*view);
   if (transliteration && transliteration->size()) {

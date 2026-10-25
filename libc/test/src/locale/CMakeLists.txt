@@ -1,6 +1,14 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  collation_data_test
+  SUITE libc-locale-tests
+  SRCS collation_data_test.cpp
+  DEPENDS libc.src.locale.collation_data libc.src.locale.collation_key
+    libc.hdr.errno_macros
+)
+
+add_libc_test(
   transliteration_data_test
   SUITE libc-locale-tests
   SRCS transliteration_data_test.cpp

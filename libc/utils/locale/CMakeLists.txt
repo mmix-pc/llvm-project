@@ -1,5 +1,14 @@
 enable_testing()
 add_test(
+  NAME locale_collation_category_test
+  COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_collation_category.py
+)
+add_test(
+  NAME locale_collation_source_test
+  COMMAND ${CMAKE_COMMAND} -E env TMPDIR=${CMAKE_CURRENT_BINARY_DIR}
+    ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_collation_source.py
+)
+add_test(
   NAME locale_transliteration_category_test
   COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_transliteration_category.py
 )
