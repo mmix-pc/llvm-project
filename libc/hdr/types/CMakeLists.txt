@@ -530,6 +530,12 @@ add_proxy_header_library(
 )
 
 add_proxy_header_library(
+  iconv_t
+  HDRS iconv_t.h
+  FULL_BUILD_DEPENDS libc.include.llvm-libc-types.iconv_t
+)
+
+add_proxy_header_library(
   stack_t
   HDRS
     stack_t.h

@@ -1,0 +1,102 @@
+{
+  "bytes": 241092,
+  "edges": [
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_circle"
+    },
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_cjk_compat"
+    },
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_compat"
+    },
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_emojis"
+    },
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_font"
+    },
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_fraction"
+    },
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_narrow"
+    },
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_small"
+    },
+    {
+      "from": "translit_neutral",
+      "kind": "include",
+      "to": "translit_wide"
+    }
+  ],
+  "rules": 6527,
+  "sha256": "fba970b58b526986fa2385dc2eafc6a98deaf5146d0883916cfe1da0151d8c30",
+  "source_order": [
+    "translit_neutral",
+    "translit_combining"
+  ],
+  "sources": {
+    "translit_circle": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations of encircled characters.\n% Generated automatically from UnicodeData.txt by gen_translit_circle.py on 2025-08-18 for Unicode 17.0.0.\n\n",
+      "sha256": "4db3482a954c66ddb8006354966fe05b40b933c1228114746265673080b32a1f"
+    },
+    "translit_cjk_compat": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations of CJK compatibility characters.\n% Generated automatically from UnicodeData.txt by gen_translit_cjk_compat.py on 2025-08-18 for Unicode 17.0.0.\n\n",
+      "sha256": "4f75c0382ee4eda15060173ad41c2a5e08b4d01ee95f22e237c72661a5fbd4d6"
+    },
+    "translit_combining": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations that remove all combining characters (accents,\n% pronounciation marks, etc.).\n% Generated automatically from UnicodeData.txt by gen_translit_combining.py on 2025-08-18 for Unicode 17.0.0.\n\n",
+      "sha256": "5c8fce7126936b791213b5387915c7cca315e514b9eab6a475148f052be4a435"
+    },
+    "translit_compat": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations of compatibility characters and ligatures.\n% Generated automatically from UnicodeData.txt by gen_translit_compat.py on 2025-08-18 for Unicode 17.0.0.\n\n",
+      "sha256": "70375e0e2483a813b892db3660e9772b5b51f593510fbb09c4e009b39a4f62d9"
+    },
+    "translit_emojis": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation and the GNU Toolchain Authors do not\n% claim any copyright interest in the locale data contained in this\n% file.  The foregoing does not affect the license of the GNU C\n% Library as a whole.  It does not exempt you from the conditions\n% of the license if your use would otherwise be governed by that\n% license.\n\n% Transliterations of emojis to ASCII smileys.\n\n",
+      "sha256": "a95717f5f3d957519f3b9a37baf5554bf35564b31d41a33e413306b513d6116e"
+    },
+    "translit_font": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations of font equivalents.\n% Generated automatically from UnicodeData.txt by gen_translit_font.py on 2025-08-18 for Unicode 17.0.0.\n\n",
+      "sha256": "3fffa17a91b9dcf1608fca0399e28142ddbb0cda1b24f2a612a8efa03f55dad1"
+    },
+    "translit_fraction": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations of fractions.\n% Generated automatically from UnicodeData.txt by gen_translit_fraction.py on 2025-08-18 for Unicode 17.0.0.\n% The replacements have been surrounded with spaces, because fractions are\n% often preceded by a decimal number and followed by a unit or a math symbol.\n\n",
+      "sha256": "c1c817860558dbc020ebc344e693f2a6003f2d2b6ad74b8f74711969c0f2e2f7"
+    },
+    "translit_narrow": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations of narrow equivalents.\n% Generated through\n%   $ grep '^[^;]*;[^;]*;[^;]*;[^;]*;[^;]*;<narrow>[^;]*;' UnicodeData.txt | \\\n%     sed -e 's/^\\([^;]*\\);\\([^;]*\\);[^;]*;[^;]*;[^;]*;<narrow> \\([^;]*\\);.*$/<U\\1> <U\\3> % \\2/'\n\n",
+      "sha256": "184b98b706b7c10b9d4888e445d3a9aca065d76c2c085de2616d8cf09943e327"
+    },
+    "translit_neutral": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Language and locale neutral transliterations.\n\n",
+      "sha256": "5307a822fbb3bfbfc90ed2b54e8ef8da6ff83a4f8e3d1bc21897d4e94fcbabeb"
+    },
+    "translit_small": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations of small equivalents.\n% Generated through\n%   $ grep '^[^;]*;[^;]*;[^;]*;[^;]*;[^;]*;<small>[^;]*;' UnicodeData.txt | \\\n%     sed -e 's/^\\([^;]*\\);\\([^;]*\\);[^;]*;[^;]*;[^;]*;<small> \\([^;]*\\);.*$/<U\\1> <U\\3> % \\2/'\n% and added the small Hiragana and small Katakana manually.\n\n",
+      "sha256": "cb1a339c7d70ed8e3f147fb5391c3953c9f7710396f91faf472e4d8158be7960"
+    },
+    "translit_wide": {
+      "preamble": "escape_char /\ncomment_char %\n\n% This file is part of the GNU C Library and contains locale data.\n% The Free Software Foundation does not claim any copyright interest\n% in the locale data contained in this file.  The foregoing does not\n% affect the license of the GNU C Library as a whole.  It does not\n% exempt you from the conditions of the license if your use would\n% otherwise be governed by that license.\n\n% Transliterations of wide equivalents.\n% Generated through\n%   $ grep '^[^;]*;[^;]*;[^;]*;[^;]*;[^;]*;<wide>[^;]*;' UnicodeData.txt | \\\n%     sed -e 's/^\\([^;]*\\);\\([^;]*\\);[^;]*;[^;]*;[^;]*;<wide> \\([^;]*\\);.*$/<U\\1> <U\\3> % \\2/'\n\n",
+      "sha256": "98b36082ed8aed818a43a708e80829525d445f6ab3f794e9133c3cfc367b1e87"
+    }
+  }
+}

@@ -6,6 +6,9 @@ endif()
 # C/C.UTF-8 need no data files. Regional names additionally require the
 # configured private locale database and response-expression validation.
 set(MMIX_LOCALE_ENTRYPOINTS
+  libc.src.iconv.iconv_open
+  libc.src.iconv.iconv
+  libc.src.iconv.iconv_close
   libc.src.locale.__ctype_get_mb_cur_max
   libc.src.langinfo.nl_langinfo
   libc.src.langinfo.nl_langinfo_l

@@ -76,6 +76,13 @@ add_object_library(
 )
 
 add_object_library(
+  builtin_transliteration
+  SRCS builtin_transliteration.cpp
+  HDRS builtin_transliteration.h builtin_transliteration.inc
+  DEPENDS .transliteration_data
+)
+
+add_object_library(
   messages_data
   SRCS messages_data.cpp
   HDRS messages_data.h

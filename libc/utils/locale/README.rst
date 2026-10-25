@@ -318,6 +318,42 @@ semantics, locale-aware message expressions, category ownership/publication and
 installed consumers still require their runtime acceptance. Six structurally
 valid categories must not be advertised as a usable regional locale.
 
+Embedded Transliteration And Public Conversion
+---------------------------------------------
+
+``builtin_transliteration.py`` merges ``translit_neutral`` followed by
+``translit_combining`` into the built-in read-only table. Its JSON companion
+retains every source hash, original preamble and dependency edge. Regenerate
+from the reviewed source revision; ``--check`` compares both generated files
+without modifying them:
+
+.. code-block:: sh
+
+   python3 builtin_transliteration.py --source-root /readonly/locales \
+     --output ../../src/locale/builtin_transliteration --check
+
+The runtime validates the table when acquiring a TRANSLIT descriptor, then
+borrows the immutable bytes. Built-in C/POSIX and C.UTF-8 require no data file
+for transliteration. Regional rules are borrowed from the current LC_CTYPE on
+each conversion call, not captured at descriptor creation. Application
+synchronization of global locale changes remains required.
+
+``encoding_package.py`` stages the separate, controlled Chinese mapping file
+and preserves the complete source files and normalized review:
+
+.. code-block:: sh
+
+   python3 encoding_package.py --gb2312 /readonly/GB2312 \
+     --cns /readonly/euc-tw-2014.ucm --output /staging/chinese
+
+Its ``ISO-2022-CN.dat`` is deployed under ``encodings/`` in the configured
+private locale data root. The file identity must be ``ISO-2022-CN``. The
+runtime validates the file and owns a frozen copy before publishing a
+descriptor. It never interprets application encoding names as paths. Missing
+files do not affect stateless encoding pairs, and already-open descriptors
+retain their data when the file name becomes unavailable. These generators
+do not perform installation or establish installed-runtime qualification.
+
 Display Widths
 --------------
 

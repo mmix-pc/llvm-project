@@ -120,6 +120,14 @@ add_libc_test(
 )
 
 add_libc_test(
+  builtin_transliteration_test
+  SUITE libc-locale-tests
+  SRCS builtin_transliteration_test.cpp
+  DEPENDS libc.src.locale.builtin_transliteration
+    libc.src.__support.wchar.encoding_converter
+)
+
+add_libc_test(
   encoding_data_test
   SUITE libc-locale-tests
   SRCS encoding_data_test.cpp

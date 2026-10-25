@@ -175,9 +175,8 @@ ErrorOr<Transliterated> transliterate(const TransliterationData &rules,
 }
 } // namespace
 
-ErrorOr<EncodingConverter>
-EncodingConverter::from_names(cpp::string_view from, cpp::string_view to,
-                              const ChineseEncodingData *mapping) {
+ErrorOr<EncodingConverter::Names>
+EncodingConverter::parse_names(cpp::string_view from, cpp::string_view to) {
   auto source = named_encoding(from);
   if (!source)
     return Error(source.error());
@@ -198,7 +197,16 @@ EncodingConverter::from_names(cpp::string_view from, cpp::string_view to,
   auto destination = named_encoding(to);
   if (!destination)
     return Error(destination.error());
-  return create(*source, *destination, selected, mapping);
+  return Names{*source, *destination, selected};
+}
+
+ErrorOr<EncodingConverter>
+EncodingConverter::from_names(cpp::string_view from, cpp::string_view to,
+                              const ChineseEncodingData *mapping) {
+  auto names = parse_names(from, to);
+  if (!names)
+    return Error(names.error());
+  return create(names->from, names->to, names->policy, mapping);
 }
 
 ErrorOr<EncodingConverter>

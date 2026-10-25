@@ -4,6 +4,11 @@ add_test(
   COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_width_table.py
 )
 add_test(
+  NAME locale_builtin_transliteration_test
+  COMMAND ${CMAKE_COMMAND} -E env TMPDIR=${CMAKE_CURRENT_BINARY_DIR}
+    ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_builtin_transliteration.py
+)
+add_test(
   NAME locale_regional_test
   COMMAND ${CMAKE_COMMAND} -E env TMPDIR=${CMAKE_CURRENT_BINARY_DIR}
     ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_regional_locale.py

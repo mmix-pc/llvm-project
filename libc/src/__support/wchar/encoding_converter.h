@@ -33,6 +33,14 @@ enum class TextEncoding {
 class EncodingConverter {
 public:
   enum class NonIdentical { REPLACE, DISCARD, IGNORE, TRANSLIT };
+  struct Names {
+    TextEncoding from, to;
+    NonIdentical policy;
+    bool needs_mapping() const {
+      return from == TextEncoding::ISO2022CN || to == TextEncoding::ISO2022CN;
+    }
+  };
+  static ErrorOr<Names> parse_names(cpp::string_view from, cpp::string_view to);
   static ErrorOr<EncodingConverter>
   create(TextEncoding from, TextEncoding to,
          NonIdentical policy = NonIdentical::REPLACE,
