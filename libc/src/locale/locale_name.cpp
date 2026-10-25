@@ -73,14 +73,19 @@ bool resolve_locale(int mask, const char *name, __locale_t &result) {
 }
 
 char *locale_name(const __locale_t &loc, int category) {
-  static LIBC_THREAD_LOCAL char buffer[192];
+  // Validated file names have at most 255 bytes. Include every category key,
+  // separator and terminator when all six names differ.
+  static LIBC_THREAD_LOCAL char
+      buffer[LOCALE_CATEGORY_COUNT * (sizeof("LC_MONETARY") + 256)];
   char *out = buffer;
   auto append = [&](const char *s) {
     while (*s)
       *out++ = *s++;
   };
-  unsigned mask = locale_mask(loc);
-  if (category != LC_ALL || mask == 0 || mask == LOCALE_MASK) {
+  bool same_name = true;
+  for (int i = 1; i != LOCALE_CATEGORY_COUNT; ++i)
+    same_name &= cpp::string_view(loc.data[i]->name) == loc.data[0]->name;
+  if (category != LC_ALL || same_name) {
     append(loc.data[category == LC_ALL ? LC_CTYPE : category]->name);
   } else {
     for (int i = 0; i < LOCALE_CATEGORY_COUNT; ++i) {

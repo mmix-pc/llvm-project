@@ -1,6 +1,21 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  locale_ownership_test
+  SUITE libc-locale-tests
+  SRCS locale_ownership_test.cpp
+  DEPENDS libc.src.locale.locale_storage libc.src.locale.newlocale
+    libc.src.locale.duplocale libc.src.locale.freelocale libc.src.locale.uselocale
+    libc.src.__support.libc_errno libc.hdr.errno_macros libc.config.app_h
+)
+if(LIBC_TARGET_OS_IS_LINUX AND TARGET libc.test.src.locale.locale_ownership_test.__build__)
+  target_compile_definitions(libc.test.src.locale.locale_ownership_test.__build__ PRIVATE
+    LOCALE_OWNERSHIP_ALLOCATION_TEST)
+  target_link_options(libc.test.src.locale.locale_ownership_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=free)
+endif()
+
+add_libc_test(
   collation_data_test
   SUITE libc-locale-tests
   SRCS collation_data_test.cpp

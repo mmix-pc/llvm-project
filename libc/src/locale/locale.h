@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC_LOCALE_LOCALE_H
 #define LLVM_LIBC_SRC_LOCALE_LOCALE_H
 
+#include "src/__support/CPP/atomic.h"
 #include "src/__support/macros/attributes.h"
 #include "src/__support/macros/config.h"
 
@@ -17,10 +18,24 @@
 
 #include <stddef.h>
 
-// Immutable built-in category records; objects own only their pointer array.
+namespace LIBC_NAMESPACE_DECL {
+namespace internal {
+class LocaleDataFile;
+}
+} // namespace LIBC_NAMESPACE_DECL
+
+// Private category records. Built-ins have no backing file and remain valid
+// permanently; external records own a file reference and are shared by objects.
 struct __locale_data {
   const char *name;
   bool utf8;
+  LIBC_NAMESPACE::internal::LocaleDataFile *storage;
+  LIBC_NAMESPACE::cpp::Atomic<unsigned> references{1};
+
+  constexpr __locale_data(
+      const char *name, bool utf8,
+      LIBC_NAMESPACE::internal::LocaleDataFile *storage = nullptr)
+      : name(name), utf8(utf8), storage(storage) {}
 };
 
 namespace LIBC_NAMESPACE_DECL {
@@ -38,7 +53,8 @@ void publish_global_locale(const __locale_t &loc);
 __locale_t locale_snapshot(locale_t loc);
 bool locale_is_utf8();
 // Resolution is transactional. Environment mutation and concurrent setlocale
-// writers require caller synchronization; readers see complete global snapshots.
+// writers require caller synchronization; readers see complete global
+// snapshots.
 bool resolve_locale(int mask, const char *name, __locale_t &result);
 // The returned thread-local buffer is reused by the next setlocale call.
 char *locale_name(const __locale_t &loc, int category);

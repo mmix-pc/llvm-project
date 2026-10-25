@@ -14,6 +14,7 @@
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/locale/locale.h"
+#include "src/locale/locale_storage.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -32,10 +33,18 @@ LLVM_LIBC_FUNCTION(locale_t, newlocale,
     libc_errno = ENOENT;
     return nullptr;
   }
+  if (!internal::retain_locale(result)) {
+    libc_errno = ENOMEM;
+    return nullptr;
+  }
   // Reuse base only after successful resolution; failure leaves it untouched.
-  if (!base)
-    base = static_cast<locale_t>(::malloc(sizeof(__locale_t)));
   if (!base) {
+    base = static_cast<locale_t>(::malloc(sizeof(__locale_t)));
+  } else {
+    internal::release_locale(*base);
+  }
+  if (!base) {
+    internal::release_locale(result);
     libc_errno = ENOMEM;
     return nullptr;
   }

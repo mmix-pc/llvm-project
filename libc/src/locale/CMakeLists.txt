@@ -115,6 +115,14 @@ add_object_library(
     libc.src.__support.CPP.atomic
 )
 
+add_object_library(
+  locale_storage
+  SRCS locale_storage.cpp
+  HDRS locale_storage.h
+  DEPENDS .locale .locale_data libc.src.__support.alloc_checker
+    libc.hdr.errno_macros libc.hdr.func.free
+)
+
 set(locale_environment_deps)
 if(NOT LIBC_TARGET_OS_IS_BAREMETAL)
   list(APPEND locale_environment_deps libc.src.stdlib.environ_internal)
@@ -152,6 +160,7 @@ add_entrypoint_object(
     libc.hdr.locale_macros
     libc.hdr.types.locale_t
     .locale
+    .locale_storage
     .locale_name
     libc.hdr.errno_macros
     libc.hdr.func.malloc
@@ -167,6 +176,7 @@ add_entrypoint_object(
   DEPENDS
     libc.hdr.types.locale_t
     .locale
+    .locale_storage
     libc.hdr.errno_macros
     libc.hdr.func.malloc
     libc.src.__support.libc_errno
@@ -204,6 +214,7 @@ add_entrypoint_object(
   HDRS
     freelocale.h
   DEPENDS
+    .locale_storage
     libc.hdr.types.locale_t
     libc.hdr.func.free
 )

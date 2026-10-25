@@ -10,9 +10,14 @@
 #include "hdr/func/free.h"
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
+#include "src/locale/locale_storage.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(void, freelocale, (locale_t loc)) { ::free(loc); }
+LLVM_LIBC_FUNCTION(void, freelocale, (locale_t loc)) {
+  if (loc)
+    internal::release_locale(*loc);
+  ::free(loc);
+}
 
 } // namespace LIBC_NAMESPACE_DECL
