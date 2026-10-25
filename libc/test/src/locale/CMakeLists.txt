@@ -1,5 +1,15 @@
 add_custom_target(libc-locale-tests)
 
+add_libc_test(
+  getlocalename_l_test
+  SUITE libc-locale-tests
+  SRCS getlocalename_l_test.cpp
+  DEPENDS libc.src.locale.getlocalename_l libc.src.locale.newlocale
+    libc.src.locale.duplocale libc.src.locale.freelocale libc.src.locale.setlocale
+    libc.src.locale.uselocale libc.src.__support.libc_errno libc.config.app_h
+    libc.src.__support.CPP.string
+)
+
 set(locale_file_test_deps)
 set(locale_file_test_options)
 if(LIBC_TARGET_OS_IS_LINUX)

@@ -13,6 +13,32 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
+namespace {
+struct OwnedLocale {
+  __locale_t locale;
+  char name[LOCALE_NAME_SIZE];
+};
+static_assert(offsetof(OwnedLocale, locale) == 0);
+}
+
+locale_t allocate_locale_object(const __locale_t &locale) {
+  AllocChecker ac;
+  auto *object = new (ac) OwnedLocale;
+  if (!ac)
+    return nullptr;
+  update_locale_object(&object->locale, locale);
+  return &object->locale;
+}
+
+void update_locale_object(locale_t object, const __locale_t &locale) {
+  *object = locale;
+  format_locale_name(locale, LC_ALL,
+                     reinterpret_cast<OwnedLocale *>(object)->name);
+}
+
+const char *locale_object_name(locale_t object) {
+  return reinterpret_cast<OwnedLocale *>(object)->name;
+}
 
 ErrorOr<__locale_data *> create_locale_category(LocaleDataFile &file,
                                                 bool utf8) {

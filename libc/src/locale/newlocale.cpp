@@ -8,7 +8,6 @@
 
 #include "src/locale/newlocale.h"
 #include "hdr/errno_macros.h"
-#include "hdr/func/malloc.h"
 #include "hdr/locale_macros.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
@@ -39,7 +38,7 @@ LLVM_LIBC_FUNCTION(locale_t, newlocale,
   }
   // Reuse base only after successful resolution; failure leaves it untouched.
   if (!base) {
-    base = static_cast<locale_t>(::malloc(sizeof(__locale_t)));
+    base = internal::allocate_locale_object(result);
   } else {
     internal::release_locale(*base);
   }
@@ -48,7 +47,7 @@ LLVM_LIBC_FUNCTION(locale_t, newlocale,
     libc_errno = ENOMEM;
     return nullptr;
   }
-  *base = result;
+  internal::update_locale_object(base, result);
   return base;
 }
 

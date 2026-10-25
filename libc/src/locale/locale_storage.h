@@ -28,6 +28,12 @@ void release_locale_category(__locale_data *data);
 bool retain_locale(const __locale_t &locale);
 void release_locale(const __locale_t &locale);
 
+// These helpers neither acquire nor release category references. The private
+// allocation also owns the LC_ALL name, whose lifetime follows the object.
+locale_t allocate_locale_object(const __locale_t &locale);
+void update_locale_object(locale_t object, const __locale_t &locale);
+const char *locale_object_name(locale_t object);
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 

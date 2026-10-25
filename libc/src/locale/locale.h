@@ -42,6 +42,9 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 inline constexpr int LOCALE_CATEGORY_COUNT = 6;
 inline constexpr int LOCALE_MASK = (1 << LOCALE_CATEGORY_COUNT) - 1;
+// Six validated names of at most 255 bytes plus keys, separators and NUL.
+inline constexpr size_t LOCALE_NAME_SIZE =
+    LOCALE_CATEGORY_COUNT * (sizeof("LC_MONETARY") + 256);
 // Thread selection borrows an object. The caller must keep it alive and must
 // not modify it while any thread uses it. The global sentinel is not an object.
 extern LIBC_THREAD_LOCAL locale_t thread_locale;
@@ -58,6 +61,8 @@ bool locale_is_utf8();
 bool resolve_locale(int mask, const char *name, __locale_t &result);
 // The returned thread-local buffer is reused by the next setlocale call.
 char *locale_name(const __locale_t &loc, int category);
+void format_locale_name(const __locale_t &loc, int category,
+                        char (&buffer)[LOCALE_NAME_SIZE]);
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 

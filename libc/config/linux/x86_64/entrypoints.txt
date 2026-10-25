@@ -1622,6 +1622,7 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.langinfo.nl_langinfo_l
     libc.src.locale.localeconv
     libc.src.locale.duplocale
+    libc.src.locale.getlocalename_l
     libc.src.locale.freelocale
     libc.src.locale.localeconv
     libc.src.locale.newlocale

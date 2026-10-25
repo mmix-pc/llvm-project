@@ -9,6 +9,7 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.langinfo.nl_langinfo
   libc.src.langinfo.nl_langinfo_l
   libc.src.locale.newlocale
+  libc.src.locale.getlocalename_l
   libc.src.locale.freelocale
   libc.src.locale.localeconv
   libc.src.locale.setlocale

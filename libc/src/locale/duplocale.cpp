@@ -8,7 +8,6 @@
 
 #include "src/locale/duplocale.h"
 #include "hdr/errno_macros.h"
-#include "hdr/func/malloc.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
@@ -27,13 +26,12 @@ LLVM_LIBC_FUNCTION(locale_t, duplocale, (locale_t loc)) {
     libc_errno = ENOMEM;
     return nullptr;
   }
-  auto copy = static_cast<locale_t>(::malloc(sizeof(__locale_t)));
+  auto copy = internal::allocate_locale_object(snapshot);
   if (!copy) {
     internal::release_locale(snapshot);
     libc_errno = ENOMEM;
     return nullptr;
   }
-  *copy = snapshot;
   return copy;
 }
 

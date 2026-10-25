@@ -8,6 +8,7 @@ add_object_library(
     libc.hdr.func.free
     libc.src.__support.alloc_checker
     libc.src.__support.CPP.atomic
+    libc.src.__support.CPP.string_view
     libc.src.__support.CPP.span
     libc.src.__support.error_or
 )
@@ -147,6 +148,13 @@ add_object_library(
   HDRS locale_storage.h
   DEPENDS .locale .locale_data libc.src.__support.alloc_checker
     libc.hdr.errno_macros libc.hdr.func.free
+)
+
+add_entrypoint_object(
+  getlocalename_l
+  SRCS getlocalename_l.cpp
+  HDRS getlocalename_l.h
+  DEPENDS .locale_storage libc.hdr.types.locale_t
 )
 
 set(locale_environment_deps)
