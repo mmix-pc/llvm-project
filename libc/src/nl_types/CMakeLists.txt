@@ -1,3 +1,12 @@
+add_object_library(
+  catalog_data
+  SRCS catalog_data.cpp
+  HDRS catalog_data.h
+  DEPENDS libc.hdr.stdint_proxy libc.hdr.errno_macros libc.hdr.func.free
+    libc.src.__support.CPP.span libc.src.__support.error_or
+    libc.src.__support.alloc_checker libc.src.stdlib.qsort_util
+)
+
 add_entrypoint_object(
   catopen
   SRCS
