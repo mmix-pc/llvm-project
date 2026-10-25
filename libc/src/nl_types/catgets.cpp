@@ -10,15 +10,24 @@
 #include "include/llvm-libc-types/nl_catd.h"
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
+#include "hdr/errno_macros.h"
+#include "src/__support/libc_errno.h"
+#include "src/nl_types/catalog_data.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(char *, catgets,
-                   ([[maybe_unused]] nl_catd catalog,
-                    [[maybe_unused]] int set_number,
-                    [[maybe_unused]] int message_number, const char *message)) {
-  // TODO: Add implementation for message catalogs. For now, return backup
-  // message regardless of input.
+                   (nl_catd catalog, int set_number,
+                    int message_number, const char *message)) {
+  if (!catalog || catalog == reinterpret_cast<nl_catd>(-1)) {
+    libc_errno = EBADF;
+    return const_cast<char *>(message);
+  }
+  const char *found = static_cast<internal::MessageCatalog *>(catalog)->lookup(
+      set_number, message_number);
+  if (found)
+    return const_cast<char *>(found);
+  libc_errno = ENOMSG;
   return const_cast<char *>(message);
 }
 

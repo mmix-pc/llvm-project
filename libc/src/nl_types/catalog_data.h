@@ -17,7 +17,8 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
 // GNU gencat's dual-index container. Message bytes have no embedded charset
-// metadata; category selection and encoding validation belong to the opener.
+// metadata. The opener selects by locale/name; message bytes are returned
+// unchanged, without inventing a source encoding or transcoding them.
 class MessageCatalog {
 public:
   static constexpr size_t MAX_SIZE = 64 * 1024 * 1024;

@@ -12,6 +12,9 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.locale.freelocale
   libc.src.locale.localeconv
   libc.src.locale.setlocale
+  libc.src.nl_types.catopen
+  libc.src.nl_types.catgets
+  libc.src.nl_types.catclose
   libc.src.string.strcoll
   libc.src.string.strcoll_l
   libc.src.string.strxfrm

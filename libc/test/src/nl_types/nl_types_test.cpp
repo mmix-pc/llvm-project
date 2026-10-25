@@ -18,11 +18,16 @@ using LlvmLibcNlTypesTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 TEST_F(LlvmLibcNlTypesTest, CatopenFails) {
   ASSERT_EQ(LIBC_NAMESPACE::catopen("/somepath", NL_CAT_LOCALE),
             reinterpret_cast<nl_catd>(-1));
+#ifdef LIBC_TARGET_OS_IS_LINUX
+  ASSERT_ERRNO_EQ(ENOENT);
+#else
   ASSERT_ERRNO_EQ(EINVAL);
+#endif
 }
 
 TEST_F(LlvmLibcNlTypesTest, CatcloseFails) {
   ASSERT_EQ(LIBC_NAMESPACE::catclose(nullptr), -1);
+  ASSERT_ERRNO_EQ(EBADF);
 }
 
 TEST_F(LlvmLibcNlTypesTest, CatgetsFails) {
@@ -31,4 +36,5 @@ TEST_F(LlvmLibcNlTypesTest, CatgetsFails) {
   // is expected to return the input argument as-is.
   ASSERT_EQ(LIBC_NAMESPACE::catgets(nullptr, NL_SETD, 1, message),
             const_cast<char *>(message));
+  ASSERT_ERRNO_EQ(EBADF);
 }
