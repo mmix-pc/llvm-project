@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/string/strcoll_l.h"
+#include "src/locale/collation.h"
 
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
@@ -14,14 +15,11 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-// Both built-in locales use C collation (unsigned byte order).
 LLVM_LIBC_FUNCTION(int, strcoll_l,
-                   (const char *left, const char *right, locale_t)) {
+                   (const char *left, const char *right, locale_t locale)) {
   LIBC_CRASH_ON_NULLPTR(left);
   LIBC_CRASH_ON_NULLPTR(right);
-  for (; *left && *left == *right; ++left, ++right)
-    ;
-  return static_cast<unsigned char>(*left) - static_cast<unsigned char>(*right);
+  return internal::collate(left, right, internal::explicit_collation(locale));
 }
 
 } // namespace LIBC_NAMESPACE_DECL

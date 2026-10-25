@@ -159,6 +159,48 @@ TEST(LlvmLibcLocaleOwnershipTest, NamesAreNotEncodingIdentity) {
   EXPECT_STREQ(locale_name(object, LC_NUMERIC), "tr_TR.UTF-8");
 }
 
+TEST(LlvmLibcLocaleOwnershipTest, GlobalPublicationRetainsCategories) {
+  Fixture f;
+  auto category = f.category();
+  ASSERT_TRUE(category.has_value());
+  auto previous = global_locale_snapshot();
+  ASSERT_TRUE(retain_locale(previous));
+  auto next = locale_from_mask(0);
+  next.data[LC_CTYPE] = next.data[LC_NUMERIC] = *category;
+  EXPECT_TRUE(publish_global_locale(next));
+  EXPECT_EQ((*category)->references.load(), 3U);
+  release_locale_category(*category);
+  EXPECT_EQ(global_locale_snapshot().data[LC_CTYPE], *category);
+  auto duplicate = LIBC_NAMESPACE::duplocale(LC_GLOBAL_LOCALE);
+  EXPECT_NE(duplicate, nullptr);
+  EXPECT_TRUE(publish_global_locale(previous));
+  release_locale(previous);
+  if (duplicate) {
+    EXPECT_STREQ(duplicate->data[LC_CTYPE]->name, "sample");
+    EXPECT_EQ(duplicate->data[LC_CTYPE]->references.load(), 2U);
+    LIBC_NAMESPACE::freelocale(duplicate);
+  }
+}
+
+TEST(LlvmLibcLocaleOwnershipTest, GlobalPublicationFailurePreservesState) {
+  Fixture f;
+  auto first = f.category(), second = f.category();
+  ASSERT_TRUE(first.has_value());
+  ASSERT_TRUE(second.has_value());
+  auto previous = global_locale_snapshot();
+  auto next = previous;
+  next.data[LC_CTYPE] = *first;
+  next.data[LC_NUMERIC] = *second;
+  (*second)->references.store(~0U, MemoryOrder::RELAXED);
+  EXPECT_FALSE(publish_global_locale(next));
+  for (int i = 0; i != LOCALE_CATEGORY_COUNT; ++i)
+    EXPECT_EQ(global_locale_snapshot().data[i], previous.data[i]);
+  EXPECT_EQ((*first)->references.load(), 1U);
+  (*second)->references.store(1, MemoryOrder::RELAXED);
+  release_locale_category(*first);
+  release_locale_category(*second);
+}
+
 TEST(LlvmLibcLocaleOwnershipTest, MaximumLengthCompositeName) {
   char names[LOCALE_CATEGORY_COUNT][256];
   for (unsigned i = 0; i != LOCALE_CATEGORY_COUNT; ++i) {

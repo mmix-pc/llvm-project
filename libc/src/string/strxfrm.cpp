@@ -8,21 +8,17 @@
 
 #include "src/string/strxfrm.h"
 #include "src/__support/macros/config.h"
-#include "src/string/memory_utils/inline_memcpy.h"
-#include "src/string/string_utils.h"
+#include "src/locale/collation.h"
 
 #include "src/__support/common.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
-// TODO: Add support for locales.
 LLVM_LIBC_FUNCTION(size_t, strxfrm,
                    (char *__restrict dest, const char *__restrict src,
                     size_t n)) {
-  size_t len = internal::string_length(src);
-  if (n > len)
-    inline_memcpy(dest, src, len + 1);
-  return len;
+  return internal::collate_transform(dest, src, n,
+                                     internal::current_collation());
 }
 
 } // namespace LIBC_NAMESPACE_DECL

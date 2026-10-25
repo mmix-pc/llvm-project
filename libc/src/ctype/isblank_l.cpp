@@ -1,4 +1,5 @@
-//===-- Implementation of isblank -----------------------------------------===//
+//===-- Implementation of isblank_l
+//----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -7,14 +8,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/ctype/isblank_l.h"
-
 #include "src/__support/common.h"
-#include "src/__support/macros/config.h"
+#include "src/locale/character.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(int, isblank_l, (int c, locale_t)) {
-  return static_cast<int>(c == ' ' || c == '\t');
+LLVM_LIBC_FUNCTION(int, isblank_l, (int c, locale_t locale)) {
+  return internal::classify_byte(c, internal::WCTYPE_BLANK,
+                                 internal::explicit_ctype(locale));
 }
 
 } // namespace LIBC_NAMESPACE_DECL

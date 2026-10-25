@@ -120,6 +120,24 @@ add_header_library(
   DEPENDS ${encoding_deps} libc.src.__support.macros.config
 )
 
+add_object_library(
+  collation
+  SRCS collation.cpp
+  HDRS collation.h
+  DEPENDS .collation_key ${encoding_deps}
+    libc.src.__support.wchar.scalar_codec libc.src.__support.alloc_checker
+    libc.src.__support.libc_errno libc.hdr.errno_macros libc.hdr.func.free
+    libc.hdr.types.locale_t libc.hdr.types.size_t libc.hdr.types.wchar_t
+)
+
+add_object_library(
+  character
+  SRCS character.cpp
+  HDRS character.h
+  DEPENDS ${encoding_deps} libc.src.__support.wctype_impl
+    libc.src.__support.CPP.limits libc.hdr.types.wint_t libc.hdr.wchar_macros
+)
+
 if(NOT LLVM_LIBC_FULL_BUILD)
   return()
 endif()
@@ -141,6 +159,10 @@ add_object_library(
     libc.hdr.types.locale_t
     libc.hdr.locale_macros
     libc.src.__support.CPP.atomic
+    libc.src.__support.CPP.optional
+    libc.src.__support.CPP.string_view
+    .collation_data
+    .ctype_data
 )
 
 add_object_library(
@@ -227,6 +249,7 @@ add_entrypoint_object(
     libc.hdr.locale_macros
     libc.hdr.types.locale_t
     .locale_name
+    .locale_storage
     libc.hdr.errno_macros
     libc.src.__support.libc_errno
 )

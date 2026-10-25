@@ -13,6 +13,8 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.locale.freelocale
   libc.src.locale.localeconv
   libc.src.locale.setlocale
+  libc.src.wchar.wcscoll_l
+  libc.src.wchar.wcsxfrm_l
   libc.src.nl_types.catopen
   libc.src.nl_types.catgets
   libc.src.nl_types.catclose
@@ -21,6 +23,8 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.string.strxfrm
   libc.src.string.strxfrm_l
   libc.src.string.strerror_l
+  libc.src.strings.strcasecmp_l
+  libc.src.strings.strncasecmp_l
   libc.src.stdlib.mbtowc
   libc.src.stdlib.mblen
   libc.src.stdlib.mbstowcs
@@ -57,5 +61,23 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.wctype.wctype
   libc.src.wctype.wctrans
   libc.src.wctype.towctrans
+  libc.src.wctype.iswalnum_l
+  libc.src.wctype.iswalpha_l
+  libc.src.wctype.iswblank_l
+  libc.src.wctype.iswcntrl_l
+  libc.src.wctype.iswctype_l
+  libc.src.wctype.iswdigit_l
+  libc.src.wctype.iswgraph_l
+  libc.src.wctype.iswlower_l
+  libc.src.wctype.iswprint_l
+  libc.src.wctype.iswpunct_l
+  libc.src.wctype.iswspace_l
+  libc.src.wctype.iswupper_l
+  libc.src.wctype.iswxdigit_l
+  libc.src.wctype.towctrans_l
+  libc.src.wctype.towlower_l
+  libc.src.wctype.towupper_l
+  libc.src.wctype.wctrans_l
+  libc.src.wctype.wctype_l
 )
 list(APPEND TARGET_LIBC_ENTRYPOINTS ${MMIX_LOCALE_ENTRYPOINTS})

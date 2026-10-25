@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/locale/locale.h"
-#include "src/__support/CPP/atomic.h"
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
@@ -17,8 +16,9 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 static __locale_data c_data = {"C", false};
 static __locale_data utf8_data = {"C.UTF-8", true};
-// Publish all categories together without allocating or retaining old objects.
-static cpp::Atomic<unsigned> global_mask{0};
+// Applications synchronize global locale changes with affected operations.
+static __locale_t global_locale = {
+    {&c_data, &c_data, &c_data, &c_data, &c_data, &c_data}};
 LIBC_THREAD_LOCAL locale_t thread_locale = LC_GLOBAL_LOCALE;
 const char *const category_names[LOCALE_CATEGORY_COUNT] = {
     "LC_CTYPE",   "LC_NUMERIC",  "LC_TIME",
@@ -40,11 +40,13 @@ unsigned locale_mask(const __locale_t &loc) {
 }
 
 __locale_t global_locale_snapshot() {
-  return locale_from_mask(global_mask.load(cpp::MemoryOrder::RELAXED));
+  return global_locale;
 }
 
-void publish_global_locale(const __locale_t &loc) {
-  global_mask.store(locale_mask(loc), cpp::MemoryOrder::RELAXED);
+__locale_t exchange_global_locale(const __locale_t &loc) {
+  auto previous = global_locale;
+  global_locale = loc;
+  return previous;
 }
 
 __locale_t locale_snapshot(locale_t loc) {

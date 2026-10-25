@@ -8,21 +8,17 @@
 
 #include "src/string/strxfrm_l.h"
 #include "src/__support/macros/config.h"
-#include "src/string/memory_utils/inline_memcpy.h"
-#include "src/string/string_utils.h"
+#include "src/locale/collation.h"
 
 #include "src/__support/common.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
-// Both built-in locales use C collation, so the bytes themselves are keys.
 LLVM_LIBC_FUNCTION(size_t, strxfrm_l,
                    (char *__restrict dest, const char *__restrict src, size_t n,
-                    locale_t)) {
-  size_t len = internal::string_length(src);
-  if (n > len)
-    inline_memcpy(dest, src, len + 1);
-  return len;
+                    locale_t locale)) {
+  return internal::collate_transform(dest, src, n,
+                                     internal::explicit_collation(locale));
 }
 
 } // namespace LIBC_NAMESPACE_DECL

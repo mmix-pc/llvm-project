@@ -1,4 +1,4 @@
-//===-- Implementation of isprint------------------------------------------===//
+//===-- Implementation of isprint ----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -7,15 +7,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/ctype/isprint.h"
-
 #include "src/__support/common.h"
-#include "src/__support/macros/config.h"
+#include "src/locale/character.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, isprint, (int c)) {
-  const unsigned ch = static_cast<unsigned>(c);
-  return static_cast<int>((ch - ' ') < 95);
+  return internal::classify_byte(c, internal::WCTYPE_PRINT,
+                                 internal::current_ctype());
 }
 
 } // namespace LIBC_NAMESPACE_DECL

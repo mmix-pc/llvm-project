@@ -1,4 +1,5 @@
-//===-- Implementation of iswxdigit ---------------------------------------===//
+//===-- Implementation of iswxdigit
+//----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,14 +9,13 @@
 
 #include "src/wctype/iswxdigit.h"
 #include "src/__support/common.h"
-#include "src/__support/wctype_utils.h"
-
-#include "hdr/types/wint_t.h"
+#include "src/locale/character.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, iswxdigit, (wint_t c)) {
-  return internal::isxdigit(static_cast<wchar_t>(c));
+  return internal::classify_wide(c, internal::WCTYPE_XDIGIT,
+                                 internal::current_ctype());
 }
 
 } // namespace LIBC_NAMESPACE_DECL

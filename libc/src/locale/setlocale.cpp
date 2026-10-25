@@ -28,7 +28,10 @@ LLVM_LIBC_FUNCTION(char *, setlocale, (int category, const char *locale_name)) {
       libc_errno = ENOENT;
       return nullptr;
     }
-    internal::publish_global_locale(result);
+    if (!internal::publish_global_locale(result)) {
+      libc_errno = ENOMEM;
+      return nullptr;
+    }
   }
   return internal::locale_name(result, category);
 }

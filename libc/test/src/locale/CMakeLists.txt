@@ -1,5 +1,45 @@
 add_custom_target(libc-locale-tests)
 
+set(character_api_deps
+  libc.src.locale.locale_storage libc.src.locale.uselocale
+  libc.src.strings.strcasecmp libc.src.strings.strcasecmp_l
+  libc.src.strings.strncasecmp libc.src.strings.strncasecmp_l
+  libc.src.__support.libc_errno libc.hdr.errno_macros
+  libc.hdr.stdio_macros libc.hdr.wchar_macros)
+foreach(name isalnum isalpha isblank iscntrl isdigit isgraph islower isprint
+             ispunct isspace isupper isxdigit tolower toupper)
+  list(APPEND character_api_deps libc.src.ctype.${name} libc.src.ctype.${name}_l)
+endforeach()
+foreach(name iswalnum iswalpha iswblank iswcntrl iswctype iswdigit iswgraph
+             iswlower iswprint iswpunct iswspace iswupper iswxdigit
+             towctrans towlower towupper wctrans wctype)
+  list(APPEND character_api_deps libc.src.wctype.${name} libc.src.wctype.${name}_l)
+endforeach()
+add_libc_test(
+  character_api_test
+  SUITE libc-locale-tests
+  SRCS character_api_test.cpp
+  DEPENDS ${character_api_deps}
+)
+
+add_libc_test(
+  collation_api_test
+  SUITE libc-locale-tests
+  SRCS collation_api_test.cpp
+  DEPENDS libc.src.locale.locale_storage libc.src.locale.uselocale
+    libc.src.string.strcoll libc.src.string.strcoll_l
+    libc.src.string.strxfrm libc.src.string.strxfrm_l
+    libc.src.wchar.wcscoll libc.src.wchar.wcscoll_l
+    libc.src.wchar.wcsxfrm libc.src.wchar.wcsxfrm_l
+    libc.src.__support.libc_errno libc.hdr.errno_macros libc.hdr.wchar_macros
+)
+if(LIBC_TARGET_OS_IS_LINUX AND TARGET libc.test.src.locale.collation_api_test.__build__)
+  target_compile_definitions(libc.test.src.locale.collation_api_test.__build__ PRIVATE
+    COLLATION_ALLOCATION_TEST)
+  target_link_options(libc.test.src.locale.collation_api_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=free)
+endif()
+
 add_libc_test(
   getlocalename_l_test
   SUITE libc-locale-tests

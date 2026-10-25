@@ -19,7 +19,7 @@ struct OwnedLocale {
   char name[LOCALE_NAME_SIZE];
 };
 static_assert(offsetof(OwnedLocale, locale) == 0);
-}
+} // namespace
 
 locale_t allocate_locale_object(const __locale_t &locale) {
   AllocChecker ac;
@@ -66,6 +66,35 @@ bool retain_locale_category(__locale_data *data) {
   return true;
 }
 
+ErrorOr<__locale_data *> create_collation_category(LocaleDataFile &file,
+                                                   bool utf8) {
+  auto data = CollationData::read(file.view());
+  if (!data)
+    return Error(data.error());
+  auto category = create_locale_category(file, utf8);
+  if (category)
+    (*category)->collation = *data;
+  return category;
+}
+
+ErrorOr<__locale_data *> create_ctype_category(LocaleDataFile &file) {
+  auto encoding = file.view().find(0, 0x200);
+  if (!encoding || encoding->kind != LocaleDataView::Kind::STRING ||
+      encoding->bytes.size() != sizeof("UTF-8"))
+    return Error(EINVAL);
+  constexpr char UTF8[] = "UTF-8";
+  for (size_t i = 0; i != sizeof(UTF8); ++i)
+    if (encoding->bytes[i] != uint8_t(UTF8[i]))
+      return Error(EINVAL);
+  auto data = CTypeLocaleData::read(file.view());
+  if (!data)
+    return Error(data.error());
+  auto category = create_locale_category(file, true);
+  if (category)
+    (*category)->ctype = *data;
+  return category;
+}
+
 void release_locale_category(__locale_data *data) {
   if (data->storage &&
       data->references.fetch_sub(1, cpp::MemoryOrder::ACQ_REL) == 1) {
@@ -89,6 +118,13 @@ bool retain_locale(const __locale_t &locale) {
 void release_locale(const __locale_t &locale) {
   for (auto *category : locale.data)
     release_locale_category(category);
+}
+
+bool publish_global_locale(const __locale_t &locale) {
+  if (!retain_locale(locale))
+    return false;
+  release_locale(exchange_global_locale(locale));
+  return true;
 }
 
 } // namespace internal

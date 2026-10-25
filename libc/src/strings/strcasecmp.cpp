@@ -9,7 +9,7 @@
 #include "src/strings/strcasecmp.h"
 
 #include "src/__support/common.h"
-#include "src/__support/ctype_utils.h"
+#include "src/locale/character.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/macros/null_check.h"
 #include "src/string/memory_utils/inline_strcmp.h"
@@ -19,9 +19,10 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, strcasecmp, (const char *left, const char *right)) {
   LIBC_CRASH_ON_NULLPTR(left);
   LIBC_CRASH_ON_NULLPTR(right);
-  auto case_cmp = [](char a, char b) -> int {
-    return static_cast<int>(static_cast<unsigned char>(internal::tolower(a))) -
-           static_cast<int>(static_cast<unsigned char>(internal::tolower(b)));
+  auto *category = internal::current_ctype();
+  auto case_cmp = [category](char a, char b) -> int {
+    return internal::map_byte(static_cast<unsigned char>(a), false, category) -
+           internal::map_byte(static_cast<unsigned char>(b), false, category);
   };
   return inline_strcmp(left, right, case_cmp);
 }

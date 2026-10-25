@@ -151,6 +151,7 @@ add_entrypoint_object(
     strcoll.cpp
   HDRS
     strcoll.h
+  DEPENDS libc.src.locale.collation
 )
 
 add_entrypoint_object(
@@ -159,6 +160,7 @@ add_entrypoint_object(
     strcoll_l.cpp
   HDRS
     strcoll_l.h
+  DEPENDS libc.src.locale.collation
 )
 
 add_entrypoint_object(
@@ -425,8 +427,7 @@ add_entrypoint_object(
   HDRS
     strxfrm.h
   DEPENDS
-    .string_utils
-    .memory_utils.inline_memcpy
+    libc.src.locale.collation
 )
 
 add_entrypoint_object(
@@ -436,8 +437,7 @@ add_entrypoint_object(
   HDRS
     strxfrm_l.h
   DEPENDS
-    .string_utils
-    .memory_utils.inline_memcpy
+    libc.src.locale.collation
 )
 
 add_entrypoint_object(

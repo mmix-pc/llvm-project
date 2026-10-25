@@ -1,4 +1,5 @@
-//===-- Implementation of toupper_l ---------------------------------------===//
+//===-- Implementation of toupper_l
+//----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -7,20 +8,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/ctype/toupper_l.h"
-
-#include "src/__support/CPP/limits.h"
 #include "src/__support/common.h"
-#include "src/__support/ctype_utils.h"
-#include "src/__support/macros/config.h"
+#include "src/locale/character.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(int, toupper_l, (int c, locale_t)) {
-  if (c < cpp::numeric_limits<char>::min() ||
-      c > cpp::numeric_limits<char>::max()) {
-    return c;
-  }
-  return static_cast<int>(internal::toupper(static_cast<char>(c)));
+LLVM_LIBC_FUNCTION(int, toupper_l, (int c, locale_t locale)) {
+  return internal::map_byte(c, true, internal::explicit_ctype(locale));
 }
 
 } // namespace LIBC_NAMESPACE_DECL

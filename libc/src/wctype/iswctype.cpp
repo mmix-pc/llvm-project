@@ -7,15 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/wctype/iswctype.h"
-#include "hdr/types/wctype_t.h"
-#include "hdr/types/wint_t.h"
 #include "src/__support/common.h"
-#include "src/__support/wctype_impl.h"
+#include "src/locale/character.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, iswctype, (wint_t c, wctype_t desc)) {
-  return internal::iswctype(static_cast<wchar_t>(c), desc);
+  return internal::classify_wide(c, desc, internal::current_ctype());
 }
 
 } // namespace LIBC_NAMESPACE_DECL

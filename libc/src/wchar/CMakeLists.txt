@@ -404,6 +404,21 @@ add_entrypoint_object(
     wcscoll.h
   DEPENDS
     libc.hdr.wchar_macros
+    libc.src.locale.collation
+)
+
+add_entrypoint_object(
+  wcscoll_l
+  SRCS wcscoll_l.cpp
+  HDRS wcscoll_l.h
+  DEPENDS libc.src.locale.collation
+)
+
+add_entrypoint_object(
+  wcsxfrm_l
+  SRCS wcsxfrm_l.cpp
+  HDRS wcsxfrm_l.h
+  DEPENDS libc.src.locale.collation
 )
 
 add_entrypoint_object(
@@ -625,6 +640,7 @@ add_entrypoint_object(
   HDRS
     wcsxfrm.h
   DEPENDS
+    libc.src.locale.collation
     libc.hdr.types.size_t
     libc.hdr.types.wchar_t
     libc.src.__support.macros.config

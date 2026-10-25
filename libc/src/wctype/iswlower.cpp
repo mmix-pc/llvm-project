@@ -8,14 +8,13 @@
 
 #include "src/wctype/iswlower.h"
 #include "src/__support/common.h"
-#include "src/__support/wctype_utils.h"
-
-#include "hdr/types/wint_t.h"
+#include "src/locale/character.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, iswlower, (wint_t c)) {
-  return internal::islower(static_cast<wchar_t>(c));
+  return internal::classify_wide(c, internal::WCTYPE_LOWER,
+                                 internal::current_ctype());
 }
 
 } // namespace LIBC_NAMESPACE_DECL

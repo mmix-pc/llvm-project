@@ -1,4 +1,4 @@
-//===-- Implementation of iscntrl------------------------------------------===//
+//===-- Implementation of iscntrl ----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -7,15 +7,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/ctype/iscntrl.h"
-
 #include "src/__support/common.h"
-#include "src/__support/macros/config.h"
+#include "src/locale/character.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, iscntrl, (int c)) {
-  const unsigned ch = static_cast<unsigned>(c);
-  return static_cast<int>(ch < 0x20 || ch == 0x7f);
+  return internal::classify_byte(c, internal::WCTYPE_CNTRL,
+                                 internal::current_ctype());
 }
 
 } // namespace LIBC_NAMESPACE_DECL

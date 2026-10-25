@@ -20,6 +20,9 @@ namespace internal {
 // selection.
 ErrorOr<__locale_data *> create_locale_category(LocaleDataFile &file,
                                                 bool utf8);
+ErrorOr<__locale_data *> create_collation_category(LocaleDataFile &file,
+                                                   bool utf8);
+ErrorOr<__locale_data *> create_ctype_category(LocaleDataFile &file);
 bool retain_locale_category(__locale_data *data);
 void release_locale_category(__locale_data *data);
 

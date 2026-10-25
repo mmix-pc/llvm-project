@@ -5,6 +5,7 @@ add_entrypoint_object(
   HDRS
     isalnum.h
   DEPENDS
+    libc.src.locale.character
     libc.include.ctype
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
@@ -17,6 +18,7 @@ add_entrypoint_object(
   HDRS
     isalpha.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -35,6 +37,8 @@ add_entrypoint_object(
     isblank.cpp
   HDRS
     isblank.h
+  DEPENDS
+    libc.src.locale.character
 )
 
 add_entrypoint_object(
@@ -43,6 +47,8 @@ add_entrypoint_object(
     iscntrl.cpp
   HDRS
     iscntrl.h
+  DEPENDS
+    libc.src.locale.character
 )
 
 add_entrypoint_object(
@@ -52,6 +58,7 @@ add_entrypoint_object(
   HDRS
     isdigit.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -63,6 +70,7 @@ add_entrypoint_object(
   HDRS
     isgraph.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -74,6 +82,7 @@ add_entrypoint_object(
   HDRS
     islower.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -84,6 +93,8 @@ add_entrypoint_object(
     isprint.cpp
   HDRS
     isprint.h
+  DEPENDS
+    libc.src.locale.character
 )
 
 add_entrypoint_object(
@@ -93,6 +104,7 @@ add_entrypoint_object(
   HDRS
     ispunct.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -104,6 +116,7 @@ add_entrypoint_object(
   HDRS
     isspace.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -115,6 +128,7 @@ add_entrypoint_object(
   HDRS
     isupper.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -126,6 +140,7 @@ add_entrypoint_object(
   HDRS
     isxdigit.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -137,6 +152,7 @@ add_entrypoint_object(
   HDRS
     tolower.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -156,6 +172,7 @@ add_entrypoint_object(
   HDRS
     toupper.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
 )
@@ -172,6 +189,7 @@ add_entrypoint_object(
   HDRS
     isalnum_l.h
   DEPENDS
+    libc.src.locale.character
     libc.include.ctype
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
@@ -185,6 +203,7 @@ add_entrypoint_object(
   HDRS
     isalpha_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
@@ -197,6 +216,7 @@ add_entrypoint_object(
   HDRS
     isblank_l.h
   DEPENDS
+    libc.src.locale.character
     libc.hdr.types.locale_t
 )
 
@@ -207,6 +227,7 @@ add_entrypoint_object(
   HDRS
     iscntrl_l.h
   DEPENDS
+    libc.src.locale.character
     libc.hdr.types.locale_t
 )
 
@@ -217,6 +238,7 @@ add_entrypoint_object(
   HDRS
     isdigit_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
@@ -229,6 +251,7 @@ add_entrypoint_object(
   HDRS
     isgraph_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
 )
@@ -240,6 +263,7 @@ add_entrypoint_object(
   HDRS
     islower_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
@@ -252,6 +276,7 @@ add_entrypoint_object(
   HDRS
     isprint_l.h
   DEPENDS
+    libc.src.locale.character
     libc.hdr.types.locale_t
 )
 
@@ -262,6 +287,7 @@ add_entrypoint_object(
   HDRS
     ispunct_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
 )
@@ -273,6 +299,7 @@ add_entrypoint_object(
   HDRS
     isspace_l.h
   DEPENDS
+    libc.src.locale.character
     libc.hdr.types.locale_t
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
@@ -285,6 +312,7 @@ add_entrypoint_object(
   HDRS
     isupper_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
@@ -297,6 +325,7 @@ add_entrypoint_object(
   HDRS
     isxdigit_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
@@ -309,6 +338,7 @@ add_entrypoint_object(
   HDRS
     tolower_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
@@ -321,6 +351,7 @@ add_entrypoint_object(
   HDRS
     toupper_l.h
   DEPENDS
+    libc.src.locale.character
     libc.src.__support.CPP.limits
     libc.src.__support.ctype_utils
     libc.hdr.types.locale_t
