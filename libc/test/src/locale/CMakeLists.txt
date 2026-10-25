@@ -1,5 +1,27 @@
 add_custom_target(libc-locale-tests)
 
+set(locale_file_test_deps)
+set(locale_file_test_options)
+if(LIBC_TARGET_OS_IS_LINUX)
+  list(APPEND locale_file_test_deps libc.src.locale.linux_locale_file
+    libc.src.stdlib.mkdtemp libc.hdr.fcntl_macros libc.hdr.sys_stat_macros
+    libc.src.__support.OSUtil.osutil libc.include.sys_syscall)
+  list(APPEND locale_file_test_options -DLOCALE_FILE_LINUX_TEST)
+endif()
+add_libc_test(
+  locale_file_test
+  SUITE libc-locale-tests
+  SRCS locale_file_test.cpp
+  DEPENDS libc.src.locale.locale_file ${locale_file_test_deps}
+  COMPILE_OPTIONS ${locale_file_test_options}
+)
+if(LIBC_TARGET_OS_IS_LINUX AND TARGET libc.test.src.locale.locale_file_test.__build__)
+  target_compile_definitions(libc.test.src.locale.locale_file_test.__build__ PRIVATE
+    LOCALE_FILE_ALLOCATION_TEST)
+  target_link_options(libc.test.src.locale.locale_file_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=free)
+endif()
+
 add_libc_test(
   locale_ownership_test
   SUITE libc-locale-tests

@@ -13,6 +13,32 @@ add_object_library(
 )
 
 add_object_library(
+  locale_file
+  SRCS locale_file.cpp
+  HDRS locale_file.h
+  DEPENDS .locale_data libc.hdr.errno_macros libc.hdr.func.free
+    libc.src.__support.alloc_checker libc.src.__support.CPP.string_view
+)
+
+if(LIBC_TARGET_OS_IS_LINUX)
+  set(LIBC_LOCALE_DATA_ROOT "/usr/share/llvm-libc/locale" CACHE STRING
+      "Target-system root for LLVM libc private locale data")
+  if(NOT IS_ABSOLUTE "${LIBC_LOCALE_DATA_ROOT}")
+    message(FATAL_ERROR "LIBC_LOCALE_DATA_ROOT must be a target absolute path")
+  endif()
+  add_object_library(
+    linux_locale_file
+    SRCS linux/locale_file.cpp
+    DEPENDS .locale_file libc.hdr.fcntl_macros libc.hdr.sys_stat_macros
+      libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+      libc.src.__support.OSUtil.linux.syscall_wrappers.close
+      libc.src.__support.OSUtil.linux.syscall_wrappers.read
+      libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+    COMPILE_OPTIONS "-DLIBC_LOCALE_DATA_ROOT=\"${LIBC_LOCALE_DATA_ROOT}\""
+  )
+endif()
+
+add_object_library(
   collation_key
   SRCS collation_key.cpp
   HDRS collation_key.h
