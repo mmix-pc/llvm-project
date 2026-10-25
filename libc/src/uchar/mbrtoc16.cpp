@@ -21,10 +21,17 @@ LLVM_LIBC_FUNCTION(size_t, mbrtoc16,
     s = "";
     n = 1;
   }
-  if (state->total_bytes == internal::PENDING_LOW) {
+  using Converter = internal::RestartableConverter;
+  using Unit = Converter::UTF16Unit;
+  auto converter = Converter::current();
+  if (converter.pending(*state, Unit::LOW)) {
+    auto unit = converter.take_unit(*state, Unit::LOW);
+    if (!unit) {
+      libc_errno = unit.error();
+      return size_t(-1);
+    }
     if (out)
-      *out = static_cast<char16_t>(state->partial);
-    *state = {};
+      *out = static_cast<char16_t>(*unit);
     return size_t(-3);
   }
   char32_t scalar;
@@ -33,11 +40,13 @@ LLVM_LIBC_FUNCTION(size_t, mbrtoc16,
     return count;
   if (scalar >= 0x10000) {
     scalar -= 0x10000;
+    if (int error = converter.save_unit(*state, Unit::LOW,
+                                       0xdc00 + (scalar & 0x3ff))) {
+      libc_errno = error;
+      return size_t(-1);
+    }
     if (out)
       *out = static_cast<char16_t>(0xd800 + (scalar >> 10));
-    state->partial = 0xdc00 + (scalar & 0x3ff);
-    state->bytes_stored = 1;
-    state->total_bytes = internal::PENDING_LOW;
   } else if (out) {
     *out = static_cast<char16_t>(scalar);
   }

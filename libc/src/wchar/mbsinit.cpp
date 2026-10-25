@@ -11,7 +11,6 @@
 #include "hdr/types/mbstate_t.h"
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
-#include "src/__support/wchar/character_converter.h"
 #include "src/__support/wchar/mbstate.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -20,8 +19,9 @@ LLVM_LIBC_FUNCTION(int, mbsinit, (const mbstate_t *ps)) {
   if (ps == nullptr)
     return true;
   auto state = *reinterpret_cast<const internal::mbstate *>(ps);
-  internal::CharacterConverter cr(&state);
-  return cr.isValidState() && cr.isEmpty();
+  // All supported encodings use zero named fields for the initial state.
+  // Cached designations and pending UTF-16 units are therefore non-initial.
+  return state.partial == 0 && state.bytes_stored == 0 && state.total_bytes == 0;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

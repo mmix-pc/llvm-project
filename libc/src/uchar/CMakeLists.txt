@@ -6,7 +6,7 @@ add_header_library(
     libc.hdr.types.size_t
     libc.src.__support.common
     libc.src.__support.libc_errno
-    libc.src.__support.wchar.character_converter
+    libc.src.__support.wchar.restartable_converter
 )
 foreach(name IN ITEMS c16rtomb c32rtomb mbrtoc16 mbrtoc32)
   add_entrypoint_object(

@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_WCHAR_ISO2022_CN_H
 #define LLVM_LIBC_SRC___SUPPORT_WCHAR_ISO2022_CN_H
 
+#include "src/__support/wchar/mbstate.h"
 #include "src/locale/encoding_data.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -25,10 +26,21 @@ public:
   bool initial() const { return boundary() && g1 == NONE && flags == 0; }
   bool boundary() const { return phase == BOUNDARY; }
 
+  // Serialize named fields only: public mbstate_t padding is not state. The
+  // phase tag separates this representation from UTF-8 and pending UTF-16.
+  static ErrorOr<ISO2022CNState> load(const mbstate &saved);
+  mbstate save() const;
+
   // A successful step consumes one byte. Invalid input leaves the state
   // unchanged. Callers distinguish restartable prefix consumption from iconv's
   // rollback to the last complete character or shift.
   ErrorOr<Step> push(uint8_t byte, const ChineseEncodingData &data);
+
+  // Restartable decoding consumes an incomplete prefix into this state and
+  // returns size_t(-2). Successful counts cover this call only; NUL returns 0.
+  // iconv instead uses push() and rolls back an incomplete sequence.
+  ErrorOr<size_t> decode(uint32_t *scalar, cpp::span<const uint8_t> input,
+                         const ChineseEncodingData &data);
 
   // These operations commit state and output together, or change neither.
   ErrorOr<size_t> encode(uint32_t scalar, cpp::span<uint8_t> output,

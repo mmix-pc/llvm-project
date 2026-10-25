@@ -29,8 +29,8 @@
 #endif // CHAR_BIT
 
 #ifndef MB_LEN_MAX
-// Represents a single UTF-32 wide character in the default locale.
-#define MB_LEN_MAX 4
+// Includes designation and shift bytes for one ISO-2022-CN character.
+#define MB_LEN_MAX 8
 #endif // MB_LEN_MAX
 
 // *_WIDTH macros

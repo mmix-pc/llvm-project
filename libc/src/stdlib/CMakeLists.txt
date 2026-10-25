@@ -462,6 +462,8 @@ add_entrypoint_object(
   HDRS
     mbtowc.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.src.locale.encoding
     libc.hdr.types.size_t
     libc.hdr.types.wchar_t
     libc.src.__support.common
@@ -478,6 +480,8 @@ add_entrypoint_object(
   HDRS
     mblen.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.src.locale.encoding
     libc.hdr.types.size_t
     libc.src.__support.common
     libc.src.__support.macros.config
@@ -510,6 +514,7 @@ add_entrypoint_object(
   HDRS
     wctomb.h
   DEPENDS
+    libc.src.locale.encoding
     libc.hdr.types.wchar_t
     libc.src.__support.wchar.wcrtomb
     libc.src.__support.wchar.mbstate

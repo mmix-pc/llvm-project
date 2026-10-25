@@ -74,7 +74,7 @@ add_header_library(
     libc.src.__support.error_or
     libc.src.__support.libc_assert
     libc.src.__support.macros.null_check
-    .character_converter
+    .restartable_converter
     .mbstate
 )
 
@@ -91,7 +91,7 @@ add_object_library(
     libc.src.__support.common
     libc.src.__support.error_or
     libc.src.__support.macros.config
-    .character_converter
+    .restartable_converter
     .mbstate
 )
 
@@ -107,7 +107,7 @@ add_header_library(
     libc.src.__support.error_or
     libc.src.__support.macros.config
     libc.src.__support.macros.null_check
-    .character_converter
+    .restartable_string
     .mbstate
     .string_converter
 )
@@ -126,7 +126,7 @@ add_header_library(
     libc.src.__support.error_or
     libc.src.__support.macros.config
     libc.src.__support.macros.null_check
-    .string_converter
+    .restartable_string
     .character_converter
     .mbstate
 )
@@ -134,7 +134,7 @@ add_object_library(
   iso2022_cn
   SRCS iso2022_cn.cpp
   HDRS iso2022_cn.h
-  DEPENDS libc.src.locale.encoding_data libc.hdr.errno_macros
+  DEPENDS .mbstate libc.src.locale.encoding_data libc.hdr.errno_macros
 )
 
 add_object_library(
@@ -143,4 +143,20 @@ add_object_library(
   HDRS encoding_converter.h
   DEPENDS .iso2022_cn .scalar_codec libc.src.locale.transliteration_data
     libc.hdr.errno_macros libc.src.__support.CPP.string_view
+)
+
+add_object_library(
+  restartable_converter
+  SRCS restartable_converter.cpp
+  HDRS restartable_converter.h
+  DEPENDS .iso2022_cn .scalar_codec .character_converter .mbstate
+    libc.src.locale.encoding
+)
+
+add_object_library(
+  restartable_string
+  SRCS restartable_string.cpp
+  HDRS mbsnrtowcs.h wcsnrtombs.h
+  DEPENDS .restartable_converter libc.src.__support.macros.null_check
+    libc.hdr.types.size_t libc.hdr.types.wchar_t libc.hdr.errno_macros
 )

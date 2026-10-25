@@ -14,13 +14,16 @@
 #include "src/__support/macros/config.h"
 #include "src/__support/wchar/mbstate.h"
 #include "src/__support/wchar/wcrtomb.h"
+#include "src/locale/encoding.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, wctomb, (char *s, wchar_t wc)) {
   static LIBC_THREAD_LOCAL internal::mbstate internal_mbstate;
-  if (s == nullptr)
-    return 0;
+  if (s == nullptr) {
+    internal_mbstate = {};
+    return internal::locale_chinese_encoding() != nullptr;
+  }
 
   auto result = internal::wcrtomb(s, wc, &internal_mbstate);
 

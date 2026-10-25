@@ -11,7 +11,7 @@
 
 #include "src/__support/error_or.h"
 #include "src/__support/macros/null_check.h"
-#include "src/__support/wchar/character_converter.h"
+#include "src/__support/wchar/restartable_converter.h"
 #include "src/__support/wchar/mbstate.h"
 
 #include "hdr/errno_macros.h"
@@ -24,32 +24,28 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
-LIBC_INLINE ErrorOr<size_t> wcrtomb(char *__restrict dest_ptr, wchar_t wc,
-                                    mbstate *__restrict ps,
-                                    bool use_utf8 = locale_is_utf8()) {
+LIBC_INLINE ErrorOr<size_t>
+wcrtomb(char *__restrict dest_ptr, wchar_t wc, mbstate *__restrict ps,
+         const RestartableConverter &converter) {
   LIBC_CRASH_ON_NULLPTR(dest_ptr);
   LIBC_CRASH_ON_NULLPTR(ps);
   static_assert(sizeof(wchar_t) == 4);
 
-  CharacterConverter cr(ps, use_utf8);
-
-  if (!cr.isValidState())
+  if (!converter.valid(*ps))
     return Error(EINVAL);
+  return converter.encode(static_cast<uint32_t>(wc),
+                          {reinterpret_cast<uint8_t *>(dest_ptr),
+                           MAX_LOCALE_CHARACTER_BYTES}, *ps);
+}
 
-  int status = cr.push(static_cast<char32_t>(wc));
-  if (status != 0)
-    return Error(status);
+LIBC_INLINE ErrorOr<size_t> wcrtomb(char *__restrict dest_ptr, wchar_t wc,
+                                    mbstate *__restrict ps) {
+  return wcrtomb(dest_ptr, wc, ps, RestartableConverter::current());
+}
 
-  size_t count = 0;
-  while (!cr.isEmpty()) {
-    auto byte = cr.pop_utf8(); // Cannot fail after a successful push.
-    LIBC_ASSERT(byte.has_value());
-
-    *dest_ptr = byte.value();
-    dest_ptr++;
-    count++;
-  }
-  return count;
+LIBC_INLINE ErrorOr<size_t> wcrtomb(char *__restrict dest_ptr, wchar_t wc,
+                                    mbstate *__restrict ps, bool use_utf8) {
+  return wcrtomb(dest_ptr, wc, ps, RestartableConverter(use_utf8));
 }
 
 } // namespace internal

@@ -23,7 +23,7 @@ LLVM_LIBC_FUNCTION(size_t, wcrtomb,
   static LIBC_THREAD_LOCAL internal::mbstate internal_mbstate;
 
   // when s is nullptr, this is equivalent to wcrtomb(buf, L'\0', ps)
-  char buf[sizeof(wchar_t) / sizeof(char)];
+  char buf[internal::MAX_LOCALE_CHARACTER_BYTES];
   if (s == nullptr) {
     s = buf;
     wc = L'\0';

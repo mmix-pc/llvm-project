@@ -1,4 +1,4 @@
-//===-- UTF-8 conversion helpers for uchar--------------------------------===//
+//===-- Locale conversion helpers for uchar ------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -12,15 +12,10 @@
 #include "hdr/types/size_t.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
-#include "src/__support/wchar/character_converter.h"
+#include "src/__support/wchar/restartable_converter.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
-// Values outside the UTF-8 length range keep pending UTF-16 units non-initial
-// for mbsinit without changing the public mbstate_t layout.
-inline constexpr uint8_t PENDING_HIGH = 5;
-inline constexpr uint8_t PENDING_LOW = 6;
-
 LIBC_INLINE size_t decode(char32_t *out, const char *s, size_t n,
                           mbstate *state) {
   if (!s) {
@@ -28,42 +23,32 @@ LIBC_INLINE size_t decode(char32_t *out, const char *s, size_t n,
     s = "";
     n = 1;
   }
-  LocaleCharacterConverter converter(state);
-  if (!converter.isValidState()) {
-    libc_errno = EILSEQ;
+  uint32_t scalar = 0;
+  auto result = RestartableConverter::current().decode(
+      &scalar, {reinterpret_cast<const uint8_t *>(s), n}, *state);
+  if (!result) {
+    libc_errno = result.error();
     return size_t(-1);
   }
-  for (size_t i = 0; i < n; ++i) {
-    if (converter.push(static_cast<char8_t>(s[i])) != 0) {
-      libc_errno = EILSEQ;
-      return size_t(-1);
-    }
-    if (converter.isFull()) {
-      char32_t scalar = converter.pop_utf32().value();
-      if (out)
-        *out = scalar;
-      return scalar == 0 ? 0 : i + 1;
-    }
-  }
-  return size_t(-2);
+  if (out && *result != size_t(-2))
+    *out = char32_t(scalar);
+  return *result;
 }
 
 LIBC_INLINE size_t encode(char *s, char32_t scalar, mbstate *state) {
-  char buffer[4];
+  char buffer[MAX_LOCALE_CHARACTER_BYTES];
   if (!s) {
     s = buffer;
     scalar = 0;
   }
-  LocaleCharacterConverter converter(state);
-  if (!converter.isValidState() || !converter.isEmpty() ||
-      converter.push(scalar) != 0) {
-    libc_errno = EILSEQ;
+  auto result = RestartableConverter::current().encode(
+      scalar, {reinterpret_cast<uint8_t *>(s), MAX_LOCALE_CHARACTER_BYTES},
+      *state);
+  if (!result) {
+    libc_errno = result.error();
     return size_t(-1);
   }
-  size_t count = 0;
-  while (!converter.isEmpty())
-    s[count++] = static_cast<char>(converter.pop_utf8().value());
-  return count;
+  return *result;
 }
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

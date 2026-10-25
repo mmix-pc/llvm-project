@@ -86,9 +86,24 @@ add_libc_test(
     libc.hdr.types.char32_t
     libc.hdr.types.char8_t
 )
+set(iso2022_cn_public_deps)
+if(LLVM_LIBC_FULL_BUILD)
+  list(APPEND iso2022_cn_public_deps
+    libc.src.uchar.c16rtomb libc.src.uchar.mbrtoc16
+    libc.src.uchar.c32rtomb libc.src.uchar.mbrtoc32
+    libc.src.wchar.mbrtowc libc.src.wchar.mbrlen libc.src.wchar.wcrtomb
+    libc.src.wchar.mbsrtowcs libc.src.wchar.mbsnrtowcs
+    libc.src.wchar.wcsrtombs libc.src.wchar.wcsnrtombs
+    libc.src.stdlib.mblen libc.src.stdlib.mbtowc libc.src.stdlib.wctomb
+    libc.src.stdlib.mbstowcs libc.src.stdlib.wcstombs
+    libc.src.wchar.btowc libc.src.wchar.wctob libc.src.locale.__ctype_get_mb_cur_max
+    libc.src.wchar.mbsinit libc.src.locale.locale libc.src.__support.libc_errno)
+endif()
 add_libc_test(
   iso2022_cn_test
   SUITE libc-support-tests
   SRCS iso2022_cn_test.cpp
   DEPENDS libc.src.__support.wchar.iso2022_cn
+    libc.src.__support.wchar.restartable_converter
+    ${iso2022_cn_public_deps}
 )

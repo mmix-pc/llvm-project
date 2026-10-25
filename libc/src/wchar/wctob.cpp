@@ -9,7 +9,7 @@
 #include "src/wchar/wctob.h"
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
-#include "src/locale/encoding.h"
+#include "src/__support/wchar/restartable_converter.h"
 
 #include "hdr/stdio_macros.h" // for EOF.
 #include "hdr/types/wint_t.h"
@@ -17,14 +17,13 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, wctob, (wint_t c)) {
-  // The standard states that wint_t may either be an alias of wchar_t or
-  // an alias of an integer type, different platforms define this type with
-  // different signedness. Masking also
-  // works without -Wtype-limits warnings when `wint_t` is unsigned.
-  const wint_t mask = internal::locale_is_utf8() ? 127 : 255;
-  if ((c & ~mask) != 0)
+  internal::mbstate state{};
+  uint8_t byte;
+  auto result = internal::RestartableConverter::current().encode(
+      static_cast<uint32_t>(c), {&byte, 1}, state);
+  if (!result || *result != 1)
     return EOF;
-  return static_cast<int>(c);
+  return byte;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

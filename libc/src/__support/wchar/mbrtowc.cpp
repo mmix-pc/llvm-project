@@ -13,7 +13,7 @@
 #include "src/__support/common.h"
 #include "src/__support/error_or.h"
 #include "src/__support/macros/config.h"
-#include "src/__support/wchar/character_converter.h"
+#include "src/__support/wchar/restartable_converter.h"
 #include "src/__support/wchar/mbstate.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -21,33 +21,20 @@ namespace internal {
 
 ErrorOr<size_t> mbrtowc(wchar_t *__restrict pwc, const char *__restrict src_ptr,
                         size_t max_src_bytes, mbstate *__restrict ps) {
-  LocaleCharacterConverter char_conv(ps);
-  if (!char_conv.isValidState())
-    return Error(EINVAL);
   if (src_ptr == nullptr) {
     src_ptr = "";
     max_src_bytes = 1;
     pwc = nullptr;
   }
-  size_t i = 0;
-  // Reading in bytes until we have a complete wc or error
-  for (; i < max_src_bytes && !char_conv.isFull(); ++i) {
-    int err = char_conv.push(static_cast<char8_t>(src_ptr[i]));
-    // Encoding error
-    if (err == EILSEQ)
-      return Error(err);
-  }
-  auto wc = char_conv.pop_utf32();
-  if (wc.has_value()) {
-    if (pwc != nullptr)
-      *pwc = wc.value();
-    // null terminator -> return 0
-    if (wc.value() == L'\0')
-      return 0;
-    return i;
-  }
-  // Incomplete but potentially valid
-  return -2;
+  auto converter = RestartableConverter::current();
+  if (!converter.valid(*ps))
+    return Error(EINVAL);
+  uint32_t scalar = 0;
+  auto result = converter.decode(
+      &scalar, {reinterpret_cast<const uint8_t *>(src_ptr), max_src_bytes}, *ps);
+  if (result && *result != size_t(-2) && pwc)
+    *pwc = static_cast<wchar_t>(scalar);
+  return result;
 }
 
 } // namespace internal

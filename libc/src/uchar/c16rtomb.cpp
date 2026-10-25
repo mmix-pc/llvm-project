@@ -15,30 +15,28 @@ LLVM_LIBC_FUNCTION(size_t, c16rtomb,
   static LIBC_THREAD_LOCAL internal::mbstate implicit_state;
   auto *state =
       ps ? reinterpret_cast<internal::mbstate *>(ps) : &implicit_state;
-  char buffer[4];
+  char buffer[internal::MAX_LOCALE_CHARACTER_BYTES];
   if (s == nullptr) {
     s = buffer;
     c = 0;
   }
-  if (state->total_bytes == internal::PENDING_HIGH) {
-    char32_t high = state->partial;
-    *state = {};
-    if (c < 0xdc00 || c > 0xdfff) {
+  using Converter = internal::RestartableConverter;
+  using Unit = Converter::UTF16Unit;
+  auto converter = Converter::current();
+  if (converter.pending(*state, Unit::HIGH)) {
+    auto high = converter.take_unit(*state, Unit::HIGH);
+    if (!high || c < 0xdc00 || c > 0xdfff) {
       libc_errno = EILSEQ;
       return size_t(-1);
     }
-    return internal::encode(s, 0x10000 + ((high - 0xd800) << 10) + (c - 0xdc00),
+    return internal::encode(s, 0x10000 + ((*high - 0xd800) << 10) + (c - 0xdc00),
                             state);
   }
   if (c >= 0xd800 && c <= 0xdbff) {
-    internal::CharacterConverter converter(state);
-    if (!converter.isValidState() || !converter.isEmpty()) {
-      libc_errno = EILSEQ;
+    if (int error = converter.save_unit(*state, Unit::HIGH, c)) {
+      libc_errno = error;
       return size_t(-1);
     }
-    state->partial = c;
-    state->bytes_stored = 1;
-    state->total_bytes = internal::PENDING_HIGH;
     return 0;
   }
   return internal::encode(s, c, state);

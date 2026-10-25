@@ -14,6 +14,37 @@ namespace internal {
 
 static_assert(sizeof(ISO2022CNState) == 4);
 
+ErrorOr<ISO2022CNState> ISO2022CNState::load(const mbstate &saved) {
+  if (saved.partial == 0 && saved.bytes_stored == 0 && saved.total_bytes == 0)
+    return ISO2022CNState{};
+  if (saved.bytes_stored < 0x80 || saved.bytes_stored > 0x87 ||
+      (saved.total_bytes & ~0x0f) || (saved.total_bytes & 3) > CNS)
+    return Error(EILSEQ);
+  ISO2022CNState result;
+  result.phase = Phase(saved.bytes_stored - 0x80);
+  result.g1 = G1(saved.total_bytes & 3);
+  result.flags = saved.total_bytes >> 2;
+  bool pair = result.phase == PAIR || result.phase == SS2_SECOND;
+  if ((pair ? saved.partial < 0x21 || saved.partial > 0x7e
+            : saved.partial != 0) ||
+      ((result.flags & SHIFTED) && result.g1 == NONE) ||
+      (result.phase == PAIR && !(result.flags & SHIFTED)) ||
+      ((result.phase == SS2_FIRST || result.phase == SS2_SECOND) &&
+       !(result.flags & G2)))
+    return Error(EILSEQ);
+  result.row = uint8_t(saved.partial);
+  // Zero is the unique saved representation of the initial state.
+  if (result.initial())
+    return Error(EILSEQ);
+  return result;
+}
+
+mbstate ISO2022CNState::save() const {
+  if (initial())
+    return {};
+  return {char32_t(row), uint8_t(0x80 + phase), uint8_t(g1 | (flags << 2))};
+}
+
 ErrorOr<ISO2022CNState::Step>
 ISO2022CNState::push(uint8_t byte, const ChineseEncodingData &data) {
   ISO2022CNState next = *this;
@@ -169,6 +200,22 @@ ErrorOr<size_t> ISO2022CNState::encode(uint32_t scalar,
     output[i] = bytes[i];
   *this = next;
   return count;
+}
+
+ErrorOr<size_t> ISO2022CNState::decode(uint32_t *scalar,
+                                       cpp::span<const uint8_t> input,
+                                       const ChineseEncodingData &data) {
+  for (size_t i = 0; i != input.size(); ++i) {
+    auto step = push(input[i], data);
+    if (!step)
+      return Error(step.error());
+    if (step->event == Event::SCALAR) {
+      if (scalar)
+        *scalar = step->scalar;
+      return step->scalar == 0 ? 0 : i + 1;
+    }
+  }
+  return size_t(-2);
 }
 
 ErrorOr<size_t> ISO2022CNState::reset(cpp::span<uint8_t> output) {

@@ -53,7 +53,7 @@ wint_t write_wide_character(wchar_t wc, ::FILE *stream) {
     return WEOF;
   }
 
-  char bytes[4];
+  char bytes[internal::MAX_LOCALE_CHARACTER_BYTES];
   internal::mbstate state{};
   auto encoded = internal::wcrtomb(bytes, wc, &state);
   if (!encoded.has_value()) {
@@ -182,7 +182,7 @@ LLVM_LIBC_FUNCTION(wint_t, ungetwc, (wint_t wc, ::FILE *stream)) {
   if (wc == WEOF || !orient_wide(stream))
     return WEOF;
 
-  char bytes[4];
+  char bytes[internal::MAX_LOCALE_CHARACTER_BYTES];
   internal::mbstate state{};
   auto encoded = internal::wcrtomb(bytes, static_cast<wchar_t>(wc), &state);
   if (!encoded.has_value()) {
