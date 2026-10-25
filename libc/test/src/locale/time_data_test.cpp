@@ -24,6 +24,12 @@ struct Fixture {
   const char *names = "\xc5\x9e";
   unsigned wrong_kind = 16;
   unsigned omit_field = 16;
+  const char *values[16]{};
+  unsigned counts[16];
+  Fixture() {
+    for (unsigned i = 0; i != 16; ++i)
+      counts[i] = COUNTS[i];
+  }
   static void put(uint8_t *p, uint32_t value) {
     for (unsigned i = 0; i != 4; ++i)
       p[i] = uint8_t(value >> (24 - i * 8));
@@ -41,7 +47,7 @@ struct Fixture {
     unsigned entries = 0;
     for (unsigned field = 0; field != 16; ++field)
       if (field != omit_field)
-        entries += 1 + COUNTS[field];
+        entries += 1 + counts[field];
     size_t table = 130;
     size_t payload = table + entries * 16;
     auto item = [&](uint32_t key, unsigned kind, size_t length) {
@@ -57,10 +63,12 @@ struct Fixture {
       uint32_t key = (field + 1) << 16;
       item(key, field == wrong_kind ? 3 : 2, 4);
       count_offsets[field] = payload;
-      put(bytes + payload, COUNTS[field]);
+      put(bytes + payload, counts[field]);
       payload += 4;
-      for (unsigned i = 0; i != COUNTS[field]; ++i) {
-        const char *text = field < 6 ? names : "";
+      for (unsigned i = 0; i != counts[field]; ++i) {
+        const char *text = values[field] ? values[field]
+                           : field < 6   ? names
+                                         : "";
         size_t length = 1;
         while (text[length - 1])
           ++length;
@@ -142,4 +150,109 @@ TEST(LlvmLibcTimeDataTest, RejectInvalidOrEmptyNames) {
     f.build();
     EXPECT_FALSE(f.accepted());
   }
+}
+
+TEST(LlvmLibcTimeDataTest, EraDatesAndBorrowedText) {
+  auto forward = TimeLocaleData::parse_era("+:1:2019/05/01:+*:Reiwa:%EC%Ey");
+  ASSERT_TRUE(forward.has_value());
+  EXPECT_EQ(forward->direction, 1);
+  EXPECT_EQ(forward->offset, int64_t(1));
+  EXPECT_EQ(forward->start.year, int64_t(2019));
+  EXPECT_EQ(forward->start.month, 5U);
+  EXPECT_EQ(forward->end.infinity, 1);
+  EXPECT_TRUE(forward->name == "Reiwa");
+  EXPECT_TRUE(forward->format == "%EC%Ey");
+  auto backward = TimeLocaleData::parse_era("+:1:-1/12/31:-*:BC:%Ey %EC");
+  ASSERT_TRUE(backward.has_value());
+  EXPECT_EQ(backward->start.year, int64_t(-1));
+  EXPECT_EQ(backward->end.infinity, -1);
+  EXPECT_TRUE(TimeLocaleData::parse_era("-:7:2000/02/29:1900/02/28:x:%Y:%M")
+                  .has_value());
+  EXPECT_TRUE(TimeLocaleData::parse_era("+:1:-1/02/29:-*:BC:%Ey").has_value());
+  EXPECT_TRUE(TimeLocaleData::parse_era("+:-9223372036854775808:1/1/1:+*:x:%Ey")
+                  .has_value());
+}
+
+TEST(LlvmLibcTimeDataTest, RejectMalformedEraDates) {
+  const char *bad[] = {
+      "+:1:1900/02/29:+*:x:%Ey",
+      "+:1:2023/04/31:+*:x:%Ey",
+      "+:1:0/1/1:+*:x:%Ey",
+      "+:1:2024/13/1:+*:x:%Ey",
+      "+:1:2024/1/0:+*:x:%Ey",
+      "+:1:+*:+*:x:%Ey",
+      "?:1:2024/1/1:+*:x:%Ey",
+      "+:x:2024/1/1:+*:x:%Ey",
+      "+:9223372036854775808:1/1/1:+*:x:%Ey",
+      "+:-9223372036854775809:1/1/1:+*:x:%Ey",
+      "+:1:9223372036854775808/1/1:+*:x:%Ey",
+      "+:1:2024/1/1:2024/2/30:x:%Ey",
+      "+:1:2024/1/1:+*:x",
+  };
+  for (const char *value : bad)
+    EXPECT_FALSE(TimeLocaleData::parse_era(value).has_value());
+}
+
+TEST(LlvmLibcTimeDataTest, FormatsAndModifiers) {
+  Fixture f;
+  f.values[TimeLocaleData::DATE_TIME_FORMAT] = "%a %d %b %+12Y %X %% %Ec";
+  f.values[TimeLocaleData::TIME_FORMAT] = "%OH:%OM:%OS";
+  f.values[TimeLocaleData::ERA_DATE_TIME_FORMAT] = "%EY %OB %Od";
+  f.values[TimeLocaleData::ERAS] = "+:1:2019/05/01:+*:Reiwa:%EC%Ey";
+  f.counts[TimeLocaleData::ERAS] = 1;
+  f.build();
+  EXPECT_TRUE(f.accepted());
+  const char *bad[] = {"%",
+                       "%E",
+                       "%O",
+                       "%Q",
+                       "%OE",
+                       "%Ea",
+                       "%Or",
+                       "%+2147483648Y",
+                       "%+999999999999999999999Y"};
+  for (const char *format : bad) {
+    f.values[TimeLocaleData::DATE_FORMAT] = format;
+    f.build();
+    EXPECT_FALSE(f.accepted());
+  }
+}
+
+TEST(LlvmLibcTimeDataTest, RejectFormatCycles) {
+  const char *cycles[] = {"%c", "%Ec"};
+  for (const char *format : cycles) {
+    Fixture f;
+    f.values[TimeLocaleData::DATE_TIME_FORMAT] = format;
+    f.build();
+    EXPECT_FALSE(f.accepted());
+  }
+  Fixture f;
+  f.values[TimeLocaleData::DATE_FORMAT] = "%X";
+  f.values[TimeLocaleData::TIME_FORMAT] = "%x";
+  f.build();
+  EXPECT_FALSE(f.accepted());
+  f.values[TimeLocaleData::TIME_FORMAT] = "%H:%M:%S";
+  f.build();
+  EXPECT_TRUE(f.accepted());
+  f.values[TimeLocaleData::ERAS] = "+:1:2000/1/1:+*:x:%EY";
+  f.counts[TimeLocaleData::ERAS] = 1;
+  f.build();
+  EXPECT_FALSE(f.accepted());
+  f.values[TimeLocaleData::ERAS] = "+:1:2000/1/1:+*:x:%Ex";
+  f.values[TimeLocaleData::DATE_FORMAT] = "%EY";
+  f.build();
+  EXPECT_FALSE(f.accepted());
+}
+
+TEST(LlvmLibcTimeDataTest, TwelveHourRepresentation) {
+  Fixture f;
+  f.values[TimeLocaleData::AM_PM_FORMAT] = "%I:%M:%S %p";
+  f.build();
+  EXPECT_FALSE(f.accepted());
+  f.values[TimeLocaleData::AM_PM] = "AM";
+  f.build();
+  EXPECT_TRUE(f.accepted());
+  f.values[TimeLocaleData::AM_PM_FORMAT] = "";
+  f.build();
+  EXPECT_FALSE(f.accepted());
 }

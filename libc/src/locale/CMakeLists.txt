@@ -87,6 +87,7 @@ add_object_library(
   SRCS time_data.cpp
   HDRS time_data.h
   DEPENDS .locale_data .category_validation libc.hdr.errno_macros
+    libc.src.__support.CPP.string_view libc.src.__support.CPP.limits
 )
 
 add_object_library(

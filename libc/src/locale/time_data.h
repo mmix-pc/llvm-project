@@ -1,5 +1,4 @@
-//===-- Validated time category text tables ----------------------*- C++
-//-*-===//
+//===-- Validated time category data ----------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,13 +9,14 @@
 #ifndef LLVM_LIBC_SRC_LOCALE_TIME_DATA_H
 #define LLVM_LIBC_SRC_LOCALE_TIME_DATA_H
 
+#include "src/__support/CPP/string_view.h"
 #include "src/locale/locale_data.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
-// Text structure and UTF-8 validation only. Era/calendar and format parsing
-// must succeed before publication. The backing file must remain immutable.
+// Validated text, era dates and acyclic format references. This is not the
+// formatting engine. The backing file must remain immutable.
 class TimeLocaleData {
 public:
   enum Field : unsigned {
@@ -42,10 +42,26 @@ public:
   size_t count(Field field) const;
   ErrorOr<LocaleDataView::Item> text(Field field, size_t index) const;
 
+  struct Date {
+    int64_t year;
+    unsigned month, day;
+    // Zero denotes a finite date; -1/+1 denote the two open era endpoints.
+    int infinity = 0;
+  };
+  struct Era {
+    int direction;
+    int64_t offset;
+    Date start, end;
+    cpp::string_view name, format;
+  };
+  static ErrorOr<Era> parse_era(cpp::string_view text);
+  ErrorOr<Era> era(size_t index) const;
+
 private:
   LocaleDataView file;
   size_t counts[FIELD_COUNT]{};
   explicit TimeLocaleData(const LocaleDataView &file) : file(file) {}
+  bool valid_formats() const;
 };
 
 } // namespace internal
