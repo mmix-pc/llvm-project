@@ -317,3 +317,23 @@ The review remains runtime-unqualified. In particular, time-format and era
 semantics, locale-aware message expressions, category ownership/publication and
 installed consumers still require their runtime acceptance. Six structurally
 valid categories must not be advertised as a usable regional locale.
+
+Display Widths
+--------------
+
+``width_table.py`` imports only the selected UTF-8 charmap's WIDTH section,
+rejecting overlaps, invalid scalar ranges and unsupported widths. Its companion
+manifest records the complete source hash and the original section's rules and
+Unicode version independently of classification/collation data versions.
+
+.. code-block:: sh
+
+   python3 width_table.py --source /readonly/charmaps/UTF-8 \
+     --output ../../src/wchar/width_table --check
+
+The currently selected UTF-8 profiles share these immutable widths. Runtime
+queries first check printability in the selected LC_CTYPE, with NUL handled
+separately; C/POSIX therefore does not acquire Unicode classification from the
+width table. Printable characters omitted from WIDTH have width one.
+``wcswidth`` sums character widths, not bytes or rendered grapheme clusters,
+and reports EOVERFLOW rather than overflowing the returned int.

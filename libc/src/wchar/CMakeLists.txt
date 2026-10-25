@@ -407,6 +407,36 @@ add_entrypoint_object(
     libc.src.locale.collation
 )
 
+add_header_library(
+  case_compare
+  HDRS case_compare.h
+  DEPENDS libc.hdr.types.wchar_t libc.hdr.types.size_t libc.src.locale.character
+)
+
+add_object_library(
+  display_width
+  SRCS display_width.cpp
+  HDRS display_width.h width_table.inc
+  DEPENDS libc.src.locale.character libc.hdr.types.size_t libc.hdr.types.wchar_t
+)
+foreach(name wcwidth wcswidth)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .display_width libc.src.__support.CPP.limits
+      libc.src.__support.libc_errno libc.hdr.errno_macros
+  )
+endforeach()
+foreach(name wcscasecmp wcsncasecmp wcscasecmp_l wcsncasecmp_l)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .case_compare libc.hdr.types.locale_t
+  )
+endforeach()
+
 add_entrypoint_object(
   wcscoll_l
   SRCS wcscoll_l.cpp

@@ -1,9 +1,10 @@
-option(LIBC_MMIX_BUILD_LOCALE "Build built-in C and C.UTF-8 locale providers" OFF)
+option(LIBC_MMIX_BUILD_LOCALE "Build locale category providers" OFF)
 if(NOT LIBC_MMIX_BUILD_LOCALE)
   return()
 endif()
 
-# Built-in locales do not provide an external regional locale database.
+# C/C.UTF-8 need no data files. Regional names additionally require the
+# configured private locale database and response-expression validation.
 set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.locale.__ctype_get_mb_cur_max
   libc.src.langinfo.nl_langinfo
@@ -14,6 +15,12 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.locale.localeconv
   libc.src.locale.setlocale
   libc.src.wchar.wcscoll_l
+  libc.src.wchar.wcscasecmp
+  libc.src.wchar.wcsncasecmp
+  libc.src.wchar.wcscasecmp_l
+  libc.src.wchar.wcsncasecmp_l
+  libc.src.wchar.wcwidth
+  libc.src.wchar.wcswidth
   libc.src.wchar.wcsxfrm_l
   libc.src.nl_types.catopen
   libc.src.nl_types.catgets

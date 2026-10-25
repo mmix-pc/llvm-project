@@ -1637,6 +1637,13 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.time.timer_settime
 
     # locale.h entrypoints
+    libc.src.wchar.wcscasecmp
+    libc.src.wchar.wcsncasecmp
+    libc.src.wchar.wcscasecmp_l
+    libc.src.wchar.wcsncasecmp_l
+    libc.src.wchar.wcwidth
+    libc.src.wchar.wcswidth
+
     libc.src.locale.__ctype_get_mb_cur_max
     libc.src.langinfo.nl_langinfo
     libc.src.langinfo.nl_langinfo_l

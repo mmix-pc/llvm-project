@@ -346,6 +346,25 @@ add_libc_test(
 )
 
 add_libc_test(
+  case_compare_test
+  FULL_BUILD_ONLY
+  SUITE libc_wchar_unittests
+  SRCS case_compare_test.cpp
+  DEPENDS libc.src.wchar.wcscasecmp libc.src.wchar.wcsncasecmp
+    libc.src.wchar.wcscasecmp_l libc.src.wchar.wcsncasecmp_l
+    libc.src.locale.locale libc.src.__support.libc_errno
+)
+
+add_libc_test(
+  display_width_test
+  FULL_BUILD_ONLY
+  SUITE libc_wchar_unittests
+  SRCS display_width_test.cpp
+  DEPENDS libc.src.wchar.wcwidth libc.src.wchar.wcswidth
+    libc.src.locale.locale libc.src.__support.libc_errno
+)
+
+add_libc_test(
   wcspbrk_test
   SUITE
     libc_wchar_unittests
