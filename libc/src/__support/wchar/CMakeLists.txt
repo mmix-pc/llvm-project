@@ -8,6 +8,14 @@ add_header_library(
 )
 
 add_object_library(
+  encoding_descriptor
+  SRCS encoding_descriptor.cpp
+  HDRS encoding_descriptor.h
+  DEPENDS .encoding_converter libc.src.__support.CPP.optional
+    libc.src.__support.alloc_checker libc.hdr.errno_macros libc.hdr.func.free
+)
+
+add_object_library(
   scalar_codec
   SRCS scalar_codec.cpp
   HDRS scalar_codec.h

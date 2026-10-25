@@ -259,6 +259,13 @@ case matching. It accepts one destination indicator, rejects source indicators
 and combinations, and does not guess the byte order of UTF-16 or UTF-32. Empty
 names are left for the public locale-aware layer to resolve.
 
+``EncodingDescriptor`` adds stable-address converter storage and retains the
+immutable mapping file until the last descriptor releases it. The factory
+validates names and tables before publication and rolls back allocation failure.
+Stateless encodings require no table file. Descriptors have independent mutable
+shift state; rules are still borrowed per call. File discovery, current-locale
+acquisition and public iconv entrypoints remain separate integration work.
+
 Collation Source And Keys
 -------------------------
 

@@ -1,6 +1,19 @@
 add_custom_target(libc-support-wchar-tests)
 
 add_libc_test(
+  encoding_descriptor_test
+  SUITE libc-support-wchar-tests
+  SRCS encoding_descriptor_test.cpp
+  DEPENDS libc.src.__support.wchar.encoding_descriptor libc.hdr.errno_macros
+)
+if(LIBC_TARGET_OS_IS_LINUX AND TARGET libc.test.src.__support.wchar.encoding_descriptor_test.__build__)
+  target_compile_definitions(libc.test.src.__support.wchar.encoding_descriptor_test.__build__ PRIVATE
+    ENCODING_DESCRIPTOR_ALLOCATION_TEST)
+  target_link_options(libc.test.src.__support.wchar.encoding_descriptor_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=free)
+endif()
+
+add_libc_test(
   encoding_converter_test
   SUITE libc-support-wchar-tests
   SRCS encoding_converter_test.cpp
