@@ -560,7 +560,7 @@ backref(struct match *m, const char *start, const char *stop, sopno startst,
 			break;
 		case OBOL:
 			if ( (sp == m->beginp && !(m->eflags&REG_NOTBOL)) ||
-					(sp < m->endp && *(sp-1) == '\n' &&
+					(sp > m->beginp && *(sp-1) == '\n' &&
 						(m->g->cflags&REG_NEWLINE)) )
 				{ /* yes */ }
 			else
@@ -576,7 +576,7 @@ backref(struct match *m, const char *start, const char *stop, sopno startst,
 			break;
 		case OBOW:
 			if (( (sp == m->beginp && !(m->eflags&REG_NOTBOL)) ||
-					(sp < m->endp && *(sp-1) == '\n' &&
+					(sp > m->beginp && *(sp-1) == '\n' &&
 						(m->g->cflags&REG_NEWLINE)) ||
 					(sp > m->beginp &&
 							!ISWORD(*(sp-1))) ) &&

@@ -2,6 +2,16 @@ if(LLVM_LIBC_FULL_BUILD AND LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
   add_custom_target(libc_regex_unittests)
 
   add_libc_test(
+    regex_boundary_test
+    SUITE libc_regex_unittests
+    SRCS regex_boundary_test.cpp
+    DEPENDS libc.hdr.regex_macros libc.hdr.sys_mman_macros
+      libc.hdr.unistd_macros libc.src.regex.regcomp libc.src.regex.regexec
+      libc.src.regex.regfree libc.src.sys.mman.mmap libc.src.sys.mman.mprotect
+      libc.src.sys.mman.munmap libc.src.unistd.sysconf
+  )
+
+  add_libc_test(
     regerror_test
     SUITE
       libc_regex_unittests

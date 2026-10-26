@@ -25,3 +25,10 @@ Initial SHA-256 identities:
 The import alone does not add character-aware matching or minimal repetition.
 The byte-engine restrictions remain until their implementation and validation
 are complete; source ownership must not be confused with capability support.
+
+## Local Changes
+
+The import hashes above identify the original baseline, not the current
+derivative. Backreference anchor checks now require a preceding input byte
+before reading it; a guard-page test covers both beginning-of-line and the
+retained BSD beginning-of-word extension.
