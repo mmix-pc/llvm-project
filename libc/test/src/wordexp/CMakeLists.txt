@@ -31,6 +31,19 @@ if(TARGET libc.test.src.wordexp.shell_syntax_test.__build__)
     -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
 endif()
 if(TARGET libc.src.wordexp.paths)
+  add_libc_test(
+    evaluate_test
+    FULL_BUILD_ONLY
+    SUITE libc-wordexp-tests
+    SRCS evaluate_test.cpp
+    DEPENDS libc.src.wordexp.evaluate libc.src.wordexp.shell_syntax
+      libc.src.__support.freelist_heap libc.hdr.errno_macros
+      libc.hdr.wordexp_macros
+  )
+  if(TARGET libc.test.src.wordexp.evaluate_test.__build__)
+    target_link_options(libc.test.src.wordexp.evaluate_test.__build__ PRIVATE
+      -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+  endif()
   file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/paths-data)
   foreach(name a.txt b.txt .hidden star* "back\\one")
     file(TOUCH "${CMAKE_CURRENT_BINARY_DIR}/paths-data/${name}")
@@ -49,6 +62,23 @@ if(TARGET libc.src.wordexp.paths)
   endif()
 endif()
 if(TARGET libc.src.wordexp.command)
+  add_libc_test(
+    runtime_test
+    FULL_BUILD_ONLY
+    SUITE libc-wordexp-tests
+    SRCS runtime_test.cpp ${LIBC_SOURCE_DIR}/src/wordexp/runtime.cpp
+      ${LIBC_SOURCE_DIR}/src/wordexp/environment.cpp
+      ${LIBC_SOURCE_DIR}/src/wordexp/wordexp.cpp
+    DEPENDS libc.src.wordexp.evaluate libc.src.wordexp.command
+      libc.src.wordexp.shell_syntax libc.src.stdlib.environ_internal
+      libc.src.locale.locale
+      libc.src.stdio.fwrite libc.src.stdio.stderr libc.src.__support.libc_errno
+      libc.src.__support.str_to_integer libc.src.__support.integer_to_string
+      libc.config.app_h libc.hdr.types.struct_passwd
+      libc.hdr.errno_macros libc.hdr.fcntl_macros libc.hdr.sys_wait_macros
+      libc.hdr.wordexp_macros libc.include.sys_syscall
+      libc.src.__support.OSUtil.osutil
+  )
   add_libc_test(
     command_test
     FULL_BUILD_ONLY

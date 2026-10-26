@@ -1,4 +1,19 @@
+set(wordexp_compile_options)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+   LIBC_TARGET_OS STREQUAL "linux" AND
+   LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS)
+  set(wordexp_compile_options -fno-lto -fexceptions -funwind-tables)
+endif()
+
 if(LIBC_TARGET_OS STREQUAL "linux")
+  add_object_library(
+    evaluate
+    SRCS evaluate.cpp
+    HDRS evaluate.h
+    DEPENDS .expand .ifs .paths .results libc.hdr.errno_macros
+      libc.hdr.wordexp_macros
+    COMPILE_OPTIONS ${wordexp_compile_options}
+  )
   add_object_library(
     paths
     SRCS paths.cpp
@@ -7,13 +22,27 @@ if(LIBC_TARGET_OS STREQUAL "linux")
       libc.src.__support.wchar.restartable_converter
       libc.hdr.errno_macros libc.hdr.glob_macros libc.src.__support.libc_errno
       libc.src.glob.glob libc.src.glob.globfree
+    COMPILE_OPTIONS ${wordexp_compile_options}
   )
   if(LLVM_LIBC_FULL_BUILD)
-    set(command_compile_options)
-    if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
-       LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS)
-      set(command_compile_options -fno-lto -fexceptions -funwind-tables)
-    endif()
+    add_entrypoint_object(
+      wordexp
+      SRCS wordexp.cpp
+      HDRS wordexp.h
+      DEPENDS .runtime libc.src.locale.locale libc.src.__support.libc_errno
+        libc.src.__support.common libc.hdr.types.wordexp_t
+      COMPILE_OPTIONS ${wordexp_compile_options}
+    )
+    add_object_library(
+      runtime
+      SRCS runtime.cpp
+      HDRS runtime.h
+      DEPENDS .evaluate .environment .command .shell_syntax
+        libc.src.stdio.fwrite libc.src.stdio.stderr libc.src.__support.libc_errno
+        libc.src.stdlib.environ_internal libc.hdr.errno_macros
+        libc.hdr.wordexp_macros
+      COMPILE_OPTIONS ${wordexp_compile_options}
+    )
     add_object_library(
       command
       SRCS command.cpp
@@ -37,7 +66,7 @@ if(LIBC_TARGET_OS STREQUAL "linux")
         libc.src.spawn.posix_spawn_file_actions_adddup2
         libc.src.spawn.posix_spawn_file_actions_addopen
         libc.src.unistd.read
-      COMPILE_OPTIONS ${command_compile_options}
+      COMPILE_OPTIONS ${wordexp_compile_options}
     )
   endif()
   add_object_library(
@@ -48,6 +77,7 @@ if(LIBC_TARGET_OS STREQUAL "linux")
       libc.src.__support.str_to_integer libc.src.__support.integer_to_string
       libc.src.__support.CPP.limits libc.hdr.errno_macros
       libc.hdr.func.free libc.hdr.func.realloc
+    COMPILE_OPTIONS ${wordexp_compile_options}
   )
 endif()
 
@@ -69,6 +99,7 @@ add_object_library(
   HDRS expand.h
   DEPENDS .arithmetic .quote .fragments .pattern .source .syntax
     libc.src.__support.integer_to_string libc.hdr.errno_macros
+  COMPILE_OPTIONS ${wordexp_compile_options}
 )
 
 add_object_library(
