@@ -1,3 +1,15 @@
+if(LIBC_TARGET_OS STREQUAL "linux")
+  add_object_library(
+    environment
+    SRCS environment.cpp
+    HDRS environment.h
+    DEPENDS .expand libc.src.pwd.getpwnam_r libc.src.stdlib.environ_internal
+      libc.src.__support.str_to_integer libc.src.__support.integer_to_string
+      libc.src.__support.CPP.limits libc.hdr.errno_macros
+      libc.hdr.func.free libc.hdr.func.realloc
+  )
+endif()
+
 add_object_library(
   expand
   SRCS expand.cpp

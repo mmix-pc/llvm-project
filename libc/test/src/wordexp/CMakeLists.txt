@@ -1,4 +1,15 @@
 add_custom_target(libc-wordexp-tests)
+if(TARGET libc.src.wordexp.environment)
+  add_libc_test(
+    environment_test
+    FULL_BUILD_ONLY
+    SUITE libc-wordexp-tests
+    SRCS environment_test.cpp ${LIBC_SOURCE_DIR}/src/wordexp/environment.cpp
+    DEPENDS libc.src.wordexp.expand libc.src.stdlib.environ_internal
+      libc.config.app_h libc.hdr.types.struct_passwd libc.hdr.errno_macros
+      libc.src.__support.str_to_integer libc.src.__support.integer_to_string
+  )
+endif()
 add_libc_test(
   fragments_test
   FULL_BUILD_ONLY
