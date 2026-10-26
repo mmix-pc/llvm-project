@@ -15,6 +15,7 @@
 #include "src/glob/component.h"
 #include "src/regex/decoded_text.h"
 #include "src/wordexp/dollar_quote.h"
+#include "src/wordexp/expand.h"
 #include "src/wordexp/ifs.h"
 #include "src/wordexp/pattern.h"
 #include "src/wordexp/source.h"
@@ -191,6 +192,37 @@ TEST(LlvmLibcISO2022CNTest, BoundaryPrefixRecreatesStateWithoutCharacters) {
             EINVAL);
 }
 
+TEST(LlvmLibcISO2022CNTest, CommandSliceRestoresDesignationAndWireChoice) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  WordSource source;
+  // U+4E2D has both GB and CNS spellings. The CNS bytes must not be replaced
+  // by the encoder's preferred initial-state GB spelling.
+  const char wire[] = "\x1b$)G$(echo \x0e\"!\x0f)";
+  ASSERT_EQ(source.assign(wire, converter), 0);
+  LIBC_NAMESPACE::CharVector body;
+  ASSERT_EQ(source.command(2, source.scalars().size() - 1, false, false,
+                           converter, body),
+            0);
+  EXPECT_STREQ(body.c_str(), "\x1b$)Gecho \x0e\"!\x0f");
+  ASSERT_EQ(
+      source.assign("\x1b$)A`echo \x1b$)G\\\"\x0e\"!\x0f\\\"`", converter), 0);
+  LIBC_NAMESPACE::CharVector legacy;
+  ASSERT_EQ(source.command(1, source.scalars().size() - 1, true, true,
+                           converter, legacy),
+            0);
+  EXPECT_STREQ(legacy.c_str(), "\x1b$)Aecho \x1b$)G\"\x0e\"!\x0f\"");
+  ASSERT_EQ(source.assign("`echo \\\x1b$)G\n\x1b$)A\x0e!!\x0f`", converter), 0);
+  LIBC_NAMESPACE::CharVector continued;
+  ASSERT_EQ(source.command(1, source.scalars().size() - 1, true, true,
+                           converter, continued),
+            0);
+  EXPECT_STREQ(continued.c_str(), "echo \x1b$)G\x1b$)A\x0e!!\x0f");
+}
+
 TEST(LlvmLibcISO2022CNTest, BoundaryTransitionsAreAtomicAndIdempotent) {
   using namespace LIBC_NAMESPACE::internal;
   Fixture fixture;
@@ -275,35 +307,34 @@ TEST(LlvmLibcISO2022CNTest, BoundaryTransitionsAreAtomicAndIdempotent) {
   }
 }
 
-TEST(LlvmLibcISO2022CNTest, CommandSliceRestoresDesignationAndWireChoice) {
+TEST(LlvmLibcISO2022CNTest, LiteralExpansionPreservesWireChoice) {
   using namespace LIBC_NAMESPACE::internal;
   Fixture fixture;
   auto mapping = fixture.read();
   ASSERT_TRUE(mapping.has_value());
   RestartableConverter converter(*mapping);
   WordSource source;
-  // U+4E2D has both GB and CNS spellings. The CNS bytes must not be replaced
-  // by the encoder's preferred initial-state GB spelling.
-  const char wire[] = "\x1b$)G$(echo \x0e\"!\x0f)";
-  ASSERT_EQ(source.assign(wire, converter), 0);
-  LIBC_NAMESPACE::CharVector body;
-  ASSERT_EQ(source.command(2, source.scalars().size() - 1, false, false,
-                           converter, body),
-            0);
-  EXPECT_STREQ(body.c_str(), "\x1b$)Gecho \x0e\"!\x0f");
-  ASSERT_EQ(
-      source.assign("\x1b$)A`echo \x1b$)G\\\"\x0e\"!\x0f\\\"`", converter), 0);
-  LIBC_NAMESPACE::CharVector legacy;
-  ASSERT_EQ(source.command(1, source.scalars().size() - 1, true, true,
-                           converter, legacy),
-            0);
-  EXPECT_STREQ(legacy.c_str(), "\x1b$)Aecho \x1b$)G\"\x0e\"!\x0f\"");
-  ASSERT_EQ(source.assign("`echo \\\x1b$)G\n\x1b$)A\x0e!!\x0f`", converter), 0);
-  LIBC_NAMESPACE::CharVector continued;
-  ASSERT_EQ(source.command(1, source.scalars().size() - 1, true, true,
-                           converter, continued),
-            0);
-  EXPECT_STREQ(continued.c_str(), "echo \x1b$)G\x1b$)A\x0e!!\x0f");
+  // The designation belongs to a removed quote. Reconstruct that state for
+  // the selected literal instead of changing its CNS spelling to GB.
+  ASSERT_EQ(source.assign("\x1b$)G'\x0e\"!\x0f'X", converter), 0);
+  LIBC_NAMESPACE::CharVector result;
+  auto word = [](void *p,
+                 LIBC_NAMESPACE::cpp::span<const ExpansionPart> parts) {
+    auto &out = *static_cast<LIBC_NAMESPACE::CharVector *>(p);
+    for (const auto &part : parts)
+      for (char byte : part.bytes)
+        if (!out.append(byte))
+          return ENOMEM;
+    return 0;
+  };
+  ASSERT_TRUE(bool(expand_word_fragments(
+      source, true, false, converter, nullptr, nullptr, {}, {&result, word})));
+  EXPECT_STREQ(result.c_str(), "\x1b$)G\x0e\"!\x0fX");
+  WordSource decoded;
+  ASSERT_EQ(decoded.assign({result.c_str(), result.length()}, converter), 0);
+  ASSERT_EQ(decoded.scalars().size(), size_t(2));
+  EXPECT_EQ(decoded.scalars()[0], uint32_t(0x4e2d));
+  EXPECT_EQ(decoded.scalars()[1], uint32_t('X'));
 }
 
 TEST(LlvmLibcISO2022CNTest, WordSourceRetainsWireStates) {

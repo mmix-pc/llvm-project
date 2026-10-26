@@ -120,3 +120,40 @@ TEST(LlvmLibcWordFragmentsTest, ExpansionFailureReleasesEveryOwnedAllocation) {
   }
   EXPECT_TRUE(completed);
 }
+
+TEST(LlvmLibcWordFragmentsTest, OwnedSourceExpansionFailureReleasesAllStorage) {
+  char text[512];
+  size_t size = 0;
+  for (unsigned i = 0; i < 200; ++i)
+    text[size++] = 'a';
+  for (char c : string_view("${absent:-${x%%*f} '$y'} $((2+3))"))
+    text[size++] = c;
+  WordExpansionServices services;
+  services.lookup = [](void *p, string_view name) -> ErrorOr<WordVariable> {
+    return name == "absent" ? WordVariable{false, {}} : *lookup(p, name);
+  };
+  bool completed = false;
+  size_t before = live;
+  for (int failure = 0; failure < 512 && !completed; ++failure) {
+    int error;
+    {
+      WordSource source;
+      fail_after = failure;
+      error = source.assign({text, size}, RestartableConverter(false));
+      if (!error) {
+        auto result = expand_word_fragments(
+            source, true, false, RestartableConverter(false), nullptr,
+            nullptr, services, {nullptr, accept_word});
+        error = result ? 0 : result.system_error;
+        fail_after = -1;
+        EXPECT_TRUE(result || result.error == WordExpansionError::SYSTEM);
+      }
+      fail_after = -1;
+      completed = error == 0;
+      if (error)
+        EXPECT_EQ(error, ENOMEM);
+    }
+    EXPECT_EQ(live, before);
+  }
+  EXPECT_TRUE(completed);
+}

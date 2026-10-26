@@ -37,8 +37,10 @@ struct Fixture {
   char scratch[256]{};
   string_view command_output;
   unsigned command_calls = 0;
+  char last_command[256]{};
+  bool legacy = false, command_quoted = false;
 
-  static int command(void *p, span<const uint32_t>, bool,
+  static int command(void *p, span<const uint32_t>, bool, bool,
                      LIBC_NAMESPACE::CharVector &output) {
     auto &self = *static_cast<Fixture *>(p);
     ++self.command_calls;
@@ -46,6 +48,23 @@ struct Fixture {
       if (!output.append(c))
         return ENOMEM;
     return 0;
+  }
+  static int source_command(void *p, const WordSource &source, WordToken token,
+                            RestartableConverter converter,
+                            LIBC_NAMESPACE::CharVector &output) {
+    auto &self = *static_cast<Fixture *>(p);
+    LIBC_NAMESPACE::CharVector bytes;
+    self.legacy = token.kind == WordToken::Kind::BACKQUOTED_COMMAND;
+    self.command_quoted = token.quoted;
+    int error = source.command(token.begin, token.end, self.legacy,
+                               token.quoted, converter, bytes);
+    if (error)
+      return error;
+    if (bytes.length() >= sizeof(self.last_command))
+      return ENOMEM;
+    for (size_t i = 0; i <= bytes.length(); ++i)
+      self.last_command[i] = bytes.c_str()[i];
+    return command(p, {}, false, false, output);
   }
 
   static ErrorOr<WordVariable> lookup(void *p, string_view name) {
@@ -121,8 +140,7 @@ struct Fixture {
       source[length++] = static_cast<unsigned char>(*text++);
     return run_scalars(undef, allow_commands);
   }
-  WordExpansionResult run_scalars(bool undef = false,
-                                  bool allow_commands = false) {
+  WordExpansionServices services() {
     WordExpansionServices services;
     services.context = this;
     services.lookup = lookup;
@@ -131,13 +149,53 @@ struct Fixture {
     services.diagnostic = diagnostic;
     services.commands = word_command_syntax();
     services.command = command;
+    services.source_command = source_command;
     services.arithmetic = {this, read_number, write_number};
+    return services;
+  }
+  WordExpansionResult run_source(const char *text) {
+    WordSource source;
+    int error = source.assign(text, RestartableConverter(true));
+    if (error)
+      return {Failure::SYSTEM, {}, error};
+    return expand_word_fragments(source, false, false,
+                                 RestartableConverter(true), nullptr, nullptr,
+                                 services(), {this, word});
+  }
+  WordExpansionResult run_scalars(bool undef = false,
+                                  bool allow_commands = false) {
     return expand_word_fragments({source, length}, !allow_commands, undef,
                                  RestartableConverter(true), nullptr, nullptr,
-                                 services, {this, word});
+                                 services(), {this, word});
   }
 };
 } // namespace
+
+TEST(LlvmLibcWordExpandTest, SourceOffsetsSurviveSelectedNestedOperands) {
+  Fixture f;
+  f.command_output = "result\n";
+  ASSERT_TRUE(bool(f.run_source(
+      "${present:-$(echo skipped)} ${x:-${y:-\"$(printf '\xc4\xb1')\"}}")));
+  EXPECT_EQ(f.command_calls, 1U);
+  EXPECT_STREQ(f.last_command, "printf '\xc4\xb1'");
+  EXPECT_TRUE(f.command_quoted);
+  EXPECT_FALSE(f.legacy);
+  ASSERT_EQ(f.count, size_t(2));
+  EXPECT_STREQ(f.words[0], "original");
+  EXPECT_STREQ(f.words[1], "result");
+
+  Fixture quoted;
+  quoted.command_output = "output";
+  ASSERT_TRUE(bool(quoted.run_source(R"(${x:-"`printf \"%s\" value`"})")));
+  EXPECT_STREQ(quoted.last_command, "printf \"%s\" value");
+  EXPECT_TRUE(quoted.command_quoted);
+  EXPECT_TRUE(quoted.legacy);
+
+  Fixture invalid;
+  EXPECT_FALSE(bool(invalid.run_source("${x:=changed} $(echo |)")));
+  EXPECT_EQ(invalid.writes, 0U);
+  EXPECT_EQ(invalid.command_calls, 0U);
+}
 
 TEST(LlvmLibcWordExpandTest, LazyAlternativesAndAssignments) {
   Fixture f;

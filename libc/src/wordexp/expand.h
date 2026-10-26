@@ -12,6 +12,7 @@
 #include "src/wordexp/arithmetic.h"
 #include "src/wordexp/fragments.h"
 #include "src/wordexp/pattern.h"
+#include "src/wordexp/source.h"
 #include "src/wordexp/syntax.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -30,7 +31,11 @@ struct WordExpansionServices {
   int (*assign)(void *, cpp::string_view, cpp::string_view) = nullptr;
   ErrorOr<WordVariable> (*home)(void *, cpp::string_view) = nullptr;
   int (*command)(void *, cpp::span<const uint32_t>, bool backquoted,
-                 CharVector &) = nullptr;
+                 bool quoted, CharVector &) = nullptr;
+  // The owned-source entry uses this callback, including in selected nested
+  // operands. Token offsets remain relative to the complete source snapshot.
+  int (*source_command)(void *, const WordSource &, WordToken,
+                        RestartableConverter, CharVector &) = nullptr;
   int (*diagnostic)(void *, cpp::string_view name,
                     cpp::string_view message) = nullptr;
   WordCommandSyntax commands;
@@ -64,6 +69,19 @@ struct WordExpansionSink {
 // evaluate selected parameter alternatives only. This is an internal pipeline,
 // not a substitute for the public flag/error/result and process contracts.
 WordExpansionResult expand_word_fragments(cpp::span<const uint32_t> input,
+                                          bool no_command, bool undef,
+                                          RestartableConverter converter,
+                                          const __locale_data *ctype,
+                                          const CollationData *collation,
+                                          WordExpansionServices services,
+                                          WordExpansionSink sink);
+
+// Preserve the byte spelling of literal source spans, emitting only required
+// shift/designation transitions between spans. Raw expansion values retain
+// their distinct byte semantics; an invalid/partial state cannot be used to
+// join a later encoded source span. The converter must match the snapshot.
+// This does not establish the public wordexp/result contract.
+WordExpansionResult expand_word_fragments(const WordSource &input,
                                           bool no_command, bool undef,
                                           RestartableConverter converter,
                                           const __locale_data *ctype,

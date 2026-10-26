@@ -125,6 +125,8 @@ int pattern_text(const WordFragments &word, RestartableConverter converter,
 
 class Evaluator {
   Scalars input;
+  const WordSource *source;
+  size_t source_offset;
   bool no_command, undef;
   RestartableConverter converter;
   const __locale_data *ctype;
@@ -134,6 +136,8 @@ class Evaluator {
   WordFragments &output;
   unsigned depth;
   WordExpansionResult result;
+  mbstate output_state{};
+  bool output_state_valid = true;
 
   int fail(Failure error, int detail = 0) {
     result = {error, {}, detail};
@@ -153,7 +157,9 @@ class Evaluator {
     if (depth == 128)
       return syntax({WordSyntaxError::NESTING_LIMIT});
     Evaluator child(text, no_command, undef, converter, ctype, collation,
-                    services, {}, word, depth + 1);
+                    services, {}, word, depth + 1, source,
+                    source_offset +
+                        (input.empty() ? 0 : text.data() - input.data()));
     auto done = child.fragment(quoted, arithmetic);
     if (!done) {
       result = done;
@@ -161,8 +167,70 @@ class Evaluator {
     }
     return 0;
   }
+  int raw(cpp::string_view bytes, bool split, bool quoted) {
+    if (int error = output.append(bytes, split, quoted))
+      return system(error);
+    // Expansion values can contain arbitrary bytes. Track a valid state when
+    // possible, but do not reject byte-only results merely for invalid
+    // encoding.
+    if (converter.state_dependent() && output_state_valid) {
+      while (!bytes.empty()) {
+        uint32_t scalar;
+        auto length = converter.decode(
+            &scalar,
+            {reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()},
+            output_state);
+        if (!length || !*length) {
+          output_state_valid = false;
+          break;
+        }
+        if (*length == size_t(-2))
+          break;
+        bytes.remove_prefix(*length);
+      }
+    }
+    return 0;
+  }
+  int transition(const mbstate &required, bool quoted) {
+    if (!output_state_valid || !converter.boundary(output_state))
+      return system(EILSEQ);
+    uint8_t bytes[MAX_LOCALE_STATE_PREFIX_BYTES];
+    auto length = converter.transition(required, output_state, bytes);
+    if (!length)
+      return system(length.error());
+    return *length ? system(output.append(
+                         {reinterpret_cast<const char *>(bytes), *length},
+                         false, quoted))
+                   : 0;
+  }
+  int finish_encoding() {
+    if (!converter.state_dependent() || !output_state_valid ||
+        !converter.boundary(output_state))
+      return 0;
+    auto parts = output.parts();
+    return transition({}, !parts.empty() && parts.back().quoted);
+  }
+  int independent(cpp::string_view bytes, bool split, bool quoted) {
+    if (!bytes.empty() && converter.state_dependent())
+      if (int error = transition({}, quoted))
+        return error;
+    return raw(bytes, split, quoted);
+  }
   int value(cpp::string_view bytes, bool quoted) {
-    return system(output.append(bytes, true, quoted));
+    return independent(bytes, true, quoted);
+  }
+  int literal(size_t begin, size_t end, bool quoted) {
+    if (source && begin != end) {
+      size_t offset = source_offset + begin;
+      if (int error = transition(source->units()[offset].before, quoted))
+        return error;
+      auto span = source->slice(offset, source_offset + end);
+      return span ? raw(*span, false, quoted) : system(span.error());
+    }
+    CharVector bytes;
+    if (int error = encode(input.subspan(begin, end - begin), converter, bytes))
+      return system(error);
+    return independent({bytes.c_str(), bytes.length()}, false, quoted);
   }
   int lookup(cpp::string_view variable, CharVector &owned, bool &set) {
     if (!services.lookup)
@@ -276,17 +344,18 @@ class Evaluator {
     CharVector bytes;
     switch (token.kind) {
     case Kind::END_WORD:
+      if (int error = finish_encoding())
+        return error;
       if (!sink.word)
         return fail(Failure::SERVICE_REQUIRED);
       if (int error = sink.word(sink.context, output.parts()))
         return system(error);
       output.clear();
+      output_state = {};
+      output_state_valid = true;
       return 0;
     case Kind::LITERAL:
-      if (int error = encode(text, converter, bytes))
-        return system(error);
-      return system(
-          output.append({bytes.c_str(), bytes.length()}, false, token.quoted));
+      return literal(token.begin, token.end, token.quoted);
     case Kind::DOLLAR_QUOTED: {
       Encoder encoder(converter, bytes);
       auto done = decode_dollar_quote(text, {&encoder, Encoder::quoted});
@@ -296,8 +365,7 @@ class Evaluator {
                    : syntax(done);
       if (int error = encoder.character(0))
         return system(error);
-      return system(
-          output.append({bytes.c_str(), bytes.length()}, false, true));
+      return independent({bytes.c_str(), bytes.length()}, false, true);
     }
     case Kind::PARAMETER:
     case Kind::BRACED_PARAMETER:
@@ -314,12 +382,12 @@ class Evaluator {
       if (!home)
         return system(home.error());
       if (home->set)
-        return system(output.append(home->value, false, true));
+        return independent(home->value, false, true);
       // Unknown login names/HOME have unspecified tilde results. Preserve the
       // original spelling rather than inventing a directory.
-      if (int error = output.append("~", false, false))
-        return system(error);
-      return system(output.append({user.c_str(), user.length()}, false, false));
+      if (int error = independent("~", false, false))
+        return error;
+      return raw({user.c_str(), user.length()}, false, false);
     }
     case Kind::ARITHMETIC: {
       WordFragments expanded;
@@ -336,11 +404,22 @@ class Evaluator {
     }
     case Kind::COMMAND:
     case Kind::BACKQUOTED_COMMAND: {
-      if (!services.command)
-        return fail(Failure::SERVICE_REQUIRED);
-      if (int error =
-              services.command(services.context, text,
-                               token.kind == Kind::BACKQUOTED_COMMAND, bytes))
+      int error;
+      if (source) {
+        if (!services.source_command)
+          return fail(Failure::SERVICE_REQUIRED);
+        token.begin += source_offset;
+        token.end += source_offset;
+        error = services.source_command(services.context, *source, token,
+                                        converter, bytes);
+      } else {
+        if (!services.command)
+          return fail(Failure::SERVICE_REQUIRED);
+        error = services.command(services.context, text,
+                                 token.kind == Kind::BACKQUOTED_COMMAND,
+                                 token.quoted, bytes);
+      }
+      if (error)
         return system(error);
       size_t length = 0;
       char *data = bytes.c_str();
@@ -365,10 +444,12 @@ public:
             RestartableConverter converter, const __locale_data *ctype,
             const CollationData *collation,
             const WordExpansionServices &services, WordExpansionSink sink,
-            WordFragments &output, unsigned depth = 0)
-      : input(input), no_command(no_command), undef(undef),
-        converter(converter), ctype(ctype), collation(collation),
-        services(services), sink(sink), output(output), depth(depth) {}
+            WordFragments &output, unsigned depth = 0,
+            const WordSource *source = nullptr, size_t source_offset = 0)
+      : input(input), source(source), source_offset(source_offset),
+        no_command(no_command), undef(undef), converter(converter),
+        ctype(ctype), collation(collation), services(services), sink(sink),
+        output(output), depth(depth) {}
   WordExpansionResult run() {
     syntax(
         parse_word_syntax(input, no_command, {this, emit}, services.commands));
@@ -377,6 +458,8 @@ public:
   WordExpansionResult fragment(bool quoted, bool arithmetic) {
     syntax(parse_word_fragment(input, quoted, arithmetic, no_command,
                                {this, emit}, services.commands));
+    if (result)
+      finish_encoding();
     return result;
   }
 };
@@ -389,6 +472,19 @@ WordExpansionResult expand_word_fragments(
   WordFragments word;
   return Evaluator(input, no_command, undef, converter, ctype, collation,
                    services, sink, word)
+      .run();
+}
+
+WordExpansionResult expand_word_fragments(const WordSource &input,
+                                          bool no_command, bool undef,
+                                          RestartableConverter converter,
+                                          const __locale_data *ctype,
+                                          const CollationData *collation,
+                                          WordExpansionServices services,
+                                          WordExpansionSink sink) {
+  WordFragments word;
+  return Evaluator(input.scalars(), no_command, undef, converter, ctype,
+                   collation, services, sink, word, 0, &input)
       .run();
 }
 

@@ -67,7 +67,7 @@ add_object_library(
   expand
   SRCS expand.cpp
   HDRS expand.h
-  DEPENDS .arithmetic .dollar_quote .fragments .pattern .syntax
+  DEPENDS .arithmetic .dollar_quote .fragments .pattern .source .syntax
     libc.src.__support.integer_to_string libc.hdr.errno_macros
 )
 

@@ -120,5 +120,6 @@ add_libc_test(
     libc.src.wordexp.pattern
     libc.src.wordexp.ifs
     libc.src.wordexp.source
+    libc.src.wordexp.expand
     ${iso2022_cn_public_deps}
 )

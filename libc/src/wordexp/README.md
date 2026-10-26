@@ -24,7 +24,9 @@ is not yet selected for MMIX exports.
   still require the encoding adapter and fail explicitly until integrated.
 * `source` owns original bytes, scalar input and per-character encoding states.
   It preserves shift prefixes and suffixes rather than reconstructing byte
-  offsets by re-encoding. Failed replacement retains the old snapshot.
+  offsets by re-encoding. Failed replacement retains the old snapshot. Command
+  preparation restores a saved boundary and removes one legacy escape layer,
+  preserving designation bytes attached to removed characters.
 * `dollar_quote` distinguishes character escapes from raw numeric bytes and
   validates discarded text after numeric NUL. Encoding belongs to the consumer.
 * `pattern` implements parameter prefix/suffix removal through the locale-aware
@@ -34,6 +36,8 @@ is not yet selected for MMIX exports.
   arithmetic, command and output services. It preserves expansion origins and
   validates the complete source before invoking services. Command output drops
   embedded NUL bytes, preserves subsequent bytes, then strips trailing newlines.
+  The owned-source entry retains absolute offsets through selected operands and
+  uses state transitions for ordinary literal spans without re-encoding them.
 * `environment` supplies Linux environment and account lookup services. Account
   buffers are invocation-owned and grow on ERANGE. It does not provide command
   execution or diagnostic output.
@@ -41,7 +45,8 @@ is not yet selected for MMIX exports.
   `/bin/sh`, using the existing spawn provider and `PipeProcess` ownership
   policy. It controls stderr, drains the pipe before waiting, and closes and
   reaps on sink errors or cancellation. It does not parse command boundaries,
-  implement NOCMD, or normalize captured bytes.
+  implement NOCMD, or normalize captured bytes. Its source-token overload joins
+  checked source preparation to capture before acquiring process resources.
 * `ifs` owns decoded delimiter slices and distinguishes unset and empty IFS.
   It retains original byte sequences rather than re-encoding delimiters;
   expansion results themselves may contain arbitrary non-NUL bytes. Additional
@@ -53,9 +58,8 @@ is not yet selected for MMIX exports.
 * `results` stages word-vector ownership, offsets and APPEND transactions;
   `wordfree` releases that representation while preserving errno.
 
-Public integration must join source byte slices with their encoding states;
-the scalar-only expansion interface does not yet compose the source snapshot
-for state-dependent filenames. IFS and pathname-provider integration,
-remaining command syntax and capture integration, cancellation ownership of the complete
-pipeline and public flags/errors remain integration requirements. Component
+Public integration still needs stateful dollar-quote/byte-escape composition,
+here-document encoding, IFS and pathname-provider integration, and the complete
+cancellation and public flag/error contracts. Ordinary literal transitions do
+not qualify every state-dependent filename or raw-byte combination. Component
 tests do not establish installed public-interface qualification.
