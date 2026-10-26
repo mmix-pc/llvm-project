@@ -1,0 +1,67 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/selection.cmake
+# RUN: not cmake -DLIBC_SOURCE=%S/../../../../libc -P %t/missing-dependency.cmake 2>&1 | FileCheck %s
+# CHECK: MMIX word expansion requires LOCALE
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${LIBC_SOURCE}/config/linux/mmix/entrypoints.txt)
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+foreach(entry libc.src.wordexp.wordexp libc.src.wordexp.wordfree
+    libc.src.locale.duplocale libc.src.locale.uselocale
+    libc.src.time.strftime_l libc.src.time.strptime
+    libc.src.monetary.strfmon libc.src.libintl.gettext)
+  if(entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "minimal configuration selected ${entry}")
+  endif()
+endforeach()
+foreach(header wordexp libintl monetary iconv nl_types)
+  if("libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
+    message(FATAL_ERROR "minimal configuration exported ${header}")
+  endif()
+endforeach()
+foreach(component LOCALE GLOB ACCOUNT_LOOKUP SPAWN STDIO WORDEXP)
+  set(LIBC_MMIX_BUILD_${component} ON CACHE BOOL "" FORCE)
+endforeach()
+include(${LIBC_SOURCE}/config/linux/mmix/Locale.cmake)
+include(${LIBC_SOURCE}/config/linux/mmix/WordExpansion.cmake)
+include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
+foreach(entry libc.src.wordexp.wordexp libc.src.wordexp.wordfree
+    libc.src.locale.duplocale libc.src.locale.uselocale
+    libc.src.time.strftime_l libc.src.time.strptime
+    libc.src.monetary.strfmon libc.src.monetary.strfmon_l
+    libc.src.libintl.textdomain libc.src.libintl.bindtextdomain
+    libc.src.libintl.bind_textdomain_codeset)
+  if(NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing text provider ${entry}")
+  endif()
+endforeach()
+foreach(name isalnum isalpha isblank iscntrl isdigit isgraph islower isprint
+    ispunct isspace isupper isxdigit tolower toupper)
+  if(NOT "libc.src.ctype.${name}_l" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "missing explicit character provider ${name}_l")
+  endif()
+endforeach()
+foreach(name gettext dgettext dcgettext ngettext dngettext dcngettext)
+  foreach(suffix "" _l)
+    if(NOT "libc.src.libintl.${name}${suffix}" IN_LIST TARGET_LIBC_ENTRYPOINTS)
+      message(FATAL_ERROR "missing message provider ${name}${suffix}")
+    endif()
+  endforeach()
+endforeach()
+foreach(header wordexp libintl monetary iconv nl_types)
+  if(NOT "libc.include.${header}" IN_LIST TARGET_PUBLIC_HEADERS)
+    message(FATAL_ERROR "missing ${header}.h")
+  endif()
+endforeach()
+
+# The pthread profile supplies spawn independently of the SINGLE option.
+set(LIBC_MMIX_BUILD_SPAWN OFF CACHE BOOL "" FORCE)
+set(LIBC_MMIX_BUILD_THREADED_LIBC ON)
+include(${LIBC_SOURCE}/config/linux/mmix/WordExpansion.cmake)
+
+#--- missing-dependency.cmake
+cmake_minimum_required(VERSION 3.20)
+set(LIBC_MMIX_BUILD_WORDEXP ON CACHE BOOL "" FORCE)
+include(${LIBC_SOURCE}/config/linux/mmix/WordExpansion.cmake)

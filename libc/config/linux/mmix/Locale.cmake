@@ -13,10 +13,30 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.langinfo.nl_langinfo
   libc.src.langinfo.nl_langinfo_l
   libc.src.locale.newlocale
+  libc.src.locale.duplocale
+  libc.src.locale.uselocale
   libc.src.locale.getlocalename_l
   libc.src.locale.freelocale
   libc.src.locale.localeconv
   libc.src.locale.setlocale
+  libc.src.ctype.isalnum_l
+  libc.src.ctype.isalpha_l
+  libc.src.ctype.isblank_l
+  libc.src.ctype.iscntrl_l
+  libc.src.ctype.isdigit_l
+  libc.src.ctype.isgraph_l
+  libc.src.ctype.islower_l
+  libc.src.ctype.isprint_l
+  libc.src.ctype.ispunct_l
+  libc.src.ctype.isspace_l
+  libc.src.ctype.isupper_l
+  libc.src.ctype.isxdigit_l
+  libc.src.ctype.tolower_l
+  libc.src.ctype.toupper_l
+  libc.src.time.strftime_l
+  libc.src.time.strptime
+  libc.src.monetary.strfmon
+  libc.src.monetary.strfmon_l
   libc.src.wchar.wcscoll_l
   libc.src.wchar.wcscasecmp
   libc.src.wchar.wcsncasecmp
@@ -28,6 +48,21 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.nl_types.catopen
   libc.src.nl_types.catgets
   libc.src.nl_types.catclose
+  libc.src.libintl.textdomain
+  libc.src.libintl.bindtextdomain
+  libc.src.libintl.bind_textdomain_codeset
+  libc.src.libintl.gettext
+  libc.src.libintl.dgettext
+  libc.src.libintl.dcgettext
+  libc.src.libintl.ngettext
+  libc.src.libintl.dngettext
+  libc.src.libintl.dcngettext
+  libc.src.libintl.gettext_l
+  libc.src.libintl.dgettext_l
+  libc.src.libintl.dcgettext_l
+  libc.src.libintl.ngettext_l
+  libc.src.libintl.dngettext_l
+  libc.src.libintl.dcngettext_l
   libc.src.string.strcoll
   libc.src.string.strcoll_l
   libc.src.string.strxfrm
