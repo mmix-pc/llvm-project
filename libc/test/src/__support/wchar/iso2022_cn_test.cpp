@@ -406,6 +406,55 @@ TEST(LlvmLibcISO2022CNTest,
   auto word = [](void *p,
                  LIBC_NAMESPACE::cpp::span<const ExpansionPart> parts) {
     auto &out = *static_cast<LIBC_NAMESPACE::CharVector *>(p);
+TEST(LlvmLibcISO2022CNTest, SourceSuffixBelongsOnlyToAdjacentWord) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  struct Output {
+    LIBC_NAMESPACE::CharVector bytes;
+    size_t words = 0;
+    static int word(void *p,
+                    LIBC_NAMESPACE::cpp::span<const ExpansionPart> parts) {
+      auto &self = *static_cast<Output *>(p);
+      ++self.words;
+      for (const auto &part : parts)
+        for (char c : part.bytes)
+          if (!self.bytes.append(c))
+            return ENOMEM;
+      return 0;
+    }
+  };
+  const struct {
+    const char *source, *expected;
+    size_t words;
+    int error;
+  } cases[] = {
+      {"\x1b$)G\x0e\"!\x0f\x1b$)A", "\x1b$)G\x0e\"!\x0f\x1b$)A", 1, 0},
+      {"X\x1b$)A\x0e", "X\x1b$)A\x0e", 1, 0},
+      {"''\x1b$)G", "\x1b$)G", 1, 0},
+      {"\x1b$)G", "", 0, 0},
+      {" \x1b$)G", "", 0, 0},
+      {"X \x1b$)G", "X", 1, 0},
+      {"$'\\377'\x1b$)G", "", 0, EILSEQ},
+      {"$'\\x1b'\x1b$)G", "", 0, EILSEQ},
+      {"$'\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21'\x0f", "\x1b$)G\x0e\"!\x0f", 1,
+       0},
+  };
+  for (auto row : cases) {
+    WordSource source;
+    ASSERT_EQ(source.assign(row.source, converter), 0);
+    Output output;
+    auto result = expand_word_fragments(source, true, false, converter, nullptr,
+                                        nullptr, {}, {&output, Output::word});
+    EXPECT_EQ(bool(result), row.error == 0);
+    EXPECT_EQ(result.system_error, row.error);
+    EXPECT_EQ(output.words, row.words);
+    EXPECT_STREQ(output.bytes.c_str(), row.expected);
+  }
+}
+
     for (const auto &part : parts)
       for (char c : part.bytes)
         if (!out.append(c))

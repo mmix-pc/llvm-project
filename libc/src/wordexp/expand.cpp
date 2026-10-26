@@ -205,6 +205,32 @@ class Evaluator {
     auto parts = output.parts();
     return transition({}, !parts.empty() && parts.back().quoted);
   }
+  int finish_word(size_t end) {
+    if (!source || depth || source_offset + end != source->scalars().size() ||
+        source->suffix().empty())
+      return finish_encoding();
+    bool present = false;
+    for (const auto &part : output.parts())
+      present |= !part.bytes.empty() || part.quoted;
+    if (!present)
+      return 0;
+    // Complete source controls belong to the adjacent word, not a fabricated
+    // character. Preserve their spelling and do not append another reset.
+    auto parts = output.parts();
+    bool quoted = parts.back().quoted;
+    if (!output_state_valid || !converter.boundary(output_state))
+      return system(EILSEQ);
+    auto trial = output_state;
+    auto suffix = source->suffix();
+    auto length = converter.decode(
+        nullptr,
+        {reinterpret_cast<const uint8_t *>(suffix.data()), suffix.size()},
+        trial);
+    if (!length || *length != size_t(-2) || !converter.boundary(trial))
+      if (int error = transition(source->units().back().after, quoted))
+        return error;
+    return raw(source->suffix(), false, quoted);
+  }
   int independent(cpp::string_view bytes, bool split, bool quoted) {
     if (!bytes.empty() && converter.state_dependent())
       if (int error = transition({}, quoted))
@@ -342,7 +368,7 @@ class Evaluator {
     CharVector bytes;
     switch (token.kind) {
     case Kind::END_WORD:
-      if (int error = finish_encoding())
+      if (int error = finish_word(token.end))
         return error;
       if (!sink.word)
         return fail(Failure::SERVICE_REQUIRED);

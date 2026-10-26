@@ -49,6 +49,9 @@ have focused tests but are not yet selected for MMIX exports.
   uses state transitions for ordinary literal spans without re-encoding them.
 * `environment` supplies Linux environment and account lookup services. Account
   buffers are invocation-owned and grow on ERANGE. It does not provide command
+  Complete source control suffixes attach only to an adjacent existing word;
+  controls after trailing whitespace do not create another word. Explicit
+  suffix bytes are retained without an extra final reset.
   execution or diagnostic output.
 * `command` captures raw output from an already admitted command body through
   `/bin/sh`, using the existing spawn provider and `PipeProcess` ownership
