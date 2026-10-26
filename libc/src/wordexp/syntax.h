@@ -55,6 +55,7 @@ struct WordSyntaxSink {
   int (*emit)(void *, WordToken) = nullptr;
 };
 
+class WordSource;
 struct WordCommandSyntax {
   void *context = nullptr;
   // Parse only: no execution, environment writes or output callbacks. Input
@@ -63,6 +64,9 @@ struct WordCommandSyntax {
   // parenthesis counter is not a substitute. This callback can run twice.
   WordSyntaxResult (*scan)(void *, cpp::span<const uint32_t>, size_t begin,
                            bool backquoted, bool quoted) = nullptr;
+  // Borrow the current owned source for byte-sensitive syntax. Return the
+  // previous binding so a caller can restore it after success or failure.
+  const WordSource *(*bind_source)(void *, const WordSource *) = nullptr;
 };
 
 // Legacy command substitution removes one escape layer before parsing. Outer

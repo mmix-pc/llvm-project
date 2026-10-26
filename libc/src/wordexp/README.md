@@ -26,8 +26,10 @@ have focused tests but are not yet selected for MMIX exports.
 * `shell_syntax` parses command-substitution compound lists, nested commands
   and here-documents without invoking expansion services. It retains original
   positions for backquote diagnostics. Its encoding-aware service admits
-  numeric-dollar-quoted document delimiters in stateless encodings. Stateful
-  here-documents still require original-byte comparison and fail explicitly.
+  numeric-dollar-quoted document delimiters. With an owned-source binding,
+  stateful documents compare original bytes after quote/continuation removal;
+  legacy escape removal builds a separate checked byte map. Scalar-only input
+  still cannot qualify stateful delimiter equality.
 * `source` owns original bytes, scalar input and per-character encoding states.
   It preserves shift prefixes and suffixes rather than reconstructing byte
   offsets by re-encoding. Failed replacement retains the old snapshot. Command
@@ -47,11 +49,11 @@ have focused tests but are not yet selected for MMIX exports.
   embedded NUL bytes, preserves subsequent bytes, then strips trailing newlines.
   The owned-source entry retains absolute offsets through selected operands and
   uses state transitions for ordinary literal spans without re-encoding them.
-* `environment` supplies Linux environment and account lookup services. Account
-  buffers are invocation-owned and grow on ERANGE. It does not provide command
   Complete source control suffixes attach only to an adjacent existing word;
   controls after trailing whitespace do not create another word. Explicit
   suffix bytes are retained without an extra final reset.
+* `environment` supplies Linux environment and account lookup services. Account
+  buffers are invocation-owned and grow on ERANGE. It does not provide command
   execution or diagnostic output.
 * `command` captures raw output from an already admitted command body through
   `/bin/sh`, using the existing spawn provider and `PipeProcess` ownership
@@ -80,9 +82,8 @@ have focused tests but are not yet selected for MMIX exports.
   other service failures map to WRDE_SYNTAX with their actual errno. The latter
   is an explicit extension, not a claim that I/O errors are syntax errors.
 
-Public integration still needs stateful here-document byte comparison,
-shift-only source suffix handling, complete stateful IFS/path joins, and the
-full installed cancellation and ownership checks. Ordinary literal and quoted
+Public integration still needs a target shell supporting the selected encodings
+and full installed cancellation and ownership checks. Ordinary literal and quoted
 transitions do not qualify every state-dependent filename or raw-byte
 combination. Component and source-overlay tests do not establish installed
 public-interface qualification.

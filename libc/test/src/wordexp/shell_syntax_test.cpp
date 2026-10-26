@@ -11,6 +11,7 @@
 #include "src/wordexp/shell_syntax.h"
 #include "src/wordexp/source.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/__support/wchar/ISO2022CNFixture.h"
 
 using namespace LIBC_NAMESPACE::internal;
 namespace {
@@ -232,6 +233,43 @@ TEST(LlvmLibcShellSyntaxTest, EncodedDelimiterFailureReleasesAllStorage) {
     EXPECT_EQ(live, before);
   }
   EXPECT_TRUE(complete);
+}
+
+TEST(LlvmLibcShellSyntaxTest, SourceDocumentFailureReleasesAllStorage) {
+  LIBC_NAMESPACE::testing::ISO2022CNFixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  WordCommandParser parser(converter);
+  auto service = parser.service();
+  const char *inputs[] = {
+      "$(cat <<$'\\x45OF' "
+      "<<'\x1b$)G\x0e\"!\x0f'\nx\nEOF\ny\n\x1b$)G\x0e\"!\x0f\n)",
+      "`cat <<$'\\x45OF' "
+      "<<'\x1b$)G\x0e\"!\x0f'\nx\nEOF\ny\n\x1b$)G\x0e\"!\x0f\n`",
+  };
+  size_t initial = live;
+  for (const char *input : inputs) {
+    WordSource source;
+    ASSERT_EQ(source.assign(input, converter), 0);
+    service.bind_source(service.context, &source);
+    size_t before = live;
+    bool complete = false;
+    for (int failure = 0; failure < 256 && !complete; ++failure) {
+      fail_after = failure;
+      auto parsed = parse_word_syntax(source.scalars(), false, {}, service);
+      fail_after = -1;
+      complete = bool(parsed);
+      if (!complete) {
+        EXPECT_EQ(int(parsed.error), int(WordSyntaxError::RESOURCE));
+        EXPECT_EQ(parsed.sink_error, ENOMEM);
+      }
+      EXPECT_EQ(live, before);
+    }
+    EXPECT_TRUE(complete);
+    service.bind_source(service.context, nullptr);
+  }
+  EXPECT_EQ(live, initial);
 }
 
 TEST(LlvmLibcShellSyntaxTest, PreflightBeforeAnySink) {

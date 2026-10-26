@@ -26,10 +26,11 @@ WordSyntaxResult scan_word_command(cpp::span<const uint32_t> source,
 WordCommandSyntax word_command_syntax();
 
 // Supplies the selected encoding for dollar-quoted document delimiters. The
-// service borrows this object. Stateful document byte matching still needs the
-// owned-source adapter and is not admitted through scalar-only comparison.
+// service borrows this object. Stateful documents additionally require its
+// owned-source binding; scalar-only comparison cannot establish byte equality.
 class WordCommandParser {
   RestartableConverter converter;
+  const WordSource *source = nullptr;
 
 public:
   explicit WordCommandParser(RestartableConverter converter)

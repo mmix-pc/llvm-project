@@ -510,6 +510,17 @@ WordExpansionResult expand_word_fragments(const WordSource &input,
                                           const CollationData *collation,
                                           WordExpansionServices services,
                                           WordExpansionSink sink) {
+  struct SourceScope {
+    WordCommandSyntax service;
+    const WordSource *previous;
+    ~SourceScope() {
+      if (service.bind_source)
+        service.bind_source(service.context, previous);
+    }
+  } binding{services.commands, services.commands.bind_source
+                                   ? services.commands.bind_source(
+                                         services.commands.context, &input)
+                                   : nullptr};
   WordFragments word;
   return Evaluator(input.scalars(), no_command, undef, converter, ctype,
                    collation, services, sink, word, 0, &input)

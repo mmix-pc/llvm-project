@@ -35,10 +35,13 @@ WordSyntaxResult render_word_quote(cpp::span<const uint32_t> body,
 
 // The converter matches source admission. Literal characters preserve their
 // original byte spelling; only necessary state transitions are introduced.
+// A byte-sensitive delimiter consumer can defer the automatic character-tail
+// reset when it will append the original closing-quote control prefix itself.
 WordSyntaxResult render_word_quote(const WordSource &source, size_t begin,
                                    size_t end, RestartableConverter converter,
                                    CharVector &output,
-                                   WordQuoteState *state = nullptr);
+                                   WordQuoteState *state = nullptr,
+                                   bool finish_character = true);
 
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

@@ -24,6 +24,7 @@ add_libc_test(
   SUITE libc-wordexp-tests
   SRCS shell_syntax_test.cpp
   DEPENDS libc.src.wordexp.shell_syntax libc.src.__support.freelist_heap
+    libc.src.locale.encoding_data
     libc.hdr.errno_macros
 )
 if(TARGET libc.test.src.wordexp.shell_syntax_test.__build__)

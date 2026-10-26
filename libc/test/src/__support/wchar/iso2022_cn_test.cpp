@@ -57,55 +57,15 @@
 #include "src/wchar/wctob.h"
 #endif
 
+#include "test/src/__support/wchar/ISO2022CNFixture.h"
+
 using LIBC_NAMESPACE::internal::ChineseEncodingData;
 using LIBC_NAMESPACE::internal::ISO2022CNState;
 using LIBC_NAMESPACE::internal::LocaleDataView;
 using Event = ISO2022CNState::Event;
 
 namespace {
-// Small deliberately constructed repertoires make wire choices independent of
-// production-table round trips. Data-source qualification is separate.
-struct Fixture {
-  uint8_t bytes[512]{};
-  static void put(uint8_t *p, uint32_t value) {
-    for (unsigned i = 0; i != 4; ++i)
-      p[i] = uint8_t(value >> (24 - i * 8));
-  }
-  Fixture() {
-    const char magic[] = "LLVMLCL";
-    for (unsigned i = 0; i != 8; ++i)
-      bytes[i] = uint8_t(magic[i]);
-    put(bytes + 8, 1);
-    put(bytes + 12, 0x01020304);
-    put(bytes + 16, 322);
-    put(bytes + 20, 6);
-    put(bytes + 24, 128);
-    put(bytes + 28, 2);
-    bytes[128] = 'x';
-    const uint32_t values[][4] = {
-        {0x2121, 0x4e2d, 0x2122, 0x6587},   {0x4e2d, 0x2121, 0x6587, 0x2122},
-        {0x2221, 0x4e2d, 0x2222, 0x56fd},   {0x4e2d, 0x2221, 0x56fd, 0x2222},
-        {0x2321, 0x20000, 0x2322, 0x20001}, {0x20000, 0x2321, 0x20001, 0x2322}};
-    for (unsigned i = 0; i != 6; ++i) {
-      uint8_t *directory = bytes + 32 + i * 16;
-      put(directory, i);
-      put(directory + 4, i ? 322 : 130);
-      put(directory + 8, i ? 0 : 192);
-      put(directory + 12, i ? 0 : 6);
-      uint8_t *entry = bytes + 130 + i * 16;
-      put(entry, 0x201 + i);
-      put(entry + 4, 2);
-      put(entry + 8, 96 + i * 16);
-      put(entry + 12, 16);
-      for (unsigned j = 0; j != 4; ++j)
-        put(bytes + 226 + i * 16 + j * 4, values[i][j]);
-    }
-  }
-  auto read() {
-    auto file = LocaleDataView::parse({bytes, 322});
-    return ChineseEncodingData::read(file.value());
-  }
-};
+using Fixture = LIBC_NAMESPACE::testing::ISO2022CNFixture;
 
 void encoded(ISO2022CNState &state, const ChineseEncodingData &data,
              uint32_t scalar, const char *expected, size_t count) {
@@ -247,6 +207,91 @@ TEST(LlvmLibcISO2022CNTest, StatefulDocumentComparisonRequiresByteAdapter) {
   }
 }
 
+TEST(LlvmLibcISO2022CNTest, StatefulDocumentsCompareOriginalBytes) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  WordCommandParser parser(converter);
+  auto service = parser.service();
+  struct Calls {
+    size_t commands = 0, words = 0;
+  };
+  const char *valid[] = {
+      "$(cat <<EOF\nx\nEOF\n)",
+      "$(cat <<$'\\x45OF'\nx\nEOF\n)",
+      "$(cat <<'\x1b$)G\x0e\"!\x0f'\n$(unparsed\n\x1b$)G\x0e\"!\x0f\n)",
+      "\x1b$)G$(cat <<'END'\nx\nEND\n)",
+      "$(cat <<'\x1b$)A\x0e!!\x0f'\n\x1b$)G\x0e\"!\x0f\n) not a "
+      "terminator\n\x1b$)A\x0e!!\x0f\n)",
+      "$(cat <<-\x1b$)G'\x0e\"!\x0f'\n\t\x1b$)G\x0e\"!\x0f\n)",
+      "$(cat <<$'\x1b$)G\x0e\"!\x0f'\n\x1b$)G\x0e\"!\x0f\n)",
+      "$(cat "
+      "<<$'\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21\\x0f'\n\x1b$)G\x0e\"!\x0f\n)",
+      "$(cat <<EOF\n$(cat <<'END'\nx\nEND\n)\nEOF\n)",
+      "${absent:-$(cat <<'END'\nx\nEND\n)}",
+      "$(cat <<EOF\nE\\\nOF\n)",
+      "`cat <<'END'\nx\nEND\n`",
+      "`cat <<'\x1b$)G\x0e\"!\x0f'\nx\n\x1b$)G\x0e\"!\x0f\n`",
+  };
+  for (auto text : valid) {
+    WordSource source;
+    ASSERT_EQ(source.assign(text, converter), 0);
+    EXPECT_EQ(service.bind_source(service.context, &source), nullptr);
+    auto result = parse_word_syntax(source.scalars(), false, {}, service);
+    EXPECT_TRUE(bool(result));
+    EXPECT_TRUE(service.bind_source(service.context, nullptr) == &source);
+    Calls calls;
+    WordExpansionServices services;
+    services.context = &calls;
+    services.commands = service;
+    services.lookup = [](void *, LIBC_NAMESPACE::cpp::string_view)
+        -> LIBC_NAMESPACE::ErrorOr<WordVariable> {
+      return WordVariable{false, {}};
+    };
+    services.source_command = [](void *p, const WordSource &, WordToken,
+                                 RestartableConverter,
+                                 LIBC_NAMESPACE::CharVector &output) {
+      ++static_cast<Calls *>(p)->commands;
+      return output.append('x') ? 0 : ENOMEM;
+    };
+    WordExpansionSink sink{
+        &calls,
+        [](void *p, LIBC_NAMESPACE::cpp::span<const ExpansionPart> parts) {
+          ++static_cast<Calls *>(p)->words;
+          return parts.size() == 1 && parts[0].bytes == "x" ? 0 : EINVAL;
+        }};
+    EXPECT_TRUE(bool(expand_word_fragments(source, false, false, converter,
+                                           nullptr, nullptr, services, sink)));
+    EXPECT_EQ(calls.commands, size_t(1));
+    EXPECT_EQ(calls.words, size_t(1));
+    EXPECT_EQ(service.bind_source(service.context, nullptr), nullptr);
+    calls = {};
+    EXPECT_FALSE(bool(expand_word_fragments(source, true, false, converter,
+                                            nullptr, nullptr, services, sink)));
+    EXPECT_EQ(calls.commands, size_t(0));
+    EXPECT_EQ(calls.words, size_t(0));
+    EXPECT_EQ(service.bind_source(service.context, nullptr), nullptr);
+  }
+  // These spell the same U+4E2D, but not the same document delimiter bytes.
+  WordSource mismatch;
+  ASSERT_EQ(
+      mismatch.assign("$(cat <<'\x1b$)A\x0e!!\x0f'\n\x1b$)G\x0e\"!\x0f\n)",
+                      converter),
+      0);
+  service.bind_source(service.context, &mismatch);
+  EXPECT_FALSE(bool(parse_word_syntax(mismatch.scalars(), false, {}, service)));
+  service.bind_source(service.context, nullptr);
+
+  WordSource independent;
+  ASSERT_EQ(independent.assign("$(cat <<'END'\nx\nEND\n)", converter), 0);
+  service.bind_source(service.context, &mismatch);
+  auto result = parse_word_syntax(independent.scalars(), false, {}, service);
+  EXPECT_EQ(int(result.error), int(WordSyntaxError::COMMAND_PARSER_REQUIRED));
+  service.bind_source(service.context, nullptr);
+}
+
 TEST(LlvmLibcISO2022CNTest, BoundaryTransitionsAreAtomicAndIdempotent) {
   using namespace LIBC_NAMESPACE::internal;
   Fixture fixture;
@@ -361,51 +406,6 @@ TEST(LlvmLibcISO2022CNTest, LiteralExpansionPreservesWireChoice) {
   EXPECT_EQ(decoded.scalars()[1], uint32_t('X'));
 }
 
-TEST(LlvmLibcISO2022CNTest, DollarQuoteTracksNumericWireState) {
-  using namespace LIBC_NAMESPACE::internal;
-  Fixture fixture;
-  auto mapping = fixture.read();
-  ASSERT_TRUE(mapping.has_value());
-  RestartableConverter converter(*mapping);
-  const struct {
-    const char *source, *expected;
-    int error;
-  } cases[] = {
-      {"\x1b$)G\x0e\"!\x0f", "\x1b$)G\x0e\"!\x0f", 0},
-      {"\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21\\t", "\x1b$)G\x0e\"!\x0f\t", 0},
-      {"\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21", "\x1b$)G\x0e\"!", 0},
-      {"\\x1b\\x24\\x29\\x47\\x0e", "\x1b$)G\x0e", 0},
-      {"\\377", "\xff", 0},
-      {"\\x1b", "\x1b", 0},
-      {"\\x1bZ", "\x1b", EILSEQ},
-      {"\\e", "", EILSEQ},
-      {"\\0\\e", "", 0},
-  };
-  for (auto row : cases) {
-    WordSource source;
-    ASSERT_EQ(source.assign(row.source, converter), 0);
-    LIBC_NAMESPACE::CharVector bytes;
-    auto result =
-        render_word_quote(source, 0, source.scalars().size(), converter, bytes);
-    EXPECT_EQ(bool(result), row.error == 0);
-    if (row.error) {
-      EXPECT_TRUE(result.error == WordSyntaxError::SINK_ERROR);
-      EXPECT_EQ(result.sink_error, row.error);
-    }
-    EXPECT_STREQ(bytes.c_str(), row.expected);
-  }
-}
-
-TEST(LlvmLibcISO2022CNTest,
-     DollarQuotesComposeWithSourceAndNestedAlternatives) {
-  using namespace LIBC_NAMESPACE::internal;
-  Fixture fixture;
-  auto mapping = fixture.read();
-  ASSERT_TRUE(mapping.has_value());
-  RestartableConverter converter(*mapping);
-  auto word = [](void *p,
-                 LIBC_NAMESPACE::cpp::span<const ExpansionPart> parts) {
-    auto &out = *static_cast<LIBC_NAMESPACE::CharVector *>(p);
 TEST(LlvmLibcISO2022CNTest, SourceSuffixBelongsOnlyToAdjacentWord) {
   using namespace LIBC_NAMESPACE::internal;
   Fixture fixture;
@@ -455,6 +455,51 @@ TEST(LlvmLibcISO2022CNTest, SourceSuffixBelongsOnlyToAdjacentWord) {
   }
 }
 
+TEST(LlvmLibcISO2022CNTest, DollarQuoteTracksNumericWireState) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  const struct {
+    const char *source, *expected;
+    int error;
+  } cases[] = {
+      {"\x1b$)G\x0e\"!\x0f", "\x1b$)G\x0e\"!\x0f", 0},
+      {"\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21\\t", "\x1b$)G\x0e\"!\x0f\t", 0},
+      {"\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21", "\x1b$)G\x0e\"!", 0},
+      {"\\x1b\\x24\\x29\\x47\\x0e", "\x1b$)G\x0e", 0},
+      {"\\377", "\xff", 0},
+      {"\\x1b", "\x1b", 0},
+      {"\\x1bZ", "\x1b", EILSEQ},
+      {"\\e", "", EILSEQ},
+      {"\\0\\e", "", 0},
+  };
+  for (auto row : cases) {
+    WordSource source;
+    ASSERT_EQ(source.assign(row.source, converter), 0);
+    LIBC_NAMESPACE::CharVector bytes;
+    auto result =
+        render_word_quote(source, 0, source.scalars().size(), converter, bytes);
+    EXPECT_EQ(bool(result), row.error == 0);
+    if (row.error) {
+      EXPECT_TRUE(result.error == WordSyntaxError::SINK_ERROR);
+      EXPECT_EQ(result.sink_error, row.error);
+    }
+    EXPECT_STREQ(bytes.c_str(), row.expected);
+  }
+}
+
+TEST(LlvmLibcISO2022CNTest,
+     DollarQuotesComposeWithSourceAndNestedAlternatives) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  auto word = [](void *p,
+                 LIBC_NAMESPACE::cpp::span<const ExpansionPart> parts) {
+    auto &out = *static_cast<LIBC_NAMESPACE::CharVector *>(p);
     for (const auto &part : parts)
       for (char c : part.bytes)
         if (!out.append(c))
@@ -548,100 +593,6 @@ TEST(LlvmLibcISO2022CNTest, FieldDelimitersPreserveSourceBytes) {
   EXPECT_TRUE(ifs.delimiters().empty());
 }
 
-TEST(LlvmLibcISO2022CNTest, ParameterRemovalReencodesRemainingCharacters) {
-  using namespace LIBC_NAMESPACE::internal;
-  using Op = ParameterExpansion::Operation;
-  Fixture fixture;
-  auto mapping = fixture.read();
-  ASSERT_TRUE(mapping.has_value());
-  RestartableConverter converter(*mapping);
-  const char value[] = "\x1b$)A\x0e!!!\"\x0f";
-  auto length = word_parameter_length(value, converter);
-  ASSERT_TRUE(length.has_value());
-  EXPECT_EQ(*length, size_t(2));
-  LIBC_NAMESPACE::CharVector suffix;
-  auto removed = remove_word_pattern("?", value, Op::PREFIX, converter, nullptr,
-                                     nullptr, suffix);
-  ASSERT_TRUE(removed.has_value());
-  EXPECT_EQ(*removed, size_t(1));
-  EXPECT_STREQ(suffix.c_str(), "\x1b$)A\x0e!\"\x0f");
-  LIBC_NAMESPACE::CharVector prefix;
-  removed = remove_word_pattern("?", value, Op::SUFFIX, converter, nullptr,
-                                nullptr, prefix);
-  ASSERT_TRUE(removed.has_value());
-  EXPECT_EQ(*removed, size_t(1));
-  EXPECT_STREQ(prefix.c_str(), "\x1b$)A\x0e!!\x0f");
-  LIBC_NAMESPACE::CharVector no_change;
-  removed = remove_word_pattern("*", value, Op::PREFIX, converter, nullptr,
-                                nullptr, no_change);
-  ASSERT_TRUE(removed.has_value());
-  EXPECT_EQ(*removed, size_t(0));
-  EXPECT_STREQ(no_change.c_str(), value);
-}
-
-TEST(LlvmLibcISO2022CNTest, DollarQuoteControlsAreNotRawBytes) {
-  using namespace LIBC_NAMESPACE::internal;
-  Fixture fixture;
-  auto mapping = fixture.read();
-  ASSERT_TRUE(mapping.has_value());
-  struct Sink {
-    RestartableConverter converter;
-    mbstate state{};
-    uint8_t bytes[32]{};
-    size_t size = 0;
-    static int emit(void *opaque, QuotedUnit unit) {
-      auto &self = *static_cast<Sink *>(opaque);
-      if (unit.kind == QuotedUnit::Kind::BYTE) {
-        self.bytes[self.size++] = uint8_t(unit.value);
-        return 0;
-      }
-      auto result = self.converter.encode(
-          unit.value, {self.bytes + self.size, sizeof(self.bytes) - self.size},
-          self.state);
-      if (!result)
-        return result.error();
-      self.size += *result;
-      return 0;
-    }
-  };
-  Sink sink{RestartableConverter(*mapping)};
-  const uint32_t esc[] = {'\\', 'e'};
-  auto error = decode_dollar_quote(esc, {&sink, Sink::emit});
-  EXPECT_TRUE(error.error == WordSyntaxError::SINK_ERROR);
-  EXPECT_EQ(error.sink_error, EILSEQ);
-  EXPECT_EQ(sink.size, size_t(0));
-  EXPECT_TRUE(sink.converter.initial(sink.state));
-  const uint32_t shift[] = {'\\', 'c', 'n'};
-  error = decode_dollar_quote(shift, {&sink, Sink::emit});
-  EXPECT_EQ(error.sink_error, EILSEQ);
-  EXPECT_EQ(sink.size, size_t(0));
-  const uint32_t bytes[] = {'\\', 'x', '1', 'b', '\\', '3', '3'};
-  ASSERT_TRUE(bool(decode_dollar_quote(bytes, {&sink, Sink::emit})));
-  EXPECT_EQ(sink.size, size_t(2));
-  EXPECT_EQ(sink.bytes[0], uint8_t(27));
-  EXPECT_EQ(sink.bytes[1], uint8_t(27));
-  // Raw numeric bytes are emitted as requested, not submitted as characters.
-  EXPECT_TRUE(sink.converter.initial(sink.state));
-  const uint32_t discarded[] = {'\\', '0', '\\', 'e'};
-  ASSERT_TRUE(bool(decode_dollar_quote(discarded, {&sink, Sink::emit})));
-  EXPECT_EQ(sink.size, size_t(2));
-  const uint32_t scalar[] = {0x4e2d};
-  ASSERT_TRUE(bool(decode_dollar_quote(scalar, {&sink, Sink::emit})));
-  EXPECT_EQ(sink.size, size_t(9));
-  EXPECT_EQ(sink.bytes[7], uint8_t('!'));
-  EXPECT_EQ(sink.bytes[8], uint8_t('!'));
-}
-
-TEST(LlvmLibcISO2022CNTest, RegexOffsetsKeepShiftPrefixesAndSuffixes) {
-  using namespace LIBC_NAMESPACE::internal;
-  Fixture fixture;
-  auto mapping = fixture.read();
-  ASSERT_TRUE(mapping.has_value());
-  RestartableConverter converter(*mapping);
-  DecodedRegexText text;
-  const char input[] = "\x1b$)A\x0e!!\x0f";
-  ASSERT_EQ(text.assign({input, sizeof(input) - 1}, converter), 0);
-  ASSERT_EQ(text.units().size(), size_t(1));
 namespace {
 struct FieldOutput {
   char bytes[8][128]{};
@@ -777,6 +728,100 @@ TEST(LlvmLibcISO2022CNTest, FieldSplittingStopsAtEverySinkError) {
             EILSEQ);
 }
 
+TEST(LlvmLibcISO2022CNTest, ParameterRemovalReencodesRemainingCharacters) {
+  using namespace LIBC_NAMESPACE::internal;
+  using Op = ParameterExpansion::Operation;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  const char value[] = "\x1b$)A\x0e!!!\"\x0f";
+  auto length = word_parameter_length(value, converter);
+  ASSERT_TRUE(length.has_value());
+  EXPECT_EQ(*length, size_t(2));
+  LIBC_NAMESPACE::CharVector suffix;
+  auto removed = remove_word_pattern("?", value, Op::PREFIX, converter, nullptr,
+                                     nullptr, suffix);
+  ASSERT_TRUE(removed.has_value());
+  EXPECT_EQ(*removed, size_t(1));
+  EXPECT_STREQ(suffix.c_str(), "\x1b$)A\x0e!\"\x0f");
+  LIBC_NAMESPACE::CharVector prefix;
+  removed = remove_word_pattern("?", value, Op::SUFFIX, converter, nullptr,
+                                nullptr, prefix);
+  ASSERT_TRUE(removed.has_value());
+  EXPECT_EQ(*removed, size_t(1));
+  EXPECT_STREQ(prefix.c_str(), "\x1b$)A\x0e!!\x0f");
+  LIBC_NAMESPACE::CharVector no_change;
+  removed = remove_word_pattern("*", value, Op::PREFIX, converter, nullptr,
+                                nullptr, no_change);
+  ASSERT_TRUE(removed.has_value());
+  EXPECT_EQ(*removed, size_t(0));
+  EXPECT_STREQ(no_change.c_str(), value);
+}
+
+TEST(LlvmLibcISO2022CNTest, DollarQuoteControlsAreNotRawBytes) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  struct Sink {
+    RestartableConverter converter;
+    mbstate state{};
+    uint8_t bytes[32]{};
+    size_t size = 0;
+    static int emit(void *opaque, QuotedUnit unit) {
+      auto &self = *static_cast<Sink *>(opaque);
+      if (unit.kind == QuotedUnit::Kind::BYTE) {
+        self.bytes[self.size++] = uint8_t(unit.value);
+        return 0;
+      }
+      auto result = self.converter.encode(
+          unit.value, {self.bytes + self.size, sizeof(self.bytes) - self.size},
+          self.state);
+      if (!result)
+        return result.error();
+      self.size += *result;
+      return 0;
+    }
+  };
+  Sink sink{RestartableConverter(*mapping)};
+  const uint32_t esc[] = {'\\', 'e'};
+  auto error = decode_dollar_quote(esc, {&sink, Sink::emit});
+  EXPECT_TRUE(error.error == WordSyntaxError::SINK_ERROR);
+  EXPECT_EQ(error.sink_error, EILSEQ);
+  EXPECT_EQ(sink.size, size_t(0));
+  EXPECT_TRUE(sink.converter.initial(sink.state));
+  const uint32_t shift[] = {'\\', 'c', 'n'};
+  error = decode_dollar_quote(shift, {&sink, Sink::emit});
+  EXPECT_EQ(error.sink_error, EILSEQ);
+  EXPECT_EQ(sink.size, size_t(0));
+  const uint32_t bytes[] = {'\\', 'x', '1', 'b', '\\', '3', '3'};
+  ASSERT_TRUE(bool(decode_dollar_quote(bytes, {&sink, Sink::emit})));
+  EXPECT_EQ(sink.size, size_t(2));
+  EXPECT_EQ(sink.bytes[0], uint8_t(27));
+  EXPECT_EQ(sink.bytes[1], uint8_t(27));
+  // Raw numeric bytes are emitted as requested, not submitted as characters.
+  EXPECT_TRUE(sink.converter.initial(sink.state));
+  const uint32_t discarded[] = {'\\', '0', '\\', 'e'};
+  ASSERT_TRUE(bool(decode_dollar_quote(discarded, {&sink, Sink::emit})));
+  EXPECT_EQ(sink.size, size_t(2));
+  const uint32_t scalar[] = {0x4e2d};
+  ASSERT_TRUE(bool(decode_dollar_quote(scalar, {&sink, Sink::emit})));
+  EXPECT_EQ(sink.size, size_t(9));
+  EXPECT_EQ(sink.bytes[7], uint8_t('!'));
+  EXPECT_EQ(sink.bytes[8], uint8_t('!'));
+}
+
+TEST(LlvmLibcISO2022CNTest, RegexOffsetsKeepShiftPrefixesAndSuffixes) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  DecodedRegexText text;
+  const char input[] = "\x1b$)A\x0e!!\x0f";
+  ASSERT_EQ(text.assign({input, sizeof(input) - 1}, converter), 0);
+  ASSERT_EQ(text.units().size(), size_t(1));
   EXPECT_EQ(text.units()[0].scalar, uint32_t(0x4e2d));
   EXPECT_EQ(text.units()[0].begin, regoff_t(0));
   EXPECT_EQ(text.units()[0].end, regoff_t(7));

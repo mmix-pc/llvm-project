@@ -74,7 +74,8 @@ struct Renderer {
   static int emit(void *p, QuotedUnit unit) {
     return static_cast<Renderer *>(p)->unit(unit);
   }
-  WordSyntaxResult run(cpp::span<const uint32_t> body) {
+  WordSyntaxResult run(cpp::span<const uint32_t> body,
+                       bool finish_character = true) {
     if (output.length())
       return {WordSyntaxError::SINK_ERROR, 0, EINVAL};
     auto result = decode_dollar_quote(body, {this, emit});
@@ -82,7 +83,7 @@ struct Renderer {
       return result;
     // A complete stateful character result needs a reset before later word
     // fragments. Never invent a repair for intentionally raw invalid bytes.
-    if (encoding.character_tail && encoding.valid &&
+    if (finish_character && encoding.character_tail && encoding.valid &&
         converter.boundary(encoding.state))
       if (int error = transition({}))
         return {WordSyntaxError::SINK_ERROR, body.size(), error};
@@ -100,12 +101,13 @@ WordSyntaxResult render_word_quote(cpp::span<const uint32_t> body,
 
 WordSyntaxResult render_word_quote(const WordSource &source, size_t begin,
                                    size_t end, RestartableConverter converter,
-                                   CharVector &output, WordQuoteState *state) {
+                                   CharVector &output, WordQuoteState *state,
+                                   bool finish_character) {
   if (begin > end || end > source.scalars().size())
     return {WordSyntaxError::SINK_ERROR, begin, EINVAL};
   WordQuoteState local;
   return Renderer{converter, output, state ? *state : local, &source, begin}
-      .run(source.scalars().subspan(begin, end - begin));
+      .run(source.scalars().subspan(begin, end - begin), finish_character);
 }
 
 } // namespace internal
