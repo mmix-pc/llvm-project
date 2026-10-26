@@ -82,15 +82,30 @@ def write_package(source_root, name, output):
     if output.exists():
         raise FileExistsError('refusing to replace an existing locale package')
     binary, review = build(source_root, name)
+    source_root = Path(source_root).resolve()
+    inputs = {source: (source_root / source).resolve()
+              for source in review['sources']}
+    if any(path.parent != source_root for path in inputs.values()):
+        raise ValueError('source escapes root during notice collection')
+    return publish_package(binary, review, inputs, output)
+
+
+def publish_package(binary, review, inputs, output):
+    """Publish a fresh package only after every reviewed input is copied."""
+    output = Path(output)
+    if output.exists():
+        raise FileExistsError('refusing to replace an existing locale package')
+    if set(inputs) != set(review['sources']):
+        raise ValueError('incomplete source provenance')
     # Do not leave a discoverable locale.dat if provenance collection fails.
     with tempfile.TemporaryDirectory(dir=output.parent, prefix='.locale-') as temporary:
         staging = Path(temporary)
         notices = staging / 'sources'
         notices.mkdir()
         for source, identity in review['sources'].items():
-            original = (Path(source_root) / source).resolve()
-            if original.parent != Path(source_root).resolve():
-                raise ValueError('source escapes root during notice collection')
+            if Path(source).name != source or source in ('.', '..'):
+                raise ValueError('invalid notice name')
+            original = Path(inputs[source])
             with original.open('rb') as stream:
                 data = stream.read(MAX_INPUT + 1)
             if hashlib.sha256(data).hexdigest() != identity['sha256']:

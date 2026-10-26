@@ -18,6 +18,10 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
+inline constexpr const char *STATEFUL_VALIDATION_LOCALE =
+    "llvm-test.ISO-2022-CN";
+inline constexpr uint32_t BUILTIN_CATEGORY_KEY = 0x7fff0001;
+
 // A controlled deployment mapping, not a path supplied by the application.
 const char *locale_file_name(cpp::string_view name);
 

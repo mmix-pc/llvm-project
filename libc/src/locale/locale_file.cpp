@@ -12,7 +12,8 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
 const char *locale_file_name(cpp::string_view name) {
-  constexpr const char *NAMES[] = {"en_US.UTF-8", "de_DE.UTF-8", "tr_TR.UTF-8"};
+  constexpr const char *NAMES[] = {"en_US.UTF-8", "de_DE.UTF-8", "tr_TR.UTF-8",
+                                   STATEFUL_VALIDATION_LOCALE};
   for (const char *candidate : NAMES)
     if (name == candidate)
       return candidate;

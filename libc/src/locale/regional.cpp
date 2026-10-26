@@ -40,13 +40,26 @@ ErrorOr<__locale_data *> RegionalLocaleFiles::load(unsigned category,
 
 ErrorOr<__locale_data *> create_regional_category(LocaleDataFile &file,
                                                   unsigned category) {
+  if (category >= LOCALE_CATEGORY_COUNT)
+    return Error(EINVAL);
+  bool stateful =
+      cpp::string_view(file.view().name()) == STATEFUL_VALIDATION_LOCALE;
+  if (stateful && category != LC_CTYPE) {
+    // This explicitly named validation profile inherits C's other categories;
+    // it is not Chinese regional data. Its data is not installed by default.
+    auto base = file.view().find(category, BUILTIN_CATEGORY_KEY);
+    if (!base || base->kind != LocaleDataView::Kind::STRING ||
+        base->bytes.size() != 2 || base->bytes[0] != 'C')
+      return Error(EINVAL);
+    return create_locale_category(file, false);
+  }
   switch (category) {
   case LC_CTYPE: {
     auto transliteration = TransliterationData::read(file.view());
     if (!transliteration)
       return Error(transliteration.error());
     auto result = create_ctype_category(file);
-    if (result && !(*result)->utf8) {
+    if (result && ((*result)->utf8 == stateful)) {
       release_locale_category(*result);
       return Error(EINVAL);
     }

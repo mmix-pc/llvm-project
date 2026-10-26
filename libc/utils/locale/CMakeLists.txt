@@ -1,5 +1,9 @@
 enable_testing()
 add_test(
+  NAME locale_validation_profile_test
+  COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_validation_locale.py
+)
+add_test(
   NAME locale_width_table_test
   COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_width_table.py
 )

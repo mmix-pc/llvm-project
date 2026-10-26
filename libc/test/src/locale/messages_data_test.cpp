@@ -113,6 +113,54 @@ TEST(LlvmLibcMessagesDataTest, RejectInvalidUtf8) {
 }
 
 #ifdef REGIONAL_MESSAGES_TEST
+TEST(LlvmLibcMessagesDataTest,
+     ValidationProfileRequiresExplicitBuiltinCategory) {
+  using namespace LIBC_NAMESPACE::internal;
+  uint8_t bytes[256]{};
+  const char magic[] = "LLVMLCL";
+  for (unsigned i = 0; i != 8; ++i)
+    bytes[i] = uint8_t(magic[i]);
+  Fixture::put(bytes + 8, 1);
+  Fixture::put(bytes + 12, 0x01020304);
+  Fixture::put(bytes + 16, sizeof(bytes));
+  Fixture::put(bytes + 20, 6);
+  Fixture::put(bytes + 24, 128);
+  size_t length = 0;
+  do {
+    bytes[128 + length] = uint8_t(STATEFUL_VALIDATION_LOCALE[length]);
+  } while (STATEFUL_VALIDATION_LOCALE[length++]);
+  Fixture::put(bytes + 28, uint32_t(length));
+  for (unsigned i = 0; i != 6; ++i) {
+    Fixture::put(bytes + 32 + i * 16, i);
+    Fixture::put(bytes + 36 + i * 16, 192);
+    Fixture::put(bytes + 40 + i * 16, i == LC_MESSAGES ? 18 : 0);
+    Fixture::put(bytes + 44 + i * 16, i == LC_MESSAGES ? 1 : 0);
+  }
+  Fixture::put(bytes + 192, BUILTIN_CATEGORY_KEY);
+  Fixture::put(bytes + 196, 1);
+  Fixture::put(bytes + 200, 16);
+  Fixture::put(bytes + 204, 2);
+  const char bases[] = {'C', 'X'};
+  for (char inherited : bases) {
+    bytes[208] = uint8_t(inherited);
+    auto file = LocaleDataFile::copy(bytes);
+    ASSERT_TRUE(file.has_value());
+    auto category = create_regional_category(**file, LC_MESSAGES);
+    if (inherited == 'C') {
+      ASSERT_TRUE(category.has_value());
+      EXPECT_FALSE((*category)->messages.has_value());
+      EXPECT_STREQ((*category)->name, STATEFUL_VALIDATION_LOCALE);
+      release_locale_category(*category);
+    } else {
+      ASSERT_FALSE(category.has_value());
+      EXPECT_EQ(category.error(), EINVAL);
+    }
+    EXPECT_EQ(create_regional_category(**file, LC_NUMERIC).error(), EINVAL);
+    EXPECT_EQ(create_regional_category(**file, 6).error(), EINVAL);
+    (*file)->release();
+  }
+}
+
 TEST(LlvmLibcMessagesDataTest, CompileBeforePublicationAndRestoreSelection) {
   using namespace LIBC_NAMESPACE::internal;
   struct RestoreSelection {

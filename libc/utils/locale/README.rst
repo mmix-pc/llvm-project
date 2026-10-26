@@ -373,3 +373,24 @@ separately; C/POSIX therefore does not acquire Unicode classification from the
 width table. Printable characters omitted from WIDTH have width one.
 ``wcswidth`` sums character widths, not bytes or rendered grapheme clusters,
 and reports EOVERFLOW rather than overflowing the returned int.
+
+Stateful Validation Locale
+--------------------------
+
+``validation_locale.py`` builds ``llvm-test.ISO-2022-CN`` with the reviewed
+GB2312/CNS mappings and the selected ``i18n`` classification, case-mapping and
+transliteration sources. Other categories explicitly inherit C through the
+private string record 0x7fff0001. The runtime rejects an absent or unknown
+inheritance value. The ordinary locale loader, category ownership and
+restartable converter consume the package; it contains no alternate test codec.
+
+.. code-block:: sh
+
+   python3 validation_locale.py --source-root /readonly/locales \
+     --gb2312 /readonly/GB2312 --cns /readonly/euc-tw-2014.ucm \
+     --output /staging/llvm-test.ISO-2022-CN
+
+Deploy ``locale.dat`` only to isolated validation roots under
+``llvm-test.ISO-2022-CN/``. No default installation target selects this package.
+It is not zh_CN/zh_TW data or a regional Chinese locale. Its review records
+unmodified source notices and hashes and does not itself qualify runtime APIs.
