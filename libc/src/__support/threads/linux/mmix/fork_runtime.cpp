@@ -32,6 +32,12 @@
 namespace LIBC_NAMESPACE_DECL {
 // Optional providers must not be pulled into a static link merely by fork.
 extern Mutex handler_list_mtx __attribute__((weak));
+namespace internal {
+bool try_lock_domain_bindings_for_fork() __attribute__((weak));
+void unlock_domain_bindings_after_fork() __attribute__((weak));
+bool try_lock_message_results_for_fork() __attribute__((weak));
+void unlock_message_results_after_fork() __attribute__((weak));
+} // namespace internal
 namespace mmix {
 extern Mutex quick_exit_mutex __attribute__((weak));
 namespace {
@@ -132,6 +138,18 @@ int ForkOperation::prepare_runtime() {
       return EAGAIN;
   }
   stream_stop = nullptr;
+  // Translation storage can allocate while locked. Freeze it before the
+  // allocator, without waiting for a peer or discarding retained strings.
+  if (internal::try_lock_domain_bindings_for_fork) {
+    if (!internal::try_lock_domain_bindings_for_fork())
+      return EAGAIN;
+    message_bindings = true;
+  }
+  if (internal::try_lock_message_results_for_fork) {
+    if (!internal::try_lock_message_results_for_fork())
+      return EAGAIN;
+    message_results = true;
+  }
   allocator_fork_prepare();
   allocator = true;
   return 0;
@@ -140,7 +158,7 @@ int ForkOperation::prepare_runtime() {
 int ForkOperation::freeze_registry() {
   bool single_thread = false;
   registry = thread_registry.freeze_for_fork(*caller, 1, &single_thread,
-                                            helper_drained);
+                                             helper_drained);
 #ifdef LIBC_MMIX_SHARED_STARTUP
   resume_loader &= single_thread;
   child_recovery = internal::ForkRecovery::child(single_thread, resume_loader);
@@ -169,6 +187,14 @@ void ForkOperation::restore_runtime(bool child) {
   if (allocator) {
     allocator_fork_release();
     allocator = false;
+  }
+  if (message_results) {
+    internal::unlock_message_results_after_fork();
+    message_results = false;
+  }
+  if (message_bindings) {
+    internal::unlock_domain_bindings_after_fork();
+    message_bindings = false;
   }
   if (child) {
     pid_t tid = caller->attributes.tid;
