@@ -1,5 +1,11 @@
 add_custom_target(libc-wordexp-tests)
 add_libc_test(
+  pattern_test
+  SUITE libc-wordexp-tests
+  SRCS pattern_test.cpp
+  DEPENDS libc.src.wordexp.pattern libc.hdr.errno_macros
+)
+add_libc_test(
   dollar_quote_test
   SUITE libc-wordexp-tests
   SRCS dollar_quote_test.cpp

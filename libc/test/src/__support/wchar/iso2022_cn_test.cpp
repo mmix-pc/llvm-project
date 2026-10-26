@@ -15,6 +15,7 @@
 #include "src/glob/component.h"
 #include "src/regex/decoded_text.h"
 #include "src/wordexp/dollar_quote.h"
+#include "src/wordexp/pattern.h"
 #include "test/UnitTest/Test.h"
 
 #ifdef LIBC_TEST_HAS_FILE
@@ -128,6 +129,37 @@ void encoded(ISO2022CNState &state, const ChineseEncodingData &data,
     EXPECT_EQ(output[i], uint8_t(expected[i]));
 }
 } // namespace
+
+TEST(LlvmLibcISO2022CNTest, ParameterRemovalReencodesRemainingCharacters) {
+  using namespace LIBC_NAMESPACE::internal;
+  using Op = ParameterExpansion::Operation;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  const char value[] = "\x1b$)A\x0e!!!\"\x0f";
+  auto length = word_parameter_length(value, converter);
+  ASSERT_TRUE(length.has_value());
+  EXPECT_EQ(*length, size_t(2));
+  LIBC_NAMESPACE::CharVector suffix;
+  auto removed = remove_word_pattern("?", value, Op::PREFIX, converter, nullptr,
+                                     nullptr, suffix);
+  ASSERT_TRUE(removed.has_value());
+  EXPECT_EQ(*removed, size_t(1));
+  EXPECT_STREQ(suffix.c_str(), "\x1b$)A\x0e!\"\x0f");
+  LIBC_NAMESPACE::CharVector prefix;
+  removed = remove_word_pattern("?", value, Op::SUFFIX, converter, nullptr,
+                                nullptr, prefix);
+  ASSERT_TRUE(removed.has_value());
+  EXPECT_EQ(*removed, size_t(1));
+  EXPECT_STREQ(prefix.c_str(), "\x1b$)A\x0e!!\x0f");
+  LIBC_NAMESPACE::CharVector no_change;
+  removed = remove_word_pattern("*", value, Op::PREFIX, converter, nullptr,
+                                nullptr, no_change);
+  ASSERT_TRUE(removed.has_value());
+  EXPECT_EQ(*removed, size_t(0));
+  EXPECT_STREQ(no_change.c_str(), value);
+}
 
 TEST(LlvmLibcISO2022CNTest, DollarQuoteControlsAreNotRawBytes) {
   using namespace LIBC_NAMESPACE::internal;

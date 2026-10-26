@@ -1,4 +1,13 @@
 add_object_library(
+  pattern
+  SRCS pattern.cpp
+  HDRS pattern.h
+  DEPENDS .parameter libc.src.fnmatch.matcher libc.src.__support.char_vector
+    libc.src.__support.alloc_checker libc.src.__support.CPP.limits
+    libc.hdr.errno_macros libc.hdr.func.free
+)
+
+add_object_library(
   dollar_quote
   SRCS dollar_quote.cpp
   HDRS dollar_quote.h
