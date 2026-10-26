@@ -1699,6 +1699,10 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.wchar.putwchar
     libc.src.wchar.ungetwc
 
+    # monetary.h entrypoints
+    libc.src.monetary.strfmon
+    libc.src.monetary.strfmon_l
+
     # nl_types.h entrypoints
     libc.src.nl_types.catopen
     libc.src.nl_types.catclose
