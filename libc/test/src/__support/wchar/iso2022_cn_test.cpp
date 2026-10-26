@@ -12,6 +12,7 @@
 #include "src/__support/wchar/iso2022_cn.h"
 #include "src/__support/wchar/restartable_converter.h"
 #include "src/fnmatch/matcher.h"
+#include "src/glob/component.h"
 #include "test/UnitTest/Test.h"
 
 #ifdef LIBC_TEST_HAS_FILE
@@ -125,6 +126,41 @@ void encoded(ISO2022CNState &state, const ChineseEncodingData &data,
     EXPECT_EQ(output[i], uint8_t(expected[i]));
 }
 } // namespace
+
+TEST(LlvmLibcISO2022CNTest, GlobSyntaxUsesCharactersNotEncodedBytes) {
+  using namespace LIBC_NAMESPACE::internal;
+  const uint32_t codes[] = {0x2a3fU, 0x5b5cU, 0x5c5dU};
+  for (uint32_t code : codes) {
+    Fixture fixture;
+    // Replace one independently constructed GB mapping with syntax-like bytes.
+    Fixture::put(fixture.bytes + 234, code);
+    Fixture::put(fixture.bytes + 254, code);
+    auto data = fixture.read();
+    ASSERT_TRUE(data.has_value());
+    char wire[] = "\x1b$)A\x0eXX\x0f";
+    wire[5] = char(code >> 8);
+    wire[6] = char(code);
+    auto parsed = prepare_glob_component(wire, sizeof(wire) - 1, false,
+                                         false, RestartableConverter(*data));
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_FALSE(parsed->magic);
+    EXPECT_EQ(parsed->length, sizeof(wire) - 1);
+    EXPECT_EQ(wire[5], char(code >> 8));
+    EXPECT_EQ(wire[6], char(code));
+    char quoted[] = "\\\x1b$)A\x0eXX\x0f\\*";
+    quoted[6] = char(code >> 8);
+    quoted[7] = char(code);
+    parsed = prepare_glob_component(quoted, sizeof(quoted) - 1, false,
+                                    false, RestartableConverter(*data));
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_FALSE(parsed->magic);
+    EXPECT_EQ(parsed->length, size_t(9));
+    for (unsigned i = 0; i != 8; ++i)
+      EXPECT_EQ(quoted[i], wire[i]);
+    EXPECT_EQ(quoted[8], '*');
+    EXPECT_EQ(quoted[9], '\0');
+  }
+}
 
 #ifdef LIBC_TEST_HAS_FILE
 namespace {

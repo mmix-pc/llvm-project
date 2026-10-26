@@ -1,8 +1,16 @@
+add_object_library(
+  component
+  SRCS component.cpp
+  HDRS component.h
+  DEPENDS libc.hdr.errno_macros libc.src.__support.wchar.restartable_converter
+)
+
 add_entrypoint_object(
   glob
   SRCS glob.cpp
   HDRS glob.h
   DEPENDS
+    .component
     libc.hdr.glob_macros
     libc.hdr.types.glob_t
     libc.hdr.errno_macros

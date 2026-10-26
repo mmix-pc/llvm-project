@@ -114,5 +114,6 @@ add_libc_test(
   DEPENDS libc.src.__support.wchar.iso2022_cn
     libc.src.__support.wchar.restartable_converter
     libc.src.fnmatch.matcher
+    libc.src.glob.component
     ${iso2022_cn_public_deps}
 )

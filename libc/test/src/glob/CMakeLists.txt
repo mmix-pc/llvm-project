@@ -1,4 +1,10 @@
 add_custom_target(libc-glob-tests)
+add_libc_test(
+  component_test
+  SUITE libc-glob-tests
+  SRCS component_test.cpp
+  DEPENDS libc.src.glob.component libc.hdr.errno_macros
+)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/testdata/sub)
 foreach(name a.txt b.txt .hidden literal[ star* sub/leaf)
   file(TOUCH "${CMAKE_CURRENT_BINARY_DIR}/testdata/${name}")

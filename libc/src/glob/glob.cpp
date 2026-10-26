@@ -18,6 +18,7 @@
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/fnmatch/fnmatch.h"
+#include "src/glob/component.h"
 #include "src/stdlib/qsort_util.h"
 #include "src/string/memory_utils/inline_memcpy.h"
 #include "src/string/string_utils.h"
@@ -72,29 +73,6 @@ struct Directory {
     libc_errno = saved;
   }
 };
-
-bool has_magic(const char *pattern, bool noescape) {
-  for (const char *p = pattern; *p; ++p) {
-    if (*p == '\\' && !noescape && p[1])
-      ++p;
-    else if (*p == '*' || *p == '?')
-      return true;
-    else if (*p == '[') {
-      const char *end = p + 1;
-      if (*end == '!' || *end == '^')
-        ++end;
-      if (*end == ']')
-        ++end;
-      for (; *end; ++end) {
-        if (*end == '\\' && !noescape && end[1])
-          ++end;
-        else if (*end == ']')
-          return true;
-      }
-    }
-  }
-  return false;
-}
 
 class Expansion {
   glob_t &result;
@@ -179,28 +157,20 @@ public:
 
       bool noescape = flags & GLOB_NOESCAPE;
       const char *end = part;
-      while (*end && *end != '/') {
-        if (!noescape && *end == '\\' && end[1]) {
-          if (end[1] == '/')
-            break;
-          ++end;
-        }
+      while (*end && *end != '/')
         ++end;
-      }
       Buffer component;
       if (!component.join("", part, end - part))
         return GLOB_NOSPACE;
-      if (!noescape && *end == '\\' && end[1] == '/')
-        ++end;
-      if (!has_magic(component.data, noescape)) {
-        char *out = component.data;
-        for (const char *p = component.data; *p; ++p) {
-          if (*p == '\\' && !noescape && p[1])
-            ++p;
-          *out++ = *p;
-        }
-        *out = '\0';
-        if (!base.join(base.data, component.data, out - component.data))
+      auto parsed = internal::prepare_glob_component(
+          component.data, size_t(end - part), noescape, *end == '/',
+          internal::RestartableConverter::current());
+      if (!parsed) {
+        libc_errno = parsed.error();
+        return parsed.error() == ENOMEM ? GLOB_NOSPACE : GLOB_ABORTED;
+      }
+      if (!parsed->magic) {
+        if (!base.join(base.data, component.data, parsed->length))
           return GLOB_NOSPACE;
         prefix = base.data;
         pattern = end;
