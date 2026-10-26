@@ -554,9 +554,15 @@ static void p_ere_exp(struct parse *p) {
       MUSTEAT('{', REG_BADRPT);
 
       backrefnum = 0;
-      while (MORE() && isdigit(PEEK())) {
+      while (MORE() && ascii_digit(PEEK())) {
         c = GETNEXT();
-        backrefnum = backrefnum * 10 + c - '0';
+        int digit = c - '0';
+        // Bound the index before arithmetic and before accessing paren arrays.
+        if (backrefnum > (NPAREN - 1 - digit) / 10) {
+          SETERROR(REG_ESUBREG);
+          return;
+        }
+        backrefnum = backrefnum * 10 + digit;
       }
       MUSTEAT('}', REG_BADRPT);
     } else {
@@ -566,7 +572,7 @@ static void p_ere_exp(struct parse *p) {
       break;
     }
 
-    if (backrefnum >= NPAREN) {
+    if (backrefnum == 0 || backrefnum >= NPAREN) {
       SETERROR(REG_ESUBREG);
       break;
     }

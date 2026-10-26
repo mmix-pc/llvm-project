@@ -354,6 +354,36 @@ TEST(LlvmLibcRegexScalarTest, ByteBackreferenceUsesCaseFlag) {
             REG_NOMATCH);
 }
 
+TEST(LlvmLibcRegexScalarTest, ExtendedReferenceNumberIsBoundedBeforeIndexing) {
+  const char *invalid[] = {
+      "(a)\\g{2147483648}", "(a)\\g{4294967297}",
+      "(a)\\g{999999999999999999999999999999}", "(a)\\g{21}",
+      "(a)\\g{0}", "(a)\\g{}"};
+  size_t before = live;
+  for (const char *pattern : invalid) {
+    Expression re;
+    EXPECT_NE(__llvm_libc_bsd_regcomp(&re.value, pattern, REG_EXTENDED), 0);
+    EXPECT_EQ(live, before);
+  }
+  Expression re;
+  ASSERT_EQ(__llvm_libc_bsd_regcomp(
+                &re.value, "(a)\\g{0000000000000000000000000000001}",
+                REG_EXTENDED), 0);
+  EXPECT_EQ(__llvm_libc_bsd_regexec(&re.value, "aa", 0, nullptr, 0), 0);
+  const Char scalar[] = {'(', 'a', ')', '\\', 'g', '{', 0x4e2d, '}', 0};
+  Expression invalid_scalar;
+  EXPECT_NE(invalid_scalar.compile(scalar, REG_EXTENDED), 0);
+}
+
+TEST(LlvmLibcRegexScalarTest, LastSupportedExtendedReference) {
+  Expression re;
+  const char *pattern = "()()()()()()()()()()()()()()()()()()()(a)\\g{20}";
+  ASSERT_EQ(__llvm_libc_bsd_regcomp(&re.value, pattern, REG_EXTENDED), 0);
+  EXPECT_EQ(re.value.re_nsub, size_t(20));
+  EXPECT_EQ(__llvm_libc_bsd_regexec(&re.value, "aa", 0, nullptr, 0), 0);
+  EXPECT_EQ(__llvm_libc_bsd_regexec(&re.value, "ab", 0, nullptr, 0), REG_NOMATCH);
+}
+
 TEST(LlvmLibcRegexScalarTest, CollationAlternativesAndPrimaryEquivalence) {
   LIBC_NAMESPACE::testing::PatternCollationFixture fixture;
   auto collation = fixture.read();
