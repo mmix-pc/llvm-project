@@ -20,8 +20,8 @@
 #include "src/fnmatch/fnmatch.h"
 #include "src/stdlib/qsort_util.h"
 #include "src/string/memory_utils/inline_memcpy.h"
-#include "src/string/strcoll.h"
 #include "src/string/string_utils.h"
+#include "src/string/strxfrm.h"
 #include "src/sys/stat/lstat.h"
 #include "src/sys/stat/stat.h"
 
@@ -220,8 +220,13 @@ public:
           return 0;
         const char *name = entry.value()->d_name;
         int match_flags = FNM_PERIOD | (noescape ? FNM_NOESCAPE : 0);
-        if (LIBC_NAMESPACE::fnmatch(component.data, name, match_flags))
+        int matched =
+            LIBC_NAMESPACE::fnmatch(component.data, name, match_flags);
+        if (matched == FNM_NOMATCH)
           continue;
+        // Resource/encoding errors are not evidence that a name did not match.
+        if (matched)
+          return libc_errno == ENOMEM ? GLOB_NOSPACE : GLOB_ABORTED;
         Buffer next;
         if (!next.join(base.data, name, internal::string_length(name)))
           return GLOB_NOSPACE;
@@ -245,9 +250,63 @@ public:
   }
 };
 
-int compare_paths(const void *left, const void *right) {
-  return LIBC_NAMESPACE::strcoll(*static_cast<char *const *>(left),
-                                 *static_cast<char *const *>(right));
+int sort_paths(char **paths, size_t count) {
+  struct Entry {
+    char *path;
+    char *key;
+  };
+  if (count > MAX_SIZE / sizeof(Entry))
+    return EOVERFLOW;
+  auto *entries =
+      static_cast<Entry *>(::realloc(nullptr, count * sizeof(Entry)));
+  if (!entries)
+    return ENOMEM;
+  struct Keys {
+    Entry *entries;
+    size_t count = 0;
+    ~Keys() {
+      for (size_t i = 0; i != count; ++i)
+        ::free(entries[i].key);
+      ::free(entries);
+    }
+  } owner{entries};
+  int saved_errno = libc_errno;
+  for (size_t i = 0; i != count; ++i) {
+    libc_errno = 0;
+    size_t length = LIBC_NAMESPACE::strxfrm(nullptr, paths[i], 0);
+    if (libc_errno)
+      return libc_errno;
+    if (length == MAX_SIZE)
+      return EOVERFLOW;
+    auto *key = static_cast<char *>(::realloc(nullptr, length + 1));
+    if (!key)
+      return ENOMEM;
+    entries[i] = {paths[i], key};
+    ++owner.count;
+    libc_errno = 0;
+    size_t written = LIBC_NAMESPACE::strxfrm(key, paths[i], length + 1);
+    if (libc_errno)
+      return libc_errno;
+    if (written != length)
+      return EINVAL;
+  }
+  // Comparisons cannot fail or allocate once all keys have been prepared.
+  internal::unstable_sort(
+      entries, count, sizeof(Entry), [](const void *a, const void *b) {
+        const char *x = static_cast<const Entry *>(a)->key;
+        const char *y = static_cast<const Entry *>(b)->key;
+        while (*x && *x == *y) {
+          ++x;
+          ++y;
+        }
+        unsigned char left = static_cast<unsigned char>(*x);
+        unsigned char right = static_cast<unsigned char>(*y);
+        return (left > right) - (left < right);
+      });
+  for (size_t i = 0; i != count; ++i)
+    paths[i] = entries[i].path;
+  libc_errno = saved_errno;
+  return 0;
 }
 
 // Roll back only this call's additions if a callback throws or unwinds.
@@ -292,10 +351,17 @@ LLVM_LIBC_FUNCTION(int, glob,
       error = GLOB_NOMATCH;
   }
   // An aborted search still exposes its partial results for globfree.
-  if (!(flags & GLOB_NOSORT) && result->gl_pathc > previous)
-    internal::unstable_sort(result->gl_pathv + result->gl_offs + previous,
-                            result->gl_pathc - previous, sizeof(char *),
-                            compare_paths);
+  if (!(flags & GLOB_NOSORT) && result->gl_pathc - previous > 1) {
+    int saved_errno = libc_errno;
+    int sort_error = sort_paths(result->gl_pathv + result->gl_offs + previous,
+                                result->gl_pathc - previous);
+    if (sort_error && !error) {
+      libc_errno = sort_error;
+      error = sort_error == ENOMEM ? GLOB_NOSPACE : GLOB_ABORTED;
+    } else {
+      libc_errno = saved_errno;
+    }
+  }
   transaction.complete = true;
   return error;
 }

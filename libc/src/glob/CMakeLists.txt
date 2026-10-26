@@ -19,7 +19,7 @@ add_entrypoint_object(
     libc.src.stdlib.qsort_util
     libc.src.string.memory_utils.inline_memcpy
     libc.src.string.string_utils
-    libc.src.string.strcoll
+    libc.src.string.strxfrm
     libc.src.sys.stat.stat
     libc.src.sys.stat.lstat
 )

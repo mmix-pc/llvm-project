@@ -9,6 +9,7 @@
 #include "hdr/errno_macros.h"
 #include "hdr/fcntl_macros.h"
 #include "hdr/glob_macros.h"
+#include "src/__support/freelist_heap.h"
 #include "src/__support/libc_errno.h"
 #include "src/fcntl/fcntl.h"
 #include "src/glob/glob.h"
@@ -18,12 +19,13 @@
 
 // Exercise allocation failures in the production walker and result vector.
 static bool inject = false;
+static bool failed_allocation = false;
 static int remaining = -1;
 static void *owned[1024];
 static size_t live = 0;
-extern "C" void *__real_malloc(size_t);
-extern "C" void *__real_realloc(void *, size_t);
-extern "C" void __real_free(void *);
+// The hermetic bump allocator never frees. Exhaustive failure walks need
+// reusable storage, including allocations made before injection is enabled.
+static LIBC_NAMESPACE::FreeListHeapBuffer<1 << 20> allocation_heap;
 static void forget(void *p) {
   for (size_t i = 0; i < live; ++i)
     if (owned[i] == p) {
@@ -32,17 +34,21 @@ static void forget(void *p) {
     }
 }
 extern "C" void *__wrap_malloc(size_t n) {
-  if (inject && remaining-- == 0)
+  if (inject && remaining-- == 0) {
+    failed_allocation = true;
     return nullptr;
-  void *p = __real_malloc(n);
+  }
+  void *p = allocation_heap.allocate(n);
   if (inject && p)
     owned[live++] = p;
   return p;
 }
 extern "C" void *__wrap_realloc(void *old, size_t n) {
-  if (inject && remaining-- == 0)
+  if (inject && remaining-- == 0) {
+    failed_allocation = true;
     return nullptr;
-  void *p = __real_realloc(old, n);
+  }
+  void *p = allocation_heap.realloc(old, n);
   if (inject && p) {
     forget(old);
     owned[live++] = p;
@@ -52,7 +58,7 @@ extern "C" void *__wrap_realloc(void *old, size_t n) {
 extern "C" void __wrap_free(void *p) {
   if (inject)
     forget(p);
-  __real_free(p);
+  allocation_heap.free(p);
 }
 
 namespace {
@@ -224,6 +230,7 @@ TEST(LlvmLibcGlob, AllocationFailuresReleasePartialResultsAndDirectories) {
   bool success = false, partial = false;
   for (int failure = 0; failure < 256; ++failure) {
     remaining = failure;
+    failed_allocation = false;
     inject = true;
     glob_t result = {};
     int error = LIBC_NAMESPACE::glob("testdata/*", 0, nullptr, &result);
@@ -232,6 +239,8 @@ TEST(LlvmLibcGlob, AllocationFailuresReleasePartialResultsAndDirectories) {
     inject = false;
     EXPECT_EQ(live, size_t(0));
     EXPECT_EQ(fd_count(), descriptors);
+    if (failed_allocation)
+      EXPECT_EQ(error, GLOB_NOSPACE);
     if (!error) {
       success = true;
       break;
@@ -249,6 +258,7 @@ TEST(LlvmLibcGlob, FailedAppendPreservesPreviousResults) {
     glob_t result = {};
     ASSERT_EQ(LIBC_NAMESPACE::glob("testdata/b.txt", 0, nullptr, &result), 0);
     remaining = failure;
+    failed_allocation = false;
     inject = true;
     int error =
         LIBC_NAMESPACE::glob("testdata/*.txt", GLOB_APPEND, nullptr, &result);
@@ -260,6 +270,8 @@ TEST(LlvmLibcGlob, FailedAppendPreservesPreviousResults) {
     EXPECT_TRUE(preserved);
     EXPECT_EQ(live, size_t(0));
     EXPECT_EQ(fd_count(), descriptors);
+    if (failed_allocation)
+      EXPECT_EQ(error, GLOB_NOSPACE);
     if (!error) {
       success = true;
       break;

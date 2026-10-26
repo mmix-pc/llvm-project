@@ -14,6 +14,7 @@ add_libc_test(
   SRCS glob_test.cpp
   DEPENDS
     libc.hdr.glob_macros
+    libc.src.__support.freelist_heap
     libc.src.glob.glob
     libc.src.glob.globfree
     libc.src.fcntl.fcntl
