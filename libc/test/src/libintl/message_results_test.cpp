@@ -67,6 +67,23 @@ TEST(LlvmLibcMessageResultsTest, CountedBytesAndHashCollisions) {
   }
 }
 
+TEST(LlvmLibcMessageResultsTest, NonblockingSnapshotPreservesResults) {
+  Results results;
+  auto first = results.insert(copy("retained"), 8);
+  ASSERT_TRUE(first.has_value());
+  ASSERT_TRUE(results.try_lock_for_fork());
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  EXPECT_FALSE(results.try_lock_for_fork());
+#endif
+  results.unlock_after_fork();
+  ASSERT_TRUE(results.try_lock_for_fork());
+  results.unlock_after_fork();
+  auto repeated = results.insert(copy("retained"), 8);
+  ASSERT_TRUE(repeated.has_value());
+  EXPECT_EQ(*repeated, *first);
+  EXPECT_STREQ(*first, "retained");
+}
+
 #ifdef MESSAGE_RESULTS_ALLOCATION_TEST
 namespace {
 bool tracking = false;

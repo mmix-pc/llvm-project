@@ -22,6 +22,15 @@ struct MessageResults::Entry {
   size_t size;
 };
 
+bool MessageResults::try_lock_for_fork() {
+  return mutex.try_lock() == MutexError::NONE;
+}
+
+void MessageResults::unlock_after_fork() {
+  if (mutex.unlock() != MutexError::NONE)
+    __builtin_trap();
+}
+
 ErrorOr<char *> MessageResults::insert(char *value, size_t size) {
   struct Owner {
     char *data;

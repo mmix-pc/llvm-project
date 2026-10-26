@@ -47,6 +47,15 @@ char *copy(cpp::string_view value) {
 }
 } // namespace
 
+bool try_lock_domain_bindings_for_fork() {
+  return binding_mutex.try_lock() == MutexError::NONE;
+}
+
+void unlock_domain_bindings_after_fork() {
+  if (binding_mutex.unlock() != MutexError::NONE)
+    __builtin_trap();
+}
+
 ErrorOr<char *> current_text_domain(const char *name) {
   cpp::lock_guard guard(binding_mutex);
   if (!name)

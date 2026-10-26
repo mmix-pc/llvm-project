@@ -47,6 +47,11 @@ public:
 };
 ErrorOr<void> snapshot_text_domain(const char *name, DomainSnapshot &result);
 
+// Nonblocking process-snapshot hooks. Only release a successful acquisition;
+// parent and child retain all binding storage and borrowed-result identities.
+bool try_lock_domain_bindings_for_fork();
+void unlock_domain_bindings_after_fork();
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 #endif

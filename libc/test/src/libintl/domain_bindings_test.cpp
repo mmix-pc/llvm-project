@@ -54,6 +54,28 @@ using LIBC_NAMESPACE::bindtextdomain;
 using LIBC_NAMESPACE::libc_errno;
 using LIBC_NAMESPACE::textdomain;
 
+TEST(LlvmLibcDomainBindingsTest, NonblockingSnapshotPreservesBindings) {
+  using namespace LIBC_NAMESPACE::internal;
+  ASSERT_NE(textdomain("fork-domain"), nullptr);
+  char *name = textdomain(nullptr);
+  char *directory = bindtextdomain("fork-domain", "/fork-data");
+  ASSERT_NE(directory, nullptr);
+  char *codeset = bind_textdomain_codeset("fork-domain", "UTF-8");
+  ASSERT_NE(codeset, nullptr);
+  ASSERT_TRUE(try_lock_domain_bindings_for_fork());
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  EXPECT_FALSE(try_lock_domain_bindings_for_fork());
+#endif
+  unlock_domain_bindings_after_fork();
+  EXPECT_EQ(textdomain(nullptr), name);
+  EXPECT_EQ(bindtextdomain("fork-domain", nullptr), directory);
+  EXPECT_EQ(bind_textdomain_codeset("fork-domain", nullptr), codeset);
+  EXPECT_STREQ(directory, "/fork-data");
+  ASSERT_TRUE(try_lock_domain_bindings_for_fork());
+  unlock_domain_bindings_after_fork();
+  EXPECT_STREQ(textdomain(""), "messages");
+}
+
 TEST(LlvmLibcDomainBindingsTest, CurrentDomainCopiesQueriesAndResets) {
   EXPECT_STREQ(textdomain(""), "messages");
   char name[] = "application";

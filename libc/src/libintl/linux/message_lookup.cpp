@@ -108,6 +108,10 @@ char *lookup(const char *domain, const char *singular, const char *plural,
 }
 } // namespace
 
+bool try_lock_message_results_for_fork() { return results.try_lock_for_fork(); }
+
+void unlock_message_results_after_fork() { results.unlock_after_fork(); }
+
 char *lookup_message(const char *domain, const char *singular,
                      const char *plural, cpp::optional<unsigned long> count,
                      int category, locale_t locale) {

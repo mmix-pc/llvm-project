@@ -34,7 +34,14 @@ public:
   ErrorOr<char *> insert(char *value, size_t size);
   // Only for quiescent disposal: all borrowed results become invalid.
   void clear();
+  // This nonrecursive lock has no thread-owner identity to rebind after fork.
+  bool try_lock_for_fork();
+  void unlock_after_fork();
 };
+
+// Optional process-instance hooks, defined with the public message provider.
+bool try_lock_message_results_for_fork();
+void unlock_message_results_after_fork();
 
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
