@@ -42,6 +42,22 @@ public:
 
 void release_word_results(wordexp_t &result);
 
+// Public result ownership, separate from parsing and service error mapping.
+// Call begin once, then finish with a WRDE status. Abandonment rolls back the
+// staged batch (including cancellation); REUSE has already disposed of its
+// previous result. APPEND|REUSE and unknown flags are rejected unchanged.
+class WordResultTransaction {
+  wordexp_t &target;
+  WordResults pending;
+  bool ready = false;
+
+public:
+  explicit WordResultTransaction(wordexp_t &target) : target(target) {}
+  int begin(int flags);
+  WordResults &results() { return pending; }
+  int finish(int status);
+};
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 #endif

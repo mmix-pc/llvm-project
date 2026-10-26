@@ -7,12 +7,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/errno_macros.h"
+#include "hdr/wordexp_macros.h"
 #include "src/__support/freelist_heap.h"
 #include "src/wordexp/results.h"
 #include "test/UnitTest/Test.h"
 
 using LIBC_NAMESPACE::internal::release_word_results;
 using LIBC_NAMESPACE::internal::WordResults;
+using LIBC_NAMESPACE::internal::WordResultTransaction;
 
 namespace {
 LIBC_NAMESPACE::FreeListHeapBuffer<1 << 20> heap;
@@ -132,6 +134,96 @@ TEST(LlvmLibcWordResultsTest, EveryAllocationFailureHasAReleasablePrefix) {
     }
     EXPECT_TRUE(complete);
   }
+}
+
+TEST(LlvmLibcWordResultsTest, PublicErrorRollbackAndReuse) {
+  const int errors[] = {WRDE_BADCHAR, WRDE_BADVAL, WRDE_CMDSUB, WRDE_SYNTAX};
+  const int modes[] = {0, WRDE_APPEND, WRDE_REUSE};
+  for (int error : errors) {
+    for (int flags : modes) {
+      size_t before = live;
+      {
+        Owned result;
+        if (flags) {
+          WordResults initial;
+          ASSERT_EQ(initial.initialize(2), 0);
+          ASSERT_EQ(initial.append("previous"), 0);
+          initial.publish(result.value);
+        } else {
+          result.value.we_offs = 2;
+        }
+        auto **old = result.value.we_wordv;
+        {
+          WordResultTransaction transaction(result.value);
+          ASSERT_EQ(transaction.begin(flags | WRDE_DOOFFS), 0);
+          ASSERT_EQ(transaction.results().append("discarded"), 0);
+          EXPECT_EQ(transaction.finish(error), error);
+        }
+        EXPECT_EQ(result.value.we_offs, size_t(2));
+        if (flags & WRDE_APPEND) {
+          EXPECT_EQ(result.value.we_wordc, size_t(1));
+          EXPECT_EQ(result.value.we_wordv, old);
+          EXPECT_STREQ(old[2], "previous");
+        } else {
+          EXPECT_EQ(result.value.we_wordc, size_t(0));
+          EXPECT_EQ(result.value.we_wordv, static_cast<char **>(nullptr));
+        }
+      }
+      EXPECT_EQ(live, before);
+    }
+  }
+}
+
+TEST(LlvmLibcWordResultsTest, PublicPartialPublicationAndCancellationRollback) {
+  const int modes[] = {0, WRDE_APPEND, WRDE_REUSE};
+  for (int flags : modes) {
+    bool completed = false;
+    for (int failure = 0; failure < 80 && !completed; ++failure) {
+      size_t before = live;
+      {
+        Owned result;
+        if (flags) {
+          WordResultTransaction initial(result.value);
+          ASSERT_EQ(initial.begin(0), 0);
+          ASSERT_EQ(initial.results().append("previous"), 0);
+          ASSERT_EQ(initial.finish(0), 0);
+        }
+        WordResultTransaction transaction(result.value);
+        fail_after = failure;
+        int status = transaction.begin(flags);
+        for (unsigned i = 0; i < 12 && !status; ++i)
+          if (transaction.results().append("next"))
+            status = WRDE_NOSPACE;
+        fail_after = -1;
+        EXPECT_EQ(transaction.finish(status), status);
+        completed = status == 0;
+        if (flags & WRDE_APPEND) {
+          ASSERT_GE(result.value.we_wordc, size_t(1));
+          EXPECT_STREQ(result.value.we_wordv[0], "previous");
+        }
+        if (result.value.we_wordv)
+          EXPECT_EQ(result.value.we_wordv[result.value.we_wordc],
+                    static_cast<char *>(nullptr));
+      }
+      EXPECT_EQ(live, before);
+    }
+    EXPECT_TRUE(completed);
+  }
+  Owned result;
+  WordResultTransaction first(result.value);
+  ASSERT_EQ(first.begin(0), 0);
+  ASSERT_EQ(first.results().append("retained"), 0);
+  ASSERT_EQ(first.finish(0), 0);
+  auto **old = result.value.we_wordv;
+  size_t before = live;
+  {
+    WordResultTransaction cancelled(result.value);
+    ASSERT_EQ(cancelled.begin(WRDE_APPEND), 0);
+    ASSERT_EQ(cancelled.results().append("abandoned"), 0);
+  }
+  EXPECT_EQ(live, before);
+  EXPECT_EQ(result.value.we_wordv, old);
+  EXPECT_EQ(result.value.we_wordc, size_t(1));
 }
 
 TEST(LlvmLibcWordResultsTest, EmptyResultsAndOverflow) {

@@ -410,6 +410,11 @@ add_proxy_header_library(
   FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.glob_macros
 )
 add_proxy_header_library(
+  wordexp_macros
+  HDRS wordexp_macros.h
+  FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.wordexp_macros
+)
+add_proxy_header_library(
   syslog_macros
   HDRS syslog_macros.h
   FULL_BUILD_DEPENDS libc.include.llvm-libc-macros.syslog_macros

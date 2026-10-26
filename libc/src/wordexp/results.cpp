@@ -11,6 +11,7 @@
 #include "hdr/func/free.h"
 #include "hdr/func/malloc.h"
 #include "hdr/func/realloc.h"
+#include "hdr/wordexp_macros.h"
 #include "src/__support/CPP/limits.h"
 #include "src/string/memory_utils/inline_memcpy.h"
 
@@ -98,6 +99,34 @@ void release_word_results(wordexp_t &result) {
   }
   result.we_wordv = nullptr;
   result.we_wordc = 0;
+}
+
+int WordResultTransaction::begin(int flags) {
+  constexpr int KNOWN = WRDE_DOOFFS | WRDE_APPEND | WRDE_NOCMD | WRDE_REUSE |
+                        WRDE_SHOWERR | WRDE_UNDEF;
+  if ((flags & ~KNOWN) ||
+      (flags & (WRDE_APPEND | WRDE_REUSE)) == (WRDE_APPEND | WRDE_REUSE))
+    return WRDE_SYNTAX;
+  size_t offsets = flags & WRDE_DOOFFS ? target.we_offs : 0;
+  if (flags & WRDE_REUSE)
+    release_word_results(target);
+  bool append = flags & WRDE_APPEND;
+  if (!append) {
+    target.we_wordc = 0;
+    target.we_wordv = nullptr;
+    target.we_offs = offsets;
+  }
+  int error = pending.initialize(offsets, append ? &target : nullptr);
+  ready = error == 0;
+  return error == ENOMEM ? WRDE_NOSPACE : error ? WRDE_SYNTAX : 0;
+}
+
+int WordResultTransaction::finish(int status) {
+  if (ready && (!status || status == WRDE_NOSPACE)) {
+    pending.publish(target);
+    ready = false;
+  }
+  return status;
 }
 
 } // namespace internal
