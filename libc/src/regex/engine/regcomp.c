@@ -1140,6 +1140,8 @@ static void repeat(struct parse *p,
     AHEAD(THERE()); /* ...so fix it */
     ASTERN(O_CH, THERETHERE());
     copy = dupl(p, start + 1, finish + 1);
+    if (p->error)
+      return;
     assert(copy == finish + 4);
     repeat(p, copy, 1, to - 1);
     break;
@@ -1420,10 +1422,18 @@ dupl(struct parse *p, sopno start, /* from here */
   sopno ret = HERE();
   sopno len = finish - start;
 
+  if (p->error)
+    return ret;
   assert(finish >= start);
   if (len == 0)
     return (ret);
+  if (len > LONG_MAX - p->ssize) {
+    SETERROR(REG_ESPACE);
+    return ret;
+  }
   enlarge(p, p->ssize + len); /* this many unexpected additions */
+  if (p->error)
+    return ret;
   assert(p->ssize >= p->slen + len);
   (void)memmove((char *)(p->strip + p->slen), (char *)(p->strip + start),
                 (size_t)len * sizeof(sop));
@@ -1444,11 +1454,21 @@ static void doemit(struct parse *p, sop op, size_t opnd) {
     return;
 
   /* deal with oversize operands ("can't happen", more or less) */
-  assert(opnd < 1 << OPSHIFT);
+  if (opnd >= (size_t)1 << OPSHIFT) {
+    SETERROR(REG_ESPACE);
+    return;
+  }
 
   /* deal with undersized strip */
-  if (p->slen >= p->ssize)
+  if (p->slen >= p->ssize) {
+    if (p->ssize >= LONG_MAX / 3 * 2) {
+      SETERROR(REG_ESPACE);
+      return;
+    }
     enlarge(p, (p->ssize + 1) / 2 * 3); /* +50% */
+    if (p->error)
+      return;
+  }
   assert(p->slen < p->ssize);
 
   /* finally, it's all reduced to the easy case */
@@ -1469,6 +1489,8 @@ static void doinsert(struct parse *p, sop op, size_t opnd, sopno pos) {
 
   sn = HERE();
   EMIT(op, opnd); /* do checks, ensure space */
+  if (p->error)
+    return;
   assert(HERE() == sn + 1);
   s = p->strip[sn];
 
@@ -1496,7 +1518,10 @@ static void dofwd(struct parse *p, sopno pos, sop value) {
   if (p->error != 0)
     return;
 
-  assert(value < 1 << OPSHIFT);
+  if (value >= (sop)1 << OPSHIFT) {
+    SETERROR(REG_ESPACE);
+    return;
+  }
   p->strip[pos] = OP(p->strip[pos]) | value;
 }
 

@@ -16,6 +16,17 @@ if(LLVM_LIBC_FULL_BUILD AND LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
   add_custom_target(libc_regex_unittests)
 
   add_libc_test(
+    allocation_test
+    SUITE libc_regex_unittests
+    SRCS allocation_test.cpp
+    DEPENDS libc.src.regex.bsd_engine libc.src.__support.freelist_heap
+  )
+  if(TARGET libc.test.src.regex.allocation_test.__build__)
+    target_link_options(libc.test.src.regex.allocation_test.__build__ PRIVATE
+      -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+  endif()
+
+  add_libc_test(
     regex_boundary_test
     SUITE libc_regex_unittests
     SRCS regex_boundary_test.cpp
