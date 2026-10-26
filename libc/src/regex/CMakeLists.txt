@@ -1,5 +1,5 @@
 function(add_bsd_regex_engine)
-  set(bsd_regex_dir "${LIBC_SOURCE_DIR}/../llvm/lib/Support")
+  set(bsd_regex_dir "${CMAKE_CURRENT_SOURCE_DIR}/engine")
   set(bsd_regex_options
     -Dllvm_regcomp=__llvm_libc_bsd_regcomp
     -Dllvm_regexec=__llvm_libc_bsd_regexec
@@ -32,14 +32,14 @@ function(add_bsd_regex_engine)
       ${bsd_regex_dir}/regexec.c
       ${bsd_regex_dir}/regfree.c
       ${bsd_regex_dir}/regstrlcpy.c
-    HDRS bsd_regex.h
-    # Match the shared C engine's warning profile without relaxing libc adapters.
+    HDRS bsd_regex.h engine/regex_impl.h engine/regex2.h engine/regutils.h
+      engine/regengine.inc
+    # Preserve the imported C engine's warning profile for this derivative.
     COMPILE_OPTIONS ${bsd_regex_options} -Wno-conversion -Wno-unused-parameter
     DEPENDS .bsd_support libc.include.ctype libc.include.limits libc.include.stdint
       libc.include.stdio libc.include.stdlib libc.include.string libc.include.strings
       libc.include.sys_types libc.include.assert
   )
-  target_include_directories(libc.src.regex.bsd_engine PUBLIC ${bsd_regex_dir})
 endfunction()
 
 foreach(entry regcomp regexec regfree)

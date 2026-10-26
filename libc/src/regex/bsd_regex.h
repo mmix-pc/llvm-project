@@ -13,7 +13,7 @@
 #define llvm_regexec __llvm_libc_bsd_regexec
 #define llvm_regfree __llvm_libc_bsd_regfree
 #define llvm_strlcpy __llvm_libc_bsd_strlcpy
-#include "regex_impl.h"
+#include "engine/regex_impl.h"
 
 namespace LIBC_NAMESPACE_DECL {
 struct BSDRegex {
