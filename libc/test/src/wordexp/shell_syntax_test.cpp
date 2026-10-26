@@ -9,6 +9,7 @@
 #include "hdr/errno_macros.h"
 #include "src/__support/freelist_heap.h"
 #include "src/wordexp/shell_syntax.h"
+#include "src/wordexp/source.h"
 #include "test/UnitTest/Test.h"
 
 using namespace LIBC_NAMESPACE::internal;
@@ -187,6 +188,50 @@ TEST(LlvmLibcShellSyntaxTest, UnsupportedDelimiterDoesNotGuessBytes) {
   Input input("cat <<$'\\x45'\nE\n)");
   auto parsed = scan_word_command(input, 0, false);
   EXPECT_EQ(int(parsed.error), int(WordSyntaxError::COMMAND_PARSER_REQUIRED));
+}
+
+TEST(LlvmLibcShellSyntaxTest, EncodedDollarDocumentDelimiters) {
+  const char *valid[] = {
+      "$(read x <<$'\\x45OF'\nliteral )\nEOF\nprintf '%s' \"$x\")",
+      "$(cat <<$'\\xc4\\xb1'\n$(unparsed\n\xc4\xb1\n)",
+      "$(cat <<E$'\\x4f'F\nx\nEOF\n)",
+      "$(cat <<$'END\\0discarded'\nx\nEND\n)",
+      "$(cat <<EOF\n$(cat <<$'END'\nx\nEND\n)\nEOF\n)",
+  };
+  WordCommandParser parser(RestartableConverter(true));
+  for (auto text : valid) {
+    WordSource source;
+    ASSERT_EQ(source.assign(text, RestartableConverter(true)), 0);
+    EXPECT_TRUE(
+        bool(parse_word_syntax(source.scalars(), false, {}, parser.service())));
+  }
+  WordSource invalid;
+  ASSERT_EQ(
+      invalid.assign("$(cat <<$'\\xc4'\nx\nX\n)", RestartableConverter(true)),
+      0);
+  auto result =
+      parse_word_syntax(invalid.scalars(), false, {}, parser.service());
+  EXPECT_FALSE(bool(result));
+  EXPECT_EQ(result.sink_error, EILSEQ);
+}
+
+TEST(LlvmLibcShellSyntaxTest, EncodedDelimiterFailureReleasesAllStorage) {
+  Input input("$(cat <<$'\\x45OF' <<$'END'\nx\nEOF\ny\nEND\n)");
+  WordCommandParser parser(RestartableConverter(true));
+  bool complete = false;
+  size_t before = live;
+  for (int failure = 0; failure < 128 && !complete; ++failure) {
+    fail_after = failure;
+    auto parsed = parse_word_syntax(input, false, {}, parser.service());
+    fail_after = -1;
+    complete = bool(parsed);
+    if (!complete) {
+      EXPECT_EQ(int(parsed.error), int(WordSyntaxError::RESOURCE));
+      EXPECT_EQ(parsed.sink_error, ENOMEM);
+    }
+    EXPECT_EQ(live, before);
+  }
+  EXPECT_TRUE(complete);
 }
 
 TEST(LlvmLibcShellSyntaxTest, PreflightBeforeAnySink) {

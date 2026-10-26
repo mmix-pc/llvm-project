@@ -104,6 +104,9 @@ WordSyntaxResult decode(cpp::span<const uint32_t> input, QuotedSink sink) {
         }
       }
     }
+    unit.begin = start;
+    unit.end = at;
+    unit.literal = input[start] != '\\';
     if (!discard && sink.emit)
       if (int error = sink.emit(sink.context, unit))
         return {WordSyntaxError::SINK_ERROR, start, error};

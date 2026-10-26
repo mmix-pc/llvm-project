@@ -11,6 +11,7 @@
 #include "hdr/func/free.h"
 #include "src/__support/alloc-checker.h"
 #include "src/wordexp/dollar_quote.h"
+#include "src/wordexp/quote.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -48,12 +49,14 @@ struct Token {
 };
 
 WordSyntaxResult command(Scalars input, size_t begin, bool legacy,
-                         unsigned depth, bool quoted = false);
+                         unsigned depth, bool quoted = false,
+                         const RestartableConverter *converter = nullptr);
 
 class Parser {
   Scalars input;
   size_t at;
   unsigned depth;
+  const RestartableConverter *converter;
   Token token;
   WordSyntaxResult result;
   struct Here {
@@ -124,7 +127,8 @@ class Parser {
         if (!dollar(nesting + 1, true))
           return false;
       } else if (peek() == '`') {
-        if (!checked(command(input, at + 1, true, nesting + 1, true)))
+        if (!checked(
+                command(input, at + 1, true, nesting + 1, true, converter)))
           return false;
       } else {
         ++at;
@@ -158,7 +162,8 @@ class Parser {
         if (!dollar(nesting + 1, false))
           return false;
       } else if (peek() == '`') {
-        if (!checked(command(input, at + 1, true, nesting + 1)))
+        if (!checked(
+                command(input, at + 1, true, nesting + 1, false, converter)))
           return false;
       } else if (arithmetic && peek() == '(') {
         advance();
@@ -180,11 +185,13 @@ class Parser {
         if (!balanced(')', nesting + 1, true))
           return false;
         if (peek() != ')')
-          return checked(command(input, body, false, nesting + 1));
+          return checked(
+              command(input, body, false, nesting + 1, false, converter));
         advance();
         return true;
       }
-      return checked(command(input, body, false, nesting + 1));
+      return checked(
+          command(input, body, false, nesting + 1, false, converter));
     }
     if (peek() == '{') {
       advance();
@@ -224,7 +231,7 @@ class Parser {
           return false;
       } else if (c == '`') {
         token.plain = false;
-        if (!checked(command(input, at + 1, true, depth + 1)))
+        if (!checked(command(input, at + 1, true, depth + 1, false, converter)))
           return false;
       } else {
         advance();
@@ -277,7 +284,8 @@ class Parser {
           ++at;
         if (same && count == here->length) {
           if (!here->quoted) {
-            auto parsed = Parser(input.subspan(body, line - body), 0, depth + 1)
+            auto parsed = Parser(input.subspan(body, line - body), 0, depth + 1,
+                                 converter)
                               .document_expansions();
             if (!parsed) {
               parsed.position += body;
@@ -312,7 +320,7 @@ class Parser {
         if (!dollar(depth + 1, true))
           return result;
       } else if (peek() == '`') {
-        if (!checked(command(input, at + 1, true, depth + 1)))
+        if (!checked(command(input, at + 1, true, depth + 1, false, converter)))
           return result;
       } else {
         ++at;
@@ -406,6 +414,8 @@ class Parser {
     return true;
   }
   bool here_word(bool strip) {
+    if (converter && converter->state_dependent())
+      return fail(Error::COMMAND_PARSER_REQUIRED);
     AllocChecker ac;
     Here *here = new (ac) Here;
     if (!ac)
@@ -422,10 +432,40 @@ class Parser {
     uint32_t quote = 0;
     for (size_t i = token.begin; i < token.end; ++i) {
       uint32_t c = input[i];
-      if (!quote && c == '$' && i + 1 < token.end && input[i + 1] == '\'')
-        // Numeric byte escapes need the original-byte encoding adapter. Never
-        // silently reinterpret them as decoded Unicode delimiter characters.
-        return fail(Error::COMMAND_PARSER_REQUIRED);
+      if (!quote && c == '$' && i + 1 < token.end && input[i + 1] == '\'') {
+        // Stateless valid encodings have a unique spelling per character.
+        // Stateful delimiters must instead compare their original byte spans.
+        if (!converter)
+          return fail(Error::COMMAND_PARSER_REQUIRED);
+        size_t start = i + 2, end = start;
+        while (end < token.end && input[end] != '\'') {
+          if (input[end] == '\\')
+            ++end;
+          ++end;
+        }
+        if (end >= token.end)
+          return fail();
+        CharVector bytes;
+        auto rendered = render_word_quote(input.subspan(start, end - start),
+                                          *converter, bytes);
+        if (!rendered) {
+          if (rendered.sink_error == ENOMEM)
+            rendered.error = Error::RESOURCE;
+          rendered.position += start;
+          result = rendered;
+          return false;
+        }
+        WordSource decoded;
+        if (int error =
+                decoded.assign({bytes.c_str(), bytes.length()}, *converter))
+          return fail(error == ENOMEM ? Error::RESOURCE : Error::SINK_ERROR,
+                      error);
+        for (uint32_t scalar : decoded.scalars())
+          here->delimiter[here->length++] = scalar;
+        here->quoted = true;
+        i = end;
+        continue;
+      }
       if (c == quote) {
         quote = 0;
         continue;
@@ -626,8 +666,9 @@ class Parser {
   }
 
 public:
-  Parser(Scalars input, size_t begin, unsigned depth)
-      : input(input), at(begin), depth(depth) {}
+  Parser(Scalars input, size_t begin, unsigned depth,
+         const RestartableConverter *converter = nullptr)
+      : input(input), at(begin), depth(depth), converter(converter) {}
   ~Parser() {
     while (pending) {
       Here *next = pending->next;
@@ -650,11 +691,12 @@ public:
 };
 
 WordSyntaxResult command(Scalars input, size_t begin, bool legacy,
-                         unsigned depth, bool quoted) {
+                         unsigned depth, bool quoted,
+                         const RestartableConverter *converter) {
   if (depth > 128)
     return {Error::NESTING_LIMIT, begin};
   if (!legacy)
-    return Parser(input, begin, depth).run(true);
+    return Parser(input, begin, depth, converter).run(true);
   size_t end = begin;
   while (end < input.size() && input[end] != '`') {
     if (input[end] == '\\' && end + 1 < input.size() &&
@@ -684,7 +726,7 @@ WordSyntaxResult command(Scalars input, size_t begin, bool legacy,
     text[count++] = input[i];
   }
   positions[count] = end;
-  auto parsed = Parser({text, count}, 0, depth).run(false);
+  auto parsed = Parser({text, count}, 0, depth, converter).run(false);
   parsed.position = parsed ? end + 1 : positions[parsed.position];
   ::free(positions);
   ::free(text);
@@ -705,6 +747,19 @@ WordCommandSyntax word_command_syntax() {
   return {nullptr,
           [](void *, Scalars input, size_t begin, bool legacy, bool quoted) {
             return scan_word_command(input, begin, legacy, quoted);
+          }};
+}
+
+WordCommandSyntax WordCommandParser::service() {
+  return {this,
+          [](void *p, Scalars input, size_t begin, bool legacy, bool quoted) {
+            if (begin > input.size())
+              return WordSyntaxResult{Error::SYNTAX, input.size()};
+            for (auto scalar : input)
+              if (!scalar)
+                return WordSyntaxResult{Error::SYNTAX, begin};
+            auto &self = *static_cast<WordCommandParser *>(p);
+            return command(input, begin, legacy, 0, quoted, &self.converter);
           }};
 }
 

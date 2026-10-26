@@ -210,6 +210,18 @@ TEST(LlvmLibcWordExpandTest, LazyAlternativesAndAssignments) {
   EXPECT_FALSE(f.vars[1].set);
 }
 
+TEST(LlvmLibcWordExpandTest,
+     SourceDollarQuotesPreserveByteAndCharacterOrigins) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.run_source(
+      "$'\\377' ${x:-$'\\x41\\n'} $'\\0discarded'suffix $'\xc4\xb1'")));
+  ASSERT_EQ(f.count, size_t(4));
+  EXPECT_STREQ(f.words[0], "\xff");
+  EXPECT_STREQ(f.words[1], "A\n");
+  EXPECT_STREQ(f.words[2], "suffix");
+  EXPECT_STREQ(f.words[3], "\xc4\xb1");
+}
+
 TEST(LlvmLibcWordExpandTest, CommandOutputDiscardsNulBeforeTrailingNewlines) {
   Fixture f;
   f.command_output = {"\0a\nb\0c\n\0\n", 10};

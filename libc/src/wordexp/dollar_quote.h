@@ -18,6 +18,10 @@ struct QuotedUnit {
   enum class Kind { CHARACTER, BYTE };
   Kind kind;
   uint32_t value;
+  // Offsets in the decoded quote body; literal units can recover their exact
+  // source spelling without confusing an escape's spelling with its value.
+  size_t begin = 0, end = 0;
+  bool literal = false;
 };
 
 struct QuotedSink {

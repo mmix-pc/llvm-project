@@ -9,7 +9,7 @@
 #include "src/wordexp/expand.h"
 #include "hdr/errno_macros.h"
 #include "src/__support/integer_to_string.h"
-#include "src/wordexp/dollar_quote.h"
+#include "src/wordexp/quote.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -41,12 +41,6 @@ public:
       return length.error();
     return append(output, {reinterpret_cast<const char *>(bytes),
                            *length - (scalar == 0)});
-  }
-  int raw(uint32_t byte) { return output.append(char(byte)) ? 0 : ENOMEM; }
-  static int quoted(void *p, QuotedUnit unit) {
-    auto &self = *static_cast<Encoder *>(p);
-    return unit.kind == QuotedUnit::Kind::BYTE ? self.raw(unit.value)
-                                               : self.character(unit.value);
   }
 };
 
@@ -138,6 +132,7 @@ class Evaluator {
   WordExpansionResult result;
   mbstate output_state{};
   bool output_state_valid = true;
+  bool source_tail = false;
 
   int fail(Failure error, int detail = 0) {
     result = {error, {}, detail};
@@ -204,7 +199,7 @@ class Evaluator {
                    : 0;
   }
   int finish_encoding() {
-    if (!converter.state_dependent() || !output_state_valid ||
+    if (!source_tail || !converter.state_dependent() || !output_state_valid ||
         !converter.boundary(output_state))
       return 0;
     auto parts = output.parts();
@@ -214,6 +209,8 @@ class Evaluator {
     if (!bytes.empty() && converter.state_dependent())
       if (int error = transition({}, quoted))
         return error;
+    if (!bytes.empty())
+      source_tail = false;
     return raw(bytes, split, quoted);
   }
   int value(cpp::string_view bytes, bool quoted) {
@@ -225,6 +222,7 @@ class Evaluator {
       if (int error = transition(source->units()[offset].before, quoted))
         return error;
       auto span = source->slice(offset, source_offset + end);
+      source_tail = true;
       return span ? raw(*span, false, quoted) : system(span.error());
     }
     CharVector bytes;
@@ -353,19 +351,23 @@ class Evaluator {
       output.clear();
       output_state = {};
       output_state_valid = true;
+      source_tail = false;
       return 0;
     case Kind::LITERAL:
       return literal(token.begin, token.end, token.quoted);
     case Kind::DOLLAR_QUOTED: {
-      Encoder encoder(converter, bytes);
-      auto done = decode_dollar_quote(text, {&encoder, Encoder::quoted});
+      WordQuoteState state{output_state, output_state_valid, source_tail};
+      auto done = source
+                      ? render_word_quote(*source, source_offset + token.begin,
+                                          source_offset + token.end, converter,
+                                          bytes, &state)
+                      : render_word_quote(text, converter, bytes, &state);
       if (!done)
         return done.error == WordSyntaxError::SINK_ERROR
                    ? system(done.sink_error)
                    : syntax(done);
-      if (int error = encoder.character(0))
-        return system(error);
-      return independent({bytes.c_str(), bytes.length()}, false, true);
+      source_tail = state.character_tail;
+      return raw({bytes.c_str(), bytes.length()}, false, true);
     }
     case Kind::PARAMETER:
     case Kind::BRACED_PARAMETER:

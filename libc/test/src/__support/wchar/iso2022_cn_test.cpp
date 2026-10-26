@@ -18,6 +18,8 @@
 #include "src/wordexp/expand.h"
 #include "src/wordexp/ifs.h"
 #include "src/wordexp/pattern.h"
+#include "src/wordexp/quote.h"
+#include "src/wordexp/shell_syntax.h"
 #include "src/wordexp/source.h"
 #include "test/UnitTest/Test.h"
 
@@ -223,6 +225,27 @@ TEST(LlvmLibcISO2022CNTest, CommandSliceRestoresDesignationAndWireChoice) {
   EXPECT_STREQ(continued.c_str(), "echo \x1b$)G\x1b$)A\x0e!!\x0f");
 }
 
+TEST(LlvmLibcISO2022CNTest, StatefulDocumentComparisonRequiresByteAdapter) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  WordCommandParser parser(converter);
+  WordSource source;
+  ASSERT_EQ(source.assign("$(printf x)", converter), 0);
+  EXPECT_TRUE(
+      bool(parse_word_syntax(source.scalars(), false, {}, parser.service())));
+  const char *documents[] = {"$(cat <<EOF\nx\nEOF\n)",
+                             "$(cat <<$'\\x45OF'\nx\nEOF\n)"};
+  for (auto text : documents) {
+    ASSERT_EQ(source.assign(text, converter), 0);
+    auto result =
+        parse_word_syntax(source.scalars(), false, {}, parser.service());
+    EXPECT_EQ(int(result.error), int(WordSyntaxError::COMMAND_PARSER_REQUIRED));
+  }
+}
+
 TEST(LlvmLibcISO2022CNTest, BoundaryTransitionsAreAtomicAndIdempotent) {
   using namespace LIBC_NAMESPACE::internal;
   Fixture fixture;
@@ -335,6 +358,86 @@ TEST(LlvmLibcISO2022CNTest, LiteralExpansionPreservesWireChoice) {
   ASSERT_EQ(decoded.scalars().size(), size_t(2));
   EXPECT_EQ(decoded.scalars()[0], uint32_t(0x4e2d));
   EXPECT_EQ(decoded.scalars()[1], uint32_t('X'));
+}
+
+TEST(LlvmLibcISO2022CNTest, DollarQuoteTracksNumericWireState) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  const struct {
+    const char *source, *expected;
+    int error;
+  } cases[] = {
+      {"\x1b$)G\x0e\"!\x0f", "\x1b$)G\x0e\"!\x0f", 0},
+      {"\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21\\t", "\x1b$)G\x0e\"!\x0f\t", 0},
+      {"\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21", "\x1b$)G\x0e\"!", 0},
+      {"\\x1b\\x24\\x29\\x47\\x0e", "\x1b$)G\x0e", 0},
+      {"\\377", "\xff", 0},
+      {"\\x1b", "\x1b", 0},
+      {"\\x1bZ", "\x1b", EILSEQ},
+      {"\\e", "", EILSEQ},
+      {"\\0\\e", "", 0},
+  };
+  for (auto row : cases) {
+    WordSource source;
+    ASSERT_EQ(source.assign(row.source, converter), 0);
+    LIBC_NAMESPACE::CharVector bytes;
+    auto result =
+        render_word_quote(source, 0, source.scalars().size(), converter, bytes);
+    EXPECT_EQ(bool(result), row.error == 0);
+    if (row.error) {
+      EXPECT_TRUE(result.error == WordSyntaxError::SINK_ERROR);
+      EXPECT_EQ(result.sink_error, row.error);
+    }
+    EXPECT_STREQ(bytes.c_str(), row.expected);
+  }
+}
+
+TEST(LlvmLibcISO2022CNTest,
+     DollarQuotesComposeWithSourceAndNestedAlternatives) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  auto word = [](void *p,
+                 LIBC_NAMESPACE::cpp::span<const ExpansionPart> parts) {
+    auto &out = *static_cast<LIBC_NAMESPACE::CharVector *>(p);
+    for (const auto &part : parts)
+      for (char c : part.bytes)
+        if (!out.append(c))
+          return ENOMEM;
+    return 0;
+  };
+  WordExpansionServices services;
+  services.lookup = [](void *, LIBC_NAMESPACE::cpp::string_view)
+      -> LIBC_NAMESPACE::ErrorOr<WordVariable> {
+    return WordVariable{false, {}};
+  };
+  const struct {
+    const char *source, *expected;
+  } cases[] = {
+      {"$'\\x1b\\x24\\x29\\x47\\x0e\\x22\\x21'", "\x1b$)G\x0e\"!"},
+      {"$'\\x1b'", "\x1b"},
+      {"$'\\x1b'$'\\x24\\x29\\x47\\x0e\\x22\\x21'", "\x1b$)G\x0e\"!"},
+      {"$'\\x1b'$'\\x24\\x29\\x47\\x0e\\x22\\x21'$'\\t'",
+       "\x1b$)G\x0e\"!\x0f\t"},
+      {"$'\\377'", "\xff"},
+      {"\x1b$)G$'\x0e\"!\x0f'Z", "\x1b$)G\x0e\"!\x0fZ"},
+      {"${absent:-\x1b$)G$'\x0e\"!\x0f'}", "\x1b$)G\x0e\"!\x0f"},
+      {"$'\\0\\e'Z", "Z"},
+  };
+  for (auto row : cases) {
+    WordSource source;
+    ASSERT_EQ(source.assign(row.source, converter), 0);
+    LIBC_NAMESPACE::CharVector output;
+    ASSERT_TRUE(
+        bool(expand_word_fragments(source, true, false, converter, nullptr,
+                                   nullptr, services, {&output, word})));
+    EXPECT_STREQ(output.c_str(), row.expected);
+  }
 }
 
 TEST(LlvmLibcISO2022CNTest, WordSourceRetainsWireStates) {

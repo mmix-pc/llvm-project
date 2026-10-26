@@ -77,6 +77,18 @@ TEST(LlvmLibcDollarQuoteTest, ControlCharacterTable) {
   }
 }
 
+TEST(LlvmLibcDollarQuoteTest, RetainsLiteralAndEscapeSourceOffsets) {
+  Output out;
+  ASSERT_TRUE(bool(out.run("a\\n\\x41z\\0discarded")));
+  ASSERT_EQ(out.count, size_t(4));
+  const size_t begins[] = {0, 1, 3, 7}, ends[] = {1, 3, 7, 8};
+  for (size_t i = 0; i < out.count; ++i) {
+    EXPECT_EQ(out.units[i].begin, begins[i]);
+    EXPECT_EQ(out.units[i].end, ends[i]);
+    EXPECT_EQ(out.units[i].literal, i == 0 || i == 3);
+  }
+}
+
 TEST(LlvmLibcDollarQuoteTest, ErrorsPrecedeSinkEffects) {
   Output out;
   const char *invalid[] = {"a\\",    "a'",    "a\\q",  "\\\n",  "\\x",

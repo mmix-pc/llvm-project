@@ -67,7 +67,7 @@ add_object_library(
   expand
   SRCS expand.cpp
   HDRS expand.h
-  DEPENDS .arithmetic .dollar_quote .fragments .pattern .source .syntax
+  DEPENDS .arithmetic .quote .fragments .pattern .source .syntax
     libc.src.__support.integer_to_string libc.hdr.errno_macros
 )
 
@@ -87,6 +87,13 @@ add_object_library(
   DEPENDS .parameter libc.src.fnmatch.matcher libc.src.__support.char_vector
     libc.src.__support.alloc_checker libc.src.__support.CPP.limits
     libc.hdr.errno_macros libc.hdr.func.free
+)
+
+add_object_library(
+  quote
+  SRCS quote.cpp
+  HDRS quote.h
+  DEPENDS .dollar_quote .source libc.hdr.errno_macros
 )
 
 add_object_library(
@@ -118,7 +125,7 @@ add_object_library(
   shell_syntax
   SRCS shell_syntax.cpp
   HDRS shell_syntax.h
-  DEPENDS .syntax .dollar_quote libc.src.__support.alloc_checker
+  DEPENDS .syntax .dollar_quote .quote libc.src.__support.alloc_checker
     libc.hdr.errno_macros libc.hdr.func.free
 )
 

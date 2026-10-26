@@ -126,7 +126,7 @@ TEST(LlvmLibcWordFragmentsTest, OwnedSourceExpansionFailureReleasesAllStorage) {
   size_t size = 0;
   for (unsigned i = 0; i < 200; ++i)
     text[size++] = 'a';
-  for (char c : string_view("${absent:-${x%%*f} '$y'} $((2+3))"))
+  for (char c : string_view("${absent:-${x%%*f} '$y' $'\\x41\\n'} $((2+3))"))
     text[size++] = c;
   WordExpansionServices services;
   services.lookup = [](void *p, string_view name) -> ErrorOr<WordVariable> {
