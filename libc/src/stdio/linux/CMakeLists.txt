@@ -33,17 +33,29 @@ if(LLVM_LIBC_FULL_BUILD)
   endif()
 
   add_object_library(
-    pipe_file
-    SRCS pipe_file.cpp ${pipe_process_source} ${pipe_fork_source}
-    HDRS pipe_file.h pipe_process.h pipe_fork.h
+    pipe_process
+    SRCS ${pipe_process_source}
+    HDRS pipe_process.h
     DEPENDS
+      libc.hdr.types.pid_t
+      libc.src.__support.OSUtil.linux.syscall_wrappers.wait4
+      libc.src.errno.errno
+      ${pipe_process_deps}
+    COMPILE_OPTIONS ${pipe_compile_options}
+  )
+
+  add_object_library(
+    pipe_file
+    SRCS pipe_file.cpp ${pipe_fork_source}
+    HDRS pipe_file.h pipe_fork.h
+    DEPENDS
+      .pipe_process
       libc.hdr.types.pid_t
       libc.src.__support.CPP.mutex
       libc.src.__support.File.file
       libc.src.__support.File.platform_file
       libc.src.__support.OSUtil.linux.syscall_wrappers.close
       libc.src.__support.OSUtil.linux.syscall_wrappers.fcntl
-      libc.src.__support.OSUtil.linux.syscall_wrappers.wait4
       libc.src.__support.alloc_checker
       libc.src.__support.threads.raw_mutex
       ${pipe_fork_deps}
@@ -53,7 +65,6 @@ if(LLVM_LIBC_FULL_BUILD)
       libc.src.spawn.posix_spawn_file_actions_adddup2
       libc.src.spawn.posix_spawn_file_actions_destroy
       libc.src.unistd.environ
-      ${pipe_process_deps}
     COMPILE_OPTIONS ${pipe_compile_options}
   )
 
