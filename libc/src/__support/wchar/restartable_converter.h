@@ -28,6 +28,9 @@ public:
 
   bool valid(const mbstate &state) const;
   bool initial(const mbstate &state) const;
+  // Completed shift sequences may leave a noninitial state at a character
+  // boundary. EOF there is not an incomplete-character error.
+  bool boundary(const mbstate &state) const;
   ErrorOr<size_t> decode(uint32_t *scalar, cpp::span<const uint8_t> input,
                          mbstate &state) const;
   // Capacity failure leaves both output and saved state unchanged. NUL emits

@@ -53,6 +53,13 @@ bool RestartableConverter::valid(const mbstate &state) const {
   }
 }
 
+bool RestartableConverter::boundary(const mbstate &state) const {
+  if (!mapping)
+    return initial(state);
+  auto saved = ISO2022CNState::load(state);
+  return saved && saved->boundary();
+}
+
 ErrorOr<size_t> RestartableConverter::decode(uint32_t *scalar,
                                              cpp::span<const uint8_t> input,
                                              mbstate &state) const {
