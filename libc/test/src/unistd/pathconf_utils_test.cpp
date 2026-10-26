@@ -126,21 +126,41 @@ TEST_F(LlvmLibcPathconfUtilsTest, ResolutionConversion) {
 }
 
 TEST_F(LlvmLibcPathconfUtilsTest, UnavailableProviders) {
-#if defined(_PC_FALLOC) || defined(_PC_TEXTDOMAIN_MAX)
-  struct statfs s = {};
-#endif
 #ifdef _PC_FALLOC
+  struct statfs s = {};
   libc_errno = EDOM;
   EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, _PC_FALLOC), -1L);
   EXPECT_EQ(int(libc_errno), ENOTSUP);
 #endif
-#ifdef _PC_TEXTDOMAIN_MAX
-  libc_errno = 0;
-  EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, _PC_TEXTDOMAIN_MAX), -1L);
-  EXPECT_EQ(int(libc_errno), ENOTSUP);
-#endif
   libc_errno = 0;
 }
+
+#ifdef _PC_TEXTDOMAIN_MAX
+TEST_F(LlvmLibcPathconfUtilsTest, MessageDomainFilenameLimit) {
+  struct statfs s = {};
+  // This property comes from the object, not a guessed filesystem type.
+  const unsigned long sizes[] = {14, 255, 1024,
+                                static_cast<unsigned long>(LONG_MAX) + 3};
+  for (unsigned long size : sizes) {
+    s.f_namelen = size;
+    libc_errno = EDOM;
+    EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, _PC_TEXTDOMAIN_MAX),
+              static_cast<long>(size - 3));
+    EXPECT_EQ(int(libc_errno), EDOM);
+  }
+  for (unsigned long size = 0; size <= 3; ++size) {
+    s.f_namelen = size;
+    libc_errno = EDOM;
+    EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, _PC_TEXTDOMAIN_MAX), -1L);
+    EXPECT_EQ(int(libc_errno), ENOTSUP);
+  }
+  s.f_namelen = static_cast<unsigned long>(LONG_MAX) + 4;
+  libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::pathconfig(s, _PC_TEXTDOMAIN_MAX), -1L);
+  EXPECT_EQ(int(libc_errno), EOVERFLOW);
+  libc_errno = 0;
+}
+#endif
 
 #ifdef _PC_TIMESTAMP_RESOLUTION
 TEST_F(LlvmLibcPathconfUtilsTest, KnownFilesystemResolutions) {

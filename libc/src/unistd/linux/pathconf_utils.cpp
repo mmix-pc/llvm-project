@@ -168,9 +168,14 @@ long pathconfig(const struct statfs &s, int name) {
 #endif
 #ifdef _PC_TEXTDOMAIN_MAX
   case _PC_TEXTDOMAIN_MAX:
-    // FIXME: Establish the catalog filename limit with the gettext provider.
-    libc_errno = ENOTSUP;
-    return -1;
+    // Message objects append ".mo" to the domain in one filename component.
+    if (s.f_namelen <= 3)
+      return unavailable_filesystem_property();
+    if (s.f_namelen - 3 > static_cast<unsigned long>(LONG_MAX)) {
+      libc_errno = EOVERFLOW;
+      return -1;
+    }
+    return static_cast<long>(s.f_namelen - 3);
 #endif
 
   case _PC_ASYNC_IO:
