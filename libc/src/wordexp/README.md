@@ -18,6 +18,13 @@ is not yet selected for MMIX exports.
 * `syntax` validates decoded source before emitting tokens. Parameter operands
   retain their quote boundaries and are evaluated only when selected. Command
   boundaries require a separate, side-effect-free shell syntax service.
+* `shell_syntax` parses command-substitution compound lists, nested commands
+  and here-documents without invoking expansion services. It retains original
+  positions for backquote diagnostics. Numeric-dollar-quoted document delimiters
+  still require the encoding adapter and fail explicitly until integrated.
+* `source` owns original bytes, scalar input and per-character encoding states.
+  It preserves shift prefixes and suffixes rather than reconstructing byte
+  offsets by re-encoding. Failed replacement retains the old snapshot.
 * `dollar_quote` distinguishes character escapes from raw numeric bytes and
   validates discarded text after numeric NUL. Encoding belongs to the consumer.
 * `pattern` implements parameter prefix/suffix removal through the locale-aware
@@ -25,7 +32,8 @@ is not yet selected for MMIX exports.
 * `fragments` owns annotated bytes across environment lookups and assignments.
 * `expand` joins these components through fallible environment, account,
   arithmetic, command and output services. It preserves expansion origins and
-  validates the complete source before invoking services.
+  validates the complete source before invoking services. Command output drops
+  embedded NUL bytes, preserves subsequent bytes, then strips trailing newlines.
 * `environment` supplies Linux environment and account lookup services. Account
   buffers are invocation-owned and grow on ERANGE. It does not provide command
   execution or diagnostic output.
@@ -36,16 +44,18 @@ is not yet selected for MMIX exports.
   implement NOCMD, or normalize captured bytes.
 * `ifs` owns decoded delimiter slices and distinguishes unset and empty IFS.
   It retains original byte sequences rather than re-encoding delimiters;
-  expansion results themselves may contain arbitrary non-NUL bytes.
+  expansion results themselves may contain arbitrary non-NUL bytes. Additional
+  whitespace follows the caller's retained LC_CTYPE selection; unset IFS still
+  uses only space, tab and newline.
 * `paths` joins field splitting, quote-aware glob patterns and owned results.
   It preserves original bytes for literal or unmatched fields, and does not
   treat backslashes introduced by expansions as new shell quoting syntax.
 * `results` stages word-vector ownership, offsets and APPEND transactions;
   `wordfree` releases that representation while preserving errno.
 
-Public integration must retain original source bytes and encoding states;
-the scalar-only expansion interface is not yet a byte-preserving source
-adapter for state-dependent filenames. IFS and pathname-provider integration,
-command syntax and capture integration, cancellation ownership of the complete
+Public integration must join source byte slices with their encoding states;
+the scalar-only expansion interface does not yet compose the source snapshot
+for state-dependent filenames. IFS and pathname-provider integration,
+remaining command syntax and capture integration, cancellation ownership of the complete
 pipeline and public flags/errors remain integration requirements. Component
 tests do not establish installed public-interface qualification.

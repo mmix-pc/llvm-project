@@ -1,5 +1,4 @@
-//===-- Owned word expansion delimiters --------------------------*- C++
-//-*-===//
+//===-- Owned word expansion delimiters -------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -12,6 +11,8 @@
 
 #include "src/__support/wchar/restartable_converter.h"
 #include "src/wordexp/fields.h"
+
+struct __locale_data;
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -33,7 +34,10 @@ public:
   // including shift prefixes, except space/tab/newline are always single-byte
   // delimiters. A complete shift-only suffix is not itself a character.
   // Input excludes NUL and remains stable throughout both decoding passes.
-  int assign(bool set, cpp::string_view value, RestartableConverter converter);
+  // Classify whitespace using the caller's retained LC_CTYPE selection, which
+  // must match converter. A null category selects the built-in C classes.
+  int assign(bool set, cpp::string_view value, RestartableConverter converter,
+             const __locale_data *ctype = nullptr);
   cpp::span<const FieldDelimiter> delimiters() const {
     if (default_value)
       return DEFAULT_FIELD_DELIMITERS;

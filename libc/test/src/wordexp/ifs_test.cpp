@@ -8,6 +8,7 @@
 
 #include "hdr/errno_macros.h"
 #include "src/__support/freelist_heap.h"
+#include "src/locale/locale.h"
 #include "src/wordexp/ifs.h"
 #include "test/UnitTest/Test.h"
 
@@ -67,13 +68,22 @@ TEST(LlvmLibcWordIFSTest, UnsetEmptyAndOwnedBytes) {
   EXPECT_EQ(live, before);
 }
 
-TEST(LlvmLibcWordIFSTest, StandardWhitespaceOnly) {
+TEST(LlvmLibcWordIFSTest, SelectedLocaleWhitespace) {
   WordDelimiters ifs;
   ASSERT_EQ(ifs.assign(true, " \t\n\r\v\f\xc2\xa0", RestartableConverter(true)),
             0);
   ASSERT_EQ(ifs.delimiters().size(), size_t(7));
   for (size_t i = 0; i < 7; ++i)
-    EXPECT_EQ(ifs.delimiters()[i].whitespace, i < 3);
+    EXPECT_EQ(ifs.delimiters()[i].whitespace, i < 6);
+  __locale_data unicode("C.UTF-8", true);
+  ASSERT_EQ(
+      ifs.assign(true, "\xe2\x80\x83", RestartableConverter(true), &unicode),
+      0);
+  ASSERT_EQ(ifs.delimiters().size(), size_t(1));
+  EXPECT_TRUE(ifs.delimiters()[0].whitespace);
+  EXPECT_TRUE(ifs.delimiters()[0].bytes == "\xe2\x80\x83");
+  ASSERT_EQ(ifs.assign(true, "\xe2\x80\x83", RestartableConverter(true)), 0);
+  EXPECT_FALSE(ifs.delimiters()[0].whitespace);
 }
 
 TEST(LlvmLibcWordIFSTest, MalformedInputPreservesPriorSelection) {

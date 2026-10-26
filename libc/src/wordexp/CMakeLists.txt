@@ -140,6 +140,7 @@ add_object_library(
   SRCS ifs.cpp
   HDRS ifs.h
   DEPENDS .fields libc.src.__support.wchar.restartable_converter
+    libc.src.locale.character
     libc.src.__support.CPP.limits libc.src.__support.alloc_checker
     libc.src.string.memory_utils.inline_memcpy
     libc.hdr.errno_macros libc.hdr.func.free libc.hdr.func.malloc

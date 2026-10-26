@@ -12,6 +12,7 @@
 #include "hdr/func/malloc.h"
 #include "src/__support/CPP/limits.h"
 #include "src/__support/alloc-checker.h"
+#include "src/locale/character.h"
 #include "src/string/memory_utils/inline_memcpy.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -19,7 +20,7 @@ namespace internal {
 namespace {
 
 ErrorOr<size_t> decode(cpp::string_view value, RestartableConverter converter,
-                       FieldDelimiter *output) {
+                       const __locale_data *ctype, FieldDelimiter *output) {
   mbstate state{};
   size_t count = 0, at = 0;
   while (at < value.size()) {
@@ -40,8 +41,11 @@ ErrorOr<size_t> decode(cpp::string_view value, RestartableConverter converter,
       return Error(EILSEQ);
     if (output) {
       auto bytes = value.substr(at, *length);
-      bool whitespace = scalar == ' ' || scalar == '\t' || scalar == '\n';
-      if (whitespace) {
+      bool portable = scalar == ' ' || scalar == '\t' || scalar == '\n';
+      bool whitespace = portable ||
+          (ctype ? classify_wide(scalar, WCTYPE_SPACE, ctype)
+                 : scalar < 128 && isspace(static_cast<char>(scalar)));
+      if (portable) {
         // POSIX requires these delimiters to be single bytes, even when their
         // decoded character consumed a preceding state-reset sequence.
         bytes = scalar == ' ' ? " " : scalar == '\t' ? "\t" : "\n";
@@ -56,7 +60,8 @@ ErrorOr<size_t> decode(cpp::string_view value, RestartableConverter converter,
 } // namespace
 
 int WordDelimiters::assign(bool set, cpp::string_view value,
-                           RestartableConverter converter) {
+                           RestartableConverter converter,
+                           const __locale_data *ctype) {
   if (!set || value.empty()) {
     ::free(storage);
     ::free(bytes);
@@ -66,7 +71,7 @@ int WordDelimiters::assign(bool set, cpp::string_view value,
     default_value = !set;
     return 0;
   }
-  auto decoded = decode(value, converter, nullptr);
+  auto decoded = decode(value, converter, ctype, nullptr);
   if (!decoded)
     return decoded.error();
   if (*decoded > cpp::numeric_limits<size_t>::max() / sizeof(FieldDelimiter))
@@ -85,7 +90,7 @@ int WordDelimiters::assign(bool set, cpp::string_view value,
       ::free(next_bytes);
       return ENOMEM;
     }
-    auto filled = decode({next_bytes, value.size()}, converter, next);
+    auto filled = decode({next_bytes, value.size()}, converter, ctype, next);
     if (!filled) {
       ::free(next);
       ::free(next_bytes);
