@@ -132,6 +132,149 @@ void encoded(ISO2022CNState &state, const ChineseEncodingData &data,
 }
 } // namespace
 
+TEST(LlvmLibcISO2022CNTest, BoundaryPrefixRecreatesStateWithoutCharacters) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  const char *states[] = {"",
+                          "\x1b$)A",
+                          "\x1b$)G",
+                          "\x1b$*H",
+                          "\x1b$)A\x0e",
+                          "\x1b$)G\x0e",
+                          "\x1b$)A\x1b$*H",
+                          "\x1b$)G\x1b$*H",
+                          "\x1b$)A\x1b$*H\x0e",
+                          "\x1b$)G\x1b$*H\x0e"};
+  for (const char *wire : states) {
+    size_t size = 0;
+    while (wire[size])
+      ++size;
+    mbstate saved{};
+    auto consumed = converter.decode(
+        nullptr, {reinterpret_cast<const uint8_t *>(wire), size}, saved);
+    ASSERT_TRUE(consumed.has_value());
+    EXPECT_EQ(*consumed, size_t(-2));
+    uint8_t output[MAX_LOCALE_STATE_PREFIX_BYTES];
+    for (size_t capacity = 0; capacity <= size; ++capacity) {
+      for (auto &byte : output)
+        byte = 0xaa;
+      auto length = converter.prefix(saved, {output, capacity});
+      if (capacity < size) {
+        ASSERT_FALSE(length.has_value());
+        EXPECT_EQ(length.error(), E2BIG);
+        for (auto byte : output)
+          EXPECT_EQ(byte, uint8_t(0xaa));
+      } else {
+        ASSERT_TRUE(length.has_value());
+        EXPECT_EQ(*length, size);
+        mbstate restored{};
+        uint32_t unchanged = 0x1234;
+        auto result = converter.decode(&unchanged, {output, *length}, restored);
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(*result, size_t(-2));
+        EXPECT_EQ(unchanged, uint32_t(0x1234));
+        EXPECT_EQ(uint32_t(restored.partial), uint32_t(saved.partial));
+        EXPECT_EQ(restored.bytes_stored, saved.bytes_stored);
+        EXPECT_EQ(restored.total_bytes, saved.total_bytes);
+      }
+    }
+  }
+  mbstate partial{};
+  const uint8_t escape = 0x1b;
+  ASSERT_TRUE(converter.decode(nullptr, {&escape, 1}, partial).has_value());
+  uint8_t untouched[9]{};
+  EXPECT_EQ(converter.prefix(partial, untouched).error(), EINVAL);
+  EXPECT_EQ(RestartableConverter(true).prefix(partial, untouched).error(),
+            EINVAL);
+}
+
+TEST(LlvmLibcISO2022CNTest, BoundaryTransitionsAreAtomicAndIdempotent) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  const char *states[] = {"",
+                          "\x1b$)A",
+                          "\x1b$)G",
+                          "\x1b$*H",
+                          "\x1b$)A\x0e",
+                          "\x1b$)G\x0e",
+                          "\x1b$)A\x1b$*H",
+                          "\x1b$)G\x1b$*H",
+                          "\x1b$)A\x1b$*H\x0e",
+                          "\x1b$)G\x1b$*H\x0e"};
+  auto same = [](const mbstate &a, const mbstate &b) {
+    return a.partial == b.partial && a.bytes_stored == b.bytes_stored &&
+           a.total_bytes == b.total_bytes;
+  };
+  for (const char *from : states) {
+    for (const char *to : states) {
+      mbstate initial{}, required{};
+      size_t a = 0, b = 0;
+      while (from[a])
+        ++a;
+      while (to[b])
+        ++b;
+      ASSERT_TRUE(converter
+                      .decode(nullptr,
+                              {reinterpret_cast<const uint8_t *>(from), a},
+                              initial)
+                      .has_value());
+      ASSERT_TRUE(converter
+                      .decode(nullptr,
+                              {reinterpret_cast<const uint8_t *>(to), b},
+                              required)
+                      .has_value());
+      uint8_t output[MAX_LOCALE_STATE_PREFIX_BYTES];
+      auto updated = initial;
+      auto length = converter.transition(required, updated, output);
+      ASSERT_TRUE(length.has_value());
+      auto observed = initial;
+      uint32_t no_character = 0x1234;
+      ASSERT_TRUE(converter.decode(&no_character, {output, *length}, observed)
+                      .has_value());
+      EXPECT_EQ(no_character, uint32_t(0x1234));
+      EXPECT_TRUE(same(observed, updated));
+      EXPECT_TRUE(converter.boundary(updated));
+      // Applying the same requirement again must not add filename bytes.
+      EXPECT_EQ(*converter.transition(required, updated, output), size_t(0));
+      for (size_t capacity = 0; capacity < *length; ++capacity) {
+        for (auto &byte : output)
+          byte = 0xaa;
+        auto unchanged = initial;
+        EXPECT_EQ(converter.transition(required, unchanged, {output, capacity})
+                      .error(),
+                  E2BIG);
+        EXPECT_TRUE(same(unchanged, initial));
+        for (auto byte : output)
+          EXPECT_EQ(byte, uint8_t(0xaa));
+      }
+      // Unused designations may remain, but the next character's meaning must
+      // agree with the required state, including its active G1 selection.
+      const uint8_t *next;
+      size_t count;
+      if (required.total_bytes & 8) {
+        next = reinterpret_cast<const uint8_t *>(
+            (required.total_bytes & 3) == 1 ? "!!" : "\"!");
+        count = 2;
+      } else {
+        next = reinterpret_cast<const uint8_t *>("X");
+        count = 1;
+      }
+      uint32_t expected = 0, actual = 0;
+      ASSERT_TRUE(
+          converter.decode(&expected, {next, count}, required).has_value());
+      ASSERT_TRUE(
+          converter.decode(&actual, {next, count}, updated).has_value());
+      EXPECT_EQ(expected, actual);
+    }
+  }
+}
+
 TEST(LlvmLibcISO2022CNTest, WordSourceRetainsWireStates) {
   using namespace LIBC_NAMESPACE::internal;
   Fixture fixture;

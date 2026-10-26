@@ -230,5 +230,43 @@ ErrorOr<size_t> ISO2022CNState::reset(cpp::span<uint8_t> output) {
   return count;
 }
 
+ErrorOr<size_t> ISO2022CNState::prefix(cpp::span<uint8_t> output) const {
+  ISO2022CNState initial;
+  return initial.transition(*this, output);
+}
+
+ErrorOr<size_t> ISO2022CNState::transition(const ISO2022CNState &required,
+                                           cpp::span<uint8_t> output) {
+  if (!boundary() || !required.boundary())
+    return Error(EINVAL);
+  ISO2022CNState next = *this;
+  uint8_t bytes[9];
+  size_t count = 0;
+  if (required.g1 != NONE && g1 != required.g1) {
+    bytes[count++] = 0x1b;
+    bytes[count++] = '$';
+    bytes[count++] = ')';
+    bytes[count++] = required.g1 == GB ? 'A' : 'G';
+    next.g1 = required.g1;
+  }
+  if ((required.flags & G2) && !(flags & G2)) {
+    bytes[count++] = 0x1b;
+    bytes[count++] = '$';
+    bytes[count++] = '*';
+    bytes[count++] = 'H';
+    next.flags |= G2;
+  }
+  if ((flags ^ required.flags) & SHIFTED) {
+    bytes[count++] = required.flags & SHIFTED ? 0x0e : 0x0f;
+    next.flags = (next.flags & ~SHIFTED) | (required.flags & SHIFTED);
+  }
+  if (output.size() < count)
+    return Error(E2BIG);
+  for (size_t i = 0; i < count; ++i)
+    output[i] = bytes[i];
+  *this = next;
+  return count;
+}
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

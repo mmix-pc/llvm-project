@@ -15,6 +15,7 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
 inline constexpr size_t MAX_LOCALE_CHARACTER_BYTES = 8;
+inline constexpr size_t MAX_LOCALE_STATE_PREFIX_BYTES = 9;
 
 // The caller retains the immutable category data separately from mbstate_t.
 // Unlike iconv, an incomplete input prefix is saved rather than rolled back.
@@ -25,6 +26,7 @@ public:
       : utf8(false), mapping(&mapping) {}
 
   static RestartableConverter current();
+  bool state_dependent() const { return mapping != nullptr; }
 
   bool valid(const mbstate &state) const;
   bool initial(const mbstate &state) const;
@@ -37,6 +39,11 @@ public:
   // the required reset bytes and counts them; null pointers are wrapper policy.
   ErrorOr<size_t> encode(uint32_t scalar, cpp::span<uint8_t> output,
                          mbstate &state) const;
+  // Start an independently decoded byte fragment in a saved boundary state.
+  // This is not a transition from an arbitrary existing decoder state.
+  ErrorOr<size_t> prefix(const mbstate &state, cpp::span<uint8_t> output) const;
+  ErrorOr<size_t> transition(const mbstate &required, mbstate &current,
+                             cpp::span<uint8_t> output) const;
 
   enum class UTF16Unit : uint8_t { HIGH = 0x90, LOW = 0x91 };
   static bool pending(const mbstate &state, UTF16Unit unit) {

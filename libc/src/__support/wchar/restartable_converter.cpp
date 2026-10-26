@@ -105,6 +105,32 @@ ErrorOr<size_t> RestartableConverter::encode(uint32_t scalar,
                        scalar, output);
 }
 
+ErrorOr<size_t> RestartableConverter::prefix(const mbstate &state,
+                                             cpp::span<uint8_t> output) const {
+  if (!mapping)
+    return initial(state) ? ErrorOr<size_t>(0) : Error(EINVAL);
+  auto saved = ISO2022CNState::load(state);
+  if (!saved)
+    return Error(saved.error());
+  return saved->prefix(output);
+}
+
+ErrorOr<size_t>
+RestartableConverter::transition(const mbstate &required, mbstate &current,
+                                 cpp::span<uint8_t> output) const {
+  if (!mapping)
+    return initial(required) && initial(current) ? ErrorOr<size_t>(0)
+                                                 : Error(EINVAL);
+  auto target = ISO2022CNState::load(required);
+  auto saved = ISO2022CNState::load(current);
+  if (!target || !saved)
+    return Error(EILSEQ);
+  auto length = saved->transition(*target, output);
+  if (length)
+    current = saved->save();
+  return length;
+}
+
 int RestartableConverter::save_unit(mbstate &state, UTF16Unit kind,
                                     uint32_t unit) const {
   uint32_t base = kind == UTF16Unit::HIGH ? 0xd800 : 0xdc00;

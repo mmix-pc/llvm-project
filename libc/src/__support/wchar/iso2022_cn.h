@@ -47,6 +47,16 @@ public:
                          const ChineseEncodingData &data);
   ErrorOr<size_t> reset(cpp::span<uint8_t> output);
 
+  // Emit only designation/shift bytes that recreate this boundary state from
+  // an initial decoder. Never emit a character, consume state, or partly write
+  // on insufficient capacity. A partial escape/character cannot be exported.
+  ErrorOr<size_t> prefix(cpp::span<uint8_t> output) const;
+  // Establish the designations and shift mode required by another boundary.
+  // Unused designations cannot be erased without emitting a character; retain
+  // them in this state rather than pretending the result equals required.
+  ErrorOr<size_t> transition(const ISO2022CNState &required,
+                             cpp::span<uint8_t> output);
+
 private:
   enum G1 : uint8_t { NONE, GB, CNS };
   enum Phase : uint8_t {
