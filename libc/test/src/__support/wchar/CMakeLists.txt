@@ -118,5 +118,6 @@ add_libc_test(
     libc.src.regex.decoded_text
     libc.src.wordexp.dollar_quote
     libc.src.wordexp.pattern
+    libc.src.wordexp.ifs
     ${iso2022_cn_public_deps}
 )

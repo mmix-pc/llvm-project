@@ -15,6 +15,7 @@
 #include "src/glob/component.h"
 #include "src/regex/decoded_text.h"
 #include "src/wordexp/dollar_quote.h"
+#include "src/wordexp/ifs.h"
 #include "src/wordexp/pattern.h"
 #include "test/UnitTest/Test.h"
 
@@ -129,6 +130,28 @@ void encoded(ISO2022CNState &state, const ChineseEncodingData &data,
     EXPECT_EQ(output[i], uint8_t(expected[i]));
 }
 } // namespace
+
+TEST(LlvmLibcISO2022CNTest, FieldDelimitersPreserveSourceBytes) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  WordDelimiters ifs;
+  ASSERT_EQ(ifs.assign(true, "\x1b$)A\x0e!!!\"\x0f ", converter), 0);
+  ASSERT_EQ(ifs.delimiters().size(), size_t(3));
+  EXPECT_TRUE(ifs.delimiters()[0].bytes == "\x1b$)A\x0e!!");
+  // The second character does not invent a new designation or shift prefix.
+  EXPECT_TRUE(ifs.delimiters()[1].bytes == "!\"");
+  EXPECT_TRUE(ifs.delimiters()[2].bytes == " ");
+  EXPECT_TRUE(ifs.delimiters()[2].whitespace);
+  ASSERT_EQ(ifs.assign(true, "\x1b$)A\x0e!!\x0f", converter), 0);
+  EXPECT_EQ(ifs.delimiters().size(), size_t(1));
+  EXPECT_EQ(ifs.assign(true, "\x1b$", converter), EILSEQ);
+  EXPECT_TRUE(ifs.delimiters()[0].bytes == "\x1b$)A\x0e!!");
+  ASSERT_EQ(ifs.assign(true, "\x1b$)A", converter), 0);
+  EXPECT_TRUE(ifs.delimiters().empty());
+}
 
 TEST(LlvmLibcISO2022CNTest, ParameterRemovalReencodesRemainingCharacters) {
   using namespace LIBC_NAMESPACE::internal;

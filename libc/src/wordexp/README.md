@@ -34,6 +34,9 @@ is not yet selected for MMIX exports.
   policy. It controls stderr, drains the pipe before waiting, and closes and
   reaps on sink errors or cancellation. It does not parse command boundaries,
   implement NOCMD, or normalize captured bytes.
+* `ifs` owns decoded delimiter slices and distinguishes unset and empty IFS.
+  It retains original byte sequences rather than re-encoding delimiters;
+  expansion results themselves may contain arbitrary non-NUL bytes.
 * `results` stages word-vector ownership, offsets and APPEND transactions;
   `wordfree` releases that representation while preserving errno.
 
