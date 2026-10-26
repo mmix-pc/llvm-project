@@ -1,4 +1,16 @@
 add_custom_target(libc-wordexp-tests)
+add_libc_test(
+  shell_syntax_test
+  FULL_BUILD_ONLY
+  SUITE libc-wordexp-tests
+  SRCS shell_syntax_test.cpp
+  DEPENDS libc.src.wordexp.shell_syntax libc.src.__support.freelist_heap
+    libc.hdr.errno_macros
+)
+if(TARGET libc.test.src.wordexp.shell_syntax_test.__build__)
+  target_link_options(libc.test.src.wordexp.shell_syntax_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+endif()
 if(TARGET libc.src.wordexp.paths)
   file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/paths-data)
   foreach(name a.txt b.txt .hidden star* "back\\one")

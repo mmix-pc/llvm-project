@@ -143,6 +143,8 @@ class Evaluator {
   int syntax(WordSyntaxResult error) {
     if (error)
       return 0;
+    if (error.error == WordSyntaxError::RESOURCE)
+      return system(error.sink_error);
     if (result)
       result = {Failure::SYNTAX, error, 0};
     return EINVAL;

@@ -102,6 +102,14 @@ add_object_library(
 )
 
 add_object_library(
+  shell_syntax
+  SRCS shell_syntax.cpp
+  HDRS shell_syntax.h
+  DEPENDS .syntax .dollar_quote libc.src.__support.alloc_checker
+    libc.hdr.errno_macros libc.hdr.func.free
+)
+
+add_object_library(
   syntax
   SRCS syntax.cpp
   HDRS syntax.h

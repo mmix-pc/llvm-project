@@ -152,12 +152,20 @@ class Parser {
       advance();
       if (peek() != '(')
         return command(false, quoted, output);
+      size_t command_begin = at;
       advance();
       size_t start = at;
       if (!sequence(Mode::ARITHMETIC, true, false, depth + 1))
         return false;
-      if (peek() != ')' || peek(1) != ')')
+      if (peek() != ')')
         return fail(Error::SYNTAX);
+      if (peek(1) != ')') {
+        // A completed parenthesized group without the second ')' cannot be
+        // arithmetic. Retry as a subshell-led command; EOF above is still an
+        // incomplete arithmetic expansion, not permission to execute it.
+        at = command_begin;
+        return command(false, quoted, output);
+      }
       size_t end = at;
       advance();
       advance();
