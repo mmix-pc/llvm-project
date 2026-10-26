@@ -13,6 +13,8 @@
 #include "src/__support/wchar/restartable_converter.h"
 #include "src/fnmatch/matcher.h"
 #include "src/glob/component.h"
+#include "src/regex/decoded_text.h"
+#include "src/wordexp/dollar_quote.h"
 #include "test/UnitTest/Test.h"
 
 #ifdef LIBC_TEST_HAS_FILE
@@ -126,6 +128,88 @@ void encoded(ISO2022CNState &state, const ChineseEncodingData &data,
     EXPECT_EQ(output[i], uint8_t(expected[i]));
 }
 } // namespace
+
+TEST(LlvmLibcISO2022CNTest, DollarQuoteControlsAreNotRawBytes) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  struct Sink {
+    RestartableConverter converter;
+    mbstate state{};
+    uint8_t bytes[32]{};
+    size_t size = 0;
+    static int emit(void *opaque, QuotedUnit unit) {
+      auto &self = *static_cast<Sink *>(opaque);
+      if (unit.kind == QuotedUnit::Kind::BYTE) {
+        self.bytes[self.size++] = uint8_t(unit.value);
+        return 0;
+      }
+      auto result = self.converter.encode(
+          unit.value, {self.bytes + self.size, sizeof(self.bytes) - self.size},
+          self.state);
+      if (!result)
+        return result.error();
+      self.size += *result;
+      return 0;
+    }
+  };
+  Sink sink{RestartableConverter(*mapping)};
+  const uint32_t esc[] = {'\\', 'e'};
+  auto error = decode_dollar_quote(esc, {&sink, Sink::emit});
+  EXPECT_TRUE(error.error == WordSyntaxError::SINK_ERROR);
+  EXPECT_EQ(error.sink_error, EILSEQ);
+  EXPECT_EQ(sink.size, size_t(0));
+  EXPECT_TRUE(sink.converter.initial(sink.state));
+  const uint32_t shift[] = {'\\', 'c', 'n'};
+  error = decode_dollar_quote(shift, {&sink, Sink::emit});
+  EXPECT_EQ(error.sink_error, EILSEQ);
+  EXPECT_EQ(sink.size, size_t(0));
+  const uint32_t bytes[] = {'\\', 'x', '1', 'b', '\\', '3', '3'};
+  ASSERT_TRUE(bool(decode_dollar_quote(bytes, {&sink, Sink::emit})));
+  EXPECT_EQ(sink.size, size_t(2));
+  EXPECT_EQ(sink.bytes[0], uint8_t(27));
+  EXPECT_EQ(sink.bytes[1], uint8_t(27));
+  // Raw numeric bytes are emitted as requested, not submitted as characters.
+  EXPECT_TRUE(sink.converter.initial(sink.state));
+  const uint32_t discarded[] = {'\\', '0', '\\', 'e'};
+  ASSERT_TRUE(bool(decode_dollar_quote(discarded, {&sink, Sink::emit})));
+  EXPECT_EQ(sink.size, size_t(2));
+  const uint32_t scalar[] = {0x4e2d};
+  ASSERT_TRUE(bool(decode_dollar_quote(scalar, {&sink, Sink::emit})));
+  EXPECT_EQ(sink.size, size_t(9));
+  EXPECT_EQ(sink.bytes[7], uint8_t('!'));
+  EXPECT_EQ(sink.bytes[8], uint8_t('!'));
+}
+
+TEST(LlvmLibcISO2022CNTest, RegexOffsetsKeepShiftPrefixesAndSuffixes) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  DecodedRegexText text;
+  const char input[] = "\x1b$)A\x0e!!\x0f";
+  ASSERT_EQ(text.assign({input, sizeof(input) - 1}, converter), 0);
+  ASSERT_EQ(text.units().size(), size_t(1));
+  EXPECT_EQ(text.units()[0].scalar, uint32_t(0x4e2d));
+  EXPECT_EQ(text.units()[0].begin, regoff_t(0));
+  EXPECT_EQ(text.units()[0].end, regoff_t(7));
+  EXPECT_EQ(text.characters_end(), regoff_t(7));
+  EXPECT_EQ(text.bytes(), regoff_t(8));
+  ASSERT_EQ(text.assign("\x1b$)A\x0e!!\x0f!", converter), 0);
+  ASSERT_EQ(text.units().size(), size_t(2));
+  EXPECT_EQ(text.units()[1].scalar, uint32_t('!'));
+  EXPECT_EQ(text.units()[1].begin, regoff_t(7));
+  EXPECT_EQ(text.units()[1].end, regoff_t(9));
+  ASSERT_EQ(text.assign("\x1b$)A", converter), 0);
+  EXPECT_EQ(text.units().size(), size_t(0));
+  EXPECT_EQ(text.characters_end(), regoff_t(0));
+  EXPECT_EQ(text.bytes(), regoff_t(4));
+  EXPECT_EQ(text.assign("\x1b$)A\x0e!", converter), EILSEQ);
+  EXPECT_EQ(text.assign("\x1b$", converter), EILSEQ);
+  EXPECT_EQ(text.bytes(), regoff_t(4));
+}
 
 TEST(LlvmLibcISO2022CNTest, GlobSyntaxUsesCharactersNotEncodedBytes) {
   using namespace LIBC_NAMESPACE::internal;

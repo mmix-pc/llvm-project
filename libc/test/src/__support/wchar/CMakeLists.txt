@@ -115,5 +115,7 @@ add_libc_test(
     libc.src.__support.wchar.restartable_converter
     libc.src.fnmatch.matcher
     libc.src.glob.component
+    libc.src.regex.decoded_text
+    libc.src.wordexp.dollar_quote
     ${iso2022_cn_public_deps}
 )
