@@ -278,6 +278,7 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     libc.src.__support.wchar.mbstate
     libc.src.__support.wchar.mbsnrtowcs
+    libc.src.__support.wchar.restartable_string
 )
 
 add_entrypoint_object(
@@ -294,6 +295,7 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     libc.src.__support.wchar.mbstate
     libc.src.__support.wchar.mbsnrtowcs
+    libc.src.__support.wchar.restartable_string
 )
 
 add_entrypoint_object(
@@ -307,6 +309,7 @@ add_entrypoint_object(
     libc.hdr.types.mbstate_t
     libc.src.__support.wchar.mbstate
     libc.src.__support.wchar.wcsnrtombs
+    libc.src.__support.wchar.restartable_string
     libc.src.__support.libc_errno
 )
 
@@ -321,6 +324,7 @@ add_entrypoint_object(
     libc.hdr.types.mbstate_t
     libc.src.__support.wchar.mbstate
     libc.src.__support.wchar.wcsnrtombs
+    libc.src.__support.wchar.restartable_string
     libc.src.__support.libc_errno
 )
 
@@ -878,6 +882,7 @@ add_entrypoint_object(
     libc.src.__support.macros.null_check
     libc.src.__support.printf_core.writer
     libc.src.__support.wchar.character_converter
+    libc.src.locale.time_locale
     libc.src.time.strftime_core.strftime_main
 )
 

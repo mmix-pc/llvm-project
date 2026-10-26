@@ -505,6 +505,7 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     libc.src.__support.wchar.mbstate
     libc.src.__support.wchar.mbsnrtowcs
+    libc.src.__support.wchar.restartable_string
 )
 
 add_entrypoint_object(
@@ -531,6 +532,7 @@ add_entrypoint_object(
     libc.hdr.types.wchar_t
     libc.src.__support.wchar.mbstate
     libc.src.__support.wchar.wcsnrtombs
+    libc.src.__support.wchar.restartable_string
     libc.src.__support.libc_errno
 )
 
