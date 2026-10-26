@@ -1,3 +1,17 @@
+add_custom_target(libc-regex-component-tests)
+add_libc_test(
+  decoded_text_test
+  FULL_BUILD_ONLY
+  SUITE libc-regex-component-tests
+  SRCS decoded_text_test.cpp
+  DEPENDS libc.src.regex.decoded_text libc.src.__support.freelist_heap
+    libc.hdr.errno_macros
+)
+if(TARGET libc.test.src.regex.decoded_text_test.__build__)
+  target_link_options(libc.test.src.regex.decoded_text_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+endif()
+
 if(LLVM_LIBC_FULL_BUILD AND LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
   add_custom_target(libc_regex_unittests)
 

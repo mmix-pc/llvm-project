@@ -1,3 +1,13 @@
+add_object_library(
+  decoded_text
+  SRCS decoded_text.cpp
+  HDRS decoded_text.h
+  DEPENDS libc.hdr.types.regoff_t libc.hdr.errno_macros libc.hdr.func.free
+    libc.src.__support.CPP.limits libc.src.__support.CPP.string_view
+    libc.src.__support.alloc_checker
+    libc.src.__support.wchar.restartable_converter
+)
+
 function(add_bsd_regex_engine)
   set(bsd_regex_dir "${CMAKE_CURRENT_SOURCE_DIR}/engine")
   set(bsd_regex_options
