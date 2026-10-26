@@ -1,5 +1,23 @@
 add_custom_target(libc-wordexp-tests)
 add_libc_test(
+  fragments_test
+  FULL_BUILD_ONLY
+  SUITE libc-wordexp-tests
+  SRCS fragments_test.cpp
+  DEPENDS libc.src.wordexp.expand libc.src.__support.freelist_heap
+    libc.hdr.errno_macros
+)
+if(TARGET libc.test.src.wordexp.fragments_test.__build__)
+  target_link_options(libc.test.src.wordexp.fragments_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+endif()
+add_libc_test(
+  expand_test
+  SUITE libc-wordexp-tests
+  SRCS expand_test.cpp
+  DEPENDS libc.src.wordexp.expand libc.hdr.errno_macros
+)
+add_libc_test(
   pattern_test
   SUITE libc-wordexp-tests
   SRCS pattern_test.cpp

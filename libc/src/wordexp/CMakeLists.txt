@@ -1,4 +1,21 @@
 add_object_library(
+  expand
+  SRCS expand.cpp
+  HDRS expand.h
+  DEPENDS .arithmetic .dollar_quote .fragments .pattern .syntax
+    libc.src.__support.integer_to_string libc.hdr.errno_macros
+)
+
+add_object_library(
+  fragments
+  SRCS fragments.cpp
+  HDRS fragments.h
+  DEPENDS .fields libc.src.__support.char_vector
+    libc.src.__support.CPP.limits libc.src.string.memory_utils.inline_memcpy
+    libc.hdr.errno_macros libc.hdr.func.free libc.hdr.func.realloc
+)
+
+add_object_library(
   pattern
   SRCS pattern.cpp
   HDRS pattern.h
