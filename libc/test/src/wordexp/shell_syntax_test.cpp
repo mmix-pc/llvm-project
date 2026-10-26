@@ -142,6 +142,18 @@ TEST(LlvmLibcShellSyntaxTest, BackquotesAndOriginalPositions) {
   EXPECT_FALSE(bool(scan_word_command(missing, 0, true)));
 }
 
+TEST(LlvmLibcShellSyntaxTest, OuterQuotesAffectLegacyEscapes) {
+  Input body(R"cmd(echo \")\"`)cmd");
+  EXPECT_FALSE(bool(scan_word_command(body, 0, true)));
+  EXPECT_TRUE(bool(scan_word_command(body, 0, true, true)));
+  Input quoted(R"cmd("`echo \")\"`")cmd");
+  EXPECT_TRUE(
+      bool(parse_word_syntax(quoted, false, {}, word_command_syntax())));
+  Input unquoted(R"cmd(`echo \")\"`)cmd");
+  EXPECT_FALSE(
+      bool(parse_word_syntax(unquoted, false, {}, word_command_syntax())));
+}
+
 TEST(LlvmLibcShellSyntaxTest, ArithmeticPrecedenceAndSubshellFallback) {
   Input nested("echo $((echo x); echo y))");
   EXPECT_TRUE(bool(scan_word_command(nested, 0, false)));

@@ -11,6 +11,8 @@
 
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/error_or.h"
+#include "src/wordexp/source.h"
+#include "src/wordexp/syntax.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -29,6 +31,14 @@ struct CommandOutput {
 // child or fd.
 ErrorOr<int> capture_word_command(const char *command, char *const *environment,
                                   bool show_error, CommandOutput output);
+
+// Join a token from the fully checked source with capture. Preparation is
+// completed before acquiring any process resources. The converter must match
+// source admission; this overload does not replace whole-source preflight.
+ErrorOr<int> capture_word_command(const WordSource &source, WordToken token,
+                                  RestartableConverter converter,
+                                  char *const *environment, bool show_error,
+                                  CommandOutput output);
 
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

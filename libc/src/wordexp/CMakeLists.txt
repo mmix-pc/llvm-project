@@ -19,6 +19,7 @@ if(LIBC_TARGET_OS STREQUAL "linux")
       SRCS command.cpp
       HDRS command.h
       DEPENDS
+        .source .syntax
         libc.src.stdio.linux.pipe_process
         libc.hdr.errno_macros
         libc.hdr.fcntl_macros
@@ -54,7 +55,8 @@ add_object_library(
   source
   SRCS source.cpp
   HDRS source.h
-  DEPENDS libc.src.__support.wchar.restartable_converter
+  DEPENDS .syntax libc.src.__support.char_vector
+    libc.src.__support.wchar.restartable_converter
     libc.src.__support.CPP.string_view libc.src.__support.CPP.limits
     libc.src.__support.alloc_checker libc.hdr.errno_macros
     libc.hdr.func.malloc libc.hdr.func.free

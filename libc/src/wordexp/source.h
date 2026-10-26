@@ -10,6 +10,7 @@
 #define LLVM_LIBC_SRC_WORDEXP_SOURCE_H
 
 #include "src/__support/CPP/string_view.h"
+#include "src/__support/char_vector.h"
 #include "src/__support/wchar/restartable_converter.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -44,6 +45,13 @@ public:
   // view excludes the final shift-only suffix. Splicing separately quoted or
   // expanded spans still requires the caller's encoding-state composition.
   ErrorOr<cpp::string_view> slice(size_t begin, size_t end) const;
+
+  // Prepare an already syntax-checked command body for an initial decoder,
+  // retaining source bytes and removing exactly the legacy escape layer.
+  // Output must initially be empty; the caller owns any prefix on failure.
+  // No shell or environment service is invoked. This does not admit syntax.
+  int command(size_t begin, size_t end, bool backquoted, bool quoted,
+              RestartableConverter converter, CharVector &output) const;
 
 private:
   char *storage = nullptr;

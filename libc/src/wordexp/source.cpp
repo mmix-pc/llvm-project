@@ -13,6 +13,7 @@
 #include "src/__support/CPP/limits.h"
 #include "src/__support/alloc-checker.h"
 #include "src/string/memory_utils/inline_memcpy.h"
+#include "src/wordexp/syntax.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -114,6 +115,70 @@ ErrorOr<cpp::string_view> WordSource::slice(size_t begin, size_t end) const {
     return cpp::string_view{};
   size_t offset = positions[begin].begin;
   return bytes().substr(offset, positions[end - 1].end - offset);
+}
+
+int WordSource::command(size_t begin, size_t end, bool backquoted, bool quoted,
+                        RestartableConverter converter,
+                        CharVector &output) const {
+  if (begin > end || end > count || output.length())
+    return EINVAL;
+  if (begin == end)
+    return 0;
+  auto append = [&output](cpp::string_view bytes) -> int {
+    for (char byte : bytes)
+      if (!output.append(byte))
+        return ENOMEM;
+    return 0;
+  };
+  uint8_t prefix[MAX_LOCALE_STATE_PREFIX_BYTES];
+  auto length = converter.prefix(positions[begin].before, prefix);
+  if (!length)
+    return length.error();
+  if (int error = append({reinterpret_cast<const char *>(prefix), *length}))
+    return error;
+  auto removed_character = [&](size_t i) -> int {
+    // Quote removal removes a character, not preceding designation/shift
+    // bytes. This also matters for an escaped newline carrying a designation.
+    mbstate state = positions[i].before;
+    size_t offset = positions[i].begin, prefix_end = offset;
+    for (size_t byte = offset; byte < positions[i].end; ++byte) {
+      uint32_t scalar;
+      auto read = converter.decode(
+          &scalar, {reinterpret_cast<const uint8_t *>(storage + byte), 1},
+          state);
+      if (!read)
+        return read.error();
+      if (*read != size_t(-2))
+        break;
+      if (converter.boundary(state))
+        prefix_end = byte + 1;
+    }
+    return append(bytes().substr(offset, prefix_end - offset));
+  };
+  for (size_t i = begin; i < end; ++i) {
+    bool escape = backquoted && characters[i] == '\\' && i + 1 < end &&
+                  backquote_escape(characters[i + 1], quoted);
+    size_t offset = positions[i].begin;
+    if (escape) {
+      if (int error = removed_character(i))
+        return error;
+      ++i;
+      if (characters[i] == '\n') {
+        if (int error = removed_character(i))
+          return error;
+        continue;
+      }
+      offset = positions[i].begin;
+    }
+    if (int error = append(bytes().substr(offset, positions[i].end - offset)))
+      return error;
+  }
+  mbstate state = positions[end - 1].after;
+  uint8_t reset[MAX_LOCALE_CHARACTER_BYTES];
+  auto reset_length = converter.encode(0, reset, state);
+  if (!reset_length)
+    return reset_length.error();
+  return append({reinterpret_cast<const char *>(reset), *reset_length - 1});
 }
 
 } // namespace internal

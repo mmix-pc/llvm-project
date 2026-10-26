@@ -12,6 +12,7 @@
 #include "src/__support/OSUtil/syscall.h"
 #include "src/__support/freelist_heap.h"
 #include "src/wordexp/command.h"
+#include "src/wordexp/shell_syntax.h"
 #include "test/UnitTest/Test.h"
 #include <sys/syscall.h>
 
@@ -209,10 +210,54 @@ TEST(LlvmLibcWordCommandTest, AllocationFailureClosesActionsAndDescriptors) {
 
 TEST(LlvmLibcWordCommandTest, RawCaptureDoesNotSelectNulPolicy) {
   Output out;
-  auto status = capture_word_command("printf 'a\\000b\\n\\n'", environment, false,
-                                     {&out, Output::append});
+  auto status = capture_word_command("printf 'a\\000b\\n\\n'", environment,
+                                     false, {&out, Output::append});
   ASSERT_TRUE(status.has_value());
   EXPECT_EQ(*status, 0);
   EXPECT_EQ(out.length, size_t(5));
   EXPECT_TRUE(string_view(out.prefix, 5) == string_view("a\0b\n\n", 5));
+}
+
+TEST(LlvmLibcWordCommandTest,
+     SourceTokensUseTheSameLegacyEscapeRulesAsPreflight) {
+  using namespace LIBC_NAMESPACE::internal;
+  struct Case {
+    const char *source, *expected;
+  } cases[] = {
+      {R"cmd("`printf '%s' \"$VALUE\"`")cmd", "from environment"},
+      {R"cmd($(case x in x) printf selected;; esac))cmd", "selected"},
+      {"$(read x <<'EOF'\nliteral )\nEOF\nprintf '%s' \"$x\")", "literal )"},
+      {R"cmd(`printf '%s' \`printf nested\``)cmd", "nested"},
+  };
+  int before_fds = descriptors();
+  size_t before = live;
+  for (auto row : cases) {
+    WordSource source;
+    ASSERT_EQ(source.assign(row.source, RestartableConverter(true)), 0);
+    struct Context {
+      WordSource &source;
+      Output output;
+      unsigned commands = 0;
+    } context{source, {}};
+    WordSyntaxSink sink{&context, [](void *p, WordToken token) {
+                          auto &c = *static_cast<Context *>(p);
+                          if (token.kind != WordToken::Kind::COMMAND &&
+                              token.kind != WordToken::Kind::BACKQUOTED_COMMAND)
+                            return 0;
+                          ++c.commands;
+                          auto status = capture_word_command(
+                              c.source, token, RestartableConverter(true),
+                              environment, false, {&c.output, Output::append});
+                          return status ? (*status == 0 ? 0 : EIO)
+                                        : status.error();
+                        }};
+    ASSERT_TRUE(bool(parse_word_syntax(source.scalars(), false, sink,
+                                       word_command_syntax())));
+    EXPECT_EQ(context.commands, 1U);
+    EXPECT_STREQ(context.output.prefix, row.expected);
+    EXPECT_EQ(descriptors(), before_fds);
+    EXPECT_EQ(syscall_impl<long>(SYS_wait4, -1, nullptr, WNOHANG, nullptr),
+              -long(ECHILD));
+  }
+  EXPECT_EQ(live, before);
 }

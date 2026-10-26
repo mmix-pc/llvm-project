@@ -132,5 +132,21 @@ ErrorOr<int> capture_word_command(const char *command, char *const *environment,
   return status;
 }
 
+ErrorOr<int> capture_word_command(const WordSource &source, WordToken token,
+                                  RestartableConverter converter,
+                                  char *const *environment, bool show_error,
+                                  CommandOutput output) {
+  if (token.kind != WordToken::Kind::COMMAND &&
+      token.kind != WordToken::Kind::BACKQUOTED_COMMAND)
+    return Error(EINVAL);
+  CharVector body;
+  int error = source.command(token.begin, token.end,
+                             token.kind == WordToken::Kind::BACKQUOTED_COMMAND,
+                             token.quoted, converter, body);
+  if (error)
+    return Error(error);
+  return capture_word_command(body.c_str(), environment, show_error, output);
+}
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

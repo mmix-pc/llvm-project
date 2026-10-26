@@ -20,7 +20,8 @@ namespace internal {
 // in success.position. Unsupported lexical forms fail explicitly; this parser
 // alone does not qualify the public wordexp command-substitution pipeline.
 WordSyntaxResult scan_word_command(cpp::span<const uint32_t> source,
-                                   size_t begin, bool backquoted);
+                                   size_t begin, bool backquoted,
+                                   bool quoted = false);
 WordCommandSyntax word_command_syntax();
 
 } // namespace internal

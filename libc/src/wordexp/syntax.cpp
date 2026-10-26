@@ -90,7 +90,7 @@ class Parser {
     if (!commands.scan)
       return fail(Error::COMMAND_PARSER_REQUIRED);
     size_t begin = at;
-    auto end = commands.scan(commands.context, input, begin, legacy);
+    auto end = commands.scan(commands.context, input, begin, legacy, quoted);
     if (!end) {
       result = end;
       return false;

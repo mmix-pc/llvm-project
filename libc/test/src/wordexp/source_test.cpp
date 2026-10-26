@@ -132,3 +132,64 @@ TEST(LlvmLibcWordSourceTest, ParserOffsetsSelectOriginalCommandBytes) {
       parse_word_syntax(source.scalars(), false, sink, word_command_syntax())));
   EXPECT_TRUE(output.checked);
 }
+
+TEST(LlvmLibcWordSourceTest, CommandBytesKeepUtf8AndLegacyQuoteRules) {
+  WordSource source;
+  const char *text = "printf \\\"\xc3\xa9\\\" \\$x \\`cmd\\` \\\\ \\q \\\nend";
+  ASSERT_EQ(source.assign(text, RestartableConverter(true)), 0);
+  {
+    LIBC_NAMESPACE::CharVector command;
+    ASSERT_EQ(source.command(0, source.scalars().size(), false, true,
+                             RestartableConverter(true), command),
+              0);
+    EXPECT_STREQ(command.c_str(), text);
+  }
+  {
+    LIBC_NAMESPACE::CharVector command;
+    ASSERT_EQ(source.command(0, source.scalars().size(), true, false,
+                             RestartableConverter(true), command),
+              0);
+    EXPECT_STREQ(command.c_str(),
+                 "printf \\\"\xc3\xa9\\\" $x `cmd` \\ \\q \\\nend");
+  }
+  {
+    LIBC_NAMESPACE::CharVector command;
+    ASSERT_EQ(source.command(0, source.scalars().size(), true, true,
+                             RestartableConverter(true), command),
+              0);
+    EXPECT_STREQ(command.c_str(), "printf \"\xc3\xa9\" $x `cmd` \\ \\q end");
+    EXPECT_EQ(
+        source.command(0, 1, false, false, RestartableConverter(true), command),
+        EINVAL);
+  }
+}
+
+TEST(LlvmLibcWordSourceTest, CommandAllocationFailureHasOwnedPrefix) {
+  WordSource source;
+  char bytes[160];
+  for (char &byte : bytes)
+    byte = 'x';
+  ASSERT_EQ(source.assign({bytes, sizeof(bytes)}, RestartableConverter(true)),
+            0);
+  size_t before = live;
+  for (int failure = 0; failure < 3; ++failure) {
+    {
+      LIBC_NAMESPACE::CharVector output;
+      fail_after = failure;
+      int error = source.command(0, source.scalars().size(), false, false,
+                                 RestartableConverter(true), output);
+      fail_after = -1;
+      EXPECT_EQ(error, failure < 2 ? ENOMEM : 0);
+      for (size_t i = 0; i < output.length(); ++i)
+        EXPECT_EQ(output.c_str()[i], 'x');
+    }
+    EXPECT_EQ(live, before);
+  }
+  LIBC_NAMESPACE::CharVector output;
+  EXPECT_EQ(
+      source.command(2, 1, false, false, RestartableConverter(true), output),
+      EINVAL);
+  EXPECT_EQ(
+      source.command(0, 161, false, false, RestartableConverter(true), output),
+      EINVAL);
+}

@@ -48,7 +48,7 @@ struct Token {
 };
 
 WordSyntaxResult command(Scalars input, size_t begin, bool legacy,
-                         unsigned depth);
+                         unsigned depth, bool quoted = false);
 
 class Parser {
   Scalars input;
@@ -124,7 +124,7 @@ class Parser {
         if (!dollar(nesting + 1, true))
           return false;
       } else if (peek() == '`') {
-        if (!checked(command(input, at + 1, true, nesting + 1)))
+        if (!checked(command(input, at + 1, true, nesting + 1, true)))
           return false;
       } else {
         ++at;
@@ -650,7 +650,7 @@ public:
 };
 
 WordSyntaxResult command(Scalars input, size_t begin, bool legacy,
-                         unsigned depth) {
+                         unsigned depth, bool quoted) {
   if (depth > 128)
     return {Error::NESTING_LIMIT, begin};
   if (!legacy)
@@ -658,8 +658,7 @@ WordSyntaxResult command(Scalars input, size_t begin, bool legacy,
   size_t end = begin;
   while (end < input.size() && input[end] != '`') {
     if (input[end] == '\\' && end + 1 < input.size() &&
-        (input[end + 1] == '\\' || input[end + 1] == '$' ||
-         input[end + 1] == '`'))
+        backquote_escape(input[end + 1], quoted))
       ++end;
     ++end;
   }
@@ -677,8 +676,10 @@ WordSyntaxResult command(Scalars input, size_t begin, bool legacy,
   size_t count = 0;
   for (size_t i = begin; i < end; ++i) {
     if (input[i] == '\\' && i + 1 < end &&
-        (input[i + 1] == '\\' || input[i + 1] == '$' || input[i + 1] == '`'))
-      ++i;
+        backquote_escape(input[i + 1], quoted)) {
+      if (input[++i] == '\n')
+        continue;
+    }
     positions[count] = i;
     text[count++] = input[i];
   }
@@ -691,18 +692,19 @@ WordSyntaxResult command(Scalars input, size_t begin, bool legacy,
 }
 } // namespace
 
-WordSyntaxResult scan_word_command(Scalars input, size_t begin,
-                                   bool backquoted) {
+WordSyntaxResult scan_word_command(Scalars input, size_t begin, bool backquoted,
+                                   bool quoted) {
   if (begin > input.size())
     return {Error::SYNTAX, input.size()};
   for (auto scalar : input)
     if (!scalar)
       return {Error::SYNTAX, begin};
-  return command(input, begin, backquoted, 0);
+  return command(input, begin, backquoted, 0, quoted);
 }
 WordCommandSyntax word_command_syntax() {
-  return {nullptr, [](void *, Scalars input, size_t begin, bool legacy) {
-            return scan_word_command(input, begin, legacy);
+  return {nullptr,
+          [](void *, Scalars input, size_t begin, bool legacy, bool quoted) {
+            return scan_word_command(input, begin, legacy, quoted);
           }};
 }
 

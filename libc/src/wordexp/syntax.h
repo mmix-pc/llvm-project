@@ -62,8 +62,15 @@ struct WordCommandSyntax {
   // A shell parser must handle case patterns, comments and here-documents; a
   // parenthesis counter is not a substitute. This callback can run twice.
   WordSyntaxResult (*scan)(void *, cpp::span<const uint32_t>, size_t begin,
-                           bool backquoted) = nullptr;
+                           bool backquoted, bool quoted) = nullptr;
 };
+
+// Legacy command substitution removes one escape layer before parsing. Outer
+// double quotes additionally affect quote and newline escapes, unlike $().
+constexpr bool backquote_escape(uint32_t next, bool quoted) {
+  return next == '$' || next == '`' || next == '\\' ||
+         (quoted && (next == '"' || next == '\n'));
+}
 
 // Input is decoded by the caller, which retains the scalar-to-byte mapping.
 // Token spans exclude delimiters, preserve expansion origins and borrow input.
@@ -81,9 +88,9 @@ WordSyntaxResult parse_word_syntax(cpp::span<const uint32_t> input,
 // list: spaces remain literal and no END_WORD token is emitted. Arithmetic
 // operands additionally retain their operators and balanced parentheses.
 WordSyntaxResult parse_word_fragment(cpp::span<const uint32_t> input,
-                                    bool quoted, bool arithmetic,
-                                    bool no_command, WordSyntaxSink sink = {},
-                                    WordCommandSyntax commands = {});
+                                     bool quoted, bool arithmetic,
+                                     bool no_command, WordSyntaxSink sink = {},
+                                     WordCommandSyntax commands = {});
 
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

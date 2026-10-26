@@ -47,7 +47,7 @@ if(TARGET libc.src.wordexp.command)
     FULL_BUILD_ONLY
     SUITE libc-wordexp-tests
     SRCS command_test.cpp
-    DEPENDS libc.src.wordexp.command libc.hdr.errno_macros
+    DEPENDS libc.src.wordexp.command libc.src.wordexp.shell_syntax libc.hdr.errno_macros
       libc.hdr.fcntl_macros libc.hdr.sys_wait_macros
       libc.include.sys_syscall libc.src.__support.OSUtil.osutil
       libc.src.__support.freelist_heap
