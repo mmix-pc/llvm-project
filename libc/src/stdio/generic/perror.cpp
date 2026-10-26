@@ -9,6 +9,7 @@
 #include "src/stdio/perror.h"
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/File/file.h"
+#include "src/__support/StringUtil/diagnostic_message.h"
 #include "src/__support/StringUtil/error_to_string.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
@@ -75,7 +76,8 @@ LLVM_LIBC_FUNCTION(void, perror, (const char *str)) {
     str = empty_str;
   cpp::string_view str_view(str);
 
-  cpp::string_view err_str = get_error_string(libc_errno);
+  cpp::string_view err_str =
+      get_diagnostic_message(get_error_string(libc_errno).data());
 
   // We need to lock the stream to ensure the newline is always appended.
   LIBC_NAMESPACE::File *file = reinterpret_cast<File *>(stderr);

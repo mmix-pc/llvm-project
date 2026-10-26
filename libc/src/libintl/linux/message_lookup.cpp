@@ -24,11 +24,9 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 namespace {
 MessageResults results;
-}
-
-char *lookup_message(const char *domain, const char *singular,
-                     const char *plural, cpp::optional<unsigned long> count,
-                     int category, locale_t locale) {
+char *lookup(const char *domain, const char *singular, const char *plural,
+             cpp::optional<unsigned long> count, int category, locale_t locale,
+             bool diagnostic) {
   // Include all allocations, resource disposal and lock operations, not just
   // syscalls: even fallback must preserve the caller's errno.
   struct Errno {
@@ -61,7 +59,7 @@ char *lookup_message(const char *domain, const char *singular,
     ~Catalog() { value->release(); }
   } catalog{*found};
   const auto *ctype = selected.data[LC_CTYPE];
-  const char *output = binding.codeset();
+  const char *output = diagnostic ? nullptr : binding.codeset();
   if (!output)
     output = ctype->chinese_encoding ? "ISO-2022-CN"
              : ctype->utf8           ? "UTF-8"
@@ -107,6 +105,18 @@ char *lookup_message(const char *domain, const char *singular,
     return fallback;
   auto stored = results.insert(*translated, size);
   return stored ? *stored : fallback;
+}
+} // namespace
+
+char *lookup_message(const char *domain, const char *singular,
+                     const char *plural, cpp::optional<unsigned long> count,
+                     int category, locale_t locale) {
+  return lookup(domain, singular, plural, count, category, locale, false);
+}
+
+const char *lookup_diagnostic_message(const char *message, locale_t locale) {
+  return lookup("llvm-libc", message, nullptr, cpp::nullopt, LC_MESSAGES,
+                locale, true);
 }
 
 } // namespace internal

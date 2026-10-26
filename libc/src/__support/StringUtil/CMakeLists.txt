@@ -1,3 +1,18 @@
+set(diagnostic_message_deps)
+set(diagnostic_message_options)
+if(LIBC_TARGET_OS_IS_LINUX AND LLVM_LIBC_FULL_BUILD)
+  list(APPEND diagnostic_message_deps libc.src.libintl.message_lookup)
+  list(APPEND diagnostic_message_options -DLIBC_HAS_MESSAGE_CATALOGS)
+endif()
+add_object_library(
+  diagnostic_message
+  SRCS diagnostic_message.cpp
+  HDRS diagnostic_message.h
+  COMPILE_OPTIONS ${diagnostic_message_options}
+  DEPENDS libc.hdr.types.locale_t libc.src.__support.macros.config
+    ${diagnostic_message_deps}
+)
+
 add_header_library(
   message_mapper
   HDRS

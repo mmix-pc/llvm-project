@@ -21,6 +21,10 @@ char *lookup_message(const char *domain, const char *singular,
                      const char *plural, cpp::optional<unsigned long> count,
                      int category, locale_t locale);
 
+// Internal diagnostics use a fixed domain and the selected locale's codeset,
+// not the application's textdomain or a domain codeset override.
+const char *lookup_diagnostic_message(const char *message, locale_t locale);
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 #endif

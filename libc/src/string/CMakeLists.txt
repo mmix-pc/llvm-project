@@ -205,6 +205,7 @@ add_entrypoint_object(
   HDRS
     strerror.h
   DEPENDS
+    libc.src.__support.StringUtil.diagnostic_message
     libc.src.__support.StringUtil.error_to_string
 )
 
@@ -213,6 +214,7 @@ add_entrypoint_object(
   SRCS strerror_l.cpp
   HDRS strerror_l.h
   DEPENDS
+    libc.src.__support.StringUtil.diagnostic_message
     libc.hdr.types.locale_t
     libc.src.__support.StringUtil.error_to_string
     libc.src.__support.common
@@ -225,6 +227,7 @@ add_entrypoint_object(
   HDRS
     strerror_r.h
   DEPENDS
+    libc.src.__support.StringUtil.diagnostic_message
     libc.src.__support.StringUtil.error_to_string
 )
 
@@ -233,6 +236,7 @@ add_entrypoint_object(
   SRCS __xpg_strerror_r.cpp
   HDRS __xpg_strerror_r.h
   DEPENDS
+    libc.src.__support.StringUtil.diagnostic_message
     libc.hdr.errno_macros
     libc.src.__support.StringUtil.error_to_string
     libc.src.__support.integer_to_string
@@ -377,6 +381,7 @@ add_entrypoint_object(
   HDRS
     strsignal.h
   DEPENDS
+    libc.src.__support.StringUtil.diagnostic_message
     libc.src.__support.StringUtil.signal_to_string
 )
 

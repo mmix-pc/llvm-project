@@ -8,6 +8,7 @@
 
 #include "src/string/__xpg_strerror_r.h"
 #include "hdr/errno_macros.h"
+#include "src/__support/StringUtil/diagnostic_message.h"
 #include "src/__support/StringUtil/error_to_string.h"
 #include "src/__support/common.h"
 #include "src/__support/integer_to_string.h"
@@ -20,7 +21,8 @@ LLVM_LIBC_FUNCTION(int, __xpg_strerror_r,
   // Unknown messages use call-local storage, never strerror's TLS buffer.
   char scratch[sizeof("Unknown error") + 1 +
                IntegerToString<int>::buffer_size()];
-  auto message = known ? *known : get_error_string(err_num, scratch);
+  auto message = known ? cpp::string_view(get_diagnostic_message(known->data()))
+                       : get_error_string(err_num, scratch);
   size_t length = message.size();
   if (length && message[length - 1] == '\0')
     --length;

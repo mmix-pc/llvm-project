@@ -15,7 +15,9 @@
 #include "test/UnitTest/Test.h"
 
 TEST(LlvmLibcStrerrorLTest, KnownErrors) {
-  const char *names[] = {"C", ""};
+  // Environment selection is covered by the locale tests. This test must not
+  // require the host's default regional locale to be installed.
+  const char *names[] = {"C", "POSIX", "C.UTF-8"};
   for (const char *name : names) {
     locale_t loc = LIBC_NAMESPACE::newlocale(LC_ALL_MASK, name, nullptr);
     ASSERT_NE(loc, nullptr);
