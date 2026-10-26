@@ -37,12 +37,15 @@ is not yet selected for MMIX exports.
 * `ifs` owns decoded delimiter slices and distinguishes unset and empty IFS.
   It retains original byte sequences rather than re-encoding delimiters;
   expansion results themselves may contain arbitrary non-NUL bytes.
+* `paths` joins field splitting, quote-aware glob patterns and owned results.
+  It preserves original bytes for literal or unmatched fields, and does not
+  treat backslashes introduced by expansions as new shell quoting syntax.
 * `results` stages word-vector ownership, offsets and APPEND transactions;
   `wordfree` releases that representation while preserving errno.
 
 Public integration must retain original source bytes and encoding states;
 the scalar-only expansion interface is not yet a byte-preserving source
-adapter for state-dependent filenames. IFS decoding, pathname expansion,
-command syntax/execution, cancellation ownership and public flags/errors remain
-integration requirements. Component
+adapter for state-dependent filenames. IFS and pathname-provider integration,
+command syntax and capture integration, cancellation ownership of the complete
+pipeline and public flags/errors remain integration requirements. Component
 tests do not establish installed public-interface qualification.

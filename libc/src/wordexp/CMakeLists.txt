@@ -1,4 +1,13 @@
 if(LIBC_TARGET_OS STREQUAL "linux")
+  add_object_library(
+    paths
+    SRCS paths.cpp
+    HDRS paths.h
+    DEPENDS .fields .fragments .results
+      libc.src.__support.wchar.restartable_converter
+      libc.hdr.errno_macros libc.hdr.glob_macros libc.src.__support.libc_errno
+      libc.src.glob.glob libc.src.glob.globfree
+  )
   if(LLVM_LIBC_FULL_BUILD)
     set(command_compile_options)
     if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
