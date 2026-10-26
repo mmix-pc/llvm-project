@@ -144,9 +144,41 @@ TEST(LlvmLibcWordSyntaxTest, ContinuationsDoNotBreakExpansionTokens) {
   EXPECT_EQ(t.kinds(Kind::BRACED_PARAMETER), size_t(1));
   EXPECT_EQ(t.kinds(Kind::ARITHMETIC), size_t(1));
   EXPECT_EQ(t.kinds(Kind::END_WORD), size_t(4));
-  ASSERT_TRUE(bool(t.parse("'a\\\nb' $'c\\\nd'")));
+  ASSERT_TRUE(bool(t.parse("'a\\\nb' $'c\\nd'")));
   EXPECT_TRUE(t.text(0, "a\\\nb"));
-  EXPECT_TRUE(t.text(2, "c\\\nd"));
+  EXPECT_TRUE(t.text(2, "c\\nd"));
+}
+
+TEST(LlvmLibcWordSyntaxTest, DollarQuoteErrorsPrecedeAnyEffects) {
+  Tokens t;
+  const char *bad[] = {"${x=changed} $'\\q'", "${x:-$'\\400'}",
+                       "$'\\x123'", "$'\\0\\q'", "$'\\\n'"};
+  for (auto input : bad) {
+    EXPECT_TRUE(t.parse(input).error == Error::SYNTAX);
+    EXPECT_EQ(t.count, size_t(0));
+  }
+}
+
+TEST(LlvmLibcWordSyntaxTest, ParameterFragmentsKeepSpacesAndQuotes) {
+  Tokens t;
+  ASSERT_TRUE(bool(t.parse("\"${x:-\"$y\"}\"")));
+  t.set("a b' c'\"$x\"");
+  ASSERT_TRUE(bool(LIBC_NAMESPACE::internal::parse_word_fragment(
+      {t.source, t.length}, false, false, true, {&t, Tokens::emit})));
+  EXPECT_EQ(t.kinds(Kind::END_WORD), size_t(0));
+  EXPECT_EQ(t.kinds(Kind::PARAMETER), size_t(1));
+  EXPECT_TRUE(t.text(1, " "));
+  t.set("(1 + ${x:-2}) * 3");
+  ASSERT_TRUE(bool(LIBC_NAMESPACE::internal::parse_word_fragment(
+      {t.source, t.length}, false, true, true, {&t, Tokens::emit})));
+  EXPECT_EQ(t.kinds(Kind::BRACED_PARAMETER), size_t(1));
+  const char *bad[] = {"(1+2", "1+2)"};
+  for (auto input : bad) {
+    t.set(input);
+    EXPECT_FALSE(bool(LIBC_NAMESPACE::internal::parse_word_fragment(
+        {t.source, t.length}, false, true, true, {&t, Tokens::emit})));
+    EXPECT_EQ(t.count, size_t(0));
+  }
 }
 
 TEST(LlvmLibcWordSyntaxTest, ScalarsAndNestingLimit) {

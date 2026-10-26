@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/wordexp/syntax.h"
+#include "src/wordexp/dollar_quote.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
@@ -26,7 +27,9 @@ class Parser {
   WordCommandSyntax commands;
   size_t at = 0;
   WordSyntaxResult result;
-  enum class Mode { TOP, PARAMETER, ARITHMETIC, DOUBLE_QUOTE };
+  enum class Mode {
+    TOP, PARAMETER, ARITHMETIC, DOUBLE_QUOTE, FRAGMENT, ARITHMETIC_FRAGMENT
+  };
 
   size_t skip_continuations(size_t from) const {
     while (from < input.size() && input[from] == '\\' &&
@@ -70,6 +73,14 @@ class Parser {
     if (at == input.size())
       return fail(Error::SYNTAX);
     size_t end = at++;
+    if (dollar) {
+      auto checked = decode_dollar_quote(input.subspan(begin, end - begin));
+      if (!checked) {
+        checked.position += begin;
+        result = checked;
+        return false;
+      }
+    }
     return emit(dollar ? Kind::DOLLAR_QUOTED : Kind::LITERAL, begin, end, true,
                 output);
   }
@@ -181,11 +192,16 @@ class Parser {
           (mode == Mode::DOUBLE_QUOTE && c == '"') ||
           (mode == Mode::ARITHMETIC && c == ')' && !parentheses))
         return true;
-      if (mode == Mode::ARITHMETIC) {
+      bool arithmetic = mode == Mode::ARITHMETIC ||
+                        mode == Mode::ARITHMETIC_FRAGMENT;
+      if (arithmetic) {
         if (c == '(')
           ++parentheses;
-        if (c == ')' && parentheses)
+        if (c == ')') {
+          if (!parentheses)
+            return fail(Error::SYNTAX);
           --parentheses;
+        }
       }
       if (mode == Mode::TOP && (c == ' ' || c == '\t')) {
         if (word && !emit(Kind::END_WORD, at, at, false, output))
@@ -201,7 +217,7 @@ class Parser {
         uint32_t next = peek();
         bool escape = !quoted || next == '$' || next == '`' || next == '\\' ||
                       next == '\n' ||
-                      (next == '"' && mode != Mode::ARITHMETIC) ||
+                      (next == '"' && !arithmetic) ||
                       (next == '}' && mode == Mode::PARAMETER);
         if (escape && next == '\n') {
           ++at;
@@ -217,9 +233,7 @@ class Parser {
       } else if (c == '\'' && !quoted) {
         if (!single_quote(false, output))
           return false;
-      } else if (c == '"' && mode != Mode::ARITHMETIC) {
-        if (quoted)
-          return fail(Error::SYNTAX); // Unspecified nested quote form.
+      } else if (c == '"' && !arithmetic) {
         ++at;
         // Preserve a quoted empty expansion, not only literal empty quotes.
         if (!emit(Kind::LITERAL, at, at, true, output) ||
@@ -234,7 +248,8 @@ class Parser {
         ++at;
         if (!command(true, quoted, output))
           return false;
-      } else if (mode == Mode::TOP && !quoted && !word && c == '~') {
+      } else if ((mode == Mode::TOP || mode == Mode::FRAGMENT) && !quoted &&
+                 !word && c == '~') {
         size_t literal = at;
         advance();
         size_t start = at;
@@ -261,6 +276,8 @@ class Parser {
       }
       word = true;
     }
+    if (mode == Mode::FRAGMENT || mode == Mode::ARITHMETIC_FRAGMENT)
+      return parentheses == 0 || fail(Error::SYNTAX);
     if (mode != Mode::TOP)
       return fail(Error::SYNTAX);
     return !word || emit(Kind::END_WORD, at, at, false, output);
@@ -272,6 +289,11 @@ public:
       : input(input), no_command(no_command), sink(sink), commands(commands) {}
   WordSyntaxResult run() {
     sequence(Mode::TOP, false, true, 0);
+    return result;
+  }
+  WordSyntaxResult fragment(bool quoted, bool arithmetic) {
+    sequence(arithmetic ? Mode::ARITHMETIC_FRAGMENT : Mode::FRAGMENT,
+             quoted || arithmetic, true, 0);
     return result;
   }
 };
@@ -287,6 +309,19 @@ WordSyntaxResult parse_word_syntax(cpp::span<const uint32_t> input,
   if (!checked || !sink.emit)
     return checked;
   return Parser(input, no_command, sink, commands).run();
+}
+
+WordSyntaxResult parse_word_fragment(cpp::span<const uint32_t> input,
+                                    bool quoted, bool arithmetic,
+                                    bool no_command, WordSyntaxSink sink,
+                                    WordCommandSyntax commands) {
+  for (size_t i = 0; i != input.size(); ++i)
+    if (!input[i])
+      return {Error::SYNTAX, i};
+  auto checked = Parser(input, no_command, {}, commands).fragment(quoted, arithmetic);
+  if (!checked || !sink.emit)
+    return checked;
+  return Parser(input, no_command, sink, commands).fragment(quoted, arithmetic);
 }
 
 } // namespace internal

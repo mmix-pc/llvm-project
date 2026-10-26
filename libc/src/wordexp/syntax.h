@@ -76,6 +76,14 @@ WordSyntaxResult parse_word_syntax(cpp::span<const uint32_t> input,
                                    bool no_command, WordSyntaxSink sink = {},
                                    WordCommandSyntax commands = {});
 
+// Expandable parameter operands are one fragment, not a new top-level word
+// list: spaces remain literal and no END_WORD token is emitted. Arithmetic
+// operands additionally retain their operators and balanced parentheses.
+WordSyntaxResult parse_word_fragment(cpp::span<const uint32_t> input,
+                                    bool quoted, bool arithmetic,
+                                    bool no_command, WordSyntaxSink sink = {},
+                                    WordCommandSyntax commands = {});
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 #endif

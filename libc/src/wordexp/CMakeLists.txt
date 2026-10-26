@@ -2,7 +2,7 @@ add_object_library(
   dollar_quote
   SRCS dollar_quote.cpp
   HDRS dollar_quote.h
-  DEPENDS .syntax
+  DEPENDS libc.hdr.stdint_proxy libc.src.__support.CPP.span
 )
 
 add_entrypoint_object(
@@ -27,7 +27,7 @@ add_object_library(
   syntax
   SRCS syntax.cpp
   HDRS syntax.h
-  DEPENDS libc.hdr.stdint_proxy libc.src.__support.CPP.span
+  DEPENDS .dollar_quote libc.hdr.stdint_proxy libc.src.__support.CPP.span
 )
 
 add_object_library(
