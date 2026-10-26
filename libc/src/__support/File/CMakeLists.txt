@@ -5,6 +5,11 @@ if(NOT (TARGET libc.src.__support.threads.mutex)
   return()
 endif()
 
+set(file_locale_deps)
+if(LLVM_LIBC_FULL_BUILD)
+  list(APPEND file_locale_deps libc.src.locale.locale_storage)
+endif()
+
 add_object_library(
   file
   SRCS
@@ -12,6 +17,8 @@ add_object_library(
   HDRS
     file.h
   DEPENDS
+    ${file_locale_deps}
+    libc.src.__support.libc_errno
     libc.hdr.stdio_macros
     libc.hdr.stdint_proxy
     libc.hdr.func.realloc
@@ -30,6 +37,7 @@ add_object_library(
     libc.src.__support.wchar.mbstate
     libc.src.__support.wchar.wcrtomb
     libc.src.__support.wchar.character_converter
+    libc.src.__support.wchar.restartable_converter
     libc.src.string.memory_utils.inline_memcpy
     libc.hdr.errno_macros
 )

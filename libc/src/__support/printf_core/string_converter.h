@@ -13,7 +13,7 @@
 #include "hdr/types/char32_t.h"
 #include "hdr/types/char8_t.h"
 #include "src/__support/wchar/mbstate.h"
-#include "src/__support/wchar/string_converter.h"
+#include "src/__support/wchar/restartable_converter.h"
 #endif // LIBC_COPT_PRINTF_DISABLE_WIDE
 
 #include "src/__support/macros/config.h"
@@ -83,22 +83,28 @@ LIBC_INLINE int wchar_writer(Writer<write_mode> *writer,
   }
 #endif // LIBC_COPT_PRINTF_NO_NULLPTR_CHECKS
 
-  internal::mbstate mbstate;
-
-  internal::StringConverter<char32_t> length_counter(wstr_ptr, &mbstate,
-                                                     precision);
-
-  for (;;) {
-    auto converted = length_counter.pop<char8_t>();
-    if (!converted.has_value()) {
-      // -1 denotes the precision boundary, not an invalid character.
-      if (converted.error() != -1)
-        return MB_CONVERSION_ERROR;
+  internal::mbstate mbstate{};
+  auto converter = internal::RestartableConverter::current();
+  size_t characters = 0;
+  bool terminated = false;
+  uint8_t bytes[internal::MAX_LOCALE_CHARACTER_BYTES];
+  // Precision limits bytes, but a character and its leading shifts are atomic.
+  while (string_len < precision) {
+    char32_t scalar = wstr_ptr[characters];
+    auto converted = converter.encode(scalar, bytes, mbstate);
+    if (!converted.has_value())
+      return MB_CONVERSION_ERROR;
+    size_t count = *converted - (scalar == 0 ? 1 : 0);
+    if (count > precision - string_len)
+      break;
+    if (count > size_t(cpp::numeric_limits<int>::max()) - string_len)
+      return OVERFLOW_ERROR;
+    string_len += count;
+    if (scalar == 0) {
+      terminated = true;
       break;
     }
-    if (converted.value() == '\0')
-      break;
-    ++string_len;
+    ++characters;
   }
 
   size_t padding_spaces = static_cast<size_t>(to_conv.min_width) > string_len
@@ -112,13 +118,13 @@ LIBC_INLINE int wchar_writer(Writer<write_mode> *writer,
   }
 
   mbstate = internal::mbstate();
-  internal::StringConverter<char32_t> out_conv(wstr_ptr, &mbstate, precision);
-
-  for (size_t i = 0; i < string_len; ++i) {
-    auto converted = out_conv.pop<char8_t>();
+  for (size_t i = 0; i < characters + size_t(terminated); ++i) {
+    auto converted = converter.encode(wstr_ptr[i], bytes, mbstate);
     if (!converted.has_value())
       return MB_CONVERSION_ERROR;
-    RET_IF_RESULT_NEGATIVE(writer->write(static_cast<char>(converted.value())));
+    size_t count = *converted - (wstr_ptr[i] == 0 ? 1 : 0);
+    RET_IF_RESULT_NEGATIVE(
+        writer->write({reinterpret_cast<const char *>(bytes), count}));
   }
 
   // If the padding is on the right side, write the spaces last.

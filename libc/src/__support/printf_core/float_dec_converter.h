@@ -21,6 +21,7 @@
 #include "src/__support/printf_core/converter_utils.h"
 #include "src/__support/printf_core/core_structs.h"
 #include "src/__support/printf_core/float_inf_nan_converter.h"
+#include "src/__support/printf_core/numeric_radix.h"
 #include "src/__support/printf_core/writer.h"
 
 #include <inttypes.h>
@@ -118,9 +119,9 @@ public:
   LIBC_INLINE int write_left_padding(WriterT *writer, size_t total_digits) {
     // The pattern is (spaces) (sign) (zeroes), but only one of spaces and
     // zeroes can be written, and only if the padding amount is positive.
-    int padding_amount =
-        static_cast<int>(min_width - total_digits - (sign_char > 0 ? 1 : 0));
-    if (left_justified || padding_amount < 0) {
+    size_t length = total_digits + (sign_char > 0 ? 1 : 0);
+    size_t padding_amount = min_width > length ? min_width - length : 0;
+    if (left_justified || padding_amount == 0) {
       if (sign_char > 0) {
         RET_IF_RESULT_NEGATIVE(writer->write(sign_char));
       }
@@ -141,8 +142,8 @@ public:
   LIBC_INLINE int write_right_padding(WriterT *writer, size_t total_digits) {
     // If and only if the conversion is left justified, there may be trailing
     // spaces.
-    int padding_amount =
-        static_cast<int>(min_width - total_digits - (sign_char > 0 ? 1 : 0));
+    size_t length = total_digits + (sign_char > 0 ? 1 : 0);
+    size_t padding_amount = min_width > length ? min_width - length : 0;
     if (left_justified && padding_amount > 0) {
       RET_IF_RESULT_NEGATIVE(writer->write(' ', padding_amount));
     }
@@ -172,19 +173,53 @@ template <typename WriterT> class FloatWriter {
   size_t digits_before_decimal = 0; // The # of digits to write before the '.'
   size_t total_digits_written = 0;  // The # of digits that have been output.
   bool has_decimal_point;           // True if the number has a decimal point.
+  NumericRadix<WriterT> radix;
+  NumericGrouping<WriterT> grouping;
+  size_t integer_digits_written = 0;
+  LIBC_INLINE size_t output_length() const {
+    return total_digits + (has_decimal_point ? radix.size() - 1 : 0) +
+           grouping.extra_size(digits_before_decimal);
+  }
   WriterT *writer;                  // Writes to the final output.
   PaddingWriter<WriterT>
       padding_writer; // Handles prefixes/padding, uses total_digits.
 
+  LIBC_INLINE int write_digits(cpp::string_view text) {
+    if (!grouping.active())
+      return writer->write(text);
+    size_t i = 0;
+    for (; i < text.size() && integer_digits_written < digits_before_decimal;
+         ++i, ++integer_digits_written) {
+      if (integer_digits_written &&
+          grouping.boundary(digits_before_decimal - integer_digits_written))
+        RET_IF_RESULT_NEGATIVE(grouping.write_separator(writer));
+      RET_IF_RESULT_NEGATIVE(writer->write(text[i]));
+    }
+    return writer->write(text.substr(i));
+  }
+
+  LIBC_INLINE int write_digits(char digit, size_t count = 1) {
+    if (!grouping.active())
+      return writer->write(digit, count);
+    while (count && integer_digits_written < digits_before_decimal) {
+      if (integer_digits_written &&
+          grouping.boundary(digits_before_decimal - integer_digits_written))
+        RET_IF_RESULT_NEGATIVE(grouping.write_separator(writer));
+      RET_IF_RESULT_NEGATIVE(writer->write(digit));
+      ++integer_digits_written;
+      --count;
+    }
+    return writer->write(digit, count);
+  }
+
   LIBC_INLINE int flush_buffer(bool round_up_max_blocks = false) {
     const char MAX_BLOCK_DIGIT = (round_up_max_blocks ? '0' : '9');
-    constexpr char DECIMAL_POINT = '.';
 
     // Write the most recent buffered block, and mark has_written
     if (!has_written) {
       has_written = true;
       RET_IF_RESULT_NEGATIVE(
-          padding_writer.write_left_padding(writer, total_digits));
+          padding_writer.write_left_padding(writer, output_length()));
     }
 
     // if the decimal point is the next character, or is in the range covered
@@ -196,13 +231,13 @@ template <typename WriterT> class FloatWriter {
       // digits_to_write > 0 guaranteed by outer if
       size_t digits_to_write = digits_before_decimal - total_digits_written;
       // Write the digits before the decimal point.
-      RET_IF_RESULT_NEGATIVE(writer->write({block_buffer, digits_to_write}));
-      RET_IF_RESULT_NEGATIVE(writer->write(DECIMAL_POINT));
+      RET_IF_RESULT_NEGATIVE(write_digits({block_buffer, digits_to_write}));
+      RET_IF_RESULT_NEGATIVE(radix.write(writer));
       if (buffered_digits > digits_to_write) {
         // Write the digits after the decimal point.
         RET_IF_RESULT_NEGATIVE(
-            writer->write({block_buffer + digits_to_write,
-                           (buffered_digits - digits_to_write)}));
+            write_digits({block_buffer + digits_to_write,
+                          (buffered_digits - digits_to_write)}));
       }
       // add 1 for the decimal point
       total_digits_written += buffered_digits + 1;
@@ -212,7 +247,7 @@ template <typename WriterT> class FloatWriter {
 
     // Clear the buffered digits.
     if (buffered_digits > 0) {
-      RET_IF_RESULT_NEGATIVE(writer->write({block_buffer, buffered_digits}));
+      RET_IF_RESULT_NEGATIVE(write_digits({block_buffer, buffered_digits}));
       total_digits_written += buffered_digits;
       buffered_digits = 0;
     }
@@ -225,10 +260,10 @@ template <typename WriterT> class FloatWriter {
         has_decimal_point) {
       // digits_to_write > 0 guaranteed by outer if
       size_t digits_to_write = digits_before_decimal - total_digits_written;
-      RET_IF_RESULT_NEGATIVE(writer->write(MAX_BLOCK_DIGIT, digits_to_write));
-      RET_IF_RESULT_NEGATIVE(writer->write(DECIMAL_POINT));
+      RET_IF_RESULT_NEGATIVE(write_digits(MAX_BLOCK_DIGIT, digits_to_write));
+      RET_IF_RESULT_NEGATIVE(radix.write(writer));
       if ((BLOCK_SIZE * max_block_count) > digits_to_write) {
-        RET_IF_RESULT_NEGATIVE(writer->write(
+        RET_IF_RESULT_NEGATIVE(write_digits(
             MAX_BLOCK_DIGIT, (BLOCK_SIZE * max_block_count) - digits_to_write));
       }
       // add 1 for the decimal point
@@ -240,7 +275,7 @@ template <typename WriterT> class FloatWriter {
     // Clear the buffer of max blocks
     if (max_block_count > 0) {
       RET_IF_RESULT_NEGATIVE(
-          writer->write(MAX_BLOCK_DIGIT, max_block_count * BLOCK_SIZE));
+          write_digits(MAX_BLOCK_DIGIT, max_block_count * BLOCK_SIZE));
       total_digits_written += max_block_count * BLOCK_SIZE;
       max_block_count = 0;
     }
@@ -256,9 +291,13 @@ template <typename WriterT> class FloatWriter {
 
 public:
   LIBC_INLINE FloatWriter(WriterT *init_writer, bool init_has_decimal_point,
-                          const PaddingWriter<WriterT> &init_padding_writer)
-      : has_decimal_point(init_has_decimal_point), writer(init_writer),
-        padding_writer(init_padding_writer) {}
+                          const PaddingWriter<WriterT> &init_padding_writer,
+                          bool group_digits = false,
+                          internal::NumericParseLocale selected =
+                              internal::current_numeric_parse_locale())
+      : has_decimal_point(init_has_decimal_point), radix(selected),
+        grouping(group_digits, selected),
+        writer(init_writer), padding_writer(init_padding_writer) {}
 
   LIBC_INLINE void init(size_t init_total_digits,
                         size_t init_digits_before_decimal) {
@@ -370,7 +409,6 @@ public:
       // has_carry should only be true here if every previous digit is 9, which
       // implies that the number has never been written.
       if (has_carry /* && !has_written */) {
-        constexpr char DECIMAL_POINT = '.';
 
         if (has_exp) { // This is in %e style
           // Since this is exponential notation, we don't write any more digits
@@ -396,18 +434,18 @@ public:
           // we're rounding up all of the digits, the ones in the buffer are
           // wrong and can't be flushed.
           RET_IF_RESULT_NEGATIVE(
-              padding_writer.write_left_padding(writer, total_digits));
+              padding_writer.write_left_padding(writer, output_length()));
           // Now we know we need to print a leading 1, the decimal point, and
           // then zeroes after it.
-          RET_IF_RESULT_NEGATIVE(writer->write('1'));
+          RET_IF_RESULT_NEGATIVE(write_digits('1'));
           // digits_before_decimal - 1 to account for the leading '1'
           if (has_decimal_point) {
-            RET_IF_RESULT_NEGATIVE(writer->write(DECIMAL_POINT));
+            RET_IF_RESULT_NEGATIVE(radix.write(writer));
             // This is just the length of the number, not including the decimal
             // point, or exponent.
 
             if (number_digits > 1) {
-              RET_IF_RESULT_NEGATIVE(writer->write('0', number_digits - 1));
+              RET_IF_RESULT_NEGATIVE(write_digits('0', number_digits - 1));
             }
           }
           RET_IF_RESULT_NEGATIVE(writer->write(exp_char));
@@ -422,18 +460,18 @@ public:
           // we're rounding up all of the digits, the ones in the buffer are
           // wrong and can't be flushed.
           RET_IF_RESULT_NEGATIVE(
-              padding_writer.write_left_padding(writer, total_digits));
+              padding_writer.write_left_padding(writer, output_length()));
           // Now we know we need to print a leading 1, zeroes up to the decimal
           // point, the decimal point, and then finally digits after it.
-          RET_IF_RESULT_NEGATIVE(writer->write('1'));
+          RET_IF_RESULT_NEGATIVE(write_digits('1'));
           // digits_before_decimal - 1 to account for the leading '1'
-          RET_IF_RESULT_NEGATIVE(writer->write('0', digits_before_decimal - 1));
+          RET_IF_RESULT_NEGATIVE(write_digits('0', digits_before_decimal - 1));
           if (has_decimal_point) {
-            RET_IF_RESULT_NEGATIVE(writer->write(DECIMAL_POINT));
+            RET_IF_RESULT_NEGATIVE(radix.write(writer));
             // add one to digits_before_decimal to account for the decimal point
             // itself.
             if (total_digits > digits_before_decimal + 1) {
-              RET_IF_RESULT_NEGATIVE(writer->write(
+              RET_IF_RESULT_NEGATIVE(write_digits(
                   '0', total_digits - (digits_before_decimal + 1)));
             }
           }
@@ -469,12 +507,12 @@ public:
 
   LIBC_INLINE int write_zeroes(uint32_t num_zeroes) {
     RET_IF_RESULT_NEGATIVE(flush_buffer());
-    RET_IF_RESULT_NEGATIVE(writer->write('0', num_zeroes));
+    RET_IF_RESULT_NEGATIVE(write_digits('0', num_zeroes));
     return 0;
   }
 
   LIBC_INLINE int right_pad() {
-    return padding_writer.write_right_padding(writer, total_digits);
+    return padding_writer.write_right_padding(writer, output_length());
   }
 };
 
@@ -487,7 +525,9 @@ template <typename T, typename WriterT, typename CharT,
 LIBC_INLINE int
 convert_float_decimal_typed(WriterT *writer,
                             const BasicFormatSection<CharT> &to_conv,
-                            fputil::FPBits<T> float_bits) {
+                            fputil::FPBits<T> float_bits,
+                            internal::NumericParseLocale selected =
+                                internal::current_numeric_parse_locale()) {
   // signed because later we use -FRACTION_LEN
   constexpr int32_t FRACTION_LEN = fputil::FPBits<T>::FRACTION_LEN;
   int exponent = float_bits.get_explicit_exponent();
@@ -513,7 +553,9 @@ convert_float_decimal_typed(WriterT *writer,
   bool nonzero = false;
 
   PaddingWriter<WriterT> padding_writer(to_conv, sign_char);
-  FloatWriter<WriterT> float_writer(writer, has_decimal_point, padding_writer);
+  FloatWriter<WriterT> float_writer(
+      writer, has_decimal_point, padding_writer,
+      (to_conv.flags & FormatFlags::GROUP_DIGITS) != 0, selected);
   FloatToString<T> float_converter(float_bits.get_val());
 
   const size_t positive_blocks = float_converter.get_positive_blocks();

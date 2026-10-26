@@ -139,7 +139,7 @@ add_entrypoint_object(
     wcstol.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -150,7 +150,7 @@ add_entrypoint_object(
     wcstoll.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -161,7 +161,7 @@ add_entrypoint_object(
     wcstoul.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -172,7 +172,7 @@ add_entrypoint_object(
     wcstoull.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -182,7 +182,7 @@ add_entrypoint_object(
   HDRS
     wcstof.h
   DEPENDS
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
     libc.src.errno.errno
 )
 
@@ -193,7 +193,7 @@ add_entrypoint_object(
   HDRS
     wcstod.h
   DEPENDS
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
     libc.src.errno.errno
 )
 
@@ -204,7 +204,7 @@ add_entrypoint_object(
   HDRS
     wcstold.h
   DEPENDS
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
     libc.src.errno.errno
 )
 

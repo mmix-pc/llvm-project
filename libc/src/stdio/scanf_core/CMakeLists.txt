@@ -110,6 +110,7 @@ add_header_library(
     libc.src.__support.libc_errno
     libc.src.__support.wchar.mbrtowc
     libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
     ${use_system_file}
 )
 

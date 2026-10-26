@@ -10,14 +10,14 @@
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
-#include "src/__support/str_to_integer.h"
+#include "src/locale/numeric_conversion.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, atoi, (const char *str)) {
   // This is done because the standard specifies that atoi is identical to
   // (int)(strtol).
-  auto result = internal::strtointeger<long>(str, 10);
+  auto result = internal::locale_strtointeger<long>(str, 10);
   if (result.has_error())
     libc_errno = result.error;
 

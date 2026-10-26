@@ -10,14 +10,15 @@
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
-#include "src/__support/str_to_integer.h"
+#include "src/locale/numeric_conversion.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(long, strtol_l,
                    (const char *__restrict str, char **__restrict str_end,
-                    int base, locale_t)) {
-  auto result = internal::strtointeger<long>(str, base);
+                    int base, locale_t locale)) {
+  auto result = internal::locale_strtointeger<long>(
+      str, base, internal::numeric_parse_locale(locale));
   if (result.has_error())
     libc_errno = result.error;
 

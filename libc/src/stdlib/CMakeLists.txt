@@ -6,7 +6,7 @@ add_entrypoint_object(
     atoi.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -17,7 +17,7 @@ add_entrypoint_object(
     atof.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -28,7 +28,7 @@ add_entrypoint_object(
     atol.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -39,7 +39,7 @@ add_entrypoint_object(
     atoll.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 if(NOT (LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX))
@@ -170,7 +170,7 @@ add_entrypoint_object(
     strtof.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -181,7 +181,7 @@ add_entrypoint_object(
     strtod.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -192,7 +192,7 @@ add_entrypoint_object(
     strtold.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -203,7 +203,7 @@ add_entrypoint_object(
     strtol.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -214,7 +214,7 @@ add_entrypoint_object(
     strtoll.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -225,7 +225,7 @@ add_entrypoint_object(
     strtoul.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -236,7 +236,7 @@ add_entrypoint_object(
     strtoull.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -654,7 +654,7 @@ add_entrypoint_object(
     strtof_l.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -665,7 +665,7 @@ add_entrypoint_object(
     strtod_l.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -676,7 +676,7 @@ add_entrypoint_object(
     strtold_l.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_float
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -687,7 +687,7 @@ add_entrypoint_object(
     strtol_l.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -698,7 +698,7 @@ add_entrypoint_object(
     strtoll_l.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -709,7 +709,7 @@ add_entrypoint_object(
     strtoul_l.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(
@@ -720,7 +720,7 @@ add_entrypoint_object(
     strtoull_l.h
   DEPENDS
     libc.src.errno.errno
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
 )
 
 add_entrypoint_object(

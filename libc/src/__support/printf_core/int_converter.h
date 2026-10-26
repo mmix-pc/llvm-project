@@ -16,6 +16,7 @@
 #include "src/__support/macros/config.h"
 #include "src/__support/printf_core/converter_utils.h"
 #include "src/__support/printf_core/core_structs.h"
+#include "src/__support/printf_core/numeric_radix.h"
 #include "src/__support/printf_core/writer.h"
 
 #include <inttypes.h>
@@ -94,6 +95,11 @@ LIBC_INLINE int convert_int(WriterT *writer,
     return INT_CONVERSION_ERROR;
 
   size_t digits_written = str->size();
+  NumericGrouping<WriterT> grouping((flags & FormatFlags::GROUP_DIGITS) != 0 &&
+                                    (to_conv.conv_name == 'd' ||
+                                     to_conv.conv_name == 'i' ||
+                                     to_conv.conv_name == 'u'));
+  const size_t grouping_size = grouping.extra_size(digits_written);
 
   char sign_char = 0;
 
@@ -135,15 +141,15 @@ LIBC_INLINE int convert_int(WriterT *writer,
       // If this conv has flag 0 but not - and no specified precision, it's
       // padded with 0's instead of spaces identically to if precision =
       // min_width - (1 if sign_char). For example: ("%+04d", 1) -> "+001"
-      zeroes =
-          static_cast<int>(to_conv.min_width - digits_written - prefix_len);
+      zeroes = static_cast<int>(to_conv.min_width - digits_written -
+                                grouping_size - prefix_len);
       spaces = 0;
     } else {
       // If there are enough digits to pass over the precision, just write the
       // number, padded by spaces.
       zeroes = 0;
-      spaces =
-          static_cast<int>(to_conv.min_width - digits_written - prefix_len);
+      spaces = static_cast<int>(to_conv.min_width - digits_written -
+                                grouping_size - prefix_len);
     }
   } else {
     // If precision was specified, possibly write zeroes, and possibly write
@@ -161,7 +167,7 @@ LIBC_INLINE int convert_int(WriterT *writer,
     if (zeroes < 0)
       zeroes = 0;
     spaces = static_cast<int>(to_conv.min_width - zeroes - digits_written -
-                              prefix_len);
+                              grouping_size - prefix_len);
   }
 
   // The standard says that alternate form for the o conversion "increases
@@ -189,7 +195,7 @@ LIBC_INLINE int convert_int(WriterT *writer,
     if (zeroes > 0)
       RET_IF_RESULT_NEGATIVE(writer->write('0', zeroes));
     if (digits_written > 0)
-      RET_IF_RESULT_NEGATIVE(writer->write(*str));
+      RET_IF_RESULT_NEGATIVE(grouping.write(writer, *str));
     if (spaces > 0)
       RET_IF_RESULT_NEGATIVE(writer->write(' ', spaces));
   } else {
@@ -201,7 +207,7 @@ LIBC_INLINE int convert_int(WriterT *writer,
     if (zeroes > 0)
       RET_IF_RESULT_NEGATIVE(writer->write('0', zeroes));
     if (digits_written > 0)
-      RET_IF_RESULT_NEGATIVE(writer->write(*str));
+      RET_IF_RESULT_NEGATIVE(grouping.write(writer, *str));
   }
   return WRITE_OK;
 }

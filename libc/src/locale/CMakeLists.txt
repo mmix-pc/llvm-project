@@ -151,6 +151,15 @@ add_object_library(
     libc.src.__support.CPP.limits libc.hdr.types.wint_t libc.hdr.wchar_macros
 )
 
+add_object_library(
+  numeric_conversion
+  SRCS numeric_conversion.cpp
+  HDRS numeric_conversion.h numeric_locale.h
+  DEPENDS .character ${encoding_deps}
+    libc.src.__support.str_to_float libc.src.__support.CPP.string_view
+    libc.src.__support.wchar.scalar_codec
+)
+
 if(NOT LLVM_LIBC_FULL_BUILD)
   return()
 endif()

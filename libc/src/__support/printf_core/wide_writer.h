@@ -133,7 +133,7 @@ public:
   LIBC_INLINE int get_error() const { return error; }
 };
 
-// Numeric converters produce ASCII, independently of the format character type.
+// Numeric digits remain ASCII; locale punctuation is already a wide scalar.
 class WideNumericWriter {
   WideWriter &writer;
 
@@ -146,6 +146,7 @@ public:
     return writer.write(static_cast<wchar_t>(value), length);
   }
   LIBC_INLINE int write(char value) { return write(value, 1); }
+  LIBC_INLINE int write_wide(wchar_t value) { return writer.write(value); }
   LIBC_INLINE size_t get_chars_written() const {
     return writer.get_chars_written();
   }

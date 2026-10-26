@@ -52,6 +52,7 @@
 #include "src/__support/macros/config.h"
 #include "src/__support/printf_core/core_structs.h"
 #include "src/__support/printf_core/float_inf_nan_converter.h"
+#include "src/__support/printf_core/numeric_radix.h"
 #include "src/__support/printf_core/writer.h"
 #include "src/string/memory_utils/inline_memcpy.h"
 
@@ -380,7 +381,7 @@ LIBC_INLINE int convert_float_inner(WriterT *writer,
                                     int32_t fraction_len, int exponent,
                                     AnyFloatStorageType mantissa, Sign sign,
                                     ConversionType ctype) {
-  constexpr char DECIMAL_POINT = '.';
+  NumericRadix<WriterT> radix;
   // If to_conv doesn't specify a precision, the precision defaults to 6.
   unsigned precision = to_conv.precision < 0 ? 6 : to_conv.precision;
 
@@ -540,6 +541,9 @@ LIBC_INLINE int convert_float_inner(WriterT *writer,
   int last_point_digit =
       (to_conv.flags & FormatFlags::ALTERNATE_FORM) ? limit - 1 : limit - 2;
   bool show_point = pointpos <= last_point_digit;
+  NumericGrouping<WriterT> grouping(
+      !show_exponent && (to_conv.flags & FormatFlags::GROUP_DIGITS) != 0);
+  const size_t integer_digits = static_cast<size_t>(pointpos - start + 1);
 
   // Format the exponent suffix (e+NN, e-NN) into a buffer, or leave the buffer
   // empty if we're not displaying one.
@@ -560,8 +564,9 @@ LIBC_INLINE int convert_float_inner(WriterT *writer,
   //  * how many mantissa digits to write
   //  * whether to write a decimal point
   //  * the length of the trailing exponent string.
-  size_t unpadded_len =
-      (sign_char != 0) + (limit - start) + show_point + explen;
+  size_t unpadded_len = (sign_char != 0) + (limit - start) +
+                        (show_point ? radix.size() : 0) + explen +
+                        grouping.extra_size(integer_digits);
 
   // Work out how much padding is needed.
   size_t min_width = to_conv.min_width > 0 ? to_conv.min_width : 0;
@@ -595,6 +600,9 @@ LIBC_INLINE int convert_float_inner(WriterT *writer,
 
   // Mantissa digits, maybe with a decimal point
   for (int pos = start; pos < limit; ++pos) {
+    if (pos > start && pos <= pointpos &&
+        grouping.boundary(static_cast<size_t>(pointpos - pos + 1)))
+      RET_IF_RESULT_NEGATIVE(grouping.write_separator(writer));
     if (pos >= 0 && pos < int(output.ndigits)) {
       // Fetch a digit from the buffer
       RET_IF_RESULT_NEGATIVE(writer->write(output.digits[pos]));
@@ -605,7 +613,7 @@ LIBC_INLINE int convert_float_inner(WriterT *writer,
 
     // Show the decimal point, if this is the digit it comes after
     if (show_point && pos == pointpos)
-      RET_IF_RESULT_NEGATIVE(writer->write(DECIMAL_POINT));
+      RET_IF_RESULT_NEGATIVE(radix.write(writer));
   }
 
   // Exponent

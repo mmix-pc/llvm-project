@@ -25,7 +25,12 @@
 
 #include <stddef.h>
 
+struct __locale_data;
+
 namespace LIBC_NAMESPACE_DECL {
+namespace internal {
+class RestartableConverter;
+}
 
 struct FileIOResult {
   size_t value;
@@ -176,7 +181,15 @@ private:
 
   Orientation orientation;
   bool wide_utf8;
+  // Explicitly released on close/reopen; global streams stay
+  // constant-initialized.
+  __locale_data *wide_category = nullptr;
   internal::mbstate mbstate;
+  internal::mbstate wide_output_state;
+  internal::mbstate wide_lookahead_state;
+  internal::mbstate wide_input_before;
+  internal::mbstate wide_pushback_after;
+  size_t wide_input_bytes = 0;
   // Keep a byte available for pushback even at the start of a full buffer.
   int byte_pushback = EOF;
   // Wide pushback must survive byte-buffer refills, including partial UTF-8.
@@ -204,6 +217,7 @@ protected:
   }
 
   void reset_stream_state_unlocked(ModeFlags new_mode) {
+    release_encoding_unlocked();
     mode = new_mode;
     pos = 0;
     prev_op = FileOp::NONE;
@@ -213,6 +227,8 @@ protected:
     orientation = Orientation::UNORIENTED;
     wide_utf8 = false;
     mbstate = internal::mbstate();
+    wide_output_state = internal::mbstate();
+    wide_input_bytes = 0;
     wide_pushback_bytes = 0;
     wide_lookahead_bytes = 0;
     byte_pushback = EOF;
@@ -335,9 +351,9 @@ public:
       FileLock lock(this);
       // Publish even empty memory buffers. A flush failure does not preserve
       // the association: fclose consumes the stream regardless of its result.
-      bool need_flush =
-          platform_flush || (prev_op == FileOp::WRITE && (pos || wide_size)) ||
-          (prev_op == FileOp::READ && !eof);
+      bool need_flush = platform_flush ||
+                        (prev_op == FileOp::WRITE && (pos || wide_size)) ||
+                        (prev_op == FileOp::READ && !eof);
       flush_error = flush_buffer && need_flush ? flush_unlocked() : 0;
       pos = read_limit = 0;
       wide_size = wide_prefix = 0;
@@ -355,6 +371,7 @@ public:
     if (own_buf)
       delete[] buf;
     delete[] wide_output;
+    release_encoding_unlocked();
 
     // Platform close may destroy the file data structure, including its mutex.
     // Hence, we call platform_close after releasing
@@ -386,9 +403,8 @@ public:
   bool readable() const { return read_allowed(); }
   bool writable() const { return write_allowed(); }
   bool reading() const {
-    return read_allowed() &&
-           (!write_allowed() || prev_op == FileOp::READ ||
-            prev_op == FileOp::SEEK);
+    return read_allowed() && (!write_allowed() || prev_op == FileOp::READ ||
+                              prev_op == FileOp::SEEK);
   }
   bool writing() const {
     return write_allowed() && (!read_allowed() || prev_op == FileOp::WRITE);
@@ -416,7 +432,8 @@ public:
     byte_pushback = EOF;
     wide_pushback_bytes = 0;
     wide_lookahead_bytes = 0;
-    mbstate = internal::mbstate();
+    mbstate = wide_output_state = internal::mbstate();
+    wide_input_bytes = 0;
   }
 
   void lock() { mutex.lock(); }
@@ -485,14 +502,7 @@ public:
     return get_orientation_unlocked();
   }
 
-  Orientation try_set_orientation_unlocked(Orientation o) {
-    if (orientation == Orientation::UNORIENTED) {
-      orientation = o;
-      if (o == Orientation::WIDE)
-        wide_utf8 = internal::locale_is_utf8();
-    }
-    return orientation;
-  }
+  Orientation try_set_orientation_unlocked(Orientation o);
 
   Orientation try_set_orientation(Orientation o) {
     FileLock l(this);
@@ -527,8 +537,11 @@ private:
     }
     prev_op = FileOp::WRITE;
   }
-  ErrorOr<size_t> encode_wide(wchar_t wc, uint8_t *bytes) const;
-  size_t pending_wide_bytes() const;
+  void release_encoding_unlocked();
+  internal::RestartableConverter wide_converter() const;
+  ErrorOr<size_t> encode_wide(wchar_t wc, uint8_t *bytes,
+                              internal::mbstate &state) const;
+  ErrorOr<size_t> pending_wide_bytes() const;
   int flush_wide_unlocked();
   FileIOResult write_unlocked_impl(const void *data, size_t len);
   ErrorOr<int> seek_unlocked(off_t offset, int whence);
@@ -573,7 +586,8 @@ private:
 // library.
 ErrorOr<File *> openfile(const char *path, const char *mode);
 // Internal descriptors must acquire close-on-exec atomically with opening.
-ErrorOr<File *> openfile(const char *path, const char *mode, bool close_on_exec);
+ErrorOr<File *> openfile(const char *path, const char *mode,
+                         bool close_on_exec);
 // Reopens a file stream.
 // The backend consumes the descriptor on failure but does not destroy File.
 // The public wrapper must then close(false) to unpublish and release owned

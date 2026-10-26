@@ -12,6 +12,7 @@
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/ctype_utils.h"
 #include "src/__support/macros/config.h"
+#include "src/locale/character.h"
 #include "src/stdio/scanf_core/core_structs.h"
 #include "src/stdio/scanf_core/reader.h"
 
@@ -90,8 +91,12 @@ int raw_match(Reader<T> *reader, cpp::string_view raw_string) {
   int ret_val = READ_OK;
   for (size_t i = 0; i < raw_string.size(); ++i) {
     // Any space character matches any number of space characters.
-    if (internal::isspace(raw_string[i])) {
-      while (cur_char >= 0 && internal::isspace(static_cast<char>(cur_char))) {
+    if (internal::classify_byte(static_cast<unsigned char>(raw_string[i]),
+                                internal::WCTYPE_SPACE,
+                                internal::current_ctype())) {
+      while (cur_char >= 0 &&
+             internal::classify_byte(cur_char, internal::WCTYPE_SPACE,
+                                     internal::current_ctype())) {
         cur_char = reader->getc();
       }
     } else {

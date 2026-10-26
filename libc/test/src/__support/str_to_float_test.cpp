@@ -64,4 +64,69 @@ TEST(LlvmLibcStrToFltTest, SimpleDecimalConversionExtraTypes) {
   EXPECT_EQ(float_result.error, 0);
 }
 
+TEST(LlvmLibcStrToFltTest, ExplicitRadixPreservesDefaultGrammar) {
+  internal::DecimalSeparator<char> comma(",", 1);
+  auto parsed = internal::strtofloatingpoint<float>(" -1,25rest", comma);
+  EXPECT_EQ(fputil::FPBits<float>(parsed.value).uintval(),
+            uint32_t(0xbfa00000));
+  EXPECT_EQ(parsed.parsed_len, ptrdiff_t(6));
+  EXPECT_EQ(parsed.error, 0);
+  auto ordinary = internal::strtofloatingpoint<float>(" -1,25rest");
+  EXPECT_EQ(fputil::FPBits<float>(ordinary.value).uintval(),
+            uint32_t(0xbf800000));
+  EXPECT_EQ(ordinary.parsed_len, ptrdiff_t(3));
+  auto hexadecimal = internal::strtofloatingpoint<float>("0x1,8p+1!", comma);
+  EXPECT_EQ(fputil::FPBits<float>(hexadecimal.value).uintval(),
+            uint32_t(0x40400000));
+  EXPECT_EQ(hexadecimal.parsed_len, ptrdiff_t(8));
+  EXPECT_EQ(fputil::FPBits<float>(
+                internal::strtofloatingpoint<float>("0x,8p+1", comma).value)
+                .uintval(),
+            uint32_t(0x3f800000));
+  EXPECT_EQ(internal::strtofloatingpoint<float>(",e10", comma).parsed_len,
+            ptrdiff_t(0));
+  EXPECT_EQ(internal::strtofloatingpoint<float>("1,2,3", comma).parsed_len,
+            ptrdiff_t(3));
+  internal::DecimalSeparator<char> two("::", 2);
+  auto sequence = internal::strtofloatingpoint<float>("1::25", two);
+  EXPECT_EQ(fputil::FPBits<float>(sequence.value).uintval(),
+            uint32_t(0x3fa00000));
+  EXPECT_EQ(sequence.parsed_len, ptrdiff_t(5));
+  EXPECT_EQ(internal::strtofloatingpoint<float>("1:", two).parsed_len,
+            ptrdiff_t(1));
+  EXPECT_EQ(fputil::FPBits<float>(
+                internal::strtofloatingpoint<float>("0x::8p1", two).value)
+                .uintval(),
+            uint32_t(0x3f800000));
+  internal::DecimalSeparator<wchar_t> wide(L"\u066b", 1);
+  auto wide_result = internal::strtofloatingpoint<float>(L"1\u066b25", wide);
+  EXPECT_EQ(fputil::FPBits<float>(wide_result.value).uintval(),
+            uint32_t(0x3fa00000));
+  EXPECT_EQ(wide_result.parsed_len, ptrdiff_t(4));
+}
+
+TEST(LlvmLibcStrToFltTest, ExplicitRadixReachesPrecisionFallback) {
+  const char original[] =
+      "1.4012984643248170709237295832899161312802619418765e-45";
+  const char localized[] =
+      "1,4012984643248170709237295832899161312802619418765e-45";
+  internal::DecimalSeparator<char> comma(",", 1);
+  const internal::RoundDirection rounds[] = {internal::RoundDirection::Nearest,
+                                             internal::RoundDirection::Up,
+                                             internal::RoundDirection::Down};
+  for (auto round : rounds) {
+    auto expected = internal::simple_decimal_conversion<float>(
+        original, sizeof(original) - 1, round);
+    auto result = internal::simple_decimal_conversion<float>(
+        localized, sizeof(localized) - 1, round, comma);
+    EXPECT_EQ(result.num.mantissa, expected.num.mantissa);
+    EXPECT_EQ(result.num.exponent, expected.num.exponent);
+    EXPECT_EQ(result.error, expected.error);
+  }
+  auto result = internal::strtofloatingpoint<float>(localized, comma);
+  EXPECT_EQ(fputil::FPBits<float>(result.value).uintval(), uint32_t(1));
+  EXPECT_EQ(result.error, ERANGE);
+  EXPECT_EQ(result.parsed_len, ptrdiff_t(sizeof(localized) - 1));
+}
+
 } // namespace LIBC_NAMESPACE_DECL

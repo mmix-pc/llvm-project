@@ -373,8 +373,6 @@ private:
         flags = static_cast<FormatFlags>(flags | FormatFlags::LEADING_ZEROES);
         break;
       case '\'':
-        // The supported C and C.UTF-8 locales have empty numeric grouping.
-        // FIXME: Apply locale grouping when regional numeric data is supported.
         flags = static_cast<FormatFlags>(flags | FormatFlags::GROUP_DIGITS);
         break;
       default:

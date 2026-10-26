@@ -15,14 +15,14 @@
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
-#include "src/__support/str_to_integer.h"
+#include "src/locale/numeric_conversion.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(uintmax_t, wcstoumax,
                    (const wchar_t *__restrict str, wchar_t **__restrict str_end,
                     int base)) {
-  auto result = internal::strtointeger<uintmax_t>(str, base);
+  auto result = internal::locale_strtointeger<uintmax_t>(str, base);
   if (result.has_error())
     libc_errno = result.error;
 

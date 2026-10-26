@@ -13,6 +13,7 @@
 #include "src/__support/ctype_utils.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/wchar/mbrtowc.h"
+#include "src/locale/character.h"
 #include "src/stdio/scanf_core/core_structs.h"
 #include "src/stdio/scanf_core/reader.h"
 #include "src/stdio/scanf_core/string_output.h"
@@ -55,7 +56,8 @@ int convert_string_to(Reader<T> *reader, const FormatSection &to_conv) {
     auto matches = [&](int ch) {
       return to_conv.conv_name == 'c' ||
              (to_conv.conv_name == 's' &&
-              !internal::isspace(static_cast<char>(ch))) ||
+              !internal::classify_byte(ch, internal::WCTYPE_SPACE,
+                                       internal::current_ctype())) ||
              (to_conv.conv_name == '[' && to_conv.scan_set.test(size_t(ch)));
     };
     if (!matches(c)) {

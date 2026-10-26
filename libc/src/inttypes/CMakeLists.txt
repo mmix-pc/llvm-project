@@ -6,7 +6,7 @@ add_entrypoint_object(
     strtoimax.h
   DEPENDS
     libc.hdr.stdint_proxy
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
     libc.src.errno.errno
 )
 
@@ -18,7 +18,7 @@ add_entrypoint_object(
     strtoumax.h
   DEPENDS
     libc.hdr.stdint_proxy
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
     libc.src.errno.errno
 )
 
@@ -53,7 +53,7 @@ add_entrypoint_object(
   DEPENDS
     libc.hdr.types.wchar_t
     libc.hdr.stdint_proxy
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
     libc.src.errno.errno
 )
 
@@ -66,6 +66,6 @@ add_entrypoint_object(
   DEPENDS
     libc.hdr.types.wchar_t
     libc.hdr.stdint_proxy
-    libc.src.__support.str_to_integer
+    libc.src.locale.numeric_conversion
     libc.src.errno.errno
 )

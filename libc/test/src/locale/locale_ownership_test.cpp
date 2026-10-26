@@ -9,6 +9,7 @@
 #include "config/app.h"
 #include "hdr/errno_macros.h"
 #include "src/__support/CPP/string_view.h"
+#include "src/__support/File/file.h"
 #include "src/__support/libc_errno.h"
 #include "src/locale/duplocale.h"
 #include "src/locale/freelocale.h"
@@ -61,6 +62,70 @@ struct Fixture {
   }
 };
 } // namespace
+
+namespace {
+class EncodingFile : public LIBC_NAMESPACE::File {
+  static int finish(File *) { return 0; }
+
+public:
+  EncodingFile()
+      : File(nullptr, nullptr, nullptr, finish, nullptr, 0, _IONBF, false,
+             ModeFlags(OpenMode::READ)) {}
+  void reopen() { reset_stream_state_unlocked(ModeFlags(OpenMode::READ)); }
+};
+} // namespace
+
+TEST(LlvmLibcLocaleOwnershipTest, WideStreamOwnsCategoryUntilReopenOrClose) {
+  Fixture fixture;
+  auto first = fixture.category(), second = fixture.category();
+  ASSERT_TRUE(first.has_value());
+  ASSERT_TRUE(second.has_value());
+  auto object = locale_from_mask(0);
+  object.data[LC_CTYPE] = *first;
+  auto previous = thread_locale;
+  thread_locale = &object;
+  EncodingFile file;
+  using Orientation = LIBC_NAMESPACE::File::Orientation;
+  EXPECT_EQ(file.try_set_orientation(Orientation::WIDE), Orientation::WIDE);
+  EXPECT_EQ((*first)->references.load(), 2U);
+  object.data[LC_CTYPE] = *second;
+  EXPECT_EQ(file.try_set_orientation(Orientation::WIDE), Orientation::WIDE);
+  EXPECT_EQ((*first)->references.load(), 2U);
+  EXPECT_EQ((*second)->references.load(), 1U);
+  file.reopen();
+  EXPECT_EQ((*first)->references.load(), 1U);
+  EXPECT_EQ(file.try_set_orientation(Orientation::WIDE), Orientation::WIDE);
+  EXPECT_EQ((*second)->references.load(), 2U);
+  thread_locale = previous;
+  EXPECT_EQ(file.close(), 0);
+  EXPECT_EQ((*second)->references.load(), 1U);
+  release_locale_category(*first);
+  release_locale_category(*second);
+}
+
+TEST(LlvmLibcLocaleOwnershipTest, FailedStreamCaptureDoesNotSetOrientation) {
+  Fixture fixture;
+  auto category = fixture.category();
+  ASSERT_TRUE(category.has_value());
+  auto object = locale_from_mask(0);
+  object.data[LC_CTYPE] = *category;
+  auto previous = thread_locale;
+  thread_locale = &object;
+  (*category)->references.store(~0U, MemoryOrder::RELAXED);
+  EncodingFile file;
+  using Orientation = LIBC_NAMESPACE::File::Orientation;
+  LIBC_NAMESPACE::libc_errno = 0;
+  EXPECT_EQ(file.try_set_orientation(Orientation::WIDE),
+            Orientation::UNORIENTED);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOMEM);
+  EXPECT_EQ((*category)->references.load(), ~0U);
+  EXPECT_EQ(file.try_set_orientation(Orientation::BYTE), Orientation::BYTE);
+  EXPECT_EQ(file.close(), 0);
+  EXPECT_EQ((*category)->references.load(), ~0U);
+  (*category)->references.store(1, MemoryOrder::RELAXED);
+  thread_locale = previous;
+  release_locale_category(*category);
+}
 
 TEST(LlvmLibcLocaleOwnershipTest, DuplicateRetainsIndependentObject) {
   Fixture f;

@@ -7,10 +7,20 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/errno_macros.h"
+#include "hdr/fnmatch_macros.h"
 #include "hdr/wchar_macros.h"
 #include "src/__support/wchar/iso2022_cn.h"
 #include "src/__support/wchar/restartable_converter.h"
+#include "src/fnmatch/matcher.h"
 #include "test/UnitTest/Test.h"
+
+#ifdef LIBC_TEST_HAS_FILE
+#include "src/__support/File/file.h"
+#include "src/locale/locale_storage.h"
+#include "src/stdio/snprintf.h"
+#include "src/wchar/swprintf.h"
+#include "src/wchar/swscanf.h"
+#endif
 
 #ifdef LIBC_FULL_BUILD
 #include "src/__support/libc_errno.h"
@@ -115,6 +125,265 @@ void encoded(ISO2022CNState &state, const ChineseEncodingData &data,
     EXPECT_EQ(output[i], uint8_t(expected[i]));
 }
 } // namespace
+
+#ifdef LIBC_TEST_HAS_FILE
+namespace {
+class StateStream : public LIBC_NAMESPACE::File {
+  uint8_t buffer[16]{};
+  static LIBC_NAMESPACE::FileIOResult input(File *base, void *out,
+                                            size_t count) {
+    auto &f = *static_cast<StateStream *>(base);
+    size_t n = 0;
+    while (n < count && f.offset < f.length)
+      static_cast<uint8_t *>(out)[n++] = f.bytes[f.offset++];
+    return n;
+  }
+  static LIBC_NAMESPACE::FileIOResult output(File *base, const void *in,
+                                             size_t count) {
+    auto &f = *static_cast<StateStream *>(base);
+    size_t n = 0;
+    while (n < count && f.offset < f.stop && f.offset < sizeof(f.bytes))
+      f.bytes[f.offset++] = static_cast<const uint8_t *>(in)[n++];
+    if (f.offset > f.length)
+      f.length = f.offset;
+    return n == count ? LIBC_NAMESPACE::FileIOResult(n)
+                      : LIBC_NAMESPACE::FileIOResult(n, EINTR);
+  }
+  static LIBC_NAMESPACE::ErrorOr<off_t> position(File *base, off_t at,
+                                                 int how) {
+    auto &f = *static_cast<StateStream *>(base);
+    off_t value = at + (how == SEEK_CUR   ? f.offset
+                        : how == SEEK_END ? f.length
+                                          : 0);
+    if (value < 0 || size_t(value) > sizeof(f.bytes))
+      return LIBC_NAMESPACE::Error(EINVAL);
+    f.offset = size_t(value);
+    return value;
+  }
+  static int finish(File *) { return 0; }
+
+public:
+  uint8_t bytes[128]{};
+  size_t offset = 0, length = 0, stop = sizeof(bytes);
+  explicit StateStream(int mode = _IOFBF)
+      : File(output, input, position, finish, buffer, sizeof(buffer), mode,
+             false, File::mode_flags("w+")) {}
+  ~StateStream() { close(); }
+  template <size_t N> void fill(const char (&wire)[N]) {
+    length = N - 1;
+    for (size_t i = 0; i < length; ++i)
+      bytes[i] = uint8_t(wire[i]);
+  }
+};
+
+struct SelectedEncoding {
+  __locale_data category;
+  __locale_t locale;
+  locale_t previous;
+  explicit SelectedEncoding(const ChineseEncodingData &data)
+      : category("codec-test", false),
+        locale(LIBC_NAMESPACE::internal::locale_from_mask(0)),
+        previous(LIBC_NAMESPACE::internal::thread_locale) {
+    category.chinese_encoding = data;
+    locale.data[LC_CTYPE] = &category;
+    LIBC_NAMESPACE::internal::thread_locale = &locale;
+  }
+  ~SelectedEncoding() { LIBC_NAMESPACE::internal::thread_locale = previous; }
+};
+} // namespace
+
+TEST(LlvmLibcISO2022CNTest, FormattedStringsRetainShiftsAndPrecision) {
+  Fixture fixture;
+  auto data = fixture.read();
+  ASSERT_TRUE(data.has_value());
+  SelectedEncoding locale(*data);
+  const char wire[] = "\x1b$)A\x0e!!!\"\x0f";
+  char bytes[32];
+  EXPECT_EQ(
+      LIBC_NAMESPACE::snprintf(bytes, sizeof(bytes), "%ls", L"\u4e2d\u6587"),
+      10);
+  EXPECT_STREQ(bytes, wire);
+  EXPECT_EQ(
+      LIBC_NAMESPACE::snprintf(bytes, sizeof(bytes), "%.6ls", L"\u4e2d\u6587"),
+      0);
+  EXPECT_STREQ(bytes, "");
+  EXPECT_EQ(
+      LIBC_NAMESPACE::snprintf(bytes, sizeof(bytes), "%.7ls", L"\u4e2d\u6587"),
+      7);
+  EXPECT_STREQ(bytes, "\x1b$)A\x0e!!");
+  EXPECT_EQ(
+      LIBC_NAMESPACE::snprintf(bytes, sizeof(bytes), "%.9ls", L"\u4e2d\u6587"),
+      9);
+  EXPECT_STREQ(bytes, "\x1b$)A\x0e!!!\"");
+  wchar_t output[8];
+  EXPECT_EQ(LIBC_NAMESPACE::swprintf(output, 8, L"%s", wire), 2);
+  EXPECT_EQ(output[0], wchar_t(0x4e2d));
+  EXPECT_EQ(output[1], wchar_t(0x6587));
+  EXPECT_EQ(output[2], wchar_t(0));
+  // Invalid input after the selected prefix must not be examined.
+  EXPECT_EQ(LIBC_NAMESPACE::swprintf(output, 8, L"%.1s", "\x1b$)A\x0e!!\xff"),
+            1);
+  EXPECT_EQ(LIBC_NAMESPACE::swprintf(output, 8, L"%s", "\x0e!!"), -1);
+  EXPECT_EQ(LIBC_NAMESPACE::swprintf(output, 8, L"%c", 0x1b), -1);
+}
+
+TEST(LlvmLibcISO2022CNTest, WideScanOutputResetsStringsButNotCharacters) {
+  Fixture fixture;
+  auto data = fixture.read();
+  ASSERT_TRUE(data.has_value());
+  SelectedEncoding locale(*data);
+  char bytes[32];
+  EXPECT_EQ(LIBC_NAMESPACE::swscanf(L"\u4e2d\u6587", L"%s", bytes), 1);
+  EXPECT_STREQ(bytes, "\x1b$)A\x0e!!!\"\x0f");
+  // CNS plane 2 needs eight bytes even for one input wide character.
+  EXPECT_EQ(LIBC_NAMESPACE::swscanf(L"\U00020000", L"%s", bytes), 1);
+  EXPECT_STREQ(bytes, "\x1b$*H\x1bN#!");
+  for (auto &c : bytes)
+    c = '!';
+  EXPECT_EQ(LIBC_NAMESPACE::swscanf(L"\u4e2d", L"%c", bytes), 1);
+  const char expected[] = "\x1b$)A\x0e!!";
+  for (size_t i = 0; i < sizeof(expected) - 1; ++i)
+    EXPECT_EQ(bytes[i], expected[i]);
+  EXPECT_EQ(bytes[7], '!');
+}
+
+TEST(LlvmLibcISO2022CNTest, StreamOutputStateAndShortWriteRecovery) {
+  Fixture fixture;
+  auto data = fixture.read();
+  ASSERT_TRUE(data.has_value());
+  SelectedEncoding locale(*data);
+  const char expected[] = "\x1b$)A\x0e!!!\"\x0f"
+                          "A";
+  for (size_t stop = 0; stop < sizeof(expected) - 1; ++stop) {
+    StateStream stream;
+    ASSERT_EQ(stream.write(L"\u4e2d\u6587A", 3).value, size_t(3));
+    EXPECT_EQ(stream.tell().value(), off_t(sizeof(expected) - 1));
+    auto logical = stream.get_position();
+    ASSERT_TRUE(logical.has_value());
+    stream.stop = stop;
+    EXPECT_EQ(stream.flush(), EINTR);
+    EXPECT_EQ(stream.offset, stop);
+    EXPECT_EQ(stream.tell().value(), logical->offset);
+    stream.stop = sizeof(stream.bytes);
+    stream.clearerr();
+    ASSERT_EQ(stream.flush(), 0);
+    EXPECT_EQ(stream.length, sizeof(expected) - 1);
+    for (size_t i = 0; i < sizeof(expected) - 1; ++i)
+      EXPECT_EQ(stream.bytes[i], uint8_t(expected[i]));
+    ASSERT_EQ(stream.write(L"\u4e2d", 1).value, size_t(1));
+    ASSERT_EQ(stream.flush(), 0);
+    EXPECT_EQ(stream.length, sizeof(expected) + 2);
+    EXPECT_EQ(stream.bytes[sizeof(expected) - 1], uint8_t(0x0e));
+  }
+}
+
+TEST(LlvmLibcISO2022CNTest, StreamLookaheadAndPositionRetainActualWireState) {
+  Fixture fixture;
+  auto data = fixture.read();
+  ASSERT_TRUE(data.has_value());
+  SelectedEncoding locale(*data);
+  StateStream stream;
+  // Redundant designation makes re-encoding an invalid position observer.
+  stream.fill("\x1b$)A\x1b$)A\x0e!!!\"\x0f"
+              "A");
+  wchar_t value;
+  ASSERT_EQ(stream.peek_wide_unlocked(&value).value, size_t(1));
+  EXPECT_EQ(value, wchar_t(0x4e2d));
+  EXPECT_EQ(stream.tell().value(), off_t(0));
+  auto initial = stream.get_position();
+  ASSERT_TRUE(initial.has_value());
+  ASSERT_EQ(stream.flush(), 0);
+  EXPECT_EQ(stream.offset, size_t(0));
+  ASSERT_EQ(stream.read(&value, 1).value, size_t(1));
+  EXPECT_EQ(value, wchar_t(0x4e2d));
+  auto shifted = stream.get_position();
+  ASSERT_TRUE(shifted.has_value());
+  EXPECT_EQ(shifted->offset, off_t(11));
+  EXPECT_FALSE(ISO2022CNState::load(shifted->state)->initial());
+  ASSERT_EQ(stream.ungetwc(value).value(), wint_t(value));
+  ASSERT_EQ(stream.read(&value, 1).value, size_t(1));
+  EXPECT_EQ(stream.tell().value(), shifted->offset);
+  ASSERT_EQ(stream.peek_wide_unlocked(&value).value, size_t(1));
+  EXPECT_EQ(value, wchar_t(0x6587));
+  EXPECT_EQ(stream.tell().value(), shifted->offset);
+  ASSERT_EQ(stream.flush(), 0);
+  ASSERT_EQ(stream.read(&value, 1).value, size_t(1));
+  EXPECT_EQ(value, wchar_t(0x6587));
+  ASSERT_EQ(stream.set_position(*shifted).value(), 0);
+  ASSERT_EQ(stream.read(&value, 1).value, size_t(1));
+  EXPECT_EQ(value, wchar_t(0x6587));
+  ASSERT_EQ(stream.set_position(*initial).value(), 0);
+  ASSERT_EQ(stream.read(&value, 1).value, size_t(1));
+  EXPECT_EQ(value, wchar_t(0x4e2d));
+}
+
+TEST(LlvmLibcISO2022CNTest, StreamEofDistinguishesShiftAndIncompleteCharacter) {
+  Fixture fixture;
+  auto data = fixture.read();
+  ASSERT_TRUE(data.has_value());
+  SelectedEncoding locale(*data);
+  StateStream complete;
+  complete.fill("\x1b$)A\x0e!!\x0f");
+  wchar_t values[2];
+  auto result = complete.read(values, 2);
+  EXPECT_EQ(result.value, size_t(1));
+  EXPECT_EQ(result.error, 0);
+  EXPECT_TRUE(complete.iseof());
+  StateStream partial;
+  partial.fill("\x1b$)A\x0e!");
+  result = partial.read(values, 1);
+  EXPECT_EQ(result.value, size_t(0));
+  EXPECT_EQ(result.error, EILSEQ);
+}
+
+TEST(LlvmLibcISO2022CNTest, StreamRetainsOwnedMappingAfterLocaleRelease) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto file = LocaleDataFile::copy({fixture.bytes, 322});
+  ASSERT_TRUE(file.has_value());
+  auto category = create_locale_category(**file, false);
+  ASSERT_TRUE(category.has_value());
+  auto data = ChineseEncodingData::read((*file)->view());
+  ASSERT_TRUE(data.has_value());
+  (*category)->chinese_encoding = *data;
+  (*file)->release();
+  auto locale = locale_from_mask(0);
+  locale.data[LC_CTYPE] = *category;
+  auto previous = thread_locale;
+  thread_locale = &locale;
+  StateStream stream(_IONBF);
+  EXPECT_EQ(stream.try_set_orientation(LIBC_NAMESPACE::File::Orientation::WIDE),
+            LIBC_NAMESPACE::File::Orientation::WIDE);
+  EXPECT_EQ((*category)->references.load(), 2U);
+  thread_locale = previous;
+  release_locale_category(*category);
+  ASSERT_EQ(stream.write(L"\u4e2d", 1).value, size_t(1));
+  EXPECT_EQ(stream.length, size_t(7));
+  ASSERT_EQ(stream.seek(0, SEEK_SET).value(), 0);
+  wchar_t value;
+  ASSERT_EQ(stream.read(&value, 1).value, size_t(1));
+  EXPECT_EQ(value, wchar_t(0x4e2d));
+}
+#endif
+
+TEST(LlvmLibcISO2022CNTest, PathPatternsDecodeShiftsBeforeMetacharacters) {
+  Fixture fixture;
+  auto data = fixture.read();
+  ASSERT_TRUE(data.has_value());
+  auto match = [&](const char *pattern, const char *input, int flags = 0) {
+    return LIBC_NAMESPACE::internal::match_path_pattern(
+        pattern, input, flags,
+        LIBC_NAMESPACE::internal::RestartableConverter(*data), nullptr, nullptr);
+  };
+  const char *one = "\x1b$)A\x0e!!\x0f";
+  EXPECT_TRUE(match("?", one).value());
+  EXPECT_FALSE(match("??", one).value());
+  EXPECT_TRUE(match("[\x1b$)A\x0e!!\x0f]", one).value());
+  EXPECT_TRUE(match("*/?", "dir/\x1b$)A\x0e!!\x0f", FNM_PATHNAME).value());
+  EXPECT_TRUE(match("*?", "\x1b$)A\x0e!!!\"\x0f").value());
+  EXPECT_EQ(match("*", "\x1b$)A\x0e!").error(), EILSEQ);
+  EXPECT_EQ(match("\x0e!!", one).error(), EILSEQ);
+}
 
 TEST(LlvmLibcISO2022CNTest, EncodingChoicesAndAtomicCapacity) {
   Fixture fixture;

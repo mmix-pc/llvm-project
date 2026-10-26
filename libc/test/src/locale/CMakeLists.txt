@@ -1,6 +1,33 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  numeric_conversion_test
+  SUITE libc-locale-tests
+  SRCS numeric_conversion_test.cpp
+  DEPENDS libc.src.locale.numeric_conversion libc.src.locale.uselocale
+    libc.src.stdlib.strtod libc.src.stdlib.strtod_l libc.src.stdlib.strtof
+    libc.src.stdlib.strtol libc.src.stdlib.strtol_l
+    libc.src.wchar.wcstod libc.src.wchar.wcstol libc.src.__support.libc_errno
+    libc.src.stdio.sscanf libc.src.wchar.swscanf
+    libc.src.stdio.snprintf libc.src.wchar.swprintf
+    libc.src.__support.printf_core.converter
+)
+
+add_libc_test(
+  numeric_conversion_float320_test
+  SUITE libc-locale-tests
+  SRCS numeric_conversion_test.cpp
+  COMPILE_OPTIONS -DLIBC_COPT_FLOAT_TO_STR_USE_FLOAT320
+  DEPENDS libc.src.locale.numeric_conversion libc.src.locale.uselocale
+    libc.src.stdlib.strtod libc.src.stdlib.strtod_l libc.src.stdlib.strtof
+    libc.src.stdlib.strtol libc.src.stdlib.strtol_l
+    libc.src.wchar.wcstod libc.src.wchar.wcstol libc.src.__support.libc_errno
+    libc.src.stdio.sscanf libc.src.wchar.swscanf
+    libc.src.stdio.snprintf libc.src.wchar.swprintf
+    libc.src.__support.printf_core.converter
+)
+
+add_libc_test(
   conventions_test
   SUITE libc-locale-tests
   SRCS conventions_test.cpp
@@ -92,7 +119,8 @@ add_libc_test(
   locale_ownership_test
   SUITE libc-locale-tests
   SRCS locale_ownership_test.cpp
-  DEPENDS libc.src.locale.locale_storage libc.src.locale.newlocale
+  DEPENDS libc.src.__support.File.file
+    libc.src.locale.locale_storage libc.src.locale.newlocale
     libc.src.locale.duplocale libc.src.locale.freelocale libc.src.locale.uselocale
     libc.src.__support.libc_errno libc.hdr.errno_macros libc.config.app_h
 )

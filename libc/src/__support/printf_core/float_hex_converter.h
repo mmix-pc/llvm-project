@@ -18,6 +18,7 @@
 #include "src/__support/printf_core/converter_utils.h"
 #include "src/__support/printf_core/core_structs.h"
 #include "src/__support/printf_core/float_inf_nan_converter.h"
+#include "src/__support/printf_core/numeric_radix.h"
 #include "src/__support/printf_core/writer.h"
 
 #include <inttypes.h>
@@ -236,7 +237,7 @@ convert_float_hex_exp(WriterT *writer,
   bool has_hexadecimal_point =
       (mant_digits > 1) || ((to_conv.flags & FormatFlags::ALTERNATE_FORM) ==
                             FormatFlags::ALTERNATE_FORM);
-  constexpr cpp::string_view HEXADECIMAL_POINT(".");
+  NumericRadix<WriterT> radix;
 
   // This is for the letter 'p' before the exponent.
   const char exp_separator = internal::islower(to_conv.conv_name) ? 'p' : 'P';
@@ -246,7 +247,7 @@ convert_float_hex_exp(WriterT *writer,
   // floating-point representation, so this sum fits in size_t, but not int.
   size_t total_len = PREFIX_LEN + mant_digits + trailing_zeroes +
                      (sign_char > 0 ? 1 : 0) +
-                     static_cast<size_t>(has_hexadecimal_point) +
+                     (has_hexadecimal_point ? radix.size() : 0) +
                      EXP_SEPARATOR_LEN + (EXP_LEN - exp_cur);
   size_t padding = 0;
   if (to_conv.min_width > 0 &&
@@ -270,7 +271,7 @@ convert_float_hex_exp(WriterT *writer,
     RET_IF_RESULT_NEGATIVE(writer->write(prefix_str));
     RET_IF_RESULT_NEGATIVE(writer->write(mant_buffer[0]));
     if (has_hexadecimal_point)
-      RET_IF_RESULT_NEGATIVE(writer->write(HEXADECIMAL_POINT));
+      RET_IF_RESULT_NEGATIVE(radix.write(writer));
     if (mant_digits > 1)
       RET_IF_RESULT_NEGATIVE(writer->write({mant_buffer + 1, mant_digits - 1}));
     if (trailing_zeroes > 0)
@@ -294,7 +295,7 @@ convert_float_hex_exp(WriterT *writer,
       RET_IF_RESULT_NEGATIVE(writer->write('0', padding));
     RET_IF_RESULT_NEGATIVE(writer->write(mant_buffer[0]));
     if (has_hexadecimal_point)
-      RET_IF_RESULT_NEGATIVE(writer->write(HEXADECIMAL_POINT));
+      RET_IF_RESULT_NEGATIVE(radix.write(writer));
     if (mant_digits > 1)
       RET_IF_RESULT_NEGATIVE(writer->write({mant_buffer + 1, mant_digits - 1}));
     if (trailing_zeroes > 0)

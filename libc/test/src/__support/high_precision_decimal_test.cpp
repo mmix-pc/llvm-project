@@ -11,6 +11,22 @@
 
 #include "test/UnitTest/Test.h"
 
+TEST(LlvmLibcHighPrecisionDecimalTest, ExplicitRadixRespectsInputBound) {
+  using LIBC_NAMESPACE::internal::DecimalSeparator;
+  using LIBC_NAMESPACE::internal::HighPrecisionDecimal;
+  DecimalSeparator<char> separator("::", 2);
+  HighPrecisionDecimal value("0::125e2", 8, separator);
+  EXPECT_EQ(value.get_num_digits(), 3U);
+  EXPECT_EQ(value.get_decimal_point(), 2);
+  EXPECT_EQ(value.get_digits()[0], uint8_t(1));
+  EXPECT_EQ(value.get_digits()[2], uint8_t(5));
+  // There is no terminator or second separator byte in this input object.
+  const char prefix[] = {'1', ':'};
+  HighPrecisionDecimal bounded(prefix, sizeof(prefix), separator);
+  EXPECT_EQ(bounded.get_num_digits(), 1U);
+  EXPECT_EQ(bounded.get_decimal_point(), 1);
+}
+
 TEST(LlvmLibcHighPrecisionDecimalTest, BasicInit) {
   LIBC_NAMESPACE::internal::HighPrecisionDecimal hpd =
       LIBC_NAMESPACE::internal::HighPrecisionDecimal("1.2345");

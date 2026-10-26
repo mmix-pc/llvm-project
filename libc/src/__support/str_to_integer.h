@@ -112,7 +112,8 @@ LIBC_INLINE static int infer_base(const CharType *__restrict src,
 template <typename T, typename CharType>
 LIBC_INLINE constexpr StrToNumResult<T>
 strtointeger(const CharType *__restrict src, int base,
-             const size_t src_len = cpp::numeric_limits<size_t>::max()) {
+             const size_t src_len = cpp::numeric_limits<size_t>::max(),
+             bool skip_whitespace = true) {
   using ResultType = make_integral_or_big_int_unsigned_t<T>;
 
   if (src_len == 0)
@@ -121,7 +122,7 @@ strtointeger(const CharType *__restrict src, int base,
   if (base < 0 || base == 1 || base > 36)
     return {0, 0, EINVAL};
 
-  size_t src_cur = first_non_whitespace(src, src_len);
+  size_t src_cur = skip_whitespace ? first_non_whitespace(src, src_len) : 0;
   if (src_cur == src_len) {
     return {0, 0, 0};
   }

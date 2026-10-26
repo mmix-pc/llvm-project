@@ -18,16 +18,49 @@
 #include "src/__support/CPP/span.h"
 #include "src/__support/alloc-checker.h"
 #include "src/__support/error_or.h"
+#include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
-#include "src/__support/wchar/character_converter.h"
-#include "src/__support/wchar/wcrtomb.h"
+#include "src/__support/wchar/restartable_converter.h"
 #include "src/string/memory_utils/inline_memcpy.h"
+#ifdef LIBC_FULL_BUILD
+#include "src/locale/locale_storage.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 File *File::list_all = nullptr;
 cpp::Atomic<File *> File::standard_streams[3]{};
 Mutex File::list_lock(/*timed=*/false, /*recursive=*/false, /*robust=*/false,
                       /*pshared=*/false);
+
+File::Orientation File::try_set_orientation_unlocked(Orientation requested) {
+  if (orientation != Orientation::UNORIENTED ||
+      requested == Orientation::UNORIENTED)
+    return orientation;
+  if (requested == Orientation::WIDE && !platform_wide_write) {
+#ifdef LIBC_FULL_BUILD
+    auto *category =
+        internal::locale_snapshot(internal::thread_locale).data[LC_CTYPE];
+    if (!internal::retain_locale_category(category)) {
+      libc_errno = ENOMEM;
+      return orientation;
+    }
+    wide_category = category;
+    wide_utf8 = category->utf8;
+#else
+    wide_utf8 = internal::locale_is_utf8();
+#endif
+  }
+  orientation = requested;
+  return orientation;
+}
+
+void File::release_encoding_unlocked() {
+#ifdef LIBC_FULL_BUILD
+  if (wide_category)
+    internal::release_locale_category(wide_category);
+#endif
+  wide_category = nullptr;
+}
 
 // Adds a file to the global list of all open files.
 void File::add_file(File *f) {
@@ -90,8 +123,8 @@ void File::install_backend_unlocked(File *replacement) {
 // Positive short writes make progress, not an error. Keep the committed count
 // on failure, and never retry a backend error (including EINTR).
 static FileIOResult write_all(File::WriteFunc *write, File *backend,
-                             const void *data, size_t len,
-                             size_t *progress = nullptr) {
+                              const void *data, size_t len,
+                              size_t *progress = nullptr) {
   const auto *bytes = static_cast<const uint8_t *>(data);
   size_t written = 0;
   while (written < len) {
@@ -134,22 +167,19 @@ FileIOResult File::write_diagnostic_unlocked(const char *data, size_t len) {
   }
 
   internal::mbstate state;
-  internal::LocaleCharacterConverter converter(&state);
+  auto converter = internal::RestartableConverter::current();
   size_t consumed = 0;
   for (size_t i = 0; i < len; ++i) {
-    int error = converter.push(static_cast<char8_t>(data[i]));
-    if (error) {
-      err = true;
-      return {consumed, error};
-    }
-    if (!converter.isFull())
-      continue;
-    auto decoded = converter.pop<char32_t>();
-    if (!decoded.has_value()) {
+    uint8_t byte = uint8_t(data[i]);
+    uint32_t scalar;
+    auto decoded = converter.decode(&scalar, {&byte, 1}, state);
+    if (!decoded) {
       err = true;
       return {consumed, decoded.error()};
     }
-    wchar_t wc = static_cast<wchar_t>(decoded.value());
+    if (*decoded == size_t(-2))
+      continue;
+    wchar_t wc = static_cast<wchar_t>(scalar);
     auto result = write_unlocked(&wc, 1);
     if (result.value == 1)
       consumed = i + 1;
@@ -160,11 +190,11 @@ FileIOResult File::write_diagnostic_unlocked(const char *data, size_t len) {
       return {consumed, EIO};
     }
   }
-  if (!converter.isEmpty()) {
+  if (!converter.boundary(state)) {
     err = true;
     return {consumed, EILSEQ};
   }
-  return consumed;
+  return len;
 }
 
 FileIOResult File::write_unlocked_impl(const void *data, size_t len) {
@@ -201,7 +231,8 @@ FileIOResult File::write_unlocked_nbf(const uint8_t *data, size_t len) {
     }
   }
 
-  FileIOResult write_result = write_all(platform_write, get_backend(), data, len);
+  FileIOResult write_result =
+      write_all(platform_write, get_backend(), data, len);
   if (write_result.has_error() || write_result < len)
     err = true;
   return write_result;
@@ -256,8 +287,8 @@ FileIOResult File::write_unlocked_fbf(const uint8_t *data, size_t len) {
       for (size_t i = 0; i < pos; ++i)
         buf[i] = buf[i + bytes_written];
     });
-    buf_result =
-        write_all(platform_write, get_backend(), buf, write_size, &bytes_written);
+    buf_result = write_all(platform_write, get_backend(), buf, write_size,
+                           &bytes_written);
   }
 
   // If less bytes were written than expected, then an error occurred. Return
@@ -277,9 +308,8 @@ FileIOResult File::write_unlocked_fbf(const uint8_t *data, size_t len) {
     pos = remainder.size();
   } else {
 
-    FileIOResult result =
-        write_all(platform_write, get_backend(), remainder.data(),
-                  remainder.size());
+    FileIOResult result = write_all(platform_write, get_backend(),
+                                    remainder.data(), remainder.size());
     bytes_written = result.value;
 
     // If less bytes were written than expected, then an error occurred. Return
@@ -331,8 +361,7 @@ FileIOResult File::write_unlocked_lbf(const uint8_t *data, size_t len) {
   if (flush_error)
     return {first.value, flush_error};
 
-  FileIOResult second =
-      write_unlocked_fbf(remainder.data(), remainder.size());
+  FileIOResult second = write_unlocked_fbf(remainder.data(), remainder.size());
   return {first.value + second.value, second.error};
 }
 
@@ -540,6 +569,7 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
   pos = read_limit = 0;
   wide_pushback_bytes = 0;
   wide_lookahead_bytes = 0;
+  wide_input_bytes = 0;
   byte_pushback = EOF;
   prev_op = FileOp::SEEK;
   // Reset the eof flag as a seek might move the file position to some place
@@ -547,7 +577,7 @@ ErrorOr<int> File::seek_unlocked(off_t offset, int whence) {
   eof = false;
   if (orientation == Orientation::WIDE ||
       orientation == Orientation::UNORIENTED)
-    mbstate = internal::mbstate();
+    mbstate = wide_output_state = internal::mbstate();
 
   return 0;
 }
@@ -577,9 +607,11 @@ ErrorOr<off_t> File::tell_unlocked() {
                                &platform_offset))
       return Error(EOVERFLOW);
   } else if (prev_op == FileOp::WRITE) {
+    auto pending = pending_wide_bytes();
+    if (!pending)
+      return Error(pending.error());
     if (__builtin_add_overflow(platform_offset, pos, &platform_offset) ||
-        __builtin_add_overflow(platform_offset, pending_wide_bytes(),
-                               &platform_offset))
+        __builtin_add_overflow(platform_offset, *pending, &platform_offset))
       return Error(EOVERFLOW);
   }
   return platform_offset;
@@ -597,7 +629,7 @@ ErrorOr<int> File::set_position(const Position &position) {
   FileLock lock(this);
   auto result = seek_unlocked(position.offset, SEEK_SET);
   if (result.has_value())
-    mbstate = position.state;
+    mbstate = wide_output_state = position.state;
   return result;
 }
 
@@ -616,7 +648,8 @@ int File::flush_unlocked() {
           buf[i - consumed] = buf[i];
         pos -= consumed;
       });
-      buf_result = write_all(platform_write, get_backend(), buf, pos, &consumed);
+      buf_result =
+          write_all(platform_write, get_backend(), buf, pos, &consumed);
     }
     if (buf_result.has_error() || pos > 0) {
       err = true;
@@ -639,7 +672,7 @@ int File::flush_unlocked() {
     byte_pushback = EOF;
     wide_pushback_bytes = 0;
     wide_lookahead_bytes = 0;
-    mbstate = internal::mbstate();
+    wide_input_bytes = 0;
   }
   if (platform_flush) {
     int error = platform_flush(get_backend());
@@ -753,27 +786,30 @@ File::ModeFlags File::mode_flags(const char *mode) {
   return flags;
 }
 
-ErrorOr<size_t> File::encode_wide(wchar_t wc, uint8_t *bytes) const {
-  internal::mbstate state;
-  internal::CharacterConverter converter(&state, wide_utf8);
-  int error = converter.push(static_cast<char32_t>(wc));
-  if (error)
-    return Error(error);
-  size_t size = 0;
-  while (!converter.isEmpty()) {
-    auto byte = converter.pop<char8_t>();
-    if (!byte.has_value())
-      return Error(byte.error());
-    bytes[size++] = byte.value();
-  }
-  return size;
+internal::RestartableConverter File::wide_converter() const {
+#ifdef LIBC_FULL_BUILD
+  if (wide_category && wide_category->chinese_encoding)
+    return internal::RestartableConverter(*wide_category->chinese_encoding);
+#endif
+  return internal::RestartableConverter(wide_utf8);
 }
 
-size_t File::pending_wide_bytes() const {
+ErrorOr<size_t> File::encode_wide(wchar_t wc, uint8_t *bytes,
+                                  internal::mbstate &state) const {
+  return wide_converter().encode(
+      uint32_t(wc), {bytes, internal::MAX_LOCALE_CHARACTER_BYTES}, state);
+}
+
+ErrorOr<size_t> File::pending_wide_bytes() const {
+  auto state = wide_output_state;
   size_t size = 0;
   for (size_t i = 0; i < wide_size; ++i) {
-    uint8_t bytes[4];
-    size += encode_wide(wide_output[i], bytes).value();
+    uint8_t bytes[internal::MAX_LOCALE_CHARACTER_BYTES];
+    auto encoded = encode_wide(wide_output[i], bytes, state);
+    if (!encoded)
+      return Error(encoded.error());
+    if (__builtin_add_overflow(size, *encoded, &size))
+      return Error(EOVERFLOW);
   }
   return size - wide_prefix;
 }
@@ -782,13 +818,22 @@ int File::flush_wide_unlocked() {
   while (wide_size) {
     uint8_t bytes[256];
     size_t ends[256];
+    internal::mbstate states[256];
+    auto state = wide_output_state;
     size_t length = 0, characters = 0;
-    while (characters < wide_size && length <= sizeof(bytes) - 4) {
-      uint8_t encoded[4];
-      size_t size = encode_wide(wide_output[characters], encoded).value();
+    while (characters < wide_size &&
+           length <= sizeof(bytes) - internal::MAX_LOCALE_CHARACTER_BYTES) {
+      uint8_t encoded[internal::MAX_LOCALE_CHARACTER_BYTES];
+      auto result = encode_wide(wide_output[characters], encoded, state);
+      if (!result) {
+        err = true;
+        return result.error();
+      }
+      size_t size = *result;
       size_t skip = characters == 0 ? wide_prefix : 0;
       inline_memcpy(bytes + length, encoded + skip, size - skip);
       length += size - skip;
+      states[characters] = state;
       ends[characters++] = length;
     }
     FileIOResult result(0);
@@ -798,17 +843,20 @@ int File::flush_wide_unlocked() {
         size_t complete = 0;
         while (complete < characters && ends[complete] <= consumed)
           ++complete;
+        if (complete)
+          wide_output_state = states[complete - 1];
         // Keep an incomplete character without replaying its written prefix,
         // including when the next backend call unwinds.
-        wide_prefix = complete ? consumed - ends[complete - 1]
-                               : wide_prefix + consumed;
+        wide_prefix =
+            complete ? consumed - ends[complete - 1] : wide_prefix + consumed;
         for (size_t i = complete; i < wide_size; ++i)
           wide_output[i - complete] = wide_output[i];
         wide_size -= complete;
         if (!wide_size)
           wide_prefix = 0;
       });
-      result = write_all(platform_write, get_backend(), bytes, length, &consumed);
+      result =
+          write_all(platform_write, get_backend(), bytes, length, &consumed);
     }
     if (result.has_error() || consumed != length) {
       err = true;
@@ -825,7 +873,8 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
     err = true;
     return {0, EINVAL};
   case Orientation::UNORIENTED:
-    try_set_orientation_unlocked(Orientation::WIDE);
+    if (try_set_orientation_unlocked(Orientation::WIDE) != Orientation::WIDE)
+      return {0, ENOMEM};
     break;
   case Orientation::WIDE:
     break;
@@ -863,8 +912,9 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
 
   size_t written = 0;
   for (size_t i = 0; i < len; ++i) {
-    uint8_t buffer[4];
-    auto encoded = encode_wide(ws[i], buffer);
+    uint8_t buffer[internal::MAX_LOCALE_CHARACTER_BYTES];
+    auto next_state = mbstate;
+    auto encoded = encode_wide(ws[i], buffer, next_state);
     if (!encoded.has_value()) {
       err = true;
       return {written, encoded.error()};
@@ -877,13 +927,17 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
         err = true;
         return {written, EIO};
       }
+      mbstate = wide_output_state = next_state;
     } else {
       if (wide_size == wide_capacity) {
         int error = flush_wide_unlocked();
         if (error)
           return {written, error};
       }
+      if (!wide_size)
+        wide_output_state = mbstate;
       wide_output[wide_size++] = ws[i];
+      mbstate = next_state;
       if (bufmode == _IOLBF && ws[i] == L'\n') {
         int error = flush_unlocked();
         if (error)
@@ -904,16 +958,13 @@ FileIOResult File::peek_wide_unlocked(wchar_t *wc) {
     *wc = wide_lookahead;
     return size_t(1);
   }
+  auto before = mbstate;
   auto result = read_unlocked(wc, 1);
   if (result.value == 1) {
-    uint8_t bytes[4];
-    auto encoded = encode_wide(*wc, bytes);
-    if (!encoded.has_value()) {
-      err = true;
-      return {0, encoded.error()};
-    }
     wide_lookahead = *wc;
-    wide_lookahead_bytes = encoded.value();
+    wide_lookahead_bytes = wide_input_bytes;
+    wide_lookahead_state = mbstate;
+    mbstate = before;
   }
   return result;
 }
@@ -924,7 +975,8 @@ FileIOResult File::read_unlocked(wchar_t *ws, size_t len) {
     err = true;
     return {0, EINVAL};
   case Orientation::UNORIENTED:
-    try_set_orientation_unlocked(Orientation::WIDE);
+    if (try_set_orientation_unlocked(Orientation::WIDE) != Orientation::WIDE)
+      return {0, ENOMEM};
     break;
   case Orientation::WIDE:
     break;
@@ -934,40 +986,51 @@ FileIOResult File::read_unlocked(wchar_t *ws, size_t len) {
   for (size_t i = 0; i < len; ++i) {
     if (wide_pushback_bytes != 0) {
       ws[i] = wide_pushback;
+      mbstate = wide_pushback_after;
       wide_pushback_bytes = 0;
+      wide_input_bytes = 0;
       ++read_count;
       continue;
     }
     if (wide_lookahead_bytes != 0) {
       ws[i] = wide_lookahead;
+      wide_input_before = mbstate;
+      wide_input_bytes = wide_lookahead_bytes;
+      mbstate = wide_lookahead_state;
       wide_lookahead_bytes = 0;
       ++read_count;
       continue;
     }
-    internal::CharacterConverter cr(&mbstate, wide_utf8);
-    while (!cr.isFull()) {
+    auto converter = wide_converter();
+    wide_input_before = mbstate;
+    wide_input_bytes = 0;
+    while (true) {
       uint8_t byte;
       auto read_res = read_unlocked_impl(&byte, 1);
       if (read_res.has_error())
         return {read_count, read_res.error};
       if (read_res.value == 0) { // EOF
-        if (cr.isEmpty())
+        if (converter.boundary(mbstate))
           return {read_count, 0};
         err = true;
         return {read_count, EILSEQ}; // Incomplete character at EOF
       }
-      int push_err = cr.push(static_cast<char8_t>(byte));
-      if (push_err != 0) {
+      if (__builtin_add_overflow(wide_input_bytes, size_t(1),
+                                 &wide_input_bytes)) {
         err = true;
-        return {read_count, push_err};
+        return {read_count, EOVERFLOW};
+      }
+      uint32_t scalar;
+      auto decoded = converter.decode(&scalar, {&byte, 1}, mbstate);
+      if (!decoded) {
+        err = true;
+        return {read_count, decoded.error()};
+      }
+      if (*decoded != size_t(-2)) {
+        ws[i] = static_cast<wchar_t>(scalar);
+        break;
       }
     }
-    auto pop_res = cr.pop<char32_t>();
-    if (!pop_res.has_value()) {
-      err = true;
-      return {read_count, pop_res.error()};
-    }
-    ws[i] = static_cast<wchar_t>(pop_res.value());
     ++read_count;
   }
   return {read_count, 0};
@@ -986,7 +1049,8 @@ ErrorOr<wint_t> File::ungetwc_unlocked(wint_t wc) {
     err = true;
     return WEOF;
   case Orientation::UNORIENTED:
-    try_set_orientation_unlocked(Orientation::WIDE);
+    if (try_set_orientation_unlocked(Orientation::WIDE) != Orientation::WIDE)
+      return Error(ENOMEM);
     break;
   case Orientation::WIDE:
     break;
@@ -995,15 +1059,17 @@ ErrorOr<wint_t> File::ungetwc_unlocked(wint_t wc) {
   if (wide_pushback_bytes != 0)
     return WEOF;
 
-  char mb_buf[4];
-  internal::mbstate state;
-  auto result =
-      internal::wcrtomb(mb_buf, static_cast<wchar_t>(wc), &state, wide_utf8);
+  uint8_t mb_buf[internal::MAX_LOCALE_CHARACTER_BYTES];
+  auto state = mbstate;
+  auto result = encode_wide(static_cast<wchar_t>(wc), mb_buf, state);
   if (!result.has_value())
     return Error(result.error());
 
   wide_pushback = static_cast<wchar_t>(wc);
-  wide_pushback_bytes = result.value();
+  wide_pushback_after = mbstate;
+  wide_pushback_bytes = wide_input_bytes ? wide_input_bytes : result.value();
+  if (wide_input_bytes)
+    mbstate = wide_input_before;
   prev_op = FileOp::READ;
   eof = false;
   return wc;

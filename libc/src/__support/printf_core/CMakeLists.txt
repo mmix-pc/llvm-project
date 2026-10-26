@@ -63,7 +63,7 @@ else()
     libc.hdr.wchar_macros
     libc.src.__support.wchar.wcrtomb
     libc.src.__support.wchar.mbstate
-    libc.src.__support.wchar.string_converter
+    libc.src.__support.wchar.restartable_converter
   )
   set(parser_wchar_deps
     libc.hdr.types.wint_t
@@ -136,6 +136,7 @@ add_header_library(
     converter.h
     converter_atlas.h
     converter_utils.h
+    numeric_radix.h
     string_converter.h
     char_converter.h
     int_converter.h
@@ -160,6 +161,7 @@ add_header_library(
     libc.src.__support.CPP.span
     libc.src.__support.CPP.string_view
     libc.src.__support.float_to_string
+    libc.src.locale.numeric_conversion
     libc.src.__support.FPUtil.fenv_impl
     libc.src.__support.FPUtil.fp_bits
     libc.src.__support.FPUtil.rounding_mode
@@ -196,7 +198,7 @@ add_header_library(
     .wide_writer
     .printf_main
     libc.hdr.types.wint_t
-    libc.src.__support.wchar.string_converter
+    libc.src.__support.wchar.restartable_converter
 )
 
 add_header_library(

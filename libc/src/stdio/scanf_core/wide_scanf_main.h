@@ -21,6 +21,7 @@
 #include "src/stdio/scanf_core/converter_utils.h"
 #include "src/stdio/scanf_core/string_output.h"
 #ifndef LIBC_COPT_SCANF_DISABLE_FLOAT
+#include "src/locale/character.h"
 #include "src/stdio/scanf_core/float_converter.h"
 #endif
 
@@ -55,7 +56,8 @@ public:
 };
 
 LIBC_INLINE bool wide_scan_space(wint_t c) {
-  return c != WEOF && internal::isspace(static_cast<wchar_t>(c));
+  return c != WEOF && internal::classify_wide(c, internal::WCTYPE_SPACE,
+                                              internal::current_ctype());
 }
 
 LIBC_INLINE int wide_scan_digit(wint_t c) {
@@ -149,9 +151,9 @@ WideScanResult wide_scan_float(WideReader<Source> &input, size_t width,
   int result = scan_float_token(
       [&]() -> int {
         wint_t c = input.peek();
-        return c == WEOF ? -1 : c <= 127 ? int(c) : 256;
+        return c == WEOF ? -1 : c <= 0x10ffff ? int(c) : 0x110000;
       },
-      [&] { input.take(); }, width, section);
+      [&] { input.take(); }, width, section, true);
   return result == READ_OK              ? WideScanResult::OK
          : result == MATCHING_FAILURE   ? WideScanResult::MATCH_FAILURE
          : result == ALLOCATION_FAILURE ? WideScanResult::ALLOCATION_FAILURE
@@ -194,7 +196,7 @@ WideScanResult wide_scan_string_to(WideReader<Source> &input, size_t width,
       if (!output.append(static_cast<wchar_t>(c)))
         return WideScanResult::ALLOCATION_FAILURE;
     } else {
-      char bytes[4];
+      char bytes[internal::MAX_LOCALE_CHARACTER_BYTES];
       auto result = internal::wcrtomb(bytes, static_cast<wchar_t>(c), &state);
       if (!result.has_value()) {
         libc_errno = result.error();
@@ -212,8 +214,23 @@ WideScanResult wide_scan_string_to(WideReader<Source> &input, size_t width,
                                 : WideScanResult::MATCH_FAILURE;
   if (section.conv_name == 'c' && count != width)
     return WideScanResult::INPUT_FAILURE;
-  if (section.conv_name != 'c' && !output.append(CharT(0)))
-    return WideScanResult::ALLOCATION_FAILURE;
+  if (section.conv_name != 'c') {
+    if constexpr (sizeof(CharT) == sizeof(wchar_t)) {
+      if (!output.append(CharT(0)))
+        return WideScanResult::ALLOCATION_FAILURE;
+    } else {
+      // Terminating a multibyte string also restores its initial shift state.
+      char bytes[internal::MAX_LOCALE_CHARACTER_BYTES];
+      auto result = internal::wcrtomb(bytes, L'\0', &state);
+      if (!result.has_value()) {
+        libc_errno = result.error();
+        return WideScanResult::ENCODING_FAILURE;
+      }
+      for (size_t i = 0; i < result.value(); ++i)
+        if (!output.append(bytes[i]))
+          return WideScanResult::ALLOCATION_FAILURE;
+    }
+  }
   output.publish();
   return WideScanResult::OK;
 }

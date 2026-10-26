@@ -99,11 +99,20 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.wchar.btowc libc.src.wchar.wctob libc.src.locale.__ctype_get_mb_cur_max
     libc.src.wchar.mbsinit libc.src.locale.locale libc.src.__support.libc_errno)
 endif()
+set(iso2022_cn_file_option)
+if(LLVM_LIBC_FULL_BUILD AND TARGET libc.src.__support.File.file)
+  list(APPEND iso2022_cn_public_deps libc.src.__support.File.file
+    libc.src.locale.locale_storage libc.src.stdio.snprintf
+    libc.src.wchar.swprintf libc.src.wchar.swscanf)
+  set(iso2022_cn_file_option -DLIBC_TEST_HAS_FILE)
+endif()
 add_libc_test(
   iso2022_cn_test
   SUITE libc-support-tests
   SRCS iso2022_cn_test.cpp
+  COMPILE_OPTIONS ${iso2022_cn_file_option}
   DEPENDS libc.src.__support.wchar.iso2022_cn
     libc.src.__support.wchar.restartable_converter
+    libc.src.fnmatch.matcher
     ${iso2022_cn_public_deps}
 )

@@ -57,6 +57,30 @@ template <> struct constants<wchar_t> {
   static constexpr wchar_t NAN_STRING[] = L"nan";
 };
 
+// Borrow a complete radix sequence for one parse. The default preserves the
+// locale-independent grammar used by libc++ and internal protocol parsers.
+template <typename CharType> class DecimalSeparator {
+  const CharType *text = nullptr;
+  size_t length = 1;
+
+public:
+  constexpr DecimalSeparator() = default;
+  constexpr DecimalSeparator(const CharType *text, size_t length)
+      : text(text), length(length) {}
+  LIBC_INLINE size_t
+  match(const CharType *input,
+        size_t available = cpp::numeric_limits<size_t>::max()) const {
+    if (!length || length > available)
+      return 0;
+    if (!text)
+      return input[0] == constants<CharType>::DECIMAL_POINT ? 1 : 0;
+    for (size_t i = 0; i < length; ++i)
+      if (!input[i] || input[i] != text[i])
+        return 0;
+    return length;
+  }
+};
+
 // This is based on the HPD data structure described as part of the Simple
 // Decimal Conversion algorithm by Nigel Tao, described at this link:
 // https://nigeltao.github.io/blog/2020/parse-number-f64-simple.html
@@ -337,22 +361,27 @@ public:
   template <typename CharType>
   LIBC_INLINE HighPrecisionDecimal(
       const CharType *__restrict num_string,
-      const size_t num_len = cpp::numeric_limits<size_t>::max()) {
+      const size_t num_len = cpp::numeric_limits<size_t>::max(),
+      DecimalSeparator<CharType> separator = {}) {
     bool saw_dot = false;
     size_t num_cur = 0;
     // This counts the digits in the number, even if there isn't space to store
     // them all.
     uint32_t total_digits = 0;
-    while (num_cur < num_len &&
-           (isdigit(num_string[num_cur]) ||
-            num_string[num_cur] == constants<CharType>::DECIMAL_POINT)) {
-      if (num_string[num_cur] == constants<CharType>::DECIMAL_POINT) {
+    while (num_cur < num_len) {
+      size_t radix_length =
+          separator.match(num_string + num_cur, num_len - num_cur);
+      if (radix_length) {
         if (saw_dot) {
           break;
         }
         this->decimal_point = static_cast<int32_t>(total_digits);
         saw_dot = true;
+        num_cur += radix_length;
+        continue;
       } else {
+        if (!isdigit(num_string[num_cur]))
+          break;
         int digit = b36_char_to_int(num_string[num_cur]);
         if (digit == 0 && this->num_digits == 0) {
           --this->decimal_point;

@@ -339,12 +339,13 @@ template <typename T, typename CharType>
 LIBC_INLINE FloatConvertReturn<T> simple_decimal_conversion(
     const CharType *__restrict numStart,
     const size_t num_len = cpp::numeric_limits<size_t>::max(),
-    RoundDirection round = RoundDirection::Nearest) {
+    RoundDirection round = RoundDirection::Nearest,
+    DecimalSeparator<CharType> separator = {}) {
   using FPBits = typename fputil::FPBits<T>;
   using StorageType = typename FPBits::StorageType;
 
   int32_t exp2 = 0;
-  HighPrecisionDecimal hpd = HighPrecisionDecimal(numStart, num_len);
+  HighPrecisionDecimal hpd = HighPrecisionDecimal(numStart, num_len, separator);
 
   FloatConvertReturn<T> output;
 
@@ -675,10 +676,11 @@ template <> LIBC_INLINE constexpr int32_t get_lower_bound<double>() {
 // then if that fails then we fall back to a more accurate algorithm for
 // accuracy.
 template <typename T, typename CharType>
-LIBC_INLINE FloatConvertReturn<T> decimal_exp_to_float(
-    ExpandedFloat<T> init_num, [[maybe_unused]] bool truncated,
-    RoundDirection round, const CharType *__restrict numStart,
-    const size_t num_len = cpp::numeric_limits<size_t>::max()) {
+LIBC_INLINE FloatConvertReturn<T>
+decimal_exp_to_float(ExpandedFloat<T> init_num, [[maybe_unused]] bool truncated,
+                     RoundDirection round, const CharType *__restrict numStart,
+                     const size_t num_len = cpp::numeric_limits<size_t>::max(),
+                     DecimalSeparator<CharType> separator = {}) {
   using FPBits = typename fputil::FPBits<T>;
 
   int32_t exp10 = init_num.exponent;
@@ -740,7 +742,7 @@ LIBC_INLINE FloatConvertReturn<T> decimal_exp_to_float(
 #endif // LIBC_COPT_STRTOFLOAT_DISABLE_EISEL_LEMIRE
 
 #ifndef LIBC_COPT_STRTOFLOAT_DISABLE_SIMPLE_DECIMAL_CONVERSION
-  output = simple_decimal_conversion<T>(numStart, num_len, round);
+  output = simple_decimal_conversion<T>(numStart, num_len, round, separator);
 #else
 #warning "Simple decimal conversion is disabled, result may not be correct."
 #endif // LIBC_COPT_STRTOFLOAT_DISABLE_SIMPLE_DECIMAL_CONVERSION
@@ -859,15 +861,15 @@ LIBC_INLINE FloatConvertReturn<T> binary_exp_to_float(ExpandedFloat<T> init_num,
 // Checks if the first characters of the string pointer are the start of a
 // hexadecimal floating point number. Does not advance the string pointer.
 template <typename CharType>
-LIBC_INLINE static bool is_float_hex_start(const CharType *__restrict src) {
+LIBC_INLINE static bool
+is_float_hex_start(const CharType *__restrict src,
+                   DecimalSeparator<CharType> separator = {}) {
   if (!is_char_or_wchar(src[0], '0', L'0') ||
       !is_char_or_wchar(tolower(src[1]), 'x', L'x')) {
     return false;
   }
   size_t first_digit = 2;
-  if (src[2] == constants<CharType>::DECIMAL_POINT) {
-    ++first_digit;
-  }
+  first_digit += separator.match(src + 2);
   return isalnum(src[first_digit]) && b36_char_to_int(src[first_digit]) < 16;
 }
 
@@ -887,7 +889,8 @@ LIBC_INLINE static bool tolower_starts_with(const CharType *str,
 // Attempts parsing a decimal floating point number at the start of the string.
 template <typename T, typename CharType>
 LIBC_INLINE static StrToNumResult<ExpandedFloat<T>>
-decimal_string_to_float(const CharType *__restrict src, RoundDirection round) {
+decimal_string_to_float(const CharType *__restrict src, RoundDirection round,
+                        DecimalSeparator<CharType> separator = {}) {
   using FPBits = typename fputil::FPBits<T>;
   using StorageType = typename FPBits::StorageType;
 
@@ -928,13 +931,13 @@ decimal_string_to_float(const CharType *__restrict src, RoundDirection round) {
       ++index;
       continue;
     }
-    if (src[index] == constants<CharType>::DECIMAL_POINT) {
+    if (size_t length = separator.match(src + index)) {
       if (after_decimal) {
         break; // this means that src[index] points to a second decimal point,
                // ending the number.
       }
       after_decimal = true;
-      ++index;
+      index += length;
       continue;
     }
     // The character is neither a digit nor a decimal point.
@@ -976,8 +979,8 @@ decimal_string_to_float(const CharType *__restrict src, RoundDirection round) {
   if (mantissa == 0) { // if we have a 0, then also 0 the exponent.
     output.value = {0, 0};
   } else {
-    auto temp =
-        decimal_exp_to_float<T>({mantissa, exponent}, truncated, round, src);
+    auto temp = decimal_exp_to_float<T>({mantissa, exponent}, truncated, round,
+                                        src, index, separator);
     output.value = temp.num;
     output.error = temp.error;
   }
@@ -989,7 +992,8 @@ decimal_string_to_float(const CharType *__restrict src, RoundDirection round) {
 template <typename T, typename CharType>
 LIBC_INLINE static StrToNumResult<ExpandedFloat<T>>
 hexadecimal_string_to_float(const CharType *__restrict src,
-                            RoundDirection round) {
+                            RoundDirection round,
+                            DecimalSeparator<CharType> separator = {}) {
   using FPBits = typename fputil::FPBits<T>;
   using StorageType = typename FPBits::StorageType;
 
@@ -1031,13 +1035,13 @@ hexadecimal_string_to_float(const CharType *__restrict src,
       ++index;
       continue;
     }
-    if (src[index] == constants<CharType>::DECIMAL_POINT) {
+    if (size_t length = separator.match(src + index)) {
       if (after_decimal) {
         break; // this means that src[index] points to a second decimal point,
                // ending the number.
       }
       after_decimal = true;
-      ++index;
+      index += length;
       continue;
     }
     // The character is neither a hexadecimal digit nor a decimal point.
@@ -1115,7 +1119,9 @@ nan_mantissa_from_ncharseq(const CharType *str, size_t len) {
 // TODO: Next, move from char* and length to string_view
 template <typename T, typename CharType>
 LIBC_INLINE StrToNumResult<T>
-strtofloatingpoint(const CharType *__restrict src) {
+strtofloatingpoint(const CharType *__restrict src,
+                   DecimalSeparator<CharType> separator = {},
+                   bool skip_whitespace = true) {
   using FPBits = typename fputil::FPBits<T>;
   using StorageType = typename FPBits::StorageType;
 
@@ -1123,7 +1129,7 @@ strtofloatingpoint(const CharType *__restrict src) {
   bool seen_digit = false;
   int error = 0;
 
-  size_t index = first_non_whitespace(src);
+  size_t index = skip_whitespace ? first_non_whitespace(src) : 0;
   int sign = get_sign(src + index);
 #ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
   bool is_positive = (sign >= 0);
@@ -1134,10 +1140,9 @@ strtofloatingpoint(const CharType *__restrict src) {
     result.set_sign(Sign::NEG);
   }
 
-  if (isdigit(src[index]) ||
-      src[index] == constants<CharType>::DECIMAL_POINT) { // regular number
+  if (isdigit(src[index]) || separator.match(src + index)) { // regular number
     int base = 10;
-    if (is_float_hex_start(src + index)) {
+    if (is_float_hex_start(src + index, separator)) {
       base = 16;
       index += 2;
       seen_digit = true;
@@ -1163,10 +1168,11 @@ strtofloatingpoint(const CharType *__restrict src) {
 
     StrToNumResult<ExpandedFloat<T>> parse_result({0, 0});
     if (base == 16) {
-      parse_result =
-          hexadecimal_string_to_float<T>(src + index, round_direction);
+      parse_result = hexadecimal_string_to_float<T>(src + index,
+                                                    round_direction, separator);
     } else { // base is 10
-      parse_result = decimal_string_to_float<T>(src + index, round_direction);
+      parse_result =
+          decimal_string_to_float<T>(src + index, round_direction, separator);
     }
     seen_digit = parse_result.parsed_len != 0;
     result.set_mantissa(parse_result.value.mantissa);

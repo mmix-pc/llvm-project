@@ -14,6 +14,7 @@
 #include "src/__support/char_vector.h"
 #include "src/__support/ctype_utils.h"
 #include "src/__support/libc_errno.h"
+#include "src/locale/numeric_conversion.h"
 #include "src/stdio/scanf_core/converter_utils.h"
 #include "src/stdio/scanf_core/reader.h"
 
@@ -25,7 +26,8 @@ namespace scanf_core {
 // or wide character after the item remains available to the caller.
 template <typename Peek, typename Take>
 int scan_float_token(Peek source_peek, Take source_take, size_t width,
-                     const FormatSection &section) {
+                     const FormatSection &section, bool wide = false) {
+  auto locale = internal::current_numeric_parse_locale();
   CharVector token;
   bool allocation_failed = false;
   auto peek = [&]() -> int { return width ? source_peek() : -1; };
@@ -100,8 +102,25 @@ int scan_float_token(Peek source_peek, Take source_take, size_t width,
       return any;
     };
     digits = read_digits(base) || digits;
-    if (peek() == '.') {
-      take();
+    const size_t radix_length = wide ? 1 : locale.radix.size();
+    auto radix_unit = [&](size_t i) -> int {
+      return wide ? int(locale.wide_radix)
+                  : static_cast<unsigned char>(locale.radix[i]);
+    };
+    if (peek() == radix_unit(0)) {
+      // A partial radix is an initial subsequence of a number, so consume
+      // its matching prefix but do not assign a result. Normalize only a
+      // complete radix for the locale-independent numerical algorithm.
+      for (size_t i = 0; i != radix_length; ++i) {
+        if (peek() != radix_unit(i))
+          return allocation_failed ? ALLOCATION_FAILURE : MATCHING_FAILURE;
+        source_take();
+        --width;
+      }
+      if (!token.append('.')) {
+        libc_errno = ENOMEM;
+        return ALLOCATION_FAILURE;
+      }
       digits = read_digits(base) || digits;
     }
     valid = digits;
