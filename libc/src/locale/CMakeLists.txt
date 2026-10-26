@@ -160,6 +160,13 @@ add_object_library(
     libc.src.__support.wchar.scalar_codec
 )
 
+add_object_library(
+  time_locale
+  SRCS time_locale.cpp
+  HDRS time_locale.h
+  DEPENDS .time_data ${encoding_deps} libc.hdr.types.locale_t
+)
+
 if(NOT LLVM_LIBC_FULL_BUILD)
   return()
 endif()

@@ -20,11 +20,10 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-// TODO: Add support for locales.
 LLVM_LIBC_FUNCTION(size_t, strftime_l,
                    (char *__restrict buffer, size_t buffsz,
                     const char *__restrict format, const tm *timeptr,
-                    locale_t)) {
+                    locale_t locale)) {
   if (buffsz > 0)
     LIBC_CRASH_ON_NULLPTR(buffer);
   LIBC_CRASH_ON_NULLPTR(format);
@@ -33,11 +32,14 @@ LLVM_LIBC_FUNCTION(size_t, strftime_l,
   int saved_errno = libc_errno;
   printf_core::DropOverflowBuffer wb(buffer, (buffsz > 0 ? buffsz - 1 : 0));
   printf_core::Writer writer(wb);
-  auto ret = strftime_core::strftime_main(&writer, format, timeptr);
+  auto ret = strftime_core::strftime_main(&writer, format, timeptr,
+                                         internal::time_locale(locale));
   if (buffsz > 0) // if the buffsz is 0 the buffer may be a null pointer.
     wb.buff[wb.buff_cur] = '\0';
-  if (!ret.has_value())
+  if (!ret.has_value()) {
+    libc_errno = ret.error();
     return 0;
+  }
   if (ret.value() >= buffsz) {
     libc_errno = ERANGE;
     return 0;

@@ -11,6 +11,7 @@
 
 #include "hdr/types/struct_tm.h"
 #include "hdr/types/time_t.h"
+#include "src/__support/CPP/array.h"
 #include "src/__support/error_or.h"
 #include "src/__support/macros/config.h"
 
@@ -21,6 +22,8 @@ namespace time_utils {
 // with UTC. Environment mutation must be synchronized by the caller, just as
 // for getenv. Concurrent conversions and tzset calls are internally serialized.
 ErrorOr<void> refresh_timezone();
+// The returned immutable names remain valid after subsequent TZ changes.
+ErrorOr<cpp::array<const char *, 2>> timezone_names();
 ErrorOr<tm *> localtime_internal(const time_t *timer, tm *result);
 ErrorOr<time_t> mktime_local(tm *result);
 

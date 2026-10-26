@@ -200,6 +200,13 @@ ErrorOr<void> refresh_timezone() {
   return {};
 }
 
+ErrorOr<cpp::array<const char *, 2>> timezone_names() {
+  auto zone = snapshot();
+  if (!zone)
+    return cpp::unexpected(zone.error());
+  return cpp::array<const char *, 2>{zone->names[0], zone->names[1]};
+}
+
 ErrorOr<tm *> localtime_internal(const time_t *timer, tm *result) {
   auto zone = snapshot();
   if (!zone)

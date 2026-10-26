@@ -33,8 +33,10 @@ LLVM_LIBC_FUNCTION(size_t, strftime,
   auto ret = strftime_core::strftime_main(&writer, format, timeptr);
   if (buffsz > 0) // if the buffsz is 0 the buffer may be a null pointer.
     wb.buff[wb.buff_cur] = '\0';
-  if (!ret.has_value())
+  if (!ret.has_value()) {
+    libc_errno = ret.error();
     return 0;
+  }
   if (ret.value() >= buffsz) {
     libc_errno = ERANGE;
     return 0;

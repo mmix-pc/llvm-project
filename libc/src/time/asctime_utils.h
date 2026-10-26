@@ -42,7 +42,9 @@ LIBC_INLINE ErrorOr<char *> asctime(const tm *timeptr, char *buffer,
                                      buffer_length > 0 ? buffer_length - 1 : 0);
   printf_core::Writer writer(wb);
 
-  auto res = strftime_core::strftime_main(&writer, "%a %b %e %T %Y\n", timeptr);
+  // asctime/ctime use the fixed English representation, not LC_TIME.
+  auto res = strftime_core::strftime_main(&writer, "%a %b %e %T %Y\n", timeptr,
+                                         nullptr);
   if (!res.has_value())
     return cpp::unexpected(res.error());
 

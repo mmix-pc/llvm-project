@@ -94,6 +94,31 @@ TEST(LlvmLibcWcsftimeTest, BufferBounds) {
   EXPECT_EQ(LIBC_NAMESPACE::wcsftime(nullptr, 0, format, &t), size_t(0));
 }
 
+TEST(LlvmLibcWcsftimeTest, YearFlagsAndWidth) {
+  LocaleGuard locale;
+  tm t = date();
+  const char *formats[] = {"%+8Y", "%08Y", "%12F", "%+4C", "%08G"};
+  const wchar_t *wide_formats[] = {L"%+8Y", L"%08Y", L"%12F", L"%+4C", L"%08G"};
+  for (unsigned i = 0; i != 5; ++i) {
+    char expected[32];
+    wchar_t actual[32];
+    size_t length =
+        LIBC_NAMESPACE::strftime(expected, sizeof(expected), formats[i], &t);
+    ASSERT_GT(length, size_t(0));
+    ASSERT_EQ(LIBC_NAMESPACE::wcsftime(actual, 32, wide_formats[i], &t),
+              length);
+    for (size_t j = 0; j <= length; ++j)
+      EXPECT_EQ(actual[j], wchar_t(expected[j]));
+  }
+  wchar_t bounded[3] = {L'!', L'!', L'!'};
+  EXPECT_EQ(LIBC_NAMESPACE::wcsftime(bounded, 2, L"%2147483647Y", &t),
+            size_t(0));
+  EXPECT_EQ(bounded[2], L'!');
+  EXPECT_EQ(LIBC_NAMESPACE::wcsftime(bounded, 2, L"%2147483648Y", &t),
+            size_t(0));
+  EXPECT_EQ(bounded[2], L'!');
+}
+
 TEST(LlvmLibcWcsftimeTest, EmptyOutputAndUnknownZone) {
   LocaleGuard locale;
   tm t = date();

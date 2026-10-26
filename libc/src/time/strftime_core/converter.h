@@ -37,9 +37,8 @@ namespace strftime_core {
 template <printf_core::WriteMode write_mode>
 int convert(printf_core::Writer<write_mode> *writer,
             const FormatSection &to_conv, const tm *timeptr) {
-  // TODO: Implement the locale support.
-  // Currently locale flags are ignored, as described by the posix standard for
-  // the default locale.
+  // Locale expansions are handled by locale_converter. This is the C-locale
+  // fallback, where alternative representations use the ordinary conversion.
 
   if (!to_conv.has_conv)
     return writer->write(to_conv.raw_string);

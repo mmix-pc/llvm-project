@@ -180,7 +180,9 @@ set(time_category_test_deps)
 if(LLVM_LIBC_FULL_BUILD)
   list(APPEND time_category_test_deps libc.src.locale.time_category
     libc.src.langinfo.nl_langinfo libc.src.langinfo.nl_langinfo_l
-    libc.src.locale.uselocale)
+    libc.src.locale.uselocale libc.src.time.strftime libc.src.time.strftime_l
+    libc.src.time.strptime
+    libc.src.wchar.wcsftime libc.src.time.asctime_r libc.src.__support.libc_errno)
 endif()
 add_libc_test(
   time_data_test

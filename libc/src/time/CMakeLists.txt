@@ -293,10 +293,15 @@ add_entrypoint_object(
     strptime.cpp
   HDRS
     strptime.h
+    strptime_parser.h
   DEPENDS
     libc.hdr.types.struct_tm
     libc.src.__support.common
     libc.src.__support.macros.config
+    libc.src.__support.wchar.scalar_codec
+    libc.src.locale.character
+    libc.src.locale.time_locale
+    .time_zone
 )
 
 add_entrypoint_object(

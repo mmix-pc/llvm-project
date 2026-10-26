@@ -41,6 +41,7 @@ add_header_library(
   strftime_main
   HDRS
     strftime_main.h
+    locale_converter.h
   DEPENDS
     .core_structs
     .parser
@@ -48,4 +49,5 @@ add_header_library(
     libc.src.__support.error_or
     libc.src.__support.printf_core.writer
     libc.hdr.types.struct_tm
+    libc.src.locale.time_locale
 )

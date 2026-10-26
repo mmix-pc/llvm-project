@@ -10,10 +10,16 @@
 #include "src/locale/time_data.h"
 #include "test/UnitTest/Test.h"
 #ifdef LIBC_FULL_BUILD
+#include "src/__support/libc_errno.h"
 #include "src/langinfo/nl_langinfo.h"
 #include "src/langinfo/nl_langinfo_l.h"
 #include "src/locale/time_category.h"
 #include "src/locale/uselocale.h"
+#include "src/time/asctime_r.h"
+#include "src/time/strftime.h"
+#include "src/time/strftime_l.h"
+#include "src/time/strptime.h"
+#include "src/wchar/wcsftime.h"
 #endif
 
 using LIBC_NAMESPACE::internal::LocaleDataView;
@@ -125,6 +131,225 @@ TEST(LlvmLibcTimeDataTest, TablesAndEmptyValues) {
 }
 
 #ifdef LIBC_FULL_BUILD
+TEST(LlvmLibcTimeDataTest, CalendarParsingUsesSelectedCategory) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture f;
+  f.values[TimeLocaleData::DATE_TIME_FORMAT] = "%x %X";
+  f.values[TimeLocaleData::DATE_FORMAT] = "%Y/%m/%d";
+  f.values[TimeLocaleData::TIME_FORMAT] = "%H:%M";
+  f.values[TimeLocaleData::ALT_MON] = "alternative";
+  f.values[TimeLocaleData::ABALT_MON] = "alt";
+  f.build();
+  auto view = LocaleDataView::parse({f.bytes, f.size});
+  ASSERT_TRUE(view.has_value());
+  auto data = TimeLocaleData::read(*view);
+  ASSERT_TRUE(data.has_value());
+  __locale_data category{"time-test", true};
+  category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
+  auto selected = locale_from_mask(0);
+  selected.data[LC_TIME] = &category;
+  auto old = LIBC_NAMESPACE::uselocale(&selected);
+  tm time{};
+  time.tm_yday = 71;
+  time.tm_isdst = -1;
+  char input[] = "2026/10/25 16:05!";
+  EXPECT_EQ(LIBC_NAMESPACE::strptime(input, "%c", &time), input + 16);
+  EXPECT_EQ(time.tm_year, 126);
+  EXPECT_EQ(time.tm_mon, 9);
+  EXPECT_EQ(time.tm_mday, 25);
+  EXPECT_EQ(time.tm_hour, 16);
+  EXPECT_EQ(time.tm_min, 5);
+  EXPECT_EQ(time.tm_yday, 71);
+  EXPECT_EQ(time.tm_isdst, -1);
+  char name[] = "ALTERNATIVE!";
+  EXPECT_EQ(LIBC_NAMESPACE::strptime(name, "%Ob", &time), name + 11);
+  EXPECT_EQ(time.tm_mon, 0);
+  EXPECT_NE(LIBC_NAMESPACE::strptime("\xc5\x9e", "%A", &time), nullptr);
+  EXPECT_EQ(time.tm_wday, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::strptime("\xc5", "%A", &time), nullptr);
+  LIBC_NAMESPACE::uselocale(old);
+}
+
+TEST(LlvmLibcTimeDataTest, EraAndAlternativeNumberParsing) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture f;
+  f.counts[TimeLocaleData::ERAS] = 1;
+  f.values[TimeLocaleData::ERAS] = "+:1:2019/5/1:+*:era:%EC-%Ey";
+  f.values[TimeLocaleData::ERA_DATE_FORMAT] = "%EY/%m/%d";
+  f.counts[TimeLocaleData::ALTERNATIVE_DIGITS] = 2;
+  f.values[TimeLocaleData::ALTERNATIVE_DIGITS] = "alternative";
+  f.build();
+  auto view = LocaleDataView::parse({f.bytes, f.size});
+  ASSERT_TRUE(view.has_value());
+  auto data = TimeLocaleData::read(*view);
+  ASSERT_TRUE(data.has_value());
+  __locale_data category{"era-test", true};
+  category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
+  auto selected = locale_from_mask(0);
+  selected.data[LC_TIME] = &category;
+  auto old = LIBC_NAMESPACE::uselocale(&selected);
+  tm time{};
+  char input[] = "ERA-08/10/25 alternative!";
+  EXPECT_EQ(LIBC_NAMESPACE::strptime(input, "%Ex %OS", &time), input + 24);
+  EXPECT_EQ(time.tm_year, 126);
+  EXPECT_EQ(time.tm_mon, 9);
+  EXPECT_EQ(time.tm_mday, 25);
+  EXPECT_EQ(time.tm_sec, 0);
+  EXPECT_NE(LIBC_NAMESPACE::strptime("03 era", "%Ey %EC", &time), nullptr);
+  EXPECT_EQ(time.tm_year, 121);
+  EXPECT_NE(LIBC_NAMESPACE::strptime("03", "%Ey", &time), nullptr);
+  EXPECT_EQ(time.tm_year, 121);
+  EXPECT_EQ(LIBC_NAMESPACE::strptime("era-01/04/30", "%Ex", &time), nullptr);
+  EXPECT_EQ(time.tm_year, 121);
+  EXPECT_NE(LIBC_NAMESPACE::strptime("era", "%EC", &time), nullptr);
+  EXPECT_EQ(time.tm_year, 119);
+  EXPECT_EQ(LIBC_NAMESPACE::strptime("era-9223372036854775807", "%EY", &time),
+            nullptr);
+  EXPECT_EQ(time.tm_year, 119);
+  LIBC_NAMESPACE::uselocale(old);
+}
+
+TEST(LlvmLibcTimeDataTest, BackwardEraParsing) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture f;
+  f.counts[TimeLocaleData::ERAS] = 1;
+  f.values[TimeLocaleData::ERAS] = "+:1:-1/12/31:-*:BC:%Ey %EC";
+  f.build();
+  auto view = LocaleDataView::parse({f.bytes, f.size});
+  ASSERT_TRUE(view.has_value());
+  auto data = TimeLocaleData::read(*view);
+  ASSERT_TRUE(data.has_value());
+  __locale_data category{"era-test", true};
+  category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
+  auto selected = locale_from_mask(0);
+  selected.data[LC_TIME] = &category;
+  auto old = LIBC_NAMESPACE::uselocale(&selected);
+  tm time{};
+  EXPECT_NE(LIBC_NAMESPACE::strptime("03 BC", "%EY", &time), nullptr);
+  EXPECT_EQ(time.tm_year, -1902);
+  EXPECT_NE(LIBC_NAMESPACE::strptime("01 bc", "%EY", &time), nullptr);
+  EXPECT_EQ(time.tm_year, -1900);
+  LIBC_NAMESPACE::uselocale(old);
+}
+
+TEST(LlvmLibcTimeDataTest, CalendarFormattingUsesSelectedCategory) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture f;
+  f.values[TimeLocaleData::DATE_TIME_FORMAT] = "%x %X";
+  f.values[TimeLocaleData::DATE_FORMAT] = "%Y/%m/%d";
+  f.values[TimeLocaleData::TIME_FORMAT] = "%H:%M";
+  f.values[TimeLocaleData::AM_PM] = "period";
+  f.values[TimeLocaleData::AM_PM_FORMAT] = "%I %p";
+  f.values[TimeLocaleData::ALT_MON] = "alternative";
+  f.values[TimeLocaleData::ABALT_MON] = "alt";
+  f.build();
+  auto view = LocaleDataView::parse({f.bytes, f.size});
+  ASSERT_TRUE(view.has_value());
+  auto time_data = TimeLocaleData::read(*view);
+  ASSERT_TRUE(time_data.has_value());
+  __locale_data category{"time-test", true};
+  category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*time_data);
+  auto selected = locale_from_mask(0);
+  selected.data[LC_TIME] = &category;
+  auto old = LIBC_NAMESPACE::uselocale(&selected);
+  tm time{};
+  time.tm_year = 126;
+  time.tm_mon = 9;
+  time.tm_mday = 25;
+  time.tm_hour = 16;
+  time.tm_min = 5;
+  char out[128];
+  EXPECT_GT(
+      LIBC_NAMESPACE::strftime(out, sizeof(out), "%a %B %c %r %Ob %OB", &time),
+      size_t(0));
+  EXPECT_STREQ(out,
+               "\xc5\x9e \xc5\x9e 2026/10/25 16:05 04 period alt alternative");
+  auto c = locale_from_mask(0);
+  EXPECT_GT(LIBC_NAMESPACE::strftime_l(out, sizeof(out), "%a %B %x", &time, &c),
+            size_t(0));
+  EXPECT_STREQ(out, "Sun October 10/25/26");
+  EXPECT_TRUE(LIBC_NAMESPACE::uselocale(nullptr) == &selected);
+  EXPECT_NE(LIBC_NAMESPACE::asctime_r(&time, out), nullptr);
+  EXPECT_STREQ(out, "Sun Oct 25 16:05:00 2026\n");
+  wchar_t wide[32];
+  EXPECT_EQ(LIBC_NAMESPACE::wcsftime(wide, 32, L"%B %p", &time), size_t(8));
+  const wchar_t expected[] = L"\u015e period";
+  for (size_t i = 0; i != 9; ++i)
+    EXPECT_EQ(wide[i], expected[i]);
+  LIBC_NAMESPACE::uselocale(old);
+}
+
+TEST(LlvmLibcTimeDataTest, EraAndAlternativeNumberFormatting) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture f;
+  f.counts[TimeLocaleData::ERAS] = 1;
+  f.values[TimeLocaleData::ERAS] = "+:1:2019/5/1:+*:era:%EC-%Ey";
+  f.values[TimeLocaleData::ERA_DATE_FORMAT] = "%EY/%m/%d";
+  f.counts[TimeLocaleData::ALTERNATIVE_DIGITS] = 2;
+  f.values[TimeLocaleData::ALTERNATIVE_DIGITS] = "alternative";
+  f.build();
+  auto view = LocaleDataView::parse({f.bytes, f.size});
+  ASSERT_TRUE(view.has_value());
+  auto data = TimeLocaleData::read(*view);
+  ASSERT_TRUE(data.has_value());
+  __locale_data category{"era-test", true};
+  category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
+  auto selected = locale_from_mask(0);
+  selected.data[LC_TIME] = &category;
+  tm time{};
+  time.tm_year = 126;
+  time.tm_mon = 9;
+  time.tm_mday = 25;
+  char out[128];
+  EXPECT_GT(LIBC_NAMESPACE::strftime_l(
+                out, sizeof(out), "%EC|%Ey|%EY|%Ex|%OS|%Od", &time, &selected),
+            size_t(0));
+  EXPECT_STREQ(out, "era|08|era-08|era-08/10/25|alternative|25");
+  time.tm_year = 119;
+  time.tm_mon = 3;
+  time.tm_mday = 30;
+  EXPECT_GT(LIBC_NAMESPACE::strftime_l(out, sizeof(out), "%EC|%Ey|%EY", &time,
+                                       &selected),
+            size_t(0));
+  EXPECT_STREQ(out, "20|19|2019");
+}
+
+TEST(LlvmLibcTimeDataTest, BackwardEraAndOverflow) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture f;
+  f.counts[TimeLocaleData::ERAS] = 1;
+  f.values[TimeLocaleData::ERAS] = "+:1:-1/12/31:-*:BC:%Ey %EC";
+  f.build();
+  auto view = LocaleDataView::parse({f.bytes, f.size});
+  ASSERT_TRUE(view.has_value());
+  auto data = TimeLocaleData::read(*view);
+  ASSERT_TRUE(data.has_value());
+  __locale_data category{"era-test", true};
+  category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
+  auto selected = locale_from_mask(0);
+  selected.data[LC_TIME] = &category;
+  tm time{};
+  time.tm_year = -1902;
+  time.tm_mday = 1;
+  char out[32];
+  EXPECT_GT(
+      LIBC_NAMESPACE::strftime_l(out, sizeof(out), "%EY", &time, &selected),
+      size_t(0));
+  EXPECT_STREQ(out, "03 BC");
+  f.values[TimeLocaleData::ERAS] = "+:9223372036854775807:2000/1/1:+*:era:%Ey";
+  f.build();
+  view = LocaleDataView::parse({f.bytes, f.size});
+  ASSERT_TRUE(view.has_value());
+  data = TimeLocaleData::read(*view);
+  ASSERT_TRUE(data.has_value());
+  category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
+  time.tm_year = 126;
+  EXPECT_EQ(
+      LIBC_NAMESPACE::strftime_l(out, sizeof(out), "%Ey", &time, &selected),
+      size_t(0));
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EOVERFLOW);
+}
+
 TEST(LlvmLibcTimeDataTest, RegionalQueriesRetainBackingStorage) {
   using namespace LIBC_NAMESPACE::internal;
   Fixture f;
