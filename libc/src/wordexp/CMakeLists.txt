@@ -51,6 +51,17 @@ if(LIBC_TARGET_OS STREQUAL "linux")
 endif()
 
 add_object_library(
+  source
+  SRCS source.cpp
+  HDRS source.h
+  DEPENDS libc.src.__support.wchar.restartable_converter
+    libc.src.__support.CPP.string_view libc.src.__support.CPP.limits
+    libc.src.__support.alloc_checker libc.hdr.errno_macros
+    libc.hdr.func.malloc libc.hdr.func.free
+    libc.src.string.memory_utils.inline_memcpy
+)
+
+add_object_library(
   expand
   SRCS expand.cpp
   HDRS expand.h

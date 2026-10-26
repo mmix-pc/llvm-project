@@ -1,5 +1,17 @@
 add_custom_target(libc-wordexp-tests)
 add_libc_test(
+  source_test
+  FULL_BUILD_ONLY
+  SUITE libc-wordexp-tests
+  SRCS source_test.cpp
+  DEPENDS libc.src.wordexp.source libc.src.wordexp.shell_syntax
+    libc.src.__support.freelist_heap libc.hdr.errno_macros
+)
+if(TARGET libc.test.src.wordexp.source_test.__build__)
+  target_link_options(libc.test.src.wordexp.source_test.__build__ PRIVATE
+    -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+endif()
+add_libc_test(
   shell_syntax_test
   FULL_BUILD_ONLY
   SUITE libc-wordexp-tests

@@ -17,6 +17,7 @@
 #include "src/wordexp/dollar_quote.h"
 #include "src/wordexp/ifs.h"
 #include "src/wordexp/pattern.h"
+#include "src/wordexp/source.h"
 #include "test/UnitTest/Test.h"
 
 #ifdef LIBC_TEST_HAS_FILE
@@ -130,6 +131,42 @@ void encoded(ISO2022CNState &state, const ChineseEncodingData &data,
     EXPECT_EQ(output[i], uint8_t(expected[i]));
 }
 } // namespace
+
+TEST(LlvmLibcISO2022CNTest, WordSourceRetainsWireStates) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  WordSource source;
+  const char wire[] = "'\x1b$)A\x0e!!\x0f'\x1b$)G";
+  ASSERT_EQ(source.assign(wire, converter), 0);
+  ASSERT_EQ(source.scalars().size(), size_t(3));
+  EXPECT_EQ(source.scalars()[1], uint32_t(0x4e2d));
+  EXPECT_TRUE(*source.slice(1, 2) == "\x1b$)A\x0e!!");
+  EXPECT_TRUE(*source.slice(2, 3) == "\x0f'");
+  EXPECT_TRUE(source.suffix() == "\x1b$)G");
+  EXPECT_TRUE(converter.initial(source.units()[1].before));
+  EXPECT_FALSE(converter.initial(source.units()[1].after));
+  // Resume from the saved boundary without injecting a designation or
+  // re-encoding the spelling chosen by the caller.
+  auto state = source.units()[2].before;
+  auto bytes = *source.slice(2, 3);
+  uint32_t scalar;
+  auto decoded = converter.decode(
+      &scalar, {reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size()},
+      state);
+  ASSERT_TRUE(decoded.has_value());
+  EXPECT_EQ(*decoded, bytes.size());
+  EXPECT_EQ(scalar, uint32_t('\''));
+  EXPECT_TRUE(converter.boundary(source.end_state()));
+  EXPECT_FALSE(converter.initial(source.end_state()));
+  ASSERT_EQ(source.assign("\x1b$)A", converter), 0);
+  EXPECT_TRUE(source.scalars().empty());
+  EXPECT_TRUE(source.suffix() == "\x1b$)A");
+  EXPECT_EQ(source.assign("\x1b$)A\x0e!", converter), EILSEQ);
+  EXPECT_TRUE(source.suffix() == "\x1b$)A");
+}
 
 TEST(LlvmLibcISO2022CNTest, FieldDelimitersPreserveSourceBytes) {
   using namespace LIBC_NAMESPACE::internal;

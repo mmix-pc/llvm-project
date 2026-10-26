@@ -119,5 +119,6 @@ add_libc_test(
     libc.src.wordexp.dollar_quote
     libc.src.wordexp.pattern
     libc.src.wordexp.ifs
+    libc.src.wordexp.source
     ${iso2022_cn_public_deps}
 )
