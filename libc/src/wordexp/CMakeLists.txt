@@ -1,4 +1,35 @@
 if(LIBC_TARGET_OS STREQUAL "linux")
+  if(LLVM_LIBC_FULL_BUILD)
+    set(command_compile_options)
+    if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+       LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS)
+      set(command_compile_options -fno-lto -fexceptions -funwind-tables)
+    endif()
+    add_object_library(
+      command
+      SRCS command.cpp
+      HDRS command.h
+      DEPENDS
+        libc.src.stdio.linux.pipe_process
+        libc.hdr.errno_macros
+        libc.hdr.fcntl_macros
+        libc.include.sys_syscall
+        libc.src.__support.CPP.string_view
+        libc.src.__support.error_or
+        libc.src.__support.OSUtil.osutil
+        libc.src.__support.OSUtil.linux.syscall_wrappers.close
+        libc.src.__support.OSUtil.linux.syscall_wrappers.fcntl
+        libc.src.errno.errno
+        libc.src.spawn.posix_spawn
+        libc.src.spawn.posix_spawn_file_actions_init
+        libc.src.spawn.posix_spawn_file_actions_destroy
+        libc.src.spawn.posix_spawn_file_actions_addclose
+        libc.src.spawn.posix_spawn_file_actions_adddup2
+        libc.src.spawn.posix_spawn_file_actions_addopen
+        libc.src.unistd.read
+      COMPILE_OPTIONS ${command_compile_options}
+    )
+  endif()
   add_object_library(
     environment
     SRCS environment.cpp

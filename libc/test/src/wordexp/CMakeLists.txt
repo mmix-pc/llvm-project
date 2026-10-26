@@ -1,4 +1,20 @@
 add_custom_target(libc-wordexp-tests)
+if(TARGET libc.src.wordexp.command)
+  add_libc_test(
+    command_test
+    FULL_BUILD_ONLY
+    SUITE libc-wordexp-tests
+    SRCS command_test.cpp
+    DEPENDS libc.src.wordexp.command libc.hdr.errno_macros
+      libc.hdr.fcntl_macros libc.hdr.sys_wait_macros
+      libc.include.sys_syscall libc.src.__support.OSUtil.osutil
+      libc.src.__support.freelist_heap
+  )
+  if(TARGET libc.test.src.wordexp.command_test.__build__)
+    target_link_options(libc.test.src.wordexp.command_test.__build__ PRIVATE
+      -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+  endif()
+endif()
 if(TARGET libc.src.wordexp.environment)
   add_libc_test(
     environment_test

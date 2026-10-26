@@ -29,6 +29,11 @@ is not yet selected for MMIX exports.
 * `environment` supplies Linux environment and account lookup services. Account
   buffers are invocation-owned and grow on ERANGE. It does not provide command
   execution or diagnostic output.
+* `command` captures raw output from an already admitted command body through
+  `/bin/sh`, using the existing spawn provider and `PipeProcess` ownership
+  policy. It controls stderr, drains the pipe before waiting, and closes and
+  reaps on sink errors or cancellation. It does not parse command boundaries,
+  implement NOCMD, or normalize captured bytes.
 * `results` stages word-vector ownership, offsets and APPEND transactions;
   `wordfree` releases that representation while preserving errno.
 
@@ -36,5 +41,5 @@ Public integration must retain original source bytes and encoding states;
 the scalar-only expansion interface is not yet a byte-preserving source
 adapter for state-dependent filenames. IFS decoding, pathname expansion,
 command syntax/execution, cancellation ownership and public flags/errors remain
-integration requirements. No current component invokes a shell. Component
+integration requirements. Component
 tests do not establish installed public-interface qualification.
