@@ -15,6 +15,7 @@
 #include "src/glob/component.h"
 #include "src/regex/decoded_text.h"
 #include "src/wordexp/dollar_quote.h"
+#include "src/wordexp/encoded_fields.h"
 #include "src/wordexp/expand.h"
 #include "src/wordexp/ifs.h"
 #include "src/wordexp/pattern.h"
@@ -592,6 +593,141 @@ TEST(LlvmLibcISO2022CNTest, RegexOffsetsKeepShiftPrefixesAndSuffixes) {
   const char input[] = "\x1b$)A\x0e!!\x0f";
   ASSERT_EQ(text.assign({input, sizeof(input) - 1}, converter), 0);
   ASSERT_EQ(text.units().size(), size_t(1));
+namespace {
+struct FieldOutput {
+  char bytes[8][128]{};
+  size_t count = 0, size = 0, calls = 0, fail_at = size_t(-1);
+  LIBC_NAMESPACE::internal::FieldSink sink() { return {this, append, finish}; }
+  static int append(void *p, LIBC_NAMESPACE::cpp::string_view input, bool) {
+    auto &self = *static_cast<FieldOutput *>(p);
+    if (self.calls++ == self.fail_at)
+      return ENOMEM;
+    if (self.count == 8 || input.size() >= 128 - self.size)
+      return EOVERFLOW;
+    for (char c : input)
+      self.bytes[self.count][self.size++] = c;
+    self.bytes[self.count][self.size] = 0;
+    return 0;
+  }
+  static int finish(void *p) {
+    auto &self = *static_cast<FieldOutput *>(p);
+    if (self.calls++ == self.fail_at)
+      return ENOMEM;
+    ++self.count;
+    self.size = 0;
+    return 0;
+  }
+};
+} // namespace
+
+TEST(LlvmLibcISO2022CNTest, FieldSplittingMatchesCharactersNotGraphicBytes) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  WordDelimiters ifs;
+  ASSERT_EQ(ifs.assign(true, "!", converter), 0);
+  ExpansionPart parts[] = {{"\x1b$)A\x0e!!\x0f!suffix", true, false}};
+  FieldOutput output;
+  auto split = split_encoded_word_fields(parts, ifs.delimiters(), converter,
+                                         output.sink());
+  ASSERT_TRUE(split.has_value());
+  ASSERT_EQ(*split, size_t(2));
+  EXPECT_STREQ(output.bytes[0], "\x1b$)A\x0e!!\x0f");
+  EXPECT_STREQ(output.bytes[1], "suffix");
+
+  // The same scalar has GB and CNS spellings. Match the character, but retain
+  // the CNS spelling and state of the following non-delimiter character.
+  ASSERT_EQ(ifs.assign(true, "\x1b$)A\x0e!!\x0f", converter), 0);
+  parts[0].bytes = "a\x1b$)G\x0e\"!\"\"\x0f";
+  FieldOutput alternate;
+  split = split_encoded_word_fields(parts, ifs.delimiters(), converter,
+                                    alternate.sink());
+  ASSERT_TRUE(split.has_value());
+  ASSERT_EQ(*split, size_t(2));
+  EXPECT_STREQ(alternate.bytes[0], "a");
+  EXPECT_STREQ(alternate.bytes[1], "\x1b$)G\x0e\"\"\x0f");
+  ASSERT_EQ(ifs.assign(true, ":", converter), 0);
+  parts[0].bytes = "\x1b$)A\x0e!!\x0f:d\x1b$)A\x0e!\"\x0f/leaf";
+  FieldOutput explicit_prefix;
+  split = split_encoded_word_fields(parts, ifs.delimiters(), converter,
+                                    explicit_prefix.sink());
+  ASSERT_TRUE(split.has_value());
+  ASSERT_EQ(*split, size_t(2));
+  EXPECT_STREQ(explicit_prefix.bytes[0], "\x1b$)A\x0e!!\x0f");
+  EXPECT_STREQ(explicit_prefix.bytes[1], "d\x1b$)A\x0e!\"\x0f/leaf");
+}
+
+TEST(LlvmLibcISO2022CNTest, FieldSplittingRetainsOriginsAndEmptyQuotes) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  WordDelimiters ifs;
+  ASSERT_EQ(ifs.assign(true, "\x1b$)A\x0e!!\x0f", converter), 0);
+  ExpansionPart parts[] = {{"\x1b$)A\x0e!", true, false},
+                           {"!\x0f", true, false}};
+  FieldOutput output;
+  auto split = split_encoded_word_fields(parts, ifs.delimiters(), converter,
+                                         output.sink());
+  ASSERT_TRUE(split.has_value());
+  ASSERT_EQ(*split, size_t(1));
+  EXPECT_STREQ(output.bytes[0], "\x1b$)A\x0e!!\x0f");
+  ExpansionPart empty[] = {{"\x1b$)A\x0e!!\x0f", true, false},
+                           {"", false, true}};
+  FieldOutput quoted;
+  split = split_encoded_word_fields(empty, ifs.delimiters(), converter,
+                                    quoted.sink());
+  ASSERT_TRUE(split.has_value());
+  ASSERT_EQ(*split, size_t(2));
+  EXPECT_STREQ(quoted.bytes[0], "");
+  EXPECT_STREQ(quoted.bytes[1], "");
+  ExpansionPart suffix[] = {{"a \x1b$)A", true, false}};
+  FieldOutput trailing;
+  split = split_encoded_word_fields(suffix, DEFAULT_FIELD_DELIMITERS, converter,
+                                    trailing.sink());
+  ASSERT_TRUE(split.has_value());
+  ASSERT_EQ(*split, size_t(1));
+  EXPECT_STREQ(trailing.bytes[0], "a");
+}
+
+TEST(LlvmLibcISO2022CNTest, FieldSplittingStopsAtEverySinkError) {
+  using namespace LIBC_NAMESPACE::internal;
+  Fixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  ExpansionPart parts[] = {{"a \x1b$)A\x0e!!\x0f b", true, false}};
+  FieldOutput baseline;
+  ASSERT_TRUE(split_encoded_word_fields(parts, DEFAULT_FIELD_DELIMITERS,
+                                        converter, baseline.sink())
+                  .has_value());
+  for (size_t failure = 0; failure != baseline.calls; ++failure) {
+    FieldOutput output;
+    output.fail_at = failure;
+    auto result = split_encoded_word_fields(parts, DEFAULT_FIELD_DELIMITERS,
+                                            converter, output.sink());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), ENOMEM);
+    EXPECT_EQ(output.calls, failure + 1);
+  }
+  ExpansionPart raw[] = {{"\xff", false, true}};
+  FieldOutput quoted;
+  ASSERT_TRUE(split_encoded_word_fields(raw, DEFAULT_FIELD_DELIMITERS,
+                                        converter, quoted.sink())
+                  .has_value());
+  EXPECT_STREQ(quoted.bytes[0], "\xff");
+  raw[0].split = true;
+  raw[0].quoted = false;
+  FieldOutput invalid;
+  EXPECT_EQ(split_encoded_word_fields(raw, DEFAULT_FIELD_DELIMITERS, converter,
+                                      invalid.sink())
+                .error(),
+            EILSEQ);
+}
+
   EXPECT_EQ(text.units()[0].scalar, uint32_t(0x4e2d));
   EXPECT_EQ(text.units()[0].begin, regoff_t(0));
   EXPECT_EQ(text.units()[0].end, regoff_t(7));

@@ -13,6 +13,52 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
+int FieldSplitter::finish() {
+  if (count == cpp::numeric_limits<size_t>::max())
+    return EOVERFLOW;
+  if (int error = sink.finish(sink.context))
+    return error;
+  ++count;
+  candidate = false;
+  return 0;
+}
+
+int FieldSplitter::append(cpp::string_view bytes, bool quoted) {
+  if (whitespace && candidate)
+    if (int error = finish())
+      return error;
+  whitespace = false;
+  if (int error = sink.append(sink.context, bytes, quoted))
+    return error;
+  candidate = true;
+  return 0;
+}
+
+int FieldSplitter::delimiter(bool space) {
+  if (space) {
+    whitespace = true;
+  } else {
+    if (int error = finish())
+      return error;
+    whitespace = false;
+  }
+  return 0;
+}
+
+int FieldSplitter::control(cpp::string_view bytes, bool quoted) {
+  // Shift-only suffixes preserve an existing field, but cannot create a new
+  // field after a delimiter or turn leading whitespace into an empty field.
+  return candidate && !whitespace ? sink.append(sink.context, bytes, quoted)
+                                  : 0;
+}
+
+ErrorOr<size_t> FieldSplitter::complete() {
+  if (candidate)
+    if (int error = finish())
+      return Error(error);
+  return count;
+}
+
 ErrorOr<size_t> split_word_fields(cpp::span<const ExpansionPart> parts,
                                   cpp::span<const FieldDelimiter> delimiters,
                                   FieldSink sink) {
@@ -22,32 +68,12 @@ ErrorOr<size_t> split_word_fields(cpp::span<const ExpansionPart> parts,
     if (delimiter.bytes.empty())
       return Error(EINVAL);
 
-  size_t count = 0;
-  bool candidate = false, whitespace = false;
-  auto finish = [&]() -> int {
-    if (count == cpp::numeric_limits<size_t>::max())
-      return EOVERFLOW;
-    if (int error = sink.finish(sink.context))
-      return error;
-    ++count;
-    candidate = false;
-    return 0;
-  };
-  auto append = [&](cpp::string_view bytes, bool quoted) -> int {
-    if (whitespace && candidate)
-      if (int error = finish())
-        return error;
-    whitespace = false;
-    if (int error = sink.append(sink.context, bytes, quoted))
-      return error;
-    candidate = true;
-    return 0;
-  };
+  FieldSplitter fields(sink);
 
   for (const auto &part : parts) {
     if (!part.split || part.quoted) {
       if (!part.bytes.empty() || part.quoted)
-        if (int error = append(part.bytes, part.quoted))
+        if (int error = fields.append(part.bytes, part.quoted))
           return Error(error);
       continue;
     }
@@ -60,27 +86,17 @@ ErrorOr<size_t> split_word_fields(cpp::span<const ExpansionPart> parts,
           break;
         }
       if (!matched) {
-        if (int error = append(part.bytes.substr(at, 1), false))
+        if (int error = fields.append(part.bytes.substr(at, 1), false))
           return Error(error);
         ++at;
       } else {
         at += matched->bytes.size();
-        if (matched->whitespace) {
-          // IFS whitespace and the following non-whitespace delimiter together
-          // terminate one field, including across adjacent expansion results.
-          whitespace = true;
-        } else {
-          if (int error = finish())
-            return Error(error);
-          whitespace = false;
-        }
+        if (int error = fields.delimiter(matched->whitespace))
+          return Error(error);
       }
     }
   }
-  if (candidate)
-    if (int error = finish())
-      return Error(error);
-  return count;
+  return fields.complete();
 }
 
 } // namespace internal

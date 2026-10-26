@@ -15,6 +15,11 @@ have focused tests but are not yet selected for MMIX exports.
   Literal and quoted portions are not split, expansion origins are not merged,
   and quoted empty fields survive. The caller owns output through fallible sink
   callbacks, including partial output on failure.
+* `encoded_fields` matches state-dependent IFS by decoded character, not by
+  payload bytes. It retains expansion boundaries and original wire spellings,
+  restoring only required shift state after removed delimiters. Shift-only
+  tails cannot fabricate fields. Invalid stateful input requiring character
+  interpretation fails explicitly; stateless byte splitting remains unchanged.
 * `syntax` validates decoded source before emitting tokens. Parameter operands
   retain their quote boundaries and are evaluated only when selected. Command
   boundaries require a separate, side-effect-free shell syntax service.

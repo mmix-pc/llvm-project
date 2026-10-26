@@ -50,7 +50,7 @@ ErrorOr<size_t> decode(cpp::string_view value, RestartableConverter converter,
         // decoded character consumed a preceding state-reset sequence.
         bytes = scalar == ' ' ? " " : scalar == '\t' ? "\t" : "\n";
       }
-      output[count] = {bytes, whitespace};
+      output[count] = {bytes, whitespace, scalar};
     }
     ++count;
     at += *length;

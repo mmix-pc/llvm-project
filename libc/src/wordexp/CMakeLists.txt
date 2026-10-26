@@ -18,7 +18,7 @@ if(LIBC_TARGET_OS STREQUAL "linux")
     paths
     SRCS paths.cpp
     HDRS paths.h
-    DEPENDS .fields .fragments .results
+    DEPENDS .encoded_fields .fragments .results
       libc.src.__support.wchar.restartable_converter
       libc.hdr.errno_macros libc.hdr.glob_macros libc.src.__support.libc_errno
       libc.src.glob.glob libc.src.glob.globfree
@@ -187,10 +187,18 @@ add_object_library(
 )
 
 add_object_library(
+  encoded_fields
+  SRCS encoded_fields.cpp
+  HDRS encoded_fields.h
+  DEPENDS .fields libc.src.__support.wchar.restartable_converter
+    libc.hdr.errno_macros
+)
+
+add_object_library(
   fields
   SRCS fields.cpp
   HDRS fields.h
-  DEPENDS libc.hdr.errno_macros libc.src.__support.CPP.limits
+  DEPENDS libc.hdr.errno_macros libc.hdr.stdint_proxy libc.src.__support.CPP.limits
     libc.src.__support.CPP.span libc.src.__support.CPP.string_view
     libc.src.__support.error_or
 )

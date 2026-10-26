@@ -12,6 +12,7 @@
 #include "src/__support/libc_errno.h"
 #include "src/glob/glob.h"
 #include "src/glob/globfree.h"
+#include "src/wordexp/encoded_fields.h"
 #include "src/wordexp/fragments.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -125,8 +126,8 @@ int append_word_paths(cpp::span<const ExpansionPart> parts,
                       cpp::span<const FieldDelimiter> delimiters,
                       RestartableConverter converter, WordResults &results) {
   Paths paths{converter, results, {}};
-  auto split = split_word_fields(parts, delimiters,
-                                 {&paths, Paths::add, Paths::complete});
+  auto split = split_encoded_word_fields(parts, delimiters, converter,
+                                         {&paths, Paths::add, Paths::complete});
   return split ? 0 : split.error();
 }
 

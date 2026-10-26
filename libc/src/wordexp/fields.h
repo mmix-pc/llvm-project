@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC_WORDEXP_FIELDS_H
 #define LLVM_LIBC_SRC_WORDEXP_FIELDS_H
 
+#include "hdr/stdint_proxy.h"
 #include "src/__support/CPP/span.h"
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/error_or.h"
@@ -25,15 +26,32 @@ struct ExpansionPart {
 struct FieldDelimiter {
   cpp::string_view bytes;
   bool whitespace;
+  uint32_t scalar = 0;
 };
 
 inline constexpr FieldDelimiter DEFAULT_FIELD_DELIMITERS[] = {
-    {" ", true}, {"\t", true}, {"\n", true}};
+    {" ", true, ' '}, {"\t", true, '\t'}, {"\n", true, '\n'}};
 
 struct FieldSink {
   void *context;
   int (*append)(void *, cpp::string_view, bool quoted);
   int (*finish)(void *);
+};
+
+// Shared field-boundary state for byte and character scanners. The sink owns
+// the emitted bytes; scanners retain responsibility for encoding transitions.
+class FieldSplitter {
+  FieldSink sink;
+  size_t count = 0;
+  bool candidate = false, whitespace = false;
+  int finish();
+
+public:
+  explicit FieldSplitter(FieldSink sink) : sink(sink) {}
+  int append(cpp::string_view bytes, bool quoted);
+  int delimiter(bool space);
+  int control(cpp::string_view bytes, bool quoted);
+  ErrorOr<size_t> complete();
 };
 
 // Each part retains one expansion's origin; delimiter matching never joins

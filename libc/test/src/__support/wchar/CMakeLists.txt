@@ -119,6 +119,7 @@ add_libc_test(
     libc.src.wordexp.dollar_quote
     libc.src.wordexp.pattern
     libc.src.wordexp.ifs
+    libc.src.wordexp.encoded_fields
     libc.src.wordexp.source
     libc.src.wordexp.expand
     libc.src.wordexp.quote
