@@ -182,6 +182,27 @@ TEST(LlvmLibcCollationAPITest, ComparisonAndTransformAgree) {
   LIBC_NAMESPACE::uselocale(previous);
 }
 
+TEST(LlvmLibcCollationAPITest, OwnedCategoryCanInheritBuiltinOrdering) {
+  Fixture f;
+  ASSERT_TRUE(f.create());
+  auto inherited = create_locale_category(*f.category->storage, false);
+  ASSERT_TRUE(inherited.has_value());
+  release_locale_category(f.category);
+  f.object.data[LC_COLLATE] = f.category = *inherited;
+  libc_errno = EDOM;
+  EXPECT_LT(LIBC_NAMESPACE::strcoll_l("a", "z", &f.object), 0);
+  EXPECT_LT(LIBC_NAMESPACE::wcscoll_l(L"a", L"z", &f.object), 0);
+  char bytes[4];
+  wchar_t wide[4];
+  EXPECT_EQ(LIBC_NAMESPACE::strxfrm_l(bytes, "az", 4, &f.object), size_t(2));
+  EXPECT_STREQ(bytes, "az");
+  EXPECT_EQ(LIBC_NAMESPACE::wcsxfrm_l(wide, L"az", 4, &f.object), size_t(2));
+  EXPECT_EQ(wide[0], wchar_t('a'));
+  EXPECT_EQ(wide[1], wchar_t('z'));
+  EXPECT_EQ(wide[2], wchar_t(0));
+  EXPECT_EQ(int(libc_errno), EDOM);
+}
+
 TEST(LlvmLibcCollationAPITest, InvalidEncodingDoesNotPublishKey) {
   Fixture f;
   ASSERT_TRUE(f.create());

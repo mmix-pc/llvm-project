@@ -38,15 +38,6 @@ const __locale_data *current_collation() {
 }
 
 namespace {
-const LocaleDataFile *backing(const __locale_data *category) {
-#ifdef LIBC_FULL_BUILD
-  return category ? category->storage : nullptr;
-#else
-  (void)category;
-  return nullptr;
-#endif
-}
-
 template <class Char> size_t length(const Char *source) {
   size_t size = 0;
   while (source[size])
@@ -138,7 +129,7 @@ bool is_utf8(const __locale_data *category) {
 
 const CollationData *validated(const __locale_data *category) {
 #ifdef LIBC_FULL_BUILD
-  return category->collation ? &*category->collation : nullptr;
+  return category && category->collation ? &*category->collation : nullptr;
 #else
   (void)category;
   return nullptr;
@@ -148,15 +139,12 @@ const CollationData *validated(const __locale_data *category) {
 template <class Char>
 int compare(const Char *left, const Char *right,
             const __locale_data *category) {
-  auto *file = backing(category);
-  if (!file)
+  // A named category may explicitly inherit C ordering while retaining its
+  // data file for ownership/name queries. Storage alone does not select rules.
+  const auto *data = validated(category);
+  if (!data)
     return builtin_compare(left, right);
   int saved_errno = libc_errno;
-  const auto *data = validated(category);
-  if (!data) {
-    libc_errno = EINVAL;
-    return 0;
-  }
   Elements a, b;
   int error = a.prepare(*data, left, is_utf8(category));
   if (!error)
@@ -203,15 +191,10 @@ size_t builtin_transform(wchar_t *dest, const wchar_t *source,
 template <class Char>
 size_t transform(Char *dest, const Char *source, size_t capacity,
                  const __locale_data *category) {
-  auto *file = backing(category);
-  if (!file)
+  const auto *data = validated(category);
+  if (!data)
     return builtin_transform(dest, source, capacity);
   int saved_errno = libc_errno;
-  const auto *data = validated(category);
-  if (!data) {
-    libc_errno = EINVAL;
-    return size_t(-1);
-  }
   Elements elements;
   int error = elements.prepare(*data, source, is_utf8(category));
   if (error) {
