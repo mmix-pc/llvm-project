@@ -31,6 +31,7 @@ add_subdirectory(wchar)
 add_subdirectory(uchar)
 add_subdirectory(wctype)
 add_subdirectory(locale)
+add_subdirectory(wordexp)
 
 if(${LIBC_TARGET_OS} STREQUAL "linux")
   add_subdirectory(dirent)

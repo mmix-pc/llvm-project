@@ -100,6 +100,7 @@ add_subdirectory(ucontext)
 add_subdirectory(wchar)
 add_subdirectory(uchar)
 add_subdirectory(wctype)
+add_subdirectory(wordexp)
 add_subdirectory(time)
 add_subdirectory(unistd)
 
