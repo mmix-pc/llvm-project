@@ -48,7 +48,7 @@ function(add_bsd_regex_engine)
     COMPILE_OPTIONS ${bsd_regex_options} -Wno-conversion -Wno-unused-parameter
     DEPENDS .bsd_support libc.include.ctype libc.include.limits libc.include.stdint
       libc.include.stdio libc.include.stdlib libc.include.string libc.include.strings
-      libc.include.sys_types libc.include.assert
+      libc.include.assert
   )
 endfunction()
 
@@ -58,6 +58,26 @@ foreach(entry regcomp regexec regfree)
     break()
   endif()
 endforeach()
+
+if(TARGET libc.src.regex.bsd_engine)
+  add_object_library(
+    locale_bracket
+    SRCS locale_bracket.cpp
+    HDRS locale_bracket.h
+    DEPENDS libc.src.locale.character libc.src.locale.collation_key
+      libc.hdr.func.free libc.src.__support.CPP.limits
+      libc.src.__support.alloc_checker
+  )
+  add_object_library(
+    character_regex
+    SRCS character_regex.cpp
+    HDRS character_regex.h
+    DEPENDS .bsd_engine .decoded_text .locale_bracket libc.hdr.types.regmatch_t
+      libc.src.locale.character
+      libc.hdr.errno_macros libc.hdr.func.free
+      libc.src.__support.CPP.limits libc.src.__support.alloc_checker
+  )
+endif()
 
 add_entrypoint_object(
   regcomp

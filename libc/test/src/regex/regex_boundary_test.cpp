@@ -9,6 +9,7 @@
 #include "hdr/regex_macros.h"
 #include "hdr/sys_mman_macros.h"
 #include "hdr/unistd_macros.h"
+#include "src/regex/bsd_regex.h"
 #include "src/regex/regcomp.h"
 #include "src/regex/regexec.h"
 #include "src/regex/regfree.h"
@@ -53,6 +54,24 @@ TEST(LlvmLibcRegexBoundaryTest, BackreferenceAnchorAtFirstByte) {
       EXPECT_EQ(matches[1].rm_so, regoff_t(-1));
       EXPECT_EQ(matches[2].rm_so, regoff_t(0));
       EXPECT_EQ(matches[2].rm_eo, regoff_t(1));
+
+      // The byte facade now copies its input into scalar storage. Exercise the
+      // actual scalar engine at the protection boundary as well.
+      auto *scalars = reinterpret_cast<llvm_regex_char_t *>(input);
+      scalars[0] = scalars[1] = 'a';
+      scalars[2] = 0;
+      llvm_regex_t engine{};
+      ASSERT_EQ(__llvm_libc_bsd_regcomp(&engine, pattern, flag), 0);
+      llvm_regmatch_t positions[3];
+      result = __llvm_libc_bsd_regexec_chars(&engine, scalars, 2, 3, positions,
+                                             REG_NOTBOL);
+      __llvm_libc_bsd_regfree(&engine);
+      ASSERT_EQ(result, 0);
+      EXPECT_EQ(positions[0].rm_so, llvm_regoff_t(0));
+      EXPECT_EQ(positions[0].rm_eo, llvm_regoff_t(2));
+      EXPECT_EQ(positions[1].rm_so, llvm_regoff_t(-1));
+      input[0] = input[1] = 'a';
+      input[2] = '\0';
     }
   }
 }

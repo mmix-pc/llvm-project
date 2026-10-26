@@ -22,9 +22,10 @@ Initial SHA-256 identities:
 | regengine.inc | cfbc4a3fbf0d7e7dc806d3f68e4b3f3042cdce6306ffc22e6f62b232ca1efe6a |
 | regutils.h | de58605e51879c930ea9ae97541752cf03fc7841d3b6a3d24fd407f203754afc |
 
-The import alone does not add character-aware matching or minimal repetition.
-The byte-engine restrictions remain until their implementation and validation
-are complete; source ownership must not be confused with capability support.
+The public wrappers still select the byte facade. The private character
+composition is being validated separately; minimal repetition and public locale
+ownership are not yet implemented. Source ownership and private component
+evidence must not be confused with complete public capability support.
 
 ## Local Changes
 
@@ -32,3 +33,18 @@ The import hashes above identify the original baseline, not the current
 derivative. Backreference anchor checks now require a preceding input byte
 before reading it; a guard-page test covers both beginning-of-line and the
 retained BSD beginning-of-word extension.
+
+The derivative now compiles and executes Unicode scalar sequences. The byte
+facade maps unsigned bytes to scalars, preserving existing byte semantics.
+Sparse interval sets replace the fixed alphabet bitmap; classification and
+case mapping can borrow immutable locale callbacks. A private bracket service
+supplies locale predicates and multi-character collating elements, lowering
+the latter into the existing BSD alternation strip. Captures, repetitions and
+backreferences continue to use that engine. The C++ composition maps scalar
+positions back to original input bytes, including stateful shift boundaries.
+Internal offsets use ptrdiff_t rather than a filesystem type.
+
+Strip insertion and repetition copying stop after allocation failure instead
+of writing beyond the old allocation. Focused failure injection covers this
+path and bracket ownership; the byte facade, guard-page and scalar composition
+tests remain separate observers. LLVM Support's independent copy is unchanged.

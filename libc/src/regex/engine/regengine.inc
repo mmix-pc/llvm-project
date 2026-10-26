@@ -74,11 +74,11 @@ struct match {
 	struct re_guts *g;
 	int eflags;
 	llvm_regmatch_t *pmatch;	/* [nsub+1] (0 element unused) */
-	const char *offp;		/* offsets work from here */
-	const char *beginp;		/* start of string -- virtual NUL precedes */
-	const char *endp;		/* end of string -- virtual NUL here */
-	const char *coldp;		/* can be no match starting before here */
-	const char **lastpos;		/* [nplus+1] */
+	const llvm_regex_char_t *offp;		/* offsets work from here */
+	const llvm_regex_char_t *beginp;		/* start of string -- virtual NUL precedes */
+	const llvm_regex_char_t *endp;		/* end of string -- virtual NUL here */
+	const llvm_regex_char_t *coldp;		/* can be no match starting before here */
+	const llvm_regex_char_t **lastpos;		/* [nplus+1] */
 	STATEVARS;
 	states st;		/* current states */
 	states fresh;		/* states for a fresh start */
@@ -86,14 +86,14 @@ struct match {
 	states empty;		/* empty set of states */
 };
 
-static int matcher(struct re_guts *, const char *, size_t,
+static int matcher(struct re_guts *, const llvm_regex_char_t *, size_t, size_t,
                    llvm_regmatch_t[], int);
-static const char *dissect(struct match *, const char *, const char *, sopno,
+static const llvm_regex_char_t *dissect(struct match *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno,
                            sopno);
-static const char *backref(struct match *, const char *, const char *, sopno,
+static const llvm_regex_char_t *backref(struct match *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno,
                            sopno, sopno, int);
-static const char *fast(struct match *, const char *, const char *, sopno, sopno);
-static const char *slow(struct match *, const char *, const char *, sopno, sopno);
+static const llvm_regex_char_t *fast(struct match *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno, sopno);
+static const llvm_regex_char_t *slow(struct match *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno, sopno);
 static states step(struct re_guts *, sopno, sopno, states, int, states);
 #define MAX_RECURSION	100
 #define	BOL	(OUT+1)
@@ -103,14 +103,14 @@ static states step(struct re_guts *, sopno, sopno, states, int, states);
 #define	BOW	(BOL+4)
 #define	EOW	(BOL+5)
 #define	CODEMAX	(BOL+5)		/* highest code used */
-#define	NONCHAR(c)	((c) > CHAR_MAX)
-#define	NNONCHAR	(CODEMAX-CHAR_MAX)
+#define	NONCHAR(c)	((c) >= OUT)
+#define	NNONCHAR	(CODEMAX-OUT+1)
 #ifdef REDEBUG
 static void print(struct match *, const char *, states, int, FILE *);
 #endif
 #ifdef REDEBUG
 static void at(
-	struct match *, const char *, const char *, const char *, sopno, sopno);
+	struct match *, const char *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno, sopno);
 #endif
 #ifdef REDEBUG
 static char *pchar(int);
@@ -131,19 +131,19 @@ static int nope = 0;
  - matcher - the actual matching engine
  */
 static int			/* 0 success, REG_NOMATCH failure */
-matcher(struct re_guts *g, const char *string, size_t nmatch,
+matcher(struct re_guts *g, const llvm_regex_char_t *string, size_t length, size_t nmatch,
         llvm_regmatch_t pmatch[],
     int eflags)
 {
-	const char *endp;
+	const llvm_regex_char_t *endp;
 	size_t i;
 	struct match mv;
 	struct match *m = &mv;
-	const char *dp;
+	const llvm_regex_char_t *dp;
 	const sopno gf = g->firststate+1;	/* +1 for OEND */
 	const sopno gl = g->laststate;
-	const char *start;
-	const char *stop;
+	const llvm_regex_char_t *start;
+	const llvm_regex_char_t *stop;
 
 	/* simplify the situation where possible */
 	if (g->cflags&REG_NOSUB)
@@ -153,7 +153,7 @@ matcher(struct re_guts *g, const char *string, size_t nmatch,
 		stop = string + pmatch[0].rm_eo;
 	} else {
 		start = string;
-		stop = start + strlen(start);
+		stop = start + length;
 	}
 	if (stop < start)
 		return(REG_INVARG);
@@ -162,7 +162,7 @@ matcher(struct re_guts *g, const char *string, size_t nmatch,
 	if (g->must != NULL) {
 		for (dp = start; dp < stop; dp++)
 			if (*dp == g->must[0] && stop - dp >= g->mlen &&
-				memcmp(dp, g->must, (size_t)g->mlen) == 0)
+				memcmp(dp, g->must, (size_t)g->mlen * sizeof(*dp)) == 0)
 				break;
 		if (dp == stop)		/* we didn't find g->must */
 			return(REG_NOMATCH);
@@ -223,8 +223,8 @@ matcher(struct re_guts *g, const char *string, size_t nmatch,
 			dp = dissect(m, m->coldp, endp, gf, gl);
 		} else {
 			if (g->nplus > 0 && m->lastpos == NULL)
-				m->lastpos = (const char **)malloc((g->nplus+1) *
-							sizeof(char *));
+				m->lastpos = (const llvm_regex_char_t **)malloc((g->nplus+1) *
+							sizeof(llvm_regex_char_t *));
 			if (g->nplus > 0 && m->lastpos == NULL) {
 				free(m->pmatch);
 				STATETEARDOWN(m);
@@ -294,13 +294,13 @@ matcher(struct re_guts *g, const char *string, size_t nmatch,
 /* Step back from "stop" to a position where the strip startst..stopst might
  * match. This can always conservatively return "stop - 1", but may return an
  * earlier position if matches at later positions are impossible. */
-static const char *
-step_back(struct re_guts *g, const char *start, const char *stop, sopno startst,
+static const llvm_regex_char_t *
+step_back(struct re_guts *g, const llvm_regex_char_t *start, const llvm_regex_char_t *stop, sopno startst,
           sopno stopst)
 {
 	/* Always step back at least one character. */
 	assert(stop > start);
-	const char *res = stop - 1;
+	const llvm_regex_char_t *res = stop - 1;
 
 	/* Check whether the strip startst..stropst starts with a fixed character,
 	 * ignoring any closing parentheses. If not, return a conservative result. */
@@ -315,14 +315,14 @@ step_back(struct re_guts *g, const char *start, const char *stop, sopno startst,
 		return res;
 
 	/* Find the character that starts the following match. */
-	char ch = OPND(g->strip[startst]);
+	llvm_regex_char_t ch = OPND(g->strip[startst]);
 	for (; res != start; --res) {
 		if (*res == ch) {
 			/* Try to check the next fixed character as well. */
 			sopno nextst = startst + 1;
-			const char *next = res + 1;
+			const llvm_regex_char_t *next = res + 1;
 			if (nextst >= stopst || OP(g->strip[nextst]) != OCHAR || next >= stop ||
-					*next == (char)OPND(g->strip[nextst]))
+					*next == (llvm_regex_char_t)OPND(g->strip[nextst]))
 				break;
     }
 	}
@@ -332,22 +332,22 @@ step_back(struct re_guts *g, const char *start, const char *stop, sopno startst,
 /*
  - dissect - figure out what matched what, no back references
  */
-static const char *			/* == stop (success) always */
-dissect(struct match *m, const char *start, const char *stop, sopno startst,
+static const llvm_regex_char_t *			/* == stop (success) always */
+dissect(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t *stop, sopno startst,
         sopno stopst)
 {
 	int i;
 	sopno ss;	/* start sop of current subRE */
 	sopno es;	/* end sop of current subRE */
-	const char *sp;	/* start of string matched by it */
-	const char *stp;	/* string matched by it cannot pass here */
-	const char *rest;	/* start of rest of string */
-	const char *tail;	/* string unmatched by rest of RE */
+	const llvm_regex_char_t *sp;	/* start of string matched by it */
+	const llvm_regex_char_t *stp;	/* string matched by it cannot pass here */
+	const llvm_regex_char_t *rest;	/* start of rest of string */
+	const llvm_regex_char_t *tail;	/* string unmatched by rest of RE */
 	sopno ssub;	/* start sop of subsubRE */
 	sopno esub;	/* end sop of subsubRE */
-	const char *ssp;	/* start of string matched by subsubRE */
-	const char *sep;	/* end of string matched by subsubRE */
-	const char *oldssp;	/* previous ssp */
+	const llvm_regex_char_t *ssp;	/* start of string matched by subsubRE */
+	const llvm_regex_char_t *sep;	/* end of string matched by subsubRE */
+	const llvm_regex_char_t *oldssp;	/* previous ssp */
 
 	AT("diss", start, stop, startst, stopst);
 	sp = start;
@@ -406,7 +406,7 @@ dissect(struct match *m, const char *start, const char *stop, sopno startst,
 			esub = es - 1;
 			/* did innards match? */
 			if (slow(m, sp, rest, ssub, esub) != NULL) {
-				const char *dp = dissect(m, sp, rest, ssub, esub);
+				const llvm_regex_char_t *dp = dissect(m, sp, rest, ssub, esub);
 				(void)dp; /* avoid warning if assertions off */
 				assert(dp == rest);
 			} else		/* no */
@@ -446,7 +446,7 @@ dissect(struct match *m, const char *start, const char *stop, sopno startst,
 			assert(sep == rest);	/* must exhaust substring */
 			assert(slow(m, ssp, sep, ssub, esub) == rest);
 			{
-				const char *dp = dissect(m, ssp, sep, ssub, esub);
+				const llvm_regex_char_t *dp = dissect(m, ssp, sep, ssub, esub);
 				(void)dp; /* avoid warning if assertions off */
 				assert(dp == sep);
 			}
@@ -484,7 +484,7 @@ dissect(struct match *m, const char *start, const char *stop, sopno startst,
 					assert(OP(m->g->strip[esub]) == O_CH);
 			}
 			{
-				const char *dp = dissect(m, sp, rest, ssub, esub);
+				const llvm_regex_char_t *dp = dissect(m, sp, rest, ssub, esub);
 				(void)dp; /* avoid warning if assertions off */
 				assert(dp == rest);
 			}
@@ -520,17 +520,17 @@ dissect(struct match *m, const char *start, const char *stop, sopno startst,
 /*
  - backref - figure out what matched what, figuring in back references
  */
-static const char *			/* == stop (success) or NULL (failure) */
-backref(struct match *m, const char *start, const char *stop, sopno startst,
+static const llvm_regex_char_t *			/* == stop (success) or NULL (failure) */
+backref(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t *stop, sopno startst,
         sopno stopst, sopno lev, int rec)			/* PLUS nesting level */
 {
 	int i;
 	sopno ss;	/* start sop of current subRE */
-	const char *sp;	/* start of string matched by it */
+	const llvm_regex_char_t *sp;	/* start of string matched by it */
 	sopno ssub;	/* start sop of subsubRE */
 	sopno esub;	/* end sop of subsubRE */
-	const char *ssp;	/* start of string matched by subsubRE */
-	const char *dp;
+	const llvm_regex_char_t *ssp;	/* start of string matched by subsubRE */
+	const llvm_regex_char_t *dp;
 	size_t len;
 	int hard;
 	sop s;
@@ -545,7 +545,7 @@ backref(struct match *m, const char *start, const char *stop, sopno startst,
 	for (ss = startst; !hard && ss < stopst; ss++)
 		switch (OP(s = m->g->strip[ss])) {
 		case OCHAR:
-			if (sp == stop || *sp++ != (char)OPND(s))
+			if (sp == stop || *sp++ != (llvm_regex_char_t)OPND(s))
 				return(NULL);
 			break;
 		case OANY:
@@ -635,8 +635,9 @@ backref(struct match *m, const char *start, const char *stop, sopno startst,
 		if (sp > stop - len)
 			return(NULL);	/* not enough left to match */
 		ssp = m->offp + m->pmatch[i].rm_so;
-		if (memcmp(sp, ssp, len) != 0)
-			return(NULL);
+		for (size_t at = 0; at < len; ++at)
+			if (!regex_equal(m->g, sp[at], ssp[at]))
+				return(NULL);
 		while (m->g->strip[ss] != SOP(O_BACK, i))
 			ss++;
 		return(backref(m, sp+len, stop, ss+1, stopst, lev, rec));
@@ -721,19 +722,19 @@ backref(struct match *m, const char *start, const char *stop, sopno startst,
 /*
  - fast - step through the string at top speed
  */
-static const char *			/* where tentative match ended, or NULL */
-fast(struct match *m, const char *start, const char *stop, sopno startst,
+static const llvm_regex_char_t *			/* where tentative match ended, or NULL */
+fast(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t *stop, sopno startst,
      sopno stopst)
 {
 	states st = m->st;
 	states fresh = m->fresh;
 	states tmp = m->tmp;
-	const char *p = start;
+	const llvm_regex_char_t *p = start;
 	int c = (start == m->beginp) ? OUT : *(start-1);
 	int lastc;	/* previous c */
 	int flagch;
 	int i;
-	const char *coldp;	/* last p after which no match was underway */
+	const llvm_regex_char_t *coldp;	/* last p after which no match was underway */
 
 	CLEAR(st);
 	SET1(st, startst);
@@ -806,12 +807,12 @@ fast(struct match *m, const char *start, const char *stop, sopno startst,
 /*
  - slow - step through the string more deliberately
  */
-static const char *			/* where it ended */
-slow(struct match *m, const char *start, const char *stop, sopno startst,
+static const llvm_regex_char_t *			/* where it ended */
+slow(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t *stop, sopno startst,
      sopno stopst)
 {
 	/* Quickly skip over fixed character matches at the start. */
-	const char *p = start;
+	const llvm_regex_char_t *p = start;
 	for (; startst < stopst; ++startst) {
 		int hard = 0;
 		sop s = m->g->strip[startst];
@@ -821,7 +822,7 @@ slow(struct match *m, const char *start, const char *stop, sopno startst,
 			/* Not relevant here. */
 			break;
 		case OCHAR:
-			if (p == stop || *p != (char)OPND(s))
+			if (p == stop || *p != (llvm_regex_char_t)OPND(s))
 				return NULL;
 			++p;
 			break;
@@ -840,7 +841,7 @@ slow(struct match *m, const char *start, const char *stop, sopno startst,
 	int lastc;	/* previous c */
 	int flagch;
 	int i;
-	const char *matchp;	/* last p at which a match ended */
+	const llvm_regex_char_t *matchp;	/* last p at which a match ended */
 
 	AT("slow", start, stop, startst, stopst);
 	CLEAR(st);
@@ -932,8 +933,8 @@ step(struct re_guts *g,
 			break;
 		case OCHAR:
 			/* only characters can match */
-			assert(!NONCHAR(ch) || ch != (char)OPND(s));
-			if (ch == (char)OPND(s))
+			assert(!NONCHAR(ch) || ch != (llvm_regex_char_t)OPND(s));
+			if (ch == (llvm_regex_char_t)OPND(s))
 				FWD(aft, bef, 1);
 			break;
 		case OBOL:
@@ -1051,7 +1052,7 @@ print(struct match *m, const char *caption, states st, int ch, FILE *d)
  - at - print current situation
  */
 static void
-at(struct match *m, const char *title, const char *start, const char *stop,
+at(struct match *m, const char *title, const llvm_regex_char_t *start, const llvm_regex_char_t *stop,
 	sopno startst, sopno stopst)
 {
 	if (!(m->eflags&REG_TRACE))
@@ -1077,7 +1078,7 @@ pchar(int ch)
 {
 	static char pbuf[10];
 
-	if (isprint(ch) || ch == ' ')
+	if (((unsigned)ch < NC && isprint(ch)) || ch == ' ')
 		(void)snprintf(pbuf, sizeof pbuf, "%c", ch);
 	else
 		(void)snprintf(pbuf, sizeof pbuf, "\\%o", ch);

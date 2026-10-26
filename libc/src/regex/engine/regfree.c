@@ -35,8 +35,8 @@
  *	@(#)regfree.c	8.3 (Berkeley) 3/20/94
  */
 
-#include <sys/types.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include "regex_impl.h"
 
@@ -62,10 +62,14 @@ llvm_regfree(llvm_regex_t *preg)
 
 	if (g->strip != NULL)
 		free((char *)g->strip);
-	if (g->sets != NULL)
+	if (g->sets != NULL) {
+		for (int i = 0; i < g->ncsets; ++i) {
+			if (g->sets[i].custom.destroy)
+				g->sets[i].custom.destroy(g->sets[i].custom.context);
+			free(g->sets[i].ranges);
+		}
 		free((char *)g->sets);
-	if (g->setbits != NULL)
-		free((char *)g->setbits);
+	}
 	if (g->must != NULL)
 		free(g->must);
 	free((char *)g);

@@ -42,7 +42,6 @@
  * macros that code uses.  This lets the same code operate on two different
  * representations for state sets.
  */
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -141,6 +140,33 @@ int				/* 0 success, REG_NOMATCH failure */
 llvm_regexec(const llvm_regex_t *preg, const char *string, size_t nmatch,
              llvm_regmatch_t pmatch[], int eflags)
 {
+	size_t length;
+	if (eflags & REG_STARTEND) {
+		if (!pmatch || pmatch[0].rm_so < 0 || pmatch[0].rm_eo < pmatch[0].rm_so)
+			return REG_INVARG;
+		length = pmatch[0].rm_eo;
+	} else {
+		length = strlen(string);
+	}
+	if (length >= SIZE_MAX / sizeof(llvm_regex_char_t))
+		return REG_ESPACE;
+	llvm_regex_char_t *chars = malloc((length + 1) * sizeof(*chars));
+	if (!chars)
+		return REG_ESPACE;
+	for (size_t i = 0; i < length; ++i)
+		chars[i] = (unsigned char)string[i];
+	chars[length] = 0;
+	int result = __llvm_libc_bsd_regexec_chars(preg, chars, length, nmatch,
+	                                         pmatch, eflags);
+	free(chars);
+	return result;
+}
+
+int
+__llvm_libc_bsd_regexec_chars(const llvm_regex_t *preg,
+                            const llvm_regex_char_t *string, size_t length,
+                            size_t nmatch, llvm_regmatch_t pmatch[], int eflags)
+{
 	struct re_guts *g = preg->re_g;
 #ifdef REDEBUG
 #	define	GOODFLAGS(f)	(f)
@@ -148,15 +174,27 @@ llvm_regexec(const llvm_regex_t *preg, const char *string, size_t nmatch,
 #	define	GOODFLAGS(f)	((f)&(REG_NOTBOL|REG_NOTEOL|REG_STARTEND))
 #endif
 
-	if (preg->re_magic != MAGIC1 || g->magic != MAGIC2)
+	if (preg->re_magic != MAGIC1 || !g || g->magic != MAGIC2)
 		return(REG_BADPAT);
+	if (length > (size_t)PTRDIFF_MAX / sizeof(*string))
+		return REG_ESPACE;
+	if (eflags & REG_STARTEND) {
+		if (!pmatch || pmatch[0].rm_so < 0 ||
+		    pmatch[0].rm_eo < pmatch[0].rm_so ||
+		    (size_t)pmatch[0].rm_eo > length)
+			return REG_INVARG;
+	}
+	for (size_t i = 0; i < length; ++i)
+		if (string[i] < 0 || string[i] >= OUT ||
+		    (string[i] >= 0xd800 && string[i] <= 0xdfff))
+			return REG_INVARG;
 	assert(!(g->iflags&REGEX_BAD));
 	if (g->iflags&REGEX_BAD)		/* backstop for no-debug case */
 		return(REG_BADPAT);
 	eflags = GOODFLAGS(eflags);
 
 	if (g->nstates <= (long)(CHAR_BIT*sizeof(states1)) && !(eflags&REG_LARGE))
-		return(smatcher(g, string, nmatch, pmatch, eflags));
+		return(smatcher(g, string, length, nmatch, pmatch, eflags));
 	else
-		return(lmatcher(g, string, nmatch, pmatch, eflags));
+		return(lmatcher(g, string, length, nmatch, pmatch, eflags));
 }

@@ -27,6 +27,17 @@ if(LLVM_LIBC_FULL_BUILD AND LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
   endif()
 
   add_libc_test(
+    scalar_engine_test
+    SUITE libc_regex_unittests
+    SRCS scalar_engine_test.cpp
+    DEPENDS libc.src.regex.character_regex libc.src.__support.freelist_heap
+  )
+  if(TARGET libc.test.src.regex.scalar_engine_test.__build__)
+    target_link_options(libc.test.src.regex.scalar_engine_test.__build__ PRIVATE
+      -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+  endif()
+
+  add_libc_test(
     regex_boundary_test
     SUITE libc_regex_unittests
     SRCS regex_boundary_test.cpp

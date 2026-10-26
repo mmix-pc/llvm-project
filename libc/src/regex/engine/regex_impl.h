@@ -38,8 +38,34 @@
 #ifndef LLVM_SUPPORT_REGEX_IMPL_H
 #define LLVM_SUPPORT_REGEX_IMPL_H
 
-#include <sys/types.h>
-typedef off_t llvm_regoff_t;
+#include <stddef.h>
+#include <stdint.h>
+typedef int32_t llvm_regex_char_t;
+/* Category views are immutable and borrowed for the compiled object's life.
+ * Class ids follow the standard names in the order of the enum below. */
+enum llvm_regex_class {
+  LLVM_REGEX_ALNUM, LLVM_REGEX_ALPHA, LLVM_REGEX_BLANK, LLVM_REGEX_CNTRL,
+  LLVM_REGEX_DIGIT, LLVM_REGEX_GRAPH, LLVM_REGEX_LOWER, LLVM_REGEX_PRINT,
+  LLVM_REGEX_PUNCT, LLVM_REGEX_SPACE, LLVM_REGEX_UPPER, LLVM_REGEX_XDIGIT
+};
+typedef struct {
+  const void *context;
+  int (*classify)(const void *, unsigned, llvm_regex_char_t);
+  llvm_regex_char_t (*map)(const void *, llvm_regex_char_t, int upper);
+} llvm_regex_ctype;
+typedef struct {
+  void *context;
+  int (*contains)(const void *, llvm_regex_char_t);
+  int (*sequences)(const void *, void *,
+                   int (*)(void *, const llvm_regex_char_t *, size_t));
+  void (*destroy)(void *);
+} llvm_regex_bracket;
+typedef struct {
+  const void *context;
+  int (*compile)(const void *, const llvm_regex_char_t *, size_t, size_t *,
+                 llvm_regex_bracket *);
+} llvm_regex_bracket_compiler;
+typedef ptrdiff_t llvm_regoff_t;
 typedef struct {
   llvm_regoff_t rm_so;		/* start of match */
   llvm_regoff_t rm_eo;		/* end of match */
@@ -98,6 +124,18 @@ int	llvm_regcomp(llvm_regex_t *, const char *, int);
 size_t	llvm_regerror(int, const llvm_regex_t *, char *, size_t);
 int	llvm_regexec(const llvm_regex_t *, const char *, size_t,
                      llvm_regmatch_t [], int);
+/* Private scalar interfaces. Match positions count characters, not bytes.
+ * Inputs contain len valid Unicode scalars followed by a zero sentinel.
+ * The _l compiler borrows category callbacks; the plain compiler retains
+ * byte classification and codepoint ranges. */
+int __llvm_libc_bsd_regcomp_chars(llvm_regex_t *, const llvm_regex_char_t *,
+                                size_t, int);
+int __llvm_libc_bsd_regcomp_chars_l(llvm_regex_t *, const llvm_regex_char_t *,
+                                  size_t, int, const llvm_regex_ctype *,
+                                  const llvm_regex_bracket_compiler *);
+int __llvm_libc_bsd_regexec_chars(const llvm_regex_t *,
+                                const llvm_regex_char_t *, size_t, size_t,
+                                llvm_regmatch_t [], int);
 void	llvm_regfree(llvm_regex_t *);
 size_t  llvm_strlcpy(char *dst, const char *src, size_t siz);
 

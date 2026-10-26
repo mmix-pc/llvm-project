@@ -39,6 +39,7 @@
 #define LLVM_SUPPORT_REGEX2_H
 
 #include "regutils.h"
+#include <limits.h>
 #include <stddef.h>
 
 /*
@@ -76,7 +77,7 @@ typedef long sopno;
 /* operators			   meaning	operand			*/
 /*						(back, fwd are offsets)	*/
 #define	OEND	(1LU<<OPSHIFT)	/* endmarker	-			*/
-#define	OCHAR	(2LU<<OPSHIFT)	/* character	unsigned char		*/
+#define	OCHAR	(2LU<<OPSHIFT)	/* character	Unicode scalar		*/
 #define	OBOL	(3LU<<OPSHIFT)	/* left anchor	-			*/
 #define	OEOL	(4LU<<OPSHIFT)	/* right anchor	-			*/
 #define	OANY	(5LU<<OPSHIFT)	/* .		-			*/
@@ -96,35 +97,41 @@ typedef long sopno;
 #define	OBOW	(19LU<<OPSHIFT)	/* begin word	-			*/
 #define	OEOW	(20LU<<OPSHIFT)	/* end word	-			*/
 
-/*
- * Structure for [] character-set representation.  Character sets are
- * done as bit vectors, grouped 8 to a byte vector for compactness.
- * The individual set therefore has both a pointer to the byte vector
- * and a mask to pick out the relevant bit of each byte.  A hash code
- * simplifies testing whether two sets could be identical.
- *
- * This will get trickier for multicharacter collating elements.  As
- * preliminary hooks for dealing with such things, we also carry along
- * a string of multi-character elements, and decide the size of the
- * vectors at run time.
- */
+/* Scalar ranges avoid storage proportional to the Unicode code space.
+ * These are character-order ranges; locale collation is a separate predicate. */
 typedef struct {
-	uch *ptr;		/* -> uch [csetsize] */
-	uch mask;		/* bit within array */
-	uch hash;		/* hash code */
-	size_t smultis;
-	char *multis;		/* -> char[smulti]  ab\0cd\0ef\0\0 */
+  llvm_regex_char_t first, last;
+} regex_range;
+typedef struct {
+  regex_range *ranges;
+  size_t count, capacity;
+  int inverted, exclude_newline;
+  unsigned classes;
+  int fold;
+  llvm_regex_ctype ctype;
+  llvm_regex_bracket custom;
 } cset;
-/* note that CHadd and CHsub are unsafe, and CHIN doesn't yield 0/1 */
-#define	CHadd(cs, c)	((cs)->ptr[(uch)(c)] |= (cs)->mask, (cs)->hash += (c))
-#define	CHsub(cs, c)	((cs)->ptr[(uch)(c)] &= ~(cs)->mask, (cs)->hash -= (c))
-#define	CHIN(cs, c)	((cs)->ptr[(uch)(c)] & (cs)->mask)
-#define	MCadd(p, cs, cp)	mcadd(p, cs, cp)	/* llvm_regcomp() internal fns */
-#define	MCsub(p, cs, cp)	mcsub(p, cs, cp)
-#define	MCin(p, cs, cp)	mcin(p, cs, cp)
-
-/* stuff for character categories */
-typedef unsigned char cat_t;
+static inline int regex_in_ranges(const cset *cs, llvm_regex_char_t c) {
+  for (size_t i = 0; i < cs->count; ++i)
+    if (c >= cs->ranges[i].first && c <= cs->ranges[i].last)
+      return 1;
+  return 0;
+}
+static inline int regex_set_contains(const cset *cs, llvm_regex_char_t c) {
+  if (c < 0 || c >= 0x110000 || (cs->exclude_newline && c == '\n'))
+    return 0;
+  if (cs->custom.contains)
+    return cs->custom.contains(cs->custom.context, c);
+  int found = regex_in_ranges(cs, c);
+  if (!found && cs->fold)
+    found = regex_in_ranges(cs, cs->ctype.map(cs->ctype.context, c, 0)) ||
+            regex_in_ranges(cs, cs->ctype.map(cs->ctype.context, c, 1));
+  for (unsigned i = 0; !found && i <= LLVM_REGEX_XDIGIT; ++i)
+    if (cs->classes & (1U << i))
+      found = cs->ctype.classify(cs->ctype.context, i, c);
+  return found != cs->inverted;
+}
+#define	CHIN(cs, c)	regex_set_contains(cs, c)
 
 /*
  * main compiled-expression structure
@@ -133,11 +140,10 @@ struct re_guts {
 	int magic;
 #		define	MAGIC2	((('R'^0200)<<8)|'E')
 	sop *strip;		/* malloced area for strip */
-	int csetsize;		/* number of bits in a cset vector */
 	int ncsets;		/* number of csets in use */
 	cset *sets;		/* -> cset [ncsets] */
-	uch *setbits;		/* -> uch[csetsize][ncsets/CHAR_BIT] */
 	int cflags;		/* copy of llvm_regcomp() cflags argument */
+  llvm_regex_ctype ctype;
 	sopno nstates;		/* = number of sops */
 	sopno firststate;	/* the initial OEND (normally 0) */
 	sopno laststate;	/* the final OEND */
@@ -147,19 +153,38 @@ struct re_guts {
 #		define	REGEX_BAD	04	/* something wrong */
 	int nbol;		/* number of ^ used */
 	int neol;		/* number of $ used */
-	int ncategories;	/* how many character categories */
-	cat_t *categories;	/* ->catspace[-CHAR_MIN] */
-	char *must;		/* match must contain this string */
-	int mlen;		/* length of must */
+	llvm_regex_char_t *must;	/* match must contain this scalar sequence */
+	sopno mlen;		/* length of must, in characters */
 	size_t nsub;		/* copy of re_nsub */
 	int backrefs;		/* does it use back references? */
 	sopno nplus;		/* how deep does it nest +s? */
-	/* catspace must be last */
-	cat_t catspace[1];	/* actually [NC] */
 };
 
 /* misc utilities */
-#define	OUT	(CHAR_MAX+1)	/* a non-character value */
-#define	ISWORD(c)	(isalnum(c&0xff) || (c) == '_')
+#define	OUT	0x110000	/* outside the Unicode scalar range */
+static inline int regex_word(const struct re_guts *g, llvm_regex_char_t c) {
+  if (c < 0 || c >= OUT)
+    return 0;
+  return c == '_' ||
+         (g->ctype.classify
+              ? g->ctype.classify(g->ctype.context, LLVM_REGEX_ALNUM, c)
+              : ((unsigned)c < NC && isalnum(c)));
+}
+#define ISWORD(c) regex_word(m->g, c)
+
+static inline int regex_equal(const struct re_guts *g, llvm_regex_char_t a,
+                              llvm_regex_char_t b) {
+  if (a == b)
+    return 1;
+  if (!(g->cflags & REG_ICASE))
+    return 0;
+  if (g->ctype.map)
+    return g->ctype.map(g->ctype.context, a, 0) ==
+               g->ctype.map(g->ctype.context, b, 0) ||
+           g->ctype.map(g->ctype.context, a, 1) ==
+               g->ctype.map(g->ctype.context, b, 1);
+  return (unsigned)a < NC && (unsigned)b < NC &&
+         (tolower(a) == tolower(b) || toupper(a) == toupper(b));
+}
 
 #endif
