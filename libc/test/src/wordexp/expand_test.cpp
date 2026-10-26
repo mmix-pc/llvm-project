@@ -8,6 +8,7 @@
 
 #include "hdr/errno_macros.h"
 #include "src/wordexp/expand.h"
+#include "src/wordexp/shell_syntax.h"
 #include "test/UnitTest/Test.h"
 
 using namespace LIBC_NAMESPACE::internal;
@@ -34,6 +35,18 @@ struct Fixture {
   size_t sizes[32]{}, count = 0;
   long number = 5;
   char scratch[256]{};
+  string_view command_output;
+  unsigned command_calls = 0;
+
+  static int command(void *p, span<const uint32_t>, bool,
+                     LIBC_NAMESPACE::CharVector &output) {
+    auto &self = *static_cast<Fixture *>(p);
+    ++self.command_calls;
+    for (char c : self.command_output)
+      if (!output.append(c))
+        return ENOMEM;
+    return 0;
+  }
 
   static ErrorOr<WordVariable> lookup(void *p, string_view name) {
     auto &self = *static_cast<Fixture *>(p);
@@ -101,21 +114,25 @@ struct Fixture {
         split_word_fields(parts, DEFAULT_FIELD_DELIMITERS, {p, append, finish});
     return fields ? 0 : fields.error();
   }
-  WordExpansionResult run(const char *text, bool undef = false) {
+  WordExpansionResult run(const char *text, bool undef = false,
+                          bool allow_commands = false) {
     length = 0;
     while (*text)
       source[length++] = static_cast<unsigned char>(*text++);
-    return run_scalars(undef);
+    return run_scalars(undef, allow_commands);
   }
-  WordExpansionResult run_scalars(bool undef = false) {
+  WordExpansionResult run_scalars(bool undef = false,
+                                  bool allow_commands = false) {
     WordExpansionServices services;
     services.context = this;
     services.lookup = lookup;
     services.assign = assign;
     services.home = home;
     services.diagnostic = diagnostic;
+    services.commands = word_command_syntax();
+    services.command = command;
     services.arithmetic = {this, read_number, write_number};
-    return expand_word_fragments({source, length}, true, undef,
+    return expand_word_fragments({source, length}, !allow_commands, undef,
                                  RestartableConverter(true), nullptr, nullptr,
                                  services, {this, word});
   }
@@ -133,6 +150,38 @@ TEST(LlvmLibcWordExpandTest, LazyAlternativesAndAssignments) {
   EXPECT_STREQ(f.words[3], "default");
   EXPECT_EQ(f.writes, 1U);
   EXPECT_FALSE(f.vars[1].set);
+}
+
+TEST(LlvmLibcWordExpandTest, CommandOutputDiscardsNulBeforeTrailingNewlines) {
+  Fixture f;
+  f.command_output = {"\0a\nb\0c\n\0\n", 10};
+  ASSERT_TRUE(bool(f.run("\"$(printf value)\"", false, true)));
+  EXPECT_EQ(f.command_calls, 1U);
+  ASSERT_EQ(f.count, size_t(1));
+  EXPECT_STREQ(f.words[0], "a\nbc");
+  Fixture empty;
+  empty.command_output = {"\0\n\0", 3};
+  ASSERT_TRUE(
+      bool(empty.run("$(printf value) \"$(printf value)\"", false, true)));
+  EXPECT_EQ(empty.command_calls, 2U);
+  ASSERT_EQ(empty.count, size_t(1));
+  EXPECT_STREQ(empty.words[0], "");
+  Fixture raw;
+  raw.command_output = {"\xff\0\xfe\n", 4};
+  ASSERT_TRUE(bool(raw.run("\"$(printf value)\"", false, true)));
+  ASSERT_EQ(raw.count, size_t(1));
+  EXPECT_TRUE(string_view(raw.words[0], raw.sizes[0]) == "\xff\xfe");
+}
+
+TEST(LlvmLibcWordExpandTest, CommandPreflightHasNoServiceSideEffects) {
+  Fixture f;
+  EXPECT_FALSE(bool(f.run("${x:=changed} $(echo |)", false, true)));
+  EXPECT_EQ(f.writes, 0U);
+  EXPECT_EQ(f.command_calls, 0U);
+  EXPECT_FALSE(bool(f.run("$(echo x)")));
+  EXPECT_EQ(f.command_calls, 0U);
+  ASSERT_TRUE(bool(f.run("${present:-$(echo skipped)}", false, true)));
+  EXPECT_EQ(f.command_calls, 0U);
 }
 
 TEST(LlvmLibcWordExpandTest, OriginsQuotingAndEmptyWords) {

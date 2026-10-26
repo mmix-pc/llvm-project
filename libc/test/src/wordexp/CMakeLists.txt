@@ -84,7 +84,7 @@ add_libc_test(
   expand_test
   SUITE libc-wordexp-tests
   SRCS expand_test.cpp
-  DEPENDS libc.src.wordexp.expand libc.hdr.errno_macros
+  DEPENDS libc.src.wordexp.expand libc.src.wordexp.shell_syntax libc.hdr.errno_macros
 )
 add_libc_test(
   pattern_test

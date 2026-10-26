@@ -342,8 +342,13 @@ class Evaluator {
               services.command(services.context, text,
                                token.kind == Kind::BACKQUOTED_COMMAND, bytes))
         return system(error);
-      auto length = bytes.length();
-      const char *data = bytes.c_str();
+      size_t length = 0;
+      char *data = bytes.c_str();
+      // Preserve capture separately from shell normalization: embedded NULs
+      // are discarded without truncating the bytes that follow them.
+      for (size_t i = 0; i < bytes.length(); ++i)
+        if (data[i])
+          data[length++] = data[i];
       while (length && data[length - 1] == '\n')
         --length;
       return value({data, length}, token.quoted);
