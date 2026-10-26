@@ -1,4 +1,10 @@
 add_proxy_header_library(
+  wordexp_t
+  HDRS wordexp_t.h
+  FULL_BUILD_DEPENDS libc.include.llvm-libc-types.wordexp_t
+)
+
+add_proxy_header_library(
   FTS
   HDRS FTS.h
   DEPENDS libc.include.llvm-libc-types.FTS
