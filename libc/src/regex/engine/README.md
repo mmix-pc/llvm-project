@@ -22,10 +22,10 @@ Initial SHA-256 identities:
 | regengine.inc | cfbc4a3fbf0d7e7dc806d3f68e4b3f3042cdce6306ffc22e6f62b232ca1efe6a |
 | regutils.h | de58605e51879c930ea9ae97541752cf03fc7841d3b6a3d24fd407f203754afc |
 
-The public wrappers still select the byte facade. The private character
-composition is being validated separately; minimal repetition and public locale
-ownership are not yet implemented. Source ownership and private component
-evidence must not be confused with complete public capability support.
+The public wrappers select the character composition and retain the two locale
+categories until engine destruction. Minimal repetition remains unimplemented.
+Source ownership and focused component evidence must not be confused with
+complete public capability support.
 
 ## Local Changes
 
@@ -48,3 +48,13 @@ Strip insertion and repetition copying stop after allocation failure instead
 of writing beyond the old allocation. Focused failure injection covers this
 path and bracket ownership; the byte facade, guard-page and scalar composition
 tests remain separate observers. LLVM Support's independent copy is unchanged.
+
+Finite empty backreferences advance through the strip without an arbitrary
+reference-count cutoff. Empty repetition cycles still stop at the loop's
+progress check. Failed reference validation at the end of the input returns
+REG_NOMATCH, not an NFA candidate falsely reported as a successful match.
+
+Extended reference numbers are checked during decimal accumulation, before
+integer arithmetic or group-array indexing. This preserves the retained
+twenty-group extension limit and valid leading zeros without accepting wrapped
+indices. It does not add this extension to the POSIX contract.

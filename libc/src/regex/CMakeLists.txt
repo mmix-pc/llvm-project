@@ -77,6 +77,12 @@ if(TARGET libc.src.regex.bsd_engine)
       libc.hdr.errno_macros libc.hdr.func.free
       libc.src.__support.CPP.limits libc.src.__support.alloc_checker
   )
+  add_object_library(
+    compiled_regex
+    SRCS compiled_regex.cpp
+    HDRS compiled_regex.h
+    DEPENDS .character_regex libc.src.locale.locale_storage
+  )
 endif()
 
 add_entrypoint_object(
@@ -86,9 +92,7 @@ add_entrypoint_object(
   HDRS
     regcomp.h
   DEPENDS
-    libc.src.__support.wchar.character_converter
-    libc.src.locale.encoding
-    .bsd_engine
+    .compiled_regex
     libc.hdr.types.regex_t
     libc.hdr.regex_macros
     libc.src.__support.common
@@ -103,9 +107,7 @@ add_entrypoint_object(
   HDRS
     regexec.h
   DEPENDS
-    .bsd_engine
-    libc.src.__support.CPP.new
-    libc.src.__support.alloc_checker
+    .compiled_regex
     libc.hdr.types.regex_t
     libc.hdr.types.regmatch_t
     libc.hdr.types.size_t
@@ -135,7 +137,7 @@ add_entrypoint_object(
   HDRS
     regfree.h
   DEPENDS
-    .bsd_engine
+    .compiled_regex
     libc.hdr.types.regex_t
     libc.src.__support.common
     libc.src.__support.CPP.new

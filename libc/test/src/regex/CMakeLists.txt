@@ -16,6 +16,34 @@ if(LLVM_LIBC_FULL_BUILD AND LLVM_LIBC_ENABLE_EXPERIMENTAL_ENTRYPOINTS)
   add_custom_target(libc_regex_unittests)
 
   add_libc_test(
+    public_regex_test
+    SUITE libc_regex_unittests
+    SRCS public_regex_test.cpp
+    DEPENDS libc.src.regex.regcomp libc.src.regex.regexec libc.src.regex.regfree
+      libc.src.regex.regerror libc.src.ctype.isprint libc.src.__support.libc_errno
+      libc.src.locale.locale_storage libc.src.locale.uselocale
+      libc.src.__support.freelist_heap libc.hdr.regex_macros
+  )
+  if(TARGET libc.test.src.regex.public_regex_test.__build__)
+    target_link_options(libc.test.src.regex.public_regex_test.__build__ PRIVATE
+      -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+  endif()
+  add_libc_test(
+    regex_thread_test
+    SUITE libc_regex_unittests
+    SRCS regex_thread_test.cpp
+    DEPENDS libc.src.regex.regcomp libc.src.regex.regexec libc.src.regex.regfree
+      libc.src.locale.newlocale libc.src.locale.uselocale libc.src.locale.freelocale
+      libc.src.pthread.pthread_create libc.src.pthread.pthread_join
+      libc.src.__support.CPP.atomic libc.hdr.regex_macros libc.hdr.locale_macros
+      libc.src.__support.freelist_heap
+  )
+  if(TARGET libc.test.src.regex.regex_thread_test.__build__)
+    target_link_options(libc.test.src.regex.regex_thread_test.__build__ PRIVATE
+      -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
+  endif()
+
+  add_libc_test(
     allocation_test
     SUITE libc_regex_unittests
     SRCS allocation_test.cpp

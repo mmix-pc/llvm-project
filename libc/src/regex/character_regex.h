@@ -19,8 +19,6 @@ namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 class CollationData;
 
-// Private composition, not yet selected by public regcomp/regexec. Minimal
-// matching and public category ownership remain separate integration work.
 // Callers retain category/converter data and use the same locale for both calls.
 class CharacterRegex {
   llvm_regex_t engine{};
@@ -31,6 +29,7 @@ public:
   CharacterRegex(const CharacterRegex &) = delete;
   CharacterRegex &operator=(const CharacterRegex &) = delete;
   ~CharacterRegex();
+  size_t subexpressions() const { return engine.re_nsub; }
 
   // A failed compilation preserves the previous expression.
   int compile(cpp::string_view pattern, int flags,

@@ -7,9 +7,7 @@
 #include "src/__support/CPP/new.h"
 #include "src/__support/alloc-checker.h"
 #include "src/__support/common.h"
-#include "src/__support/wchar/character_converter.h"
-#include "src/locale/encoding.h"
-#include "src/regex/bsd_regex.h"
+#include "src/regex/compiled_regex.h"
 
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, regcomp,
@@ -21,34 +19,15 @@ LLVM_LIBC_FUNCTION(int, regcomp,
   // its public bit must not be forwarded as an unrelated private engine flag.
   if (cflags & ~(REG_EXTENDED | REG_ICASE | REG_NOSUB | REG_NEWLINE))
     return REG_BADPAT;
-  // The byte-oriented engine does not validate the locale's input encoding.
-  if (internal::locale_is_utf8()) {
-    internal::mbstate state;
-    internal::CharacterConverter converter(&state);
-    for (const char *p = pattern; *p; ++p) {
-      if (converter.push(static_cast<char8_t>(*p)))
-        return REG_BADPAT;
-      if (converter.isFull())
-        converter.clear();
-    }
-    if (!converter.isEmpty())
-      return REG_BADPAT;
-  }
   AllocChecker ac;
-  auto *compiled = new (ac) BSDRegex;
+  auto *compiled = new (ac) internal::CompiledRegex;
   if (!ac)
     return REG_ESPACE;
-  compiled->empty = *pattern == '\0';
-  compiled->nosub = cflags & REG_NOSUB;
-  // LLVM Regex rejects empty patterns; POSIX libc consumers need empty matches.
-  if (!compiled->empty) {
-    int error = __llvm_libc_bsd_regcomp(&compiled->engine, pattern, cflags);
-    if (error) {
-      delete compiled;
-      return error <= REG_BADRPT ? error : REG_BADPAT;
-    }
+  if (int error = compiled->compile(pattern, cflags)) {
+    delete compiled;
+    return error <= REG_BADRPT ? error : REG_BADPAT;
   }
-  preg->re_nsub = compiled->engine.re_nsub;
+  preg->re_nsub = compiled->subexpressions();
   preg->__internal = compiled;
   return 0;
 }

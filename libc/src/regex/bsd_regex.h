@@ -15,11 +15,4 @@
 #define llvm_strlcpy __llvm_libc_bsd_strlcpy
 #include "engine/regex_impl.h"
 
-namespace LIBC_NAMESPACE_DECL {
-struct BSDRegex {
-  llvm_regex_t engine{};
-  bool empty = false;
-  bool nosub = false;
-};
-} // namespace LIBC_NAMESPACE_DECL
 #endif
