@@ -474,6 +474,47 @@ TEST(LlvmLibcRegexScalarTest, EmptyAndUnmatchedBackreferencePaths) {
   EXPECT_EQ(re.execute("b", 0, nullptr, 0, utf8), 0);
 }
 
+TEST(LlvmLibcRegexScalarTest, BoundedEmptyBackreferences) {
+  const char *patterns[] = {"^\\(\\)\\1\\{255\\}$", "^\\(a*\\)\\1\\{255\\}$"};
+  for (const char *pattern : patterns) {
+    Expression re;
+    ASSERT_EQ(__llvm_libc_bsd_regcomp(&re.value, pattern, 0), 0);
+    const Char empty[] = {0};
+    llvm_regmatch_t matches[2];
+    ASSERT_EQ(re.match(empty, 2, matches), 0);
+    EXPECT_EQ(matches[0].rm_so, llvm_regoff_t(0));
+    EXPECT_EQ(matches[0].rm_eo, llvm_regoff_t(0));
+    EXPECT_EQ(matches[1].rm_so, llvm_regoff_t(0));
+    EXPECT_EQ(matches[1].rm_eo, llvm_regoff_t(0));
+  }
+}
+
+TEST(LlvmLibcRegexScalarTest, UnmatchedNullableReferenceAtInputEnd) {
+  Expression re;
+  ASSERT_EQ(__llvm_libc_bsd_regcomp(
+                &re.value, "^\\(\\(a*\\)b\\)\\{0,1\\}\\2$", 0), 0);
+  const Char empty[] = {0};
+  llvm_regmatch_t matches[3] = {{77, 88}, {77, 88}, {77, 88}};
+  EXPECT_EQ(re.match(empty, 3, matches), REG_NOMATCH);
+  EXPECT_EQ(matches[0].rm_so, llvm_regoff_t(77));
+  EXPECT_EQ(matches[0].rm_eo, llvm_regoff_t(88));
+  EXPECT_EQ(re.match(empty, 0, nullptr), REG_NOMATCH);
+}
+
+TEST(LlvmLibcRegexScalarTest, EmptyReferenceLoopsStillMakeProgress) {
+  const char *patterns[] = {"^\\(\\)\\1*$", "^\\(\\(\\)\\2*\\)*$",
+                            "^\\(a*\\)\\1*$"};
+  for (const char *pattern : patterns) {
+    Expression re;
+    ASSERT_EQ(__llvm_libc_bsd_regcomp(&re.value, pattern, 0), 0);
+    const Char empty[] = {0}, nonempty[] = {'x', 0};
+    llvm_regmatch_t matches[3];
+    EXPECT_EQ(re.match(empty, 3, matches), 0);
+    EXPECT_EQ(matches[0].rm_eo, llvm_regoff_t(0));
+    EXPECT_EQ(re.match(nonempty, 0, nullptr), REG_NOMATCH);
+  }
+}
+
 TEST(LlvmLibcRegexScalarTest, AnchorsAndSubexpressionPriority) {
   __locale_data ctype("C.UTF-8", true);
   RestartableConverter utf8(true);

@@ -91,11 +91,10 @@ static int matcher(struct re_guts *, const llvm_regex_char_t *, size_t, size_t,
 static const llvm_regex_char_t *dissect(struct match *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno,
                            sopno);
 static const llvm_regex_char_t *backref(struct match *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno,
-                           sopno, sopno, int);
+                           sopno, sopno);
 static const llvm_regex_char_t *fast(struct match *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno, sopno);
 static const llvm_regex_char_t *slow(struct match *, const llvm_regex_char_t *, const llvm_regex_char_t *, sopno, sopno);
 static states step(struct re_guts *, sopno, sopno, states, int, states);
-#define MAX_RECURSION	100
 #define	BOL	(OUT+1)
 #define	EOL	(BOL+1)
 #define	BOLEOL	(BOL+2)
@@ -231,7 +230,7 @@ matcher(struct re_guts *g, const llvm_regex_char_t *string, size_t length, size_
 				return(REG_ESPACE);
 			}
 			NOTE("backref dissect");
-			dp = backref(m, m->coldp, endp, gf, gl, (sopno)0, 0);
+			dp = backref(m, m->coldp, endp, gf, gl, (sopno)0);
 		}
 		if (dp != NULL)
 			break;
@@ -254,7 +253,7 @@ matcher(struct re_guts *g, const llvm_regex_char_t *string, size_t length, size_
 			}
 #endif
 			NOTE("backoff dissect");
-			dp = backref(m, m->coldp, endp, gf, gl, (sopno)0, 0);
+			dp = backref(m, m->coldp, endp, gf, gl, (sopno)0);
 		}
 		assert(dp == NULL || dp == endp);
 		if (dp != NULL)		/* found a shorter one */
@@ -262,8 +261,12 @@ matcher(struct re_guts *g, const llvm_regex_char_t *string, size_t length, size_
 
 		/* despite initial appearances, there is no match here */
 		NOTE("false alarm");
-		if (m->coldp == stop)
-			break;
+		if (m->coldp == stop) {
+			free(m->pmatch);
+			free((void *)m->lastpos);
+			STATETEARDOWN(m);
+			return(REG_NOMATCH);
+		}
 		start = m->coldp + 1;	/* recycle starting later */
 	}
 
@@ -522,7 +525,7 @@ dissect(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t
  */
 static const llvm_regex_char_t *			/* == stop (success) or NULL (failure) */
 backref(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t *stop, sopno startst,
-        sopno stopst, sopno lev, int rec)			/* PLUS nesting level */
+        sopno stopst, sopno lev)			/* PLUS nesting level */
 {
 	int i;
 	sopno ss;	/* start sop of current subRE */
@@ -629,8 +632,8 @@ backref(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t
 			return(NULL);
 		assert(m->pmatch[i].rm_so != -1);
 		len = m->pmatch[i].rm_eo - m->pmatch[i].rm_so;
-		if (len == 0 && rec++ > MAX_RECURSION)
-			return(NULL);
+		/* Finite empty references advance through the strip. Repetition
+		 * cycles are bounded by the O_PLUS lastpos progress check below. */
 		assert(stop - m->beginp >= len);
 		if (sp > stop - len)
 			return(NULL);	/* not enough left to match */
@@ -640,28 +643,28 @@ backref(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t
 				return(NULL);
 		while (m->g->strip[ss] != SOP(O_BACK, i))
 			ss++;
-		return(backref(m, sp+len, stop, ss+1, stopst, lev, rec));
+		return(backref(m, sp+len, stop, ss+1, stopst, lev));
 		break;
 	case OQUEST_:		/* to null or not */
-		dp = backref(m, sp, stop, ss+1, stopst, lev, rec);
+		dp = backref(m, sp, stop, ss+1, stopst, lev);
 		if (dp != NULL)
 			return(dp);	/* not */
-		return(backref(m, sp, stop, ss+OPND(s)+1, stopst, lev, rec));
+		return(backref(m, sp, stop, ss+OPND(s)+1, stopst, lev));
 		break;
 	case OPLUS_:
 		assert(m->lastpos != NULL);
 		assert(lev+1 <= m->g->nplus);
 		m->lastpos[lev+1] = sp;
-		return(backref(m, sp, stop, ss+1, stopst, lev+1, rec));
+		return(backref(m, sp, stop, ss+1, stopst, lev+1));
 		break;
 	case O_PLUS:
 		if (sp == m->lastpos[lev])	/* last pass matched null */
-			return(backref(m, sp, stop, ss+1, stopst, lev-1, rec));
+			return(backref(m, sp, stop, ss+1, stopst, lev-1));
 		/* try another pass */
 		m->lastpos[lev] = sp;
-		dp = backref(m, sp, stop, ss-OPND(s)+1, stopst, lev, rec);
+		dp = backref(m, sp, stop, ss-OPND(s)+1, stopst, lev);
 		if (dp == NULL)
-			return(backref(m, sp, stop, ss+1, stopst, lev-1, rec));
+			return(backref(m, sp, stop, ss+1, stopst, lev-1));
 		else
 			return(dp);
 		break;
@@ -670,7 +673,7 @@ backref(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t
 		esub = ss + OPND(s) - 1;
 		assert(OP(m->g->strip[esub]) == OOR1);
 		for (;;) {	/* find first matching branch */
-			dp = backref(m, sp, stop, ssub, stopst, lev, rec);
+			dp = backref(m, sp, stop, ssub, stopst, lev);
 			if (dp != NULL)
 				return(dp);
 			/* that one missed, try next one */
@@ -691,7 +694,7 @@ backref(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t
 		assert(0 < i && i <= m->g->nsub);
 		offsave = m->pmatch[i].rm_so;
 		m->pmatch[i].rm_so = sp - m->offp;
-		dp = backref(m, sp, stop, ss+1, stopst, lev, rec);
+		dp = backref(m, sp, stop, ss+1, stopst, lev);
 		if (dp != NULL)
 			return(dp);
 		m->pmatch[i].rm_so = offsave;
@@ -702,7 +705,7 @@ backref(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t
 		assert(0 < i && i <= m->g->nsub);
 		offsave = m->pmatch[i].rm_eo;
 		m->pmatch[i].rm_eo = sp - m->offp;
-		dp = backref(m, sp, stop, ss+1, stopst, lev, rec);
+		dp = backref(m, sp, stop, ss+1, stopst, lev);
 		if (dp != NULL)
 			return(dp);
 		m->pmatch[i].rm_eo = offsave;
