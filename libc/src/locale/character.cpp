@@ -78,6 +78,12 @@ int ascii_classify(wchar_t c, wctype_t desc) {
 }
 
 #ifdef LIBC_FULL_BUILD
+unsigned single_byte_limit(const __locale_data &category) {
+  // Neither UTF-8 nor ISO-2022-CN encodes high-valued scalars in one byte.
+  // C/POSIX retains its full-byte, like-valued scalar mapping.
+  return category.utf8 || category.chinese_encoding ? 127 : 255;
+}
+
 int regional_classify(wint_t c, wctype_t desc, const CTypeLocaleData &data) {
   using D = CTypeLocaleData;
   switch (desc) {
@@ -178,9 +184,7 @@ int classify_byte(int c, wctype_t desc, const __locale_data *category) {
     return 0;
 #ifdef LIBC_FULL_BUILD
   if (category->ctype) {
-    // Only ASCII bytes encode complete characters in UTF-8. The other
-    // currently supported category encoding maps bytes to like-valued scalars.
-    if (category->utf8 && c >= 128)
+    if (static_cast<unsigned>(c) > single_byte_limit(*category))
       return 0;
     return regional_classify(c, desc, *category->ctype);
   }
@@ -196,7 +200,7 @@ int map_byte(int c, bool upper, const __locale_data *category) {
     return c;
 #ifdef LIBC_FULL_BUILD
   if (category->ctype) {
-    unsigned limit = category->utf8 ? 127 : 255;
+    unsigned limit = single_byte_limit(*category);
     if (static_cast<unsigned>(c) > limit)
       return c;
     auto mapped = category->ctype->map(

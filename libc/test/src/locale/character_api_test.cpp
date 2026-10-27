@@ -158,7 +158,7 @@ struct Fixture {
     pair(12, 0xc4, 0xe4);
     pair(12, 0x130, 'i');
   }
-  bool create() {
+  bool create(bool stateful = false) {
     const char magic[] = "LLVMLCL";
     for (unsigned i = 0; i != 8; ++i)
       bytes[i] = uint8_t(magic[i]);
@@ -168,7 +168,8 @@ struct Fixture {
     word(bytes + 24, 128);
     word(bytes + 28, 2);
     bytes[128] = 'x';
-    size_t offset = 15 * 16;
+    unsigned entries = stateful ? 21 : 15;
+    size_t offset = entries * 16;
     auto *section = bytes + 130;
     for (unsigned i = 0; i != 14; ++i) {
       auto *entry = section + i * 16;
@@ -184,10 +185,27 @@ struct Fixture {
     word(encoding, 0x200);
     word(encoding + 4, 1);
     word(encoding + 8, uint32_t(offset));
-    word(encoding + 12, sizeof("UTF-8"));
-    const char codeset[] = "UTF-8";
-    for (unsigned i = 0; i != sizeof(codeset); ++i)
+    const char *codeset = stateful ? "ISO-2022-CN" : "UTF-8";
+    size_t codeset_size = stateful ? sizeof("ISO-2022-CN") : sizeof("UTF-8");
+    word(encoding + 12, uint32_t(codeset_size));
+    for (unsigned i = 0; i != codeset_size; ++i)
       section[offset++] = uint8_t(codeset[i]);
+    if (stateful) {
+      // Minimal, validated two-byte mappings for the wide case pair.
+      for (unsigned i = 0; i != 6; ++i) {
+        auto *entry = section + (15 + i) * 16;
+        word(entry, 0x201 + i);
+        word(entry + 4, 2);
+        word(entry + 8, uint32_t(offset));
+        word(entry + 12, 16);
+        bool encode = i % 2;
+        word(section + offset, encode ? 0xc4 : 0x2121);
+        word(section + offset + 4, encode ? 0x2121 : 0xc4);
+        word(section + offset + 8, encode ? 0xe4 : 0x2122);
+        word(section + offset + 12, encode ? 0x2122 : 0xe4);
+        offset += 16;
+      }
+    }
     size_t end = 130 + offset;
     word(bytes + 16, uint32_t(end));
     for (unsigned i = 0; i != 6; ++i) {
@@ -195,7 +213,7 @@ struct Fixture {
       word(entry, i);
       word(entry + 4, i ? uint32_t(end) : 130);
       word(entry + 8, i ? 0 : uint32_t(offset));
-      word(entry + 12, i ? 0 : 15);
+      word(entry + 12, i ? 0 : entries);
     }
     auto file = LocaleDataFile::copy({bytes, end});
     if (!file)
@@ -360,6 +378,45 @@ TEST(LlvmLibcCharacterAPITest, RegionalByteDomainAndDescriptors) {
       EXPECT_EQ(LIBC_NAMESPACE::iswctype_l(wc, desc, &f.object) != 0, expected);
     }
   }
+}
+
+TEST(LlvmLibcCharacterAPITest, StatefulByteDomainAndWideMappings) {
+  Fixture f;
+  ASSERT_TRUE(f.create(true));
+  ASSERT_TRUE(f.category->chinese_encoding.has_value());
+  EXPECT_FALSE(f.category->utf8);
+  auto c_locale = locale_from_mask(0);
+  {
+    Selection selected(&f.object);
+    libc_errno = EDOM;
+    for (int c = EOF; c <= 255; ++c) {
+      for (unsigned i = 0; i != 12; ++i) {
+        bool expected = ascii_expected(i, c);
+        if (c == '@' && (i == 0 || i == 1 || i == 8))
+          expected = i != 8;
+        EXPECT_EQ(classes[i].byte(c) != 0, expected);
+        EXPECT_EQ(classes[i].byte_l(c, &f.object) != 0, expected);
+      }
+      int upper = c >= 'a' && c <= 'z' && c != 'i' ? c - 'a' + 'A' : c;
+      int lower = c >= 'A' && c <= 'Z' && c != 'I' ? c - 'A' + 'a' : c;
+      EXPECT_EQ(LIBC_NAMESPACE::toupper(c), upper);
+      EXPECT_EQ(LIBC_NAMESPACE::toupper_l(c, &f.object), upper);
+      EXPECT_EQ(LIBC_NAMESPACE::tolower(c), lower);
+      EXPECT_EQ(LIBC_NAMESPACE::tolower_l(c, &f.object), lower);
+    }
+    // A valid wide scalar need not have a single-byte encoding.
+    EXPECT_NE(LIBC_NAMESPACE::iswlower(0xe4), 0);
+    EXPECT_NE(LIBC_NAMESPACE::iswupper_l(0xc4, &f.object), 0);
+    EXPECT_EQ(LIBC_NAMESPACE::towupper(0xe4), wint_t(0xc4));
+    EXPECT_EQ(LIBC_NAMESPACE::towlower_l(0xc4, &f.object), wint_t(0xe4));
+    EXPECT_EQ(LIBC_NAMESPACE::isalpha_l('@', &c_locale), 0);
+    EXPECT_EQ(int(libc_errno), EDOM);
+  }
+  Selection selected(&c_locale);
+  EXPECT_EQ(LIBC_NAMESPACE::isalpha('@'), 0);
+  EXPECT_NE(LIBC_NAMESPACE::isalpha_l('@', &f.object), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::toupper_l(0xe4, &f.object), 0xe4);
+  EXPECT_EQ(LIBC_NAMESPACE::uselocale(nullptr), &c_locale);
 }
 
 TEST(LlvmLibcCharacterAPITest, ExplicitSelectionDoesNotChangeThread) {
