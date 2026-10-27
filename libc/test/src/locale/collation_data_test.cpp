@@ -298,6 +298,25 @@ TEST(LlvmLibcCollationDataTest, BackwardSectionsAndPosition) {
   EXPECT_GT(compare_collation(ab, {ba, 1}), 0);
 }
 
+TEST(LlvmLibcCollationDataTest, RejectsUnrepresentableElementStorage) {
+  // The private span stores a count without forming an end pointer. Neither
+  // overload may access elements or output before rejecting this count.
+  LIBC_NAMESPACE::cpp::span<const CollationData::Rule> oversized(
+      nullptr, size_t(-1) / sizeof(CollationData::Rule) + 1);
+  uint8_t narrow[] = {42, 43};
+  wchar_t wide[] = {42, 43};
+  auto narrow_result = transform_collation(oversized, narrow);
+  auto wide_result = transform_collation(oversized, wide);
+  ASSERT_FALSE(narrow_result.has_value());
+  ASSERT_FALSE(wide_result.has_value());
+  EXPECT_EQ(narrow_result.error(), EOVERFLOW);
+  EXPECT_EQ(wide_result.error(), EOVERFLOW);
+  EXPECT_EQ(narrow[0], uint8_t(42));
+  EXPECT_EQ(narrow[1], uint8_t(43));
+  EXPECT_EQ(wide[0], wchar_t(42));
+  EXPECT_EQ(wide[1], wchar_t(43));
+}
+
 TEST(LlvmLibcCollationDataTest, WideKeysUseElementCounts) {
   Fixture f;
   auto data = f.read();
