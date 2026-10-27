@@ -389,7 +389,7 @@ class TestHeaderGenIntegration(unittest.TestCase):
             ("unistd", ["read", "write", "close"]),
             ("fcntl", ["open", "openat"]),
             ("time", ["nanosleep"]),
-            ("signal", ["sigsuspend", "sigtimedwait", "sigwait", "sigwaitinfo"]),
+            ("signal", ["sigsuspend", "sigtimedwait", "sigwait", "sigwaitinfo", "psignal"]),
             ("threads", ["call_once"]),
             ("pthread", ["pthread_join", "pthread_cond_wait",
                          "pthread_cond_timedwait", "pthread_cond_clockwait",

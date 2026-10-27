@@ -1,5 +1,22 @@
 add_custom_target(libc_signal_unittests)
 
+add_libc_test(
+  psignal_test
+  FULL_BUILD_ONLY
+  SUITE libc_signal_unittests
+  SRCS psignal_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.signal_macros
+    libc.hdr.stdio_macros
+    libc.src.__support.File.file
+    libc.src.errno.errno
+    libc.src.signal.psignal
+    libc.src.stdio.stderr
+    libc.src.string.strsignal
+    libc.test.src.locale_guard
+)
+
 if(LIBC_TARGET_OS STREQUAL "linux")
   if(LLVM_LIBC_FULL_BUILD)
     add_libc_test(

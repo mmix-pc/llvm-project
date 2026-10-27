@@ -72,6 +72,7 @@ functions:
       - type: const siginfo_t *
       - type: const char *
   - name: psignal
+    noexcept: false
     standards: [posix]
     return_type: void
     arguments:

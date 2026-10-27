@@ -3,6 +3,22 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
 add_entrypoint_object(
+  psignal
+  SRCS psignal.cpp
+  HDRS psignal.h
+  DEPENDS
+    libc.src.__support.common
+    libc.src.__support.CPP.string_view
+    libc.src.__support.File.file
+    libc.src.__support.File.platform_file
+    libc.src.__support.StringUtil.diagnostic_message
+    libc.src.__support.StringUtil.signal_to_string
+    libc.src.__support.integer_to_string
+    libc.src.errno.errno
+    libc.src.stdio.stderr
+)
+
+add_entrypoint_object(
   raise
   ALIAS
   DEPENDS
