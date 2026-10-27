@@ -70,6 +70,13 @@ set(MMIX_LOCALE_ENTRYPOINTS
   libc.src.string.strerror_l
   libc.src.strings.strcasecmp_l
   libc.src.strings.strncasecmp_l
+  libc.src.stdlib.strtof_l
+  libc.src.stdlib.strtod_l
+  libc.src.stdlib.strtold_l
+  libc.src.stdlib.strtol_l
+  libc.src.stdlib.strtoll_l
+  libc.src.stdlib.strtoul_l
+  libc.src.stdlib.strtoull_l
   libc.src.stdlib.mbtowc
   libc.src.stdlib.mblen
   libc.src.stdlib.mbstowcs
