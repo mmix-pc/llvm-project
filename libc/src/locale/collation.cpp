@@ -20,14 +20,11 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
-const __locale_data *explicit_collation(locale_t locale) {
 #ifdef LIBC_FULL_BUILD
+const __locale_data *explicit_collation(locale_t locale) {
   return locale_snapshot(locale).data[LC_COLLATE];
-#else
-  (void)locale;
-  return nullptr;
-#endif
 }
+#endif
 
 const __locale_data *current_collation() {
 #ifdef LIBC_FULL_BUILD

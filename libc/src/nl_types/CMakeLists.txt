@@ -14,6 +14,12 @@ add_object_library(
   DEPENDS .catalog_data libc.src.__support.CPP.string_view
 )
 
+# Shared message helpers also serve overlay consumers. Public catalog handles
+# belong to the full build and must not replace the host libc's representation.
+if(NOT LLVM_LIBC_FULL_BUILD)
+  return()
+endif()
+
 set(catopen_source catopen.cpp)
 set(catopen_deps)
 if(LIBC_TARGET_OS_IS_LINUX)

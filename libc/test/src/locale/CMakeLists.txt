@@ -1,6 +1,18 @@
 add_custom_target(libc-locale-tests)
 
 add_libc_test(
+  overlay_helpers_test
+  OVERLAY_BUILD_ONLY
+  SUITE libc-locale-tests
+  SRCS overlay_helpers_test.cpp
+  DEPENDS libc.src.locale.collation libc.src.nl_types.catalog_path
+)
+
+if(NOT LLVM_LIBC_FULL_BUILD)
+  return()
+endif()
+
+add_libc_test(
   numeric_conversion_test
   SUITE libc-locale-tests
   SRCS numeric_conversion_test.cpp

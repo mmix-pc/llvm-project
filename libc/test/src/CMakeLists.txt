@@ -127,13 +127,14 @@ if(LIBC_COMPILER_HAS_EXT_VECTOR_TYPE)
   add_subdirectory(mathvec)
 endif()
 
+add_subdirectory(locale)
+
 if(NOT LLVM_LIBC_FULL_BUILD)
   return()
 endif()
 
 add_subdirectory(assert)
 add_subdirectory(compiler)
-add_subdirectory(locale)
 add_subdirectory(iconv)
 add_subdirectory(netdb)
 add_subdirectory(nl_types)
