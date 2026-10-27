@@ -39,3 +39,28 @@ add_libc_test(
   SRCS sort_test.cpp
   DEPENDS libc.src.glob.glob libc.src.errno.errno
 )
+
+add_libc_test(
+  read_error_test
+  FULL_BUILD_ONLY
+  SUITE libc-glob-tests
+  SRCS read_error_test.cpp
+  DEPENDS libc.src.glob.glob libc.src.glob.globfree libc.src.errno.errno
+)
+
+# Native forced unwind needs the host pthread and C++ runtimes.
+if(NOT LLVM_LIBC_FULL_BUILD AND LIBC_TARGET_OS_IS_LINUX AND NOT CMAKE_CROSSCOMPILING)
+  add_libc_test(
+    unwind_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-glob-tests
+    SRCS unwind_test.cpp
+    DEPENDS libc.src.glob.glob libc.src.glob.globfree libc.src.errno.errno
+    COMPILE_OPTIONS -fexceptions -funwind-tables
+    LINK_LIBRARIES pthread
+  )
+  if(TARGET libc.test.src.glob.unwind_test.__build__)
+    target_link_options(libc.test.src.glob.unwind_test.__build__ PRIVATE
+      -Wl,--wrap=realloc,--wrap=free)
+  endif()
+endif()
