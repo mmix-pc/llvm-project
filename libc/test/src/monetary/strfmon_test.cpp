@@ -183,6 +183,30 @@ TEST(LlvmLibcStrfmonTest, LargeFieldsAndPrecision) {
   EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), E2BIG);
 }
 
+TEST(LlvmLibcStrfmonTest, IndependentDomesticAndInternationalFields) {
+  Selection selection;
+  selection.text(M::POSITIVE_SIGN, "+");
+  selection.number(M::P_SIGN_POSN, 1);
+  selection.number(M::N_SIGN_POSN, 0);
+  selection.number(M::INT_P_SIGN_POSN, 2);
+  selection.number(M::INT_N_SIGN_POSN, 4);
+  selection.number(M::INT_P_CS_PRECEDES, 0);
+  selection.number(M::INT_N_CS_PRECEDES, 1);
+  selection.number(M::INT_P_SEP_BY_SPACE, 1);
+  selection.number(M::INT_N_SEP_BY_SPACE, 0);
+  selection.number(M::INT_FRAC_DIGITS, 3);
+  char out[128];
+  EXPECT_GE(LIBC_NAMESPACE::strfmon(out, sizeof(out), "%n|%i", 12.5, 12.5),
+            ssize_t(0));
+  EXPECT_STREQ(out, "+$12.50|12.500 USD+");
+  EXPECT_GE(LIBC_NAMESPACE::strfmon(out, sizeof(out), "%n|%i", -12.5, -12.5),
+            ssize_t(0));
+  EXPECT_STREQ(out, "($12.50)|USD-12.500");
+  EXPECT_GE(LIBC_NAMESPACE::strfmon(out, sizeof(out), "%n|%n", 0.0, -0.0),
+            ssize_t(0));
+  EXPECT_STREQ(out, "+$0.00|($0.00)");
+}
+
 #ifdef MONETARY_ALLOCATION_TEST
 namespace {
 bool tracking = false, fail_allocation = false;
