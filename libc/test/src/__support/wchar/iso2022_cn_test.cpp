@@ -22,7 +22,6 @@
 #include "src/wordexp/quote.h"
 #include "src/wordexp/shell_syntax.h"
 #include "src/wordexp/source.h"
-#include "test/UnitTest/Test.h"
 
 #ifdef LIBC_TEST_HAS_FILE
 #include "src/__support/File/file.h"
@@ -57,6 +56,7 @@
 #include "src/wchar/wctob.h"
 #endif
 
+#include "test/UnitTest/Test.h"
 #include "test/src/__support/wchar/ISO2022CNFixture.h"
 
 using LIBC_NAMESPACE::internal::ChineseEncodingData;
