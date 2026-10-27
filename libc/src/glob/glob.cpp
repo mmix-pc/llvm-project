@@ -269,6 +269,15 @@ int sort_paths(char **paths, size_t count) {
           ++x;
           ++y;
         }
+        if (*x == *y) {
+          // Equal collation keys are ordered by the original pathname bytes.
+          x = static_cast<const Entry *>(a)->path;
+          y = static_cast<const Entry *>(b)->path;
+          while (*x && *x == *y) {
+            ++x;
+            ++y;
+          }
+        }
         unsigned char left = static_cast<unsigned char>(*x);
         unsigned char right = static_cast<unsigned char>(*y);
         return (left > right) - (left < right);

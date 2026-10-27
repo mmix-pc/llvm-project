@@ -31,3 +31,11 @@ if(TARGET libc.test.src.glob.glob_test.__build__)
   target_link_options(libc.test.src.glob.glob_test.__build__ PRIVATE
     -Wl,--wrap=malloc,--wrap=realloc,--wrap=free)
 endif()
+
+add_libc_test(
+  sort_test
+  FULL_BUILD_ONLY
+  SUITE libc-glob-tests
+  SRCS sort_test.cpp
+  DEPENDS libc.src.glob.glob libc.src.errno.errno
+)
