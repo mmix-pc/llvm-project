@@ -370,4 +370,33 @@ TEST(LlvmLibcLocaleOwnershipTest, AllocationFailureAndLastRelease) {
   LIBC_NAMESPACE::freelocale(object);
   EXPECT_EQ(live, 0);
 }
+
+TEST(LlvmLibcLocaleOwnershipTest, PublicObjectAllocationErrors) {
+  const auto global = global_locale_snapshot();
+  for (unsigned duplicate = 0; duplicate != 2; ++duplicate) {
+    calls = 0;
+    fail_call = 1;
+    LIBC_NAMESPACE::libc_errno = 0;
+    tracking = true;
+    auto object = duplicate
+                      ? LIBC_NAMESPACE::duplocale(LC_GLOBAL_LOCALE)
+                      : LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "C", nullptr);
+    tracking = false;
+    EXPECT_EQ(object, nullptr);
+    EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOMEM);
+    EXPECT_EQ(live, 0);
+    for (int i = 0; i != LOCALE_CATEGORY_COUNT; ++i)
+      EXPECT_EQ(global_locale_snapshot().data[i], global.data[i]);
+  }
+  calls = fail_call = 0;
+  tracking = true;
+  auto object = LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "C", nullptr);
+  tracking = false;
+  ASSERT_NE(object, nullptr);
+  EXPECT_EQ(live, 1);
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  LIBC_NAMESPACE::freelocale(object);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
+  EXPECT_EQ(live, 0);
+}
 #endif
