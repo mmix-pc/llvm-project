@@ -42,12 +42,28 @@
 # RUN:   not grep -E 'SHT_TLS|R_MMIX_TLS|Name: [.](tdata|tbss)'
 # RUN: llvm-readobj --file-headers \
 # RUN:   %t.dir/build/lib/mmix-unknown-unknown/libc.a | \
-# RUN:   grep 'Machine: EM_MMIX' | count 188
+# RUN:   grep 'Machine: EM_MMIX' | count 204
 # RUN: llvm-readobj --file-headers \
 # RUN:   %t.dir/build/lib/mmix-unknown-unknown/libm.a | \
 # RUN:   grep 'Machine: EM_MMIX' | count 147
 
 # Archive member order follows dependencies, not the public interface order.
+# LIBC-MEMBERS-DAG: character.cpp.o
+# LIBC-MEMBERS-DAG: collation_data.cpp.o
+# LIBC-MEMBERS-DAG: locale_data.cpp.o
+# LIBC-MEMBERS-DAG: ctype_data.cpp.o
+# LIBC-MEMBERS-DAG: locale_storage.cpp.o
+# LIBC-MEMBERS-DAG: encoding_data.cpp.o
+# LIBC-MEMBERS-DAG: numeric_conversion.cpp.o
+# LIBC-MEMBERS-DAG: scalar_codec.cpp.o
+# LIBC-MEMBERS-DAG: restartable_converter.cpp.o
+# LIBC-MEMBERS-DAG: iso2022_cn.cpp.o
+# LIBC-MEMBERS-DAG: restartable_string.cpp.o
+# LIBC-MEMBERS-DAG: collation.cpp.o
+# LIBC-MEMBERS-DAG: collation_key.cpp.o
+# LIBC-MEMBERS-DAG: time_locale.cpp.o
+# LIBC-MEMBERS-DAG: time_data.cpp.o
+# LIBC-MEMBERS-DAG: diagnostic_message.cpp.o
 # LIBC-MEMBERS-DAG: locale.cpp.o
 # LIBC-MEMBERS-DAG: locale_name.cpp.o
 # LIBC-MEMBERS-DAG: mb_cur_max.cpp.o

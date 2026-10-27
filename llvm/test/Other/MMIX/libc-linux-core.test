@@ -99,6 +99,17 @@ for opt in ("0", "2"):
     run(*base, "-O" + opt, "-emit-obj", "-o", random_state,
         libc / "src/stdlib/rand_util.cpp")
     objects = [random_state]
+    # These are production dependencies of the selected core entrypoints,
+    # not additional public interfaces or substitutes for locale providers.
+    for helper in ("locale/locale", "locale/character", "locale/ctype_data",
+                   "locale/locale_data", "locale/numeric_conversion",
+                   "__support/wchar/scalar_codec",
+                   "__support/wctype/wctype_classification_utils",
+                   "__support/wctype/wctype_conversion_utils"):
+        obj = out / (helper.replace("/", "-") + ".o")
+        run(*base, "-DLIBC_ENABLE_CONSTEXPR=1", "-O" + opt, "-emit-obj", "-o", obj,
+            libc / "src" / (helper + ".cpp"))
+        objects.append(obj)
     for entry in entries:
         obj = out / (entry.replace("/", "-") + ".o")
         run(*base, "-O" + opt, "-emit-obj", "-o", obj, libc / "src" / (entry + ".cpp"))
