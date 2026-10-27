@@ -55,6 +55,7 @@ set(MMIX_STDIO_ENTRYPOINTS
   libc.src.stdio.putchar
   libc.src.stdio.puts
   libc.src.stdio.perror
+  libc.src.signal.psignal
   libc.src.stdio.ungetc
   libc.src.stdio.printf
   libc.src.stdio.fprintf
