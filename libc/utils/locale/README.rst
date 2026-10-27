@@ -354,6 +354,40 @@ files do not affect stateless encoding pairs, and already-open descriptors
 retain their data when the file name becomes unavailable. These generators
 do not perform installation or establish installed-runtime qualification.
 
+Data Bundle Staging
+-------------------
+
+``data_bundle.py`` assembles the three generated regional packages and the
+separate encoding package into a fresh target tree. It verifies container
+names, binary/source hashes and producer identities, and requires both pinned
+Unicode and ICU license texts. Original source files, notices and reviews are
+preserved under ``.provenance`` within the private data root. A manifest records
+every delivered file's target-relative path, size and hash, without a host
+installation prefix. It does not infer semantic qualification from these checks.
+
+.. code-block:: sh
+
+   python3 data_bundle.py \
+     --regional /staging/en_US.UTF-8 --regional /staging/de_DE.UTF-8 \
+     --regional /staging/tr_TR.UTF-8 --encoding /staging/chinese \
+     --unicode-license /reviewed/unicode-license.txt \
+     --unicode-license-sha256 "$UNICODE_LICENSE_SHA256" \
+     --icu-license /reviewed/icu-LICENSE \
+     --icu-license-sha256 "$ICU_LICENSE_SHA256" \
+     --output /staging/locale-component
+
+The default target root is ``/usr/share/llvm-libc/locale``. ``--data-root`` must
+match the runtime's ``LIBC_LOCALE_DATA_ROOT`` when using a different root. The
+output is a component staging tree, not an instruction to overwrite an existing
+sysroot. Packaging fails before publication for missing or changed inputs;
+copy failure removes only its newly created output. Existing outputs are never
+replaced. Installation tooling must merge the verified component and preserve
+its manifest alongside other component identities.
+
+The stateful validation locale is deliberately not selected. C/POSIX and
+C.UTF-8 remain built in. This tool does not install gettext application
+catalogs, generate a target localedef utility or mark any runtime test passed.
+
 Display Widths
 --------------
 

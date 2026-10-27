@@ -1,5 +1,10 @@
 enable_testing()
 add_test(
+  NAME locale_data_bundle_test
+  COMMAND ${CMAKE_COMMAND} -E env TMPDIR=${CMAKE_CURRENT_BINARY_DIR}
+    ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_data_bundle.py
+)
+add_test(
   NAME locale_validation_profile_test
   COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_validation_locale.py
 )
