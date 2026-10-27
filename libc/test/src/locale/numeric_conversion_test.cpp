@@ -25,6 +25,7 @@
 #include "src/wchar/wcstod.h"
 #include "src/wchar/wcstol.h"
 #include "test/UnitTest/Test.h"
+#include "test/src/__support/wchar/ISO2022CNFixture.h"
 
 using namespace LIBC_NAMESPACE::internal;
 
@@ -56,6 +57,60 @@ struct Selection {
   ~Selection() { LIBC_NAMESPACE::uselocale(previous); }
 };
 } // namespace
+
+TEST(LlvmLibcNumericLocaleTest, StatefulLiteralFormatDoesNotConsumeArguments) {
+  LIBC_NAMESPACE::testing::ISO2022CNFixture fixture;
+  // A valid two-byte character contains the ASCII bytes for "%s".
+  fixture.put(fixture.bytes + 226, 0x2572);
+  fixture.put(fixture.bytes + 234, 0x2573);
+  fixture.put(fixture.bytes + 246, 0x2572);
+  fixture.put(fixture.bytes + 254, 0x2573);
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  __locale_data category{"stateful-format", false};
+  category.chinese_encoding = *mapping;
+  auto locale = locale_from_mask(0);
+  locale.data[LC_CTYPE] = &category;
+  auto previous = LIBC_NAMESPACE::uselocale(&locale);
+  const char format[] = "\x1b$)A\x0e%s\x0f";
+  char output[32];
+  EXPECT_EQ(LIBC_NAMESPACE::snprintf(output, sizeof(output), format, "BAD"),
+            int(sizeof(format) - 1));
+  EXPECT_STREQ(output, format);
+  char destination[32] = "unchanged";
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf(format, format, destination), 0);
+  EXPECT_STREQ(destination, "unchanged");
+  const char with_conversion[] = "\x1b$)A\x0e%s\x0f%d";
+  EXPECT_EQ(LIBC_NAMESPACE::snprintf(output, sizeof(output), with_conversion, 7),
+            9);
+  EXPECT_STREQ(output, "\x1b$)A\x0e%s\x0f" "7");
+  int number = -1;
+  EXPECT_EQ(LIBC_NAMESPACE::sscanf(output, with_conversion, &number), 1);
+  EXPECT_EQ(number, 7);
+  LIBC_NAMESPACE::uselocale(previous);
+}
+
+TEST(LlvmLibcNumericLocaleTest, StatefulFormatArgumentPreScan) {
+  LIBC_NAMESPACE::testing::ISO2022CNFixture fixture;
+  fixture.put(fixture.bytes + 226, 0x2466);
+  fixture.put(fixture.bytes + 234, 0x2531);
+  fixture.put(fixture.bytes + 246, 0x2466);
+  fixture.put(fixture.bytes + 254, 0x2531);
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  __locale_data category{"stateful-format", false};
+  category.chinese_encoding = *mapping;
+  auto locale = locale_from_mask(0);
+  locale.data[LC_CTYPE] = &category;
+  auto previous = LIBC_NAMESPACE::uselocale(&locale);
+  // The apparent %1$f occurs inside two encoded characters, not an argument.
+  // Reading argument 2 first requires finding the real type of argument 1.
+  const char format[] = "%2$d\x1b$)A\x0e%1$f\x0f%1$d";
+  char output[32];
+  EXPECT_EQ(LIBC_NAMESPACE::snprintf(output, sizeof(output), format, 3, 7), 12);
+  EXPECT_STREQ(output, "7\x1b$)A\x0e%1$f\x0f" "3");
+  LIBC_NAMESPACE::uselocale(previous);
+}
 
 TEST(LlvmLibcNumericLocaleTest, RadixAndEndPointer) {
   Selection selected(",");

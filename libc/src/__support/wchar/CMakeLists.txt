@@ -160,3 +160,9 @@ add_object_library(
   DEPENDS .restartable_converter libc.src.__support.macros.null_check
     libc.hdr.types.size_t libc.hdr.types.wchar_t libc.hdr.errno_macros
 )
+
+add_header_library(
+  format_string
+  HDRS format_string.h
+  DEPENDS .restartable_converter
+)

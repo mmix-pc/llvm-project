@@ -13,6 +13,7 @@
 #include "src/__support/ctype_utils.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/str_to_integer.h"
+#include "src/__support/wchar/format_string.h"
 #include "src/stdio/scanf_core/core_structs.h"
 #include "src/stdio/scanf_core/scanf_config.h"
 
@@ -31,6 +32,7 @@ template <typename ArgProvider> class Parser {
   const char *__restrict str;
 
   size_t cur_pos = 0;
+  internal::FormatStringReader format_reader;
   ArgProvider args_cur;
 
 #ifndef LIBC_COPT_SCANF_DISABLE_INDEX_MODE
@@ -176,8 +178,7 @@ public:
     } else {
       // raw section
       section.has_conv = false;
-      while (str[cur_pos] != '%' && str[cur_pos] != '\0')
-        ++cur_pos;
+      format_reader.find_percent(str, cur_pos);
     }
     section.raw_string = {str + starting_pos, cur_pos - starting_pos};
     return section;

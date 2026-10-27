@@ -19,6 +19,7 @@
 #include "src/__support/printf_core/core_structs.h"
 #include "src/__support/printf_core/printf_config.h"
 #include "src/__support/str_to_integer.h"
+#include "src/__support/wchar/format_string.h"
 
 #include <stddef.h>
 
@@ -80,6 +81,7 @@ template <typename ArgProvider, typename CharT = char> class Parser {
   const CharT *__restrict str;
 
   size_t cur_pos = 0;
+  internal::FormatStringReader format_reader;
   ArgProvider args_cur;
 
 #ifndef LIBC_COPT_PRINTF_DISABLE_INDEX_MODE
@@ -340,8 +342,7 @@ public:
     } else {
       // raw section
       section.has_conv = false;
-      while (str[cur_pos] != '%' && str[cur_pos] != '\0')
-        ++cur_pos;
+      format_reader.find_percent(str, cur_pos);
     }
     section.raw_string = {str + starting_pos, cur_pos - starting_pos};
     return section;
@@ -574,8 +575,12 @@ private:
     // index mode is assumed, and the indices start at 1, so an index
     // of 0 is invalid.
     size_t local_pos = 0;
+    internal::FormatStringReader local_reader;
 
     while (str[local_pos]) {
+      local_reader.find_percent(str, local_pos);
+      if (!str[local_pos])
+        break;
       if (str[local_pos] == '%') {
         ++local_pos;
 

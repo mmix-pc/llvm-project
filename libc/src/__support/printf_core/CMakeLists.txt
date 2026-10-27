@@ -103,6 +103,7 @@ add_header_library(
     libc.src.__support.CPP.string_view
     libc.src.__support.CPP.type_traits
     libc.src.__support.common
+    libc.src.__support.wchar.format_string
     ${parser_wchar_deps}
 )
 
