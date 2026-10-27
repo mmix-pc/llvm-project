@@ -43,7 +43,7 @@ function(add_bsd_regex_engine)
       ${bsd_regex_dir}/regfree.c
       ${bsd_regex_dir}/regstrlcpy.c
     HDRS bsd_regex.h engine/regex_impl.h engine/regex2.h engine/regutils.h
-      engine/regengine.inc
+      engine/regengine.inc engine/regminimal.inc
     # Preserve the imported C engine's warning profile for this derivative.
     COMPILE_OPTIONS ${bsd_regex_options} -Wno-conversion -Wno-unused-parameter
     DEPENDS .bsd_support libc.include.ctype libc.include.limits libc.include.stdint

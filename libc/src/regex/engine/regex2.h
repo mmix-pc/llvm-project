@@ -96,6 +96,13 @@ typedef long sopno;
 #define	O_CH	(18LU<<OPSHIFT)	/* end choice	back to OOR1		*/
 #define	OBOW	(19LU<<OPSHIFT)	/* begin word	-			*/
 #define	OEOW	(20LU<<OPSHIFT)	/* end word	-			*/
+#define OTAG_ (21LU<<OPSHIFT) /* atom start, preference tag */
+#define O_TAG (22LU<<OPSHIFT) /* atom end, preference tag */
+
+typedef struct {
+  size_t source;
+  int minimal;
+} regex_tag;
 
 /* Scalar ranges avoid storage proportional to the Unicode code space.
  * These are character-order ranges; locale collation is a separate predicate. */
@@ -137,6 +144,9 @@ static inline int regex_set_contains(const cset *cs, llvm_regex_char_t c) {
  * main compiled-expression structure
  */
 struct re_guts {
+	regex_tag *tags;
+	size_t ntags;
+	int minimal;
 	int magic;
 #		define	MAGIC2	((('R'^0200)<<8)|'E')
 	sop *strip;		/* malloced area for strip */

@@ -72,5 +72,6 @@ llvm_regfree(llvm_regex_t *preg)
 	}
 	if (g->must != NULL)
 		free(g->must);
+	free(g->tags);
 	free((char *)g);
 }

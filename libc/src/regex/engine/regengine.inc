@@ -381,6 +381,8 @@ dissect(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t
 		case OEOL:
 		case OBOW:
 		case OEOW:
+		case OTAG_:
+		case O_TAG:
 			break;
 		case OANY:
 		case OANYOF:
@@ -600,6 +602,8 @@ backref(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t
 			break;
 		case O_QUEST:
 		case O_CH:
+		case OTAG_:
+		case O_TAG:
 			break;
 		case OOR1:	/* matches null but needs to skip */
 			ss++;
@@ -822,6 +826,8 @@ slow(struct match *m, const llvm_regex_char_t *start, const llvm_regex_char_t *s
 		switch (OP(s)) {
 		case OLPAREN:
 		case ORPAREN:
+		case OTAG_:
+		case O_TAG:
 			/* Not relevant here. */
 			break;
 		case OCHAR:
@@ -991,6 +997,8 @@ step(struct re_guts *g,
 			break;
 		case OLPAREN:		/* not significant here */
 		case ORPAREN:
+		case OTAG_:
+		case O_TAG:
 			FWD(aft, aft, 1);
 			break;
 		case OCH_:		/* mark the first two branches */

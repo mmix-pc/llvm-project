@@ -95,7 +95,7 @@ int CharacterRegex::compile(cpp::string_view pattern, int flags,
                             RestartableConverter converter,
                             const __locale_data *ctype,
                             const CollationData *collation) {
-  if (flags & ~(REG_EXTENDED | REG_ICASE | REG_NOSUB | REG_NEWLINE))
+  if (flags & ~(REG_EXTENDED | REG_ICASE | REG_NOSUB | REG_NEWLINE | REG_MINIMAL))
     return REG_BADPAT;
   DecodedRegexText text;
   if (int error = text.assign(pattern, converter))
@@ -107,9 +107,11 @@ int CharacterRegex::compile(cpp::string_view pattern, int flags,
   const llvm_regex_ctype services{ctype, classify, map};
   const RegexBracketLocale locale{ctype, collation, flags};
   const llvm_regex_bracket_compiler brackets{&locale, compile_regex_bracket};
+  const int engine_flags = (flags & ~REG_MINIMAL) |
+                          ((flags & REG_MINIMAL) ? LLVM_REGEX_MINIMAL : 0);
   if (!text.units().empty()) {
     if (int error = __llvm_libc_bsd_regcomp_chars_l(
-            &next, characters.data(), text.units().size(), flags,
+            &next, characters.data(), text.units().size(), engine_flags,
             ctype ? &services : nullptr,
             (ctype || collation) ? &brackets : nullptr))
       return error;

@@ -263,6 +263,25 @@ TEST(LlvmLibcRegexScalarTest, StatefulCapturePrefixesAndControlOnlySuffix) {
   EXPECT_EQ(matches[0].rm_eo, regoff_t(4));
 }
 
+TEST(LlvmLibcRegexScalarTest, MinimalStatefulCharacterOffsets) {
+  LIBC_NAMESPACE::testing::ISO2022CNFixture fixture;
+  auto mapping = fixture.read();
+  ASSERT_TRUE(mapping.has_value());
+  RestartableConverter converter(*mapping);
+  CharacterRegex re;
+  ASSERT_EQ(re.compile("(.+?)", REG_EXTENDED, converter), 0);
+  const char *input = "\x1b$)A\x0e!!\x0fY\x1b$)G";
+  regmatch_t matches[2];
+  ASSERT_EQ(re.execute(input, 2, matches, 0, converter), 0);
+  EXPECT_EQ(matches[0].rm_so, regoff_t(0));
+  EXPECT_EQ(matches[0].rm_eo, regoff_t(7));
+  EXPECT_EQ(matches[1].rm_eo, regoff_t(7));
+  ASSERT_EQ(re.compile("(.+?)$", REG_EXTENDED, converter), 0);
+  ASSERT_EQ(re.execute(input, 2, matches, 0, converter), 0);
+  EXPECT_EQ(matches[0].rm_so, regoff_t(0));
+  EXPECT_EQ(matches[0].rm_eo, regoff_t(9));
+}
+
 TEST(LlvmLibcRegexScalarTest, BackreferenceComparesDifferentWireSpellings) {
   LIBC_NAMESPACE::testing::ISO2022CNFixture fixture;
   auto mapping = fixture.read();
@@ -565,4 +584,218 @@ TEST(LlvmLibcRegexScalarTest, AnchorsAndSubexpressionPriority) {
       re.execute("\n\xc3\xa9\n", 1, matches, REG_NOTBOL | REG_NOTEOL, utf8), 0);
   EXPECT_EQ(matches[0].rm_so, regoff_t(1));
   EXPECT_EQ(matches[0].rm_eo, regoff_t(3));
+}
+
+TEST(LlvmLibcRegexScalarTest, MinimalRepetitionAndDefaultInversion) {
+  struct Case {
+    const char *pattern, *input;
+    int flags;
+    regoff_t begin, end;
+  };
+  const Case cases[] = {
+      {"a*?", "aaa", 0, 0, 0},
+      {"a+?", "xaaa", 0, 1, 2},
+      {"a??", "aaa", 0, 0, 0},
+      {"a{1,3}?", "aaa", 0, 0, 1},
+      {"a{2,}?", "aaaa", 0, 0, 2},
+      {"a{2}?", "aaaa", 0, 0, 2},
+      {"a+", "aaa", REG_MINIMAL, 0, 1},
+      {"a+?", "aaa", REG_MINIMAL, 0, 3},
+      {"a*?", "aaa", REG_MINIMAL, 0, 3},
+      {"a??", "aaa", REG_MINIMAL, 0, 1},
+      {"a{1,3}?", "aaa", REG_MINIMAL, 0, 3},
+      {"(aaa?" "?)*", "aaaaa", 0, 0, 4},
+      {"(aaa?" "?)*|(aaa?)*", "aaaaa", 0, 0, 5},
+      {"([ab]{6}|a)*?b", "aaaabbbb", 0, 0, 5},
+      {"(.*?).*", "abcdef", 0, 0, 6},
+      {"a*?(a.*|b)", "aaabcde", 0, 0, 7},
+      {"^a+?$", "aaa", 0, 0, 3},
+      {"a{0}?b", "ab", 0, 1, 2},
+      {"a+?b", "aaaxab", 0, 4, 6},
+  };
+  RestartableConverter utf8(true);
+  for (const auto &test : cases) {
+    CharacterRegex re;
+    ASSERT_EQ(re.compile(test.pattern, REG_EXTENDED | test.flags, utf8), 0);
+    regmatch_t matches[4];
+    ASSERT_EQ(re.execute(test.input, 4, matches, 0, utf8), 0);
+    EXPECT_EQ(matches[0].rm_so, test.begin);
+    EXPECT_EQ(matches[0].rm_eo, test.end);
+  }
+}
+
+TEST(LlvmLibcRegexScalarTest, MinimalCaptureAndCharacterLengths) {
+  CharacterRegex re;
+  RestartableConverter utf8(true);
+  regmatch_t matches[4];
+  ASSERT_EQ(re.compile("(.*?).*", REG_EXTENDED, utf8), 0);
+  ASSERT_EQ(re.execute("abcdef", 4, matches, 0, utf8), 0);
+  EXPECT_EQ(matches[1].rm_so, regoff_t(0));
+  EXPECT_EQ(matches[1].rm_eo, regoff_t(0));
+  ASSERT_EQ(re.compile("(a*?)(a*)", REG_EXTENDED, utf8), 0);
+  ASSERT_EQ(re.execute("aaa", 4, matches, 0, utf8), 0);
+  EXPECT_EQ(matches[1].rm_eo, regoff_t(0));
+  EXPECT_EQ(matches[2].rm_eo, regoff_t(3));
+  ASSERT_EQ(re.compile("(a*?)(a|aa)(a?)", REG_EXTENDED, utf8), 0);
+  ASSERT_EQ(re.execute("aa", 4, matches, 0, utf8), 0);
+  EXPECT_EQ(matches[2].rm_eo, regoff_t(2));
+  EXPECT_EQ(matches[3].rm_so, regoff_t(2));
+  ASSERT_EQ(re.compile("(.+?).*", REG_EXTENDED, utf8), 0);
+  ASSERT_EQ(re.execute("\xe4\xb8\xad" "abc", 4, matches, 0, utf8), 0);
+  EXPECT_EQ(matches[0].rm_eo, regoff_t(6));
+  EXPECT_EQ(matches[1].rm_eo, regoff_t(3));
+  ASSERT_EQ(re.compile("(a+?)\\1", REG_EXTENDED, utf8), 0);
+  ASSERT_EQ(re.execute("aaaa", 4, matches, 0, utf8), 0);
+  EXPECT_EQ(matches[0].rm_eo, regoff_t(2));
+  EXPECT_EQ(matches[1].rm_eo, regoff_t(1));
+  ASSERT_EQ(re.compile("(a|(b))*?c", REG_EXTENDED, utf8), 0);
+  ASSERT_EQ(re.execute("bac", 4, matches, 0, utf8), 0);
+  EXPECT_EQ(matches[1].rm_so, regoff_t(1));
+  EXPECT_EQ(matches[2].rm_so, regoff_t(-1));
+  EXPECT_EQ(matches[2].rm_eo, regoff_t(-1));
+}
+
+TEST(LlvmLibcRegexScalarTest, MinimalNullableLoopsAndFailureRollback) {
+  CharacterRegex re;
+  RestartableConverter utf8(true);
+  const char *pattern = "^((a?" "?)*)*?b$";
+  ASSERT_EQ(re.compile(pattern, REG_EXTENDED, utf8), 0);
+  // Opposite-strategy nested repetitions have unspecified preferences, but
+  // must still terminate, respect anchors and own every traversal allocation.
+  EXPECT_EQ(re.execute("b", 0, nullptr, 0, utf8), 0);
+  EXPECT_EQ(re.execute("aab", 0, nullptr, 0, utf8), 0);
+  EXPECT_EQ(re.execute("aa", 0, nullptr, 0, utf8), REG_NOMATCH);
+  ASSERT_EQ(re.compile("(a+?)(a*)", REG_EXTENDED, utf8), 0);
+  regmatch_t matches[3];
+  attempts = 0;
+  ASSERT_EQ(re.execute("aaa", 3, matches, 0, utf8), 0);
+  size_t count = attempts, before = live;
+  for (size_t at = 0; at < count; ++at) {
+    matches[0] = {77, 88};
+    fail_after = static_cast<int>(at);
+    int error = re.execute("aaa", 3, matches, 0, utf8);
+    fail_after = -1;
+    // The legacy mandatory-string prescreen is an optional optimization.
+    if (error) {
+      EXPECT_EQ(error, REG_ESPACE);
+      EXPECT_EQ(matches[0].rm_so, regoff_t(77));
+      EXPECT_EQ(matches[0].rm_eo, regoff_t(88));
+    }
+    EXPECT_EQ(live, before);
+  }
+}
+
+TEST(LlvmLibcRegexScalarTest, MinimalCompilerFailureAndLongInput) {
+  RestartableConverter utf8(true);
+  const char *pattern = "((a|aa){1,3}?)(b*)";
+  size_t before = live, count;
+  {
+    CharacterRegex re;
+    attempts = 0;
+    ASSERT_EQ(re.compile(pattern, REG_EXTENDED, utf8), 0);
+    count = attempts;
+  }
+  EXPECT_EQ(live, before);
+  for (size_t at = 0; at < count; ++at) {
+    CharacterRegex re;
+    ASSERT_EQ(re.compile("old", 0, utf8), 0);
+    size_t old_live = live;
+    fail_after = static_cast<int>(at);
+    int error = re.compile(pattern, REG_EXTENDED, utf8);
+    fail_after = -1;
+    if (error) {
+      EXPECT_EQ(error, REG_ESPACE);
+      EXPECT_EQ(live, old_live);
+      EXPECT_EQ(re.execute("old", 0, nullptr, 0, utf8), 0);
+    }
+  }
+  EXPECT_EQ(live, before);
+  CharacterRegex re;
+  char input[4097];
+  for (size_t i = 0; i != sizeof(input) - 1; ++i)
+    input[i] = 'a';
+  input[sizeof(input) - 1] = 0;
+  ASSERT_EQ(re.compile("a+?", REG_EXTENDED, utf8), 0);
+  regmatch_t match;
+  attempts = 0;
+  ASSERT_EQ(re.execute(input, 1, &match, 0, utf8), 0);
+  EXPECT_EQ(match.rm_eo, regoff_t(1));
+  // A completed shortest witness prunes longer visits, independently of the
+  // input length. This checks allocations, not host scheduling latency.
+  EXPECT_LT(attempts, size_t(32));
+}
+
+TEST(LlvmLibcRegexScalarTest, MinimalFlagsAnchorsAndMalformedOperators) {
+  CharacterRegex re;
+  RestartableConverter utf8(true);
+  regmatch_t match;
+  // REG_MINIMAL only applies to EREs, and is not the engine's REG_DUMP flag.
+  ASSERT_EQ(re.compile("a*", REG_MINIMAL, utf8), 0);
+  ASSERT_EQ(re.execute("aaa", 1, &match, 0, utf8), 0);
+  EXPECT_EQ(match.rm_eo, regoff_t(3));
+  ASSERT_EQ(re.compile("^a+?$", REG_EXTENDED | REG_NEWLINE, utf8), 0);
+  ASSERT_EQ(re.execute("\naaa\n", 1, &match, REG_NOTBOL | REG_NOTEOL, utf8), 0);
+  EXPECT_EQ(match.rm_so, regoff_t(1));
+  EXPECT_EQ(match.rm_eo, regoff_t(4));
+  EXPECT_EQ(re.execute("aaa", 1, &match, REG_NOTBOL, utf8), REG_NOMATCH);
+  EXPECT_EQ(re.execute("aaa", 1, &match, REG_NOTEOL, utf8), REG_NOMATCH);
+  const char *bad[] = {"a*??", "a+??", "a???", "a{1,3}??", "a*?*"};
+  for (const char *pattern : bad)
+    EXPECT_EQ(re.compile(pattern, REG_EXTENDED, utf8), REG_BADRPT);
+  ASSERT_EQ(re.compile("a+?", REG_EXTENDED | REG_NOSUB, utf8), 0);
+  EXPECT_EQ(re.execute("aaa", 999, nullptr, 0, utf8), 0);
+  EXPECT_EQ(re.execute("bbb", 999, nullptr, 0, utf8), REG_NOMATCH);
+}
+
+TEST(LlvmLibcRegexScalarTest, MinimalAmbiguousLoopKeepsStablePreferences) {
+  CharacterRegex re;
+  RestartableConverter utf8(true);
+  ASSERT_EQ(re.compile("^(a|aa)*?b$", REG_EXTENDED, utf8), 0);
+  char input[130];
+  for (size_t i = 0; i < sizeof(input) - 2; ++i)
+    input[i] = 'a';
+  input[sizeof(input) - 2] = 'b';
+  input[sizeof(input) - 1] = 0;
+  regmatch_t matches[2];
+  attempts = 0;
+  ASSERT_EQ(re.execute(input, 2, matches, 0, utf8), 0);
+  EXPECT_EQ(matches[0].rm_eo, regoff_t(129));
+  EXPECT_EQ(matches[1].rm_so, regoff_t(126));
+  EXPECT_EQ(matches[1].rm_eo, regoff_t(128));
+  EXPECT_LT(attempts, size_t(20000));
+}
+
+TEST(LlvmLibcRegexScalarTest, FixedEmptyMinimumPreservesGreedyResults) {
+  const char *patterns[] = {
+      "a*", "(a|aa)*", "(a|ab)*", "(a|(b))*", "((a)?b)*", "(a*)(b*)",
+      "(a|aa)(a?)", "a*(a.*|b)", "(a*)\\1", "(a)?\\1",
+      "(a*)*", "((a*)b?)*", "(ab|a){0,3}", "(a|b)*(a?)", "[ab]+"};
+  RestartableConverter utf8(true);
+  for (const char *pattern : patterns) {
+    char tagged[128];
+    size_t size = 0;
+    while (pattern[size]) {
+      tagged[size] = pattern[size];
+      ++size;
+    }
+    for (char c : "a{0}?")
+      tagged[size++] = c;
+    CharacterRegex ordinary, minimal;
+    ASSERT_EQ(ordinary.compile(pattern, REG_EXTENDED, utf8), 0);
+    ASSERT_EQ(minimal.compile(tagged, REG_EXTENDED, utf8), 0);
+    for (size_t length = 0; length <= 5; ++length)
+      for (size_t bits = 0; bits < (size_t(1) << length); ++bits) {
+        char input[6] = {};
+        for (size_t i = 0; i < length; ++i)
+          input[i] = (bits & (size_t(1) << i)) ? 'a' : 'b';
+        regmatch_t expected[4], actual[4];
+        int result = ordinary.execute(input, 4, expected, 0, utf8);
+        ASSERT_EQ(minimal.execute(input, 4, actual, 0, utf8), result);
+        if (!result)
+          for (size_t i = 0; i < 4; ++i) {
+            EXPECT_EQ(actual[i].rm_so, expected[i].rm_so);
+            EXPECT_EQ(actual[i].rm_eo, expected[i].rm_eo);
+          }
+      }
+  }
 }

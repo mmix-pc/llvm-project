@@ -87,6 +87,8 @@ typedef struct llvm_regex {
 #define	REG_NOSPEC	0020
 #define	REG_PEND	0040
 #define	REG_DUMP	0200
+/* Deliberately distinct from the public REG_MINIMAL bit. */
+#define LLVM_REGEX_MINIMAL 0x10000
 
 /* llvm_regerror() flags */
 #define	REG_NOMATCH	 1

@@ -15,9 +15,7 @@ LLVM_LIBC_FUNCTION(int, regcomp,
                     int cflags)) {
   preg->re_nsub = 0;
   preg->__internal = nullptr;
-  // FIXME: Implement REG_MINIMAL with an explicit BSD-engine translation;
-  // its public bit must not be forwarded as an unrelated private engine flag.
-  if (cflags & ~(REG_EXTENDED | REG_ICASE | REG_NOSUB | REG_NEWLINE))
+  if (cflags & ~(REG_EXTENDED | REG_ICASE | REG_NOSUB | REG_NEWLINE | REG_MINIMAL))
     return REG_BADPAT;
   AllocChecker ac;
   auto *compiled = new (ac) internal::CompiledRegex;

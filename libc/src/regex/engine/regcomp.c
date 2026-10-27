@@ -180,6 +180,9 @@ static struct cname {
  * other clumsinesses
  */
 struct parse {
+  const llvm_regex_char_t *begin;
+  int tagged;
+  size_t tag_capacity;
   const llvm_regex_char_t *next; /* next character in RE */
   const llvm_regex_char_t *end;  /* end of string (-> NUL normally) */
   int error;        /* has an error been seen? */
@@ -196,6 +199,7 @@ struct parse {
 
 static void p_ere(struct parse *, int);
 static void p_ere_exp(struct parse *);
+static void tag_atom(struct parse *, sopno, size_t, int);
 static void p_str(struct parse *);
 static void p_bre(struct parse *, int, int);
 static int p_simp_re(struct parse *, int);
@@ -369,6 +373,12 @@ int __llvm_libc_bsd_regcomp_chars_l(llvm_regex_t *preg,
   p->g = g;
   p->brackets = brackets;
   p->next = pattern;
+  p->begin = pattern;
+  p->tag_capacity = 0;
+  p->tagged = (cflags & REG_EXTENDED) && (cflags & LLVM_REGEX_MINIMAL);
+  if (cflags & REG_EXTENDED)
+    for (size_t at = 0; at < len; ++at)
+      p->tagged |= pattern[at] == '?';
   p->end = p->next + len;
   p->error = 0;
   p->ncsalloc = 0;
@@ -377,6 +387,9 @@ int __llvm_libc_bsd_regcomp_chars_l(llvm_regex_t *preg,
     p->pend[i] = 0;
   }
   g->sets = NULL;
+  g->tags = NULL;
+  g->ntags = 0;
+  g->minimal = 0;
   g->ncsets = 0;
   g->cflags = cflags;
   g->ctype = ctype ? *ctype : (llvm_regex_ctype){0};
@@ -474,6 +487,7 @@ static void p_ere_exp(struct parse *p) {
   int backrefnum;
   sopno subno;
   int wascaret = 0;
+  size_t source = p->next - p->begin;
 
   assert(MORE()); /* caller should have ensured this */
   c = GETNEXT();
@@ -602,13 +616,19 @@ static void p_ere_exp(struct parse *p) {
     break;
   }
 
-  if (!MORE())
+  if (!MORE()) {
+    tag_atom(p, pos, source * 2 + 1, 0);
     return;
+  }
   c = PEEK();
   /* we call { a repetition if followed by a digit */
   if (!(c == '*' || c == '+' || c == '?' ||
-        (c == '{' && MORE2() && ascii_digit(PEEK2()))))
+        (c == '{' && MORE2() && ascii_digit(PEEK2())))) {
+    tag_atom(p, pos, source * 2 + 1, 0);
     return; /* no repetition, we're done */
+  }
+  // Preserve each atom visit as well as the complete repetition interval.
+  tag_atom(p, pos, source * 2 + 1, 0);
   NEXT();
 
   REQUIRE(!wascaret, REG_BADRPT);
@@ -653,6 +673,10 @@ static void p_ere_exp(struct parse *p) {
     break;
   }
 
+  int minimal = !!(p->g->cflags & LLVM_REGEX_MINIMAL);
+  if (EAT('?'))
+    minimal = !minimal;
+  tag_atom(p, pos, source * 2, minimal);
   if (!MORE())
     return;
   c = PEEK();
@@ -660,6 +684,35 @@ static void p_ere_exp(struct parse *p) {
         (c == '{' && MORE2() && ascii_digit(PEEK2()))))
     return;
   SETERROR(REG_BADRPT);
+}
+
+/* Tags survive strip duplication: each visit records a separate occurrence,
+ * while source order remains independent of the parser's postorder. */
+static void tag_atom(struct parse *p, sopno start, size_t source, int minimal) {
+  if (!p->tagged || p->error)
+    return;
+  size_t id = p->g->ntags;
+  if (id >= OPDMASK || id >= SIZE_MAX / sizeof(regex_tag) - 1) {
+    SETERROR(REG_ESPACE);
+    return;
+  }
+  if (id == p->tag_capacity) {
+    size_t capacity = p->tag_capacity * 2 + 8;
+    if (capacity > SIZE_MAX / sizeof(regex_tag))
+      capacity = id + 1;
+    regex_tag *tags = realloc(p->g->tags, capacity * sizeof(*tags));
+    if (!tags) {
+      SETERROR(REG_ESPACE);
+      return;
+    }
+    p->g->tags = tags;
+    p->tag_capacity = capacity;
+  }
+  p->g->tags[id] = (regex_tag){source, minimal};
+  ++p->g->ntags;
+  p->g->minimal |= minimal;
+  doinsert(p, OTAG_, id, start);
+  EMIT(O_TAG, id);
 }
 
 /*

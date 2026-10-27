@@ -15,4 +15,10 @@
 #define llvm_strlcpy __llvm_libc_bsd_strlcpy
 #include "engine/regex_impl.h"
 
+// Public adapter flag; CharacterRegex translates it to LLVM_REGEX_MINIMAL.
+// Keep it out of the C engine's private flag namespace.
+#ifndef REG_MINIMAL
+#define REG_MINIMAL 0x100
+#endif
+
 #endif

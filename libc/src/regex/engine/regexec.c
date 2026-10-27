@@ -129,6 +129,8 @@
 
 #include "regengine.inc"
 
+#include "regminimal.inc"
+
 /*
  - llvm_regexec - interface for matching
  *
@@ -192,6 +194,8 @@ __llvm_libc_bsd_regexec_chars(const llvm_regex_t *preg,
 	if (g->iflags&REGEX_BAD)		/* backstop for no-debug case */
 		return(REG_BADPAT);
 	eflags = GOODFLAGS(eflags);
+	if (g->minimal)
+		return minimal_match(g, string, length, nmatch, pmatch, eflags);
 
 	if (g->nstates <= (long)(CHAR_BIT*sizeof(states1)) && !(eflags&REG_LARGE))
 		return(smatcher(g, string, length, nmatch, pmatch, eflags));
