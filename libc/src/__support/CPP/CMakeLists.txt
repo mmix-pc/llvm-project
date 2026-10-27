@@ -111,11 +111,19 @@ add_header_library(
 )
 
 add_header_library(
+  construct_at
+  HDRS
+    construct_at.h
+  DEPENDS
+    .utility
+)
+
+add_header_library(
   optional
   HDRS
     optional.h
   DEPENDS
-    .new
+    .construct_at
     .type_traits
     .utility
 )

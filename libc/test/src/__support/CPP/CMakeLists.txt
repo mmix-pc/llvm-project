@@ -143,6 +143,17 @@ add_libc_test(
     libc.src.__support.CPP.optional
 )
 
+foreach(order BEFORE AFTER)
+  add_libc_test(
+    optional_hosted_${order}_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-cpp-utils-tests
+    SRCS optional_hosted_test.cpp
+    DEPENDS libc.src.__support.CPP.optional
+    COMPILE_OPTIONS -DHOST_NEW_${order}
+  )
+endforeach()
+
 add_libc_test(
   tuple_test
   SUITE

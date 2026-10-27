@@ -9,7 +9,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_CPP_OPTIONAL_H
 #define LLVM_LIBC_SRC___SUPPORT_CPP_OPTIONAL_H
 
-#include "src/__support/CPP/new.h"
+#include "src/__support/CPP/construct_at.h"
 #include "src/__support/CPP/type_traits.h"
 #include "src/__support/CPP/utility.h"
 #include "src/__support/macros/attributes.h"
@@ -84,7 +84,7 @@ template <typename T> class optional {
         // permits trivial value assignment in C++17 constant expressions.
         storage = OptionalStorage<T>(in_place, forward<U>(value));
       } else {
-        ::new (static_cast<void *>(&storage.stored_value)) T(forward<U>(value));
+        cpp::construct_at(&storage.stored_value, forward<U>(value));
       }
       storage.in_use = true;
     }
