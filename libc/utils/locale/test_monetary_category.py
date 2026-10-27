@@ -57,6 +57,40 @@ class MonetaryCategoryTest(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 monetary_records(value)
 
+    def test_sign_combinations(self):
+        for prefix in ('', 'int_'):
+            for positive in range(-1, 5):
+                for negative in range(-1, 5):
+                    for signs in (('', ''), ('same', 'same'), ('', '-'), ('+', '-')):
+                        value = fields()
+                        value['positive_sign'] = [signs[0]]
+                        value['negative_sign'] = [signs[1]]
+                        value[prefix + 'p_sign_posn'] = [positive]
+                        value[prefix + 'n_sign_posn'] = [negative]
+                        invalid = (positive == negative == 0 or
+                                   positive > 0 and negative > 0 and signs[0] == signs[1])
+                        with self.subTest(prefix=prefix, positive=positive,
+                                          negative=negative, signs=signs):
+                            if invalid:
+                                with self.assertRaises(ValueError):
+                                    monetary_records(value)
+                            else:
+                                self.assertEqual(len(monetary_records(value)['records']), 21)
+
+    def test_international_signs_checked_independently(self):
+        value = fields()
+        value.update(p_sign_posn=[0], n_sign_posn=[1],
+                     int_p_sign_posn=[1], int_n_sign_posn=[0])
+        monetary_records(value)
+        value['int_n_sign_posn'] = [1]
+        with self.assertRaisesRegex(ValueError, 'indistinguishable'):
+            monetary_records(value)
+        value['negative_sign'] = ['-']
+        monetary_records(value)
+        value['p_sign_posn'] = value['n_sign_posn'] = [0]
+        with self.assertRaisesRegex(ValueError, 'parentheses'):
+            monetary_records(value)
+
 
 if __name__ == '__main__':
     unittest.main()

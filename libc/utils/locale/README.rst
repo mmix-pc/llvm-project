@@ -113,6 +113,10 @@ int_n_cs_precedes, int_n_sep_by_space, int_p_sign_posn and int_n_sign_posn.
 The producer requires all base fields. Under the selected glibc source profile,
 absent international formatting fields inherit the corresponding local fields;
 explicit international values take precedence. Every inheritance is recorded.
+After inheritance, the producer rejects domestic and international sign
+combinations that use parentheses for both signs or use two positive sign
+positions with identical sign strings. Source -1 remains unspecified and is
+not treated as a positive position during this check.
 The private unspecified value 127 must become the target's CHAR_MAX when
 constructing a public lconv. No native char representation is serialized.
 

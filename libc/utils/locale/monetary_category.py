@@ -24,6 +24,7 @@ def monetary_records(fields):
         raise ValueError('missing or unknown monetary field')
     records = []
     inherited = {}
+    numbers = {}
     for key, name in enumerate(STRINGS, 1):
         value = fields[name]
         if (not isinstance(value, list) or len(value) != 1 or
@@ -51,5 +52,16 @@ def monetary_records(fields):
         if (not isinstance(value, list) or len(value) != 1 or
                 type(value[0]) is not int or not -1 <= value[0] <= maximum):
             raise ValueError('invalid monetary number: ' + name)
+        numbers[name] = value[0]
         records.append(dict(key=key, kind='words', value=[127 if value[0] == -1 else value[0]]))
+    # Check source values before -1 becomes the private unspecified sentinel.
+    # International positions have already resolved their declared inheritance.
+    for prefix in ('', 'int_'):
+        positive = numbers[prefix + 'p_sign_posn']
+        negative = numbers[prefix + 'n_sign_posn']
+        if positive == negative == 0:
+            raise ValueError('both monetary signs use parentheses: ' + prefix)
+        if (positive > 0 and negative > 0 and
+                fields['positive_sign'] == fields['negative_sign']):
+            raise ValueError('indistinguishable monetary signs: ' + prefix)
     return {'records': records, 'inherited_fields': inherited}
