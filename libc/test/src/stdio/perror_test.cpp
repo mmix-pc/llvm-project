@@ -14,6 +14,7 @@
 #include "src/__support/libc_errno.h"
 #include "src/stdio/perror.h"
 #include "src/stdio/stderr.h"
+#include "src/string/strerror.h"
 #include "test/UnitTest/Test.h"
 #include "test/src/locale/LocaleGuard.h"
 
@@ -76,6 +77,31 @@ void append(char *buffer, size_t &size, string_view text) {
   buffer[size] = '\0';
 }
 } // namespace
+
+TEST(LlvmLibcPerrorTest, PreservesPreviouslyReturnedErrorString) {
+  LocaleGuard locale;
+  const bool failures[] = {false, true};
+  for (auto orientation : ORIENTATIONS) {
+    for (bool fail_write : failures) {
+      DiagnosticFile file(orientation);
+      StderrGuard guard(file);
+      if (fail_write) {
+        file.write_limit = 0;
+        file.write_error = EIO;
+      }
+      const char *saved = LIBC_NAMESPACE::strerror(-1234);
+      ASSERT_STREQ(saved, "Unknown error -1234");
+      LIBC_NAMESPACE::libc_errno = -5678;
+      LIBC_NAMESPACE::perror(saved);
+      EXPECT_STREQ(saved, "Unknown error -1234");
+      EXPECT_STREQ(file.output,
+                   fail_write ? ""
+                              : "Unknown error -1234: Unknown error -5678\n");
+      EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), fail_write ? EIO : -5678);
+      EXPECT_EQ(file.get_orientation(), orientation);
+    }
+  }
+}
 
 TEST(LlvmLibcPerrorTest, PrefixAndContentPreserveEveryOrientation) {
   LocaleGuard locale;

@@ -712,6 +712,7 @@ add_libc_test(
     libc.src.__support.StringUtil.error_to_string
     libc.src.stdio.perror
     libc.src.stdio.stderr
+    libc.src.string.strerror
     libc.src.errno.errno
     libc.test.src.locale_guard
 )

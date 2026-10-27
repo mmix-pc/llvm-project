@@ -265,6 +265,7 @@ add_generic_entrypoint_object(
     libc.src.errno.errno
     libc.src.__support.StringUtil.error_to_string
     libc.src.__support.StringUtil.diagnostic_message
+    libc.src.__support.integer_to_string
     libc.src.__support.CPP.string_view
     libc.src.__support.File.file
     libc.src.__support.File.platform_file

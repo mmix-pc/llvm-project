@@ -11,6 +11,7 @@
 #include "src/__support/File/file.h"
 #include "src/__support/StringUtil/diagnostic_message.h"
 #include "src/__support/StringUtil/error_to_string.h"
+#include "src/__support/integer_to_string.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 #include "src/stdio/stderr.h"
@@ -76,8 +77,12 @@ LLVM_LIBC_FUNCTION(void, perror, (const char *str)) {
     str = empty_str;
   cpp::string_view str_view(str);
 
-  cpp::string_view err_str =
-      get_diagnostic_message(get_error_string(libc_errno).data());
+  // Do not overwrite a string previously returned by strerror, even when it
+  // is also the caller's prefix.
+  char error_buffer[sizeof("Unknown error") + 1 +
+                    IntegerToString<int>::buffer_size()];
+  cpp::string_view err_str = get_diagnostic_message(
+      get_error_string(libc_errno, error_buffer).data());
 
   // We need to lock the stream to ensure the newline is always appended.
   LIBC_NAMESPACE::File *file = reinterpret_cast<File *>(stderr);
