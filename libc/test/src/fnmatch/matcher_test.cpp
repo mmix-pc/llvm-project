@@ -9,6 +9,9 @@
 #include "hdr/errno_macros.h"
 #include "hdr/fnmatch_macros.h"
 #include "src/fnmatch/matcher.h"
+#ifdef LIBC_FULL_BUILD
+#include "src/locale/locale.h"
+#endif
 #include "test/UnitTest/Test.h"
 #include "test/src/locale/PatternCollationFixture.h"
 
@@ -77,6 +80,73 @@ TEST(LlvmLibcPathMatcherTest, CollatingElementsEquivalenceAndRanges) {
   EXPECT_TRUE(selected("[!a]", "b"));
   EXPECT_FALSE(selected("[!a]", "ab"));
 }
+
+TEST(LlvmLibcPathMatcherTest, CollatingElementCaseCounterparts) {
+  Collation fixture;
+  auto data = fixture.read();
+  ASSERT_TRUE(data.has_value());
+  const int flags[] = {FNM_CASEFOLD, FNM_IGNORECASE};
+  const char *counterparts[] = {"ab", "aB", "Ab", "AB"};
+  const char *different_strings[] = {"a", "b", "ac", "aC", "CB", "ABA"};
+  for (int flag : flags) {
+    for (const char *counterpart : counterparts) {
+      auto result = match("[[.ab.]]", counterpart, flag, &*data);
+      ASSERT_TRUE(result.has_value());
+      EXPECT_TRUE(*result);
+      EXPECT_TRUE(match("[a-b]", counterpart, flag, &*data).value());
+    }
+    for (const char *different : different_strings) {
+      auto result = match("[[.ab.]]", different, flag, &*data);
+      ASSERT_TRUE(result.has_value());
+      EXPECT_FALSE(*result);
+    }
+  }
+}
+
+TEST(LlvmLibcPathMatcherTest, CaseSetsPreserveOriginalMembers) {
+  EXPECT_FALSE(match("[[:upper:]]", "a").value());
+  EXPECT_FALSE(match("[[:lower:]]", "A").value());
+  const int flags[] = {FNM_CASEFOLD, FNM_IGNORECASE};
+  for (int flag : flags) {
+    EXPECT_TRUE(match("[[:upper:]]", "a", flag).value());
+    EXPECT_TRUE(match("[[:lower:]]", "A", flag).value());
+    EXPECT_FALSE(match("[![:upper:]]", "a", flag).value());
+    EXPECT_TRUE(match("[a-z]", "A", flag).value());
+    EXPECT_TRUE(match("[A-Z]", "a", flag).value());
+    // Folding both endpoints would reverse this otherwise valid interval.
+    EXPECT_TRUE(match("[Z-a]", "_", flag).value());
+    EXPECT_TRUE(match("[Z-a]", "Z", flag).value());
+    EXPECT_FALSE(match("[Z-a]", "b", flag).value());
+    Collation fixture;
+    auto data = fixture.read();
+    ASSERT_TRUE(data.has_value());
+    EXPECT_TRUE(match("[[=a=]]", "BA", flag, &*data).value());
+    EXPECT_TRUE(match("[[=a=]]", "bA", flag, &*data).value());
+    EXPECT_FALSE(match("[[=a=]]", "AB", flag, &*data).value());
+  }
+}
+
+#ifdef LIBC_FULL_BUILD
+TEST(LlvmLibcPathMatcherTest, NonBijectiveCaseMapping) {
+  __locale_data category("C.UTF-8", true);
+  auto selected = [&](const char *pattern, const char *input) {
+    return match_path_pattern(pattern, input, FNM_CASEFOLD,
+                              RestartableConverter(true), &category, nullptr)
+        .value();
+  };
+  EXPECT_TRUE(selected("\xcf\x82", "\xce\xa3"));
+  EXPECT_TRUE(selected("\xcf\x82", "\xcf\x83"));
+  EXPECT_TRUE(selected("[\xcf\x82]", "\xce\xa3"));
+  EXPECT_TRUE(selected("[[=\xcf\x82=]]", "\xce\xa3"));
+  EXPECT_TRUE(selected("[\xcf\x82-\xcf\x82]", "\xce\xa3"));
+  EXPECT_FALSE(selected("[!\xcf\x82]", "\xce\xa3"));
+  EXPECT_FALSE(selected("\xcf\x82", "\xce\xb1"));
+  // U+00B5 lies inside this interval and maps to U+039C, but the reverse
+  // lowercase mapping is U+03BC, outside the original interval.
+  EXPECT_TRUE(selected("[m-\xc2\xb6]", "\xce\x9c"));
+  EXPECT_FALSE(selected("[m-\xc2\xb4]", "\xce\x9c"));
+}
+#endif
 
 #ifdef PATH_MATCHER_ALLOCATION_TEST
 namespace {

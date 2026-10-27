@@ -37,6 +37,8 @@ public:
   static ErrorOr<CTypeLocaleData> read(const LocaleDataView &file);
   bool contains(Class kind, uint32_t scalar) const;
   uint32_t map(Mapping kind, uint32_t scalar) const;
+  bool source_matches(Mapping kind, uint32_t value,
+                      bool (*accept)(uint32_t, void *), void *context) const;
 
 private:
   LocaleDataView::Item classes[CLASS_COUNT];

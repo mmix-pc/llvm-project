@@ -42,5 +42,19 @@ wint_t toupper(wchar_t wch) {
   return wch;
 }
 
+bool case_source_matches(wint_t value, bool upper,
+                         bool (*accept)(wint_t, void *), void *context) {
+  auto predicate = [&](wint_t source) { return accept(source, context); };
+  if (upper ? LOWER_TO_UPPER_MAP.any_key_for(value, predicate)
+            : UPPER_TO_LOWER_MAP.any_key_for(value, predicate))
+    return true;
+#if WINT_MAX > 0xFFFF
+  return upper ? LOWER_TO_UPPER_MAP_32.any_key_for(value, predicate)
+               : UPPER_TO_LOWER_MAP_32.any_key_for(value, predicate);
+#else
+  return false;
+#endif
+}
+
 } // namespace wctype_internal
 } // namespace LIBC_NAMESPACE_DECL

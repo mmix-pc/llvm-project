@@ -131,5 +131,17 @@ uint32_t CTypeLocaleData::map(Mapping kind, uint32_t value) const {
   return value;
 }
 
+bool CTypeLocaleData::source_matches(Mapping kind, uint32_t value,
+                                    bool (*accept)(uint32_t, void *),
+                                    void *context) const {
+  if (unsigned(kind) >= MAPPING_COUNT || !scalar(value))
+    return false;
+  const auto &table = mappings[kind];
+  for (size_t i = 0; i != table.bytes.size() / 8; ++i)
+    if (word(table, i * 2 + 1) == value && accept(word(table, i * 2), context))
+      return true;
+  return false;
+}
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

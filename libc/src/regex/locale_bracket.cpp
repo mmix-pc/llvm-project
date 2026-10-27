@@ -134,6 +134,20 @@ class Bracket {
         if (element(variant) && matches_item(items[i], variant))
           return true;
       }
+      if (value.size() == 1) {
+        struct Context {
+          const Bracket *bracket;
+          const Item *item;
+        } context{this, &items[i]};
+        auto accept = [](wint_t source, void *data) {
+          auto &context = *static_cast<Context *>(data);
+          uint32_t scalar = source;
+          return context.bracket->matches_item(*context.item, {&scalar, 1});
+        };
+        if (case_source_matches(value[0], false, locale.ctype, accept, &context) ||
+            case_source_matches(value[0], true, locale.ctype, accept, &context))
+          return true;
+      }
     }
     return false;
   }

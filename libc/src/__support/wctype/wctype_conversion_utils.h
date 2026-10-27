@@ -27,6 +27,8 @@ namespace wctype_internal {
 // maps.
 wint_t tolower(wchar_t wch);
 wint_t toupper(wchar_t wch);
+bool case_source_matches(wint_t value, bool upper,
+                         bool (*accept)(wint_t, void *), void *context);
 
 } // namespace wctype_internal
 } // namespace LIBC_NAMESPACE_DECL

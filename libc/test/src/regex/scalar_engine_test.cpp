@@ -356,6 +356,12 @@ TEST(LlvmLibcRegexScalarTest, BorrowedCTypeClassesAndCaseMapping) {
   // values alone would not establish their case-insensitive equivalence.
   ASSERT_EQ(re.compile("\xcf\x82", REG_ICASE, utf8, &ctype_utf8), 0);
   EXPECT_EQ(re.execute("\xcf\x83", 0, nullptr, 0, utf8), 0);
+  ASSERT_EQ(re.compile("^[m-\xc2\xb6]$", REG_EXTENDED | REG_ICASE, utf8,
+                       &ctype_utf8), 0);
+  EXPECT_EQ(re.execute("\xce\x9c", 0, nullptr, 0, utf8), 0);
+  ASSERT_EQ(re.compile("^[m-\xc2\xb4]$", REG_EXTENDED | REG_ICASE, utf8,
+                       &ctype_utf8), 0);
+  EXPECT_EQ(re.execute("\xce\x9c", 0, nullptr, 0, utf8), REG_NOMATCH);
   ASSERT_EQ(re.compile("\\(\xc3\xa9\\)\\1", REG_ICASE, utf8, &ctype_utf8), 0);
   regmatch_t matches[2];
   ASSERT_EQ(re.execute("\xc3\xa9\xc3\x89", 2, matches, 0, utf8), 0);
@@ -448,7 +454,12 @@ TEST(LlvmLibcRegexScalarTest, CollationAlternativesAndPrimaryEquivalence) {
   EXPECT_EQ(match("abab"), 0);
   EXPECT_EQ(match("aba"), REG_NOMATCH);
   ASSERT_EQ(compile("^[[.ab.]]$", REG_EXTENDED | REG_ICASE), 0);
-  EXPECT_EQ(match("AB"), 0);
+  const char *counterparts[] = {"ab", "aB", "Ab", "AB"};
+  const char *different_strings[] = {"a", "b", "ac", "aC", "CB", "ABA"};
+  for (const char *counterpart : counterparts)
+    EXPECT_EQ(match(counterpart), 0);
+  for (const char *different : different_strings)
+    EXPECT_EQ(match(different), REG_NOMATCH);
   ASSERT_EQ(compile("^[^a]$", REG_EXTENDED | REG_NEWLINE), 0);
   EXPECT_EQ(match("b"), 0);
   EXPECT_EQ(match("ab"), REG_NOMATCH);

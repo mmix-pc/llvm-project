@@ -129,15 +129,17 @@ class Matcher {
   Item *items;
   size_t used = 0;
 
-  uint32_t fold(uint32_t scalar) const {
-    return flags & FNM_CASEFOLD ? uint32_t(map_wide(scalar, false, ctype))
-                                : scalar;
+  bool equal(uint32_t a, uint32_t b) const {
+    return a == b ||
+           ((flags & FNM_CASEFOLD) &&
+            (map_wide(a, false, ctype) == map_wide(b, false, ctype) ||
+             map_wide(a, true, ctype) == map_wide(b, true, ctype)));
   }
   bool equal(Scalars a, Scalars b) const {
     if (a.size() != b.size())
       return false;
     for (size_t i = 0; i != a.size(); ++i)
-      if (fold(a[i]) != fold(b[i]))
+      if (!equal(a[i], b[i]))
         return false;
     return true;
   }
@@ -146,24 +148,11 @@ class Matcher {
            (collation && value.size() <= CollationData::MAX_SEQUENCE &&
             collation->find(value).has_value());
   }
-  ErrorOr<CollationData::Rule> rule(Scalars value, uint32_t *folded) const {
-    if (value.empty() || value.size() > CollationData::MAX_SEQUENCE)
-      return Error(EINVAL);
-    for (size_t i = 0; i != value.size(); ++i)
-      folded[i] = fold(value[i]);
-    Scalars key{folded, value.size()};
-    return key.size() == 1 ? collation->lookup(key) : collation->find(key);
-  }
   int order(Scalars a, Scalars b, bool primary) const {
-    if (!collation) {
-      uint32_t left = fold(a[0]), right = fold(b[0]);
-      return (left > right) - (left < right);
-    }
-    uint32_t left[CollationData::MAX_SEQUENCE],
-        right[CollationData::MAX_SEQUENCE];
-    auto ar = rule(a, left), br = rule(b, right);
-    // A folded multicharacter sequence need not itself be an element. Literal
-    // case matching is handled separately; it cannot invent collation weights.
+    if (!collation)
+      return (a[0] > b[0]) - (a[0] < b[0]);
+    auto ar = a.size() == 1 ? collation->lookup(a) : collation->find(a);
+    auto br = b.size() == 1 ? collation->lookup(b) : collation->find(b);
     if (!ar || !br)
       return 2;
     if (!primary)
@@ -276,8 +265,56 @@ class Matcher {
     case Kind::RANGE:
       if (!element(value))
         return false;
+      if ((flags & FNM_CASEFOLD) &&
+          order(item.first, item.last, false) <= 0 &&
+          (equal(item.first, value) || equal(item.last, value)))
+        return true;
       return order(item.first, value, false) <= 0 &&
              order(value, item.last, false) <= 0;
+    }
+    return false;
+  }
+  bool matches_with_case(const Item &item, Scalars value) const {
+    if (item_matches(item, value))
+      return true;
+    if (!(flags & FNM_CASEFOLD) || item.kind == Kind::LITERAL)
+      return false;
+    // Preserve the original range/equivalence weights. Case-insensitive
+    // matching adds counterparts; it must not replace the original set.
+    uint32_t mapped[CollationData::MAX_SEQUENCE];
+    for (unsigned upper = 0; upper != 2; ++upper) {
+      for (size_t i = 0; i != value.size(); ++i)
+        mapped[i] = map_wide(value[i], upper != 0, ctype);
+      if (item_matches(item, {mapped, value.size()}))
+        return true;
+    }
+    if (value.size() == 1) {
+      struct Context {
+        const Matcher *matcher;
+        const Item *item;
+      } context{this, &item};
+      auto accept = [](wint_t source, void *data) {
+        auto &context = *static_cast<Context *>(data);
+        uint32_t scalar = source;
+        return context.matcher->item_matches(*context.item, {&scalar, 1});
+      };
+      if (case_source_matches(value[0], false, ctype, accept, &context) ||
+          case_source_matches(value[0], true, ctype, accept, &context))
+        return true;
+    }
+    // Mixed-case counterparts of a multi-character element need not have
+    // their own collation records. Enumerate records, not 2^length variants.
+    if (collation && item.kind != Kind::CLASS) {
+      for (size_t i = 0; i != collation->size(); ++i) {
+        auto candidate = collation->rule(i).value();
+        if (candidate.source_size() != value.size())
+          continue;
+        for (size_t j = 0; j != value.size(); ++j)
+          mapped[j] = candidate.source(j);
+        Scalars counterpart{mapped, value.size()};
+        if (equal(value, counterpart) && item_matches(item, counterpart))
+          return true;
+      }
     }
     return false;
   }
@@ -340,7 +377,7 @@ public:
                      (s != input.size() && !separator(s) && current[s + 1]));
         } else if (s != input.size()) {
           if (token.op == Op::LITERAL)
-            matched = fold(token.scalar) == fold(input[s]) && next[s + 1];
+            matched = equal(token.scalar, input[s]) && next[s + 1];
           else if (token.op == Op::ANY)
             matched = !restricted(s) && !separator(s) && next[s + 1];
           else if (token.op == Op::BRACKET && !restricted(s) && !separator(s)) {
@@ -355,8 +392,8 @@ public:
                 continue;
               bool member = false;
               for (size_t i = 0; i != token.count && !member; ++i)
-                member = item_matches(items[token.begin + i],
-                                      input.subspan(s, length));
+                member = matches_with_case(items[token.begin + i],
+                                           input.subspan(s, length));
               matched = member != token.negate;
             }
           }

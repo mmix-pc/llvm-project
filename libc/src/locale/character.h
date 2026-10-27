@@ -30,6 +30,9 @@ int classify_byte(int c, wctype_t desc, const __locale_data *category);
 int classify_wide(wint_t c, wctype_t desc, const __locale_data *category);
 int map_byte(int c, bool upper, const __locale_data *category);
 wint_t map_wide(wint_t c, bool upper, const __locale_data *category);
+// Test explicit mapping sources; case mappings need not be bijective.
+bool case_source_matches(wint_t c, bool upper, const __locale_data *category,
+                         bool (*accept)(wint_t, void *), void *context);
 
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

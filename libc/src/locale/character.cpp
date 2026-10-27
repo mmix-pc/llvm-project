@@ -179,6 +179,36 @@ wint_t map_wide(wint_t c, bool upper, const __locale_data *category) {
 #endif
 }
 
+bool case_source_matches(wint_t c, bool upper, const __locale_data *category,
+                         bool (*accept)(wint_t, void *), void *context) {
+  if (!scalar(c))
+    return false;
+#ifdef LIBC_FULL_BUILD
+  if (category->ctype) {
+    struct Context {
+      bool (*accept)(wint_t, void *);
+      void *data;
+    } wrapper{accept, context};
+    return category->ctype->source_matches(
+        upper ? CTypeLocaleData::TOUPPER : CTypeLocaleData::TOLOWER, c,
+        [](uint32_t source, void *data) {
+          auto &wrapper = *static_cast<Context *>(data);
+          return wrapper.accept(static_cast<wint_t>(source), wrapper.data);
+        },
+        &wrapper);
+  }
+#endif
+  if (!utf8(category)) {
+    wint_t source = upper ? ascii::tolower(c) : ascii::toupper(c);
+    return source != c && accept(source, context);
+  }
+#if defined(LIBC_FULL_BUILD) || LIBC_CONF_WCTYPE_MODE == LIBC_WCTYPE_MODE_UTF8
+  return wctype_internal::case_source_matches(c, upper, accept, context);
+#else
+  return false;
+#endif
+}
+
 int classify_byte(int c, wctype_t desc, const __locale_data *category) {
   if (c < 0 || c > cpp::numeric_limits<unsigned char>::max())
     return 0;

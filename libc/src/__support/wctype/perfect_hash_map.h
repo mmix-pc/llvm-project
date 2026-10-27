@@ -856,6 +856,14 @@ public:
     return this->find(key).has_value();
   }
 
+  template <typename Predicate>
+  bool any_key_for(wint_t value, Predicate accept) const {
+    for (const auto &entry : entries)
+      if (entry.value == value && accept(entry.key))
+        return true;
+    return false;
+  }
+
   LIBC_INLINE constexpr size_t size() { return Capacity; }
 
 private:

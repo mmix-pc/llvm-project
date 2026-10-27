@@ -39,6 +39,7 @@
 #include "src/ctype/toupper.h"
 #include "src/ctype/toupper_l.h"
 #include "src/locale/locale_storage.h"
+#include "src/locale/character.h"
 #include "src/locale/uselocale.h"
 #include "src/strings/strcasecmp.h"
 #include "src/strings/strcasecmp_l.h"
@@ -84,6 +85,22 @@
 
 using namespace LIBC_NAMESPACE::internal;
 using LIBC_NAMESPACE::libc_errno;
+
+TEST(LlvmLibcCharacterLocaleTest, BuiltinCaseMappingSources) {
+  __locale_data ctype_c("C", false), ctype_utf8("C.UTF-8", true);
+  auto accept = [](wint_t source, void *expected) {
+    return source == *static_cast<wint_t *>(expected);
+  };
+  wint_t expected = 0xb5;
+  EXPECT_TRUE(case_source_matches(0x39c, true, &ctype_utf8, accept, &expected));
+  EXPECT_FALSE(case_source_matches(0x39c, false, &ctype_utf8, accept, &expected));
+  EXPECT_FALSE(case_source_matches(0x39c, true, &ctype_c, accept, &expected));
+  expected = 'a';
+  EXPECT_TRUE(case_source_matches('A', true, &ctype_c, accept, &expected));
+  EXPECT_FALSE(case_source_matches(WEOF, true, &ctype_utf8, accept, &expected));
+  expected = 0x10428;
+  EXPECT_TRUE(case_source_matches(0x10400, true, &ctype_utf8, accept, &expected));
+}
 
 namespace {
 class Selection {
@@ -231,6 +248,21 @@ struct Fixture {
       release_locale_category(category);
   }
 };
+
+TEST(LlvmLibcCharacterLocaleTest, RegionalCaseMappingSources) {
+  Fixture fixture;
+  ASSERT_TRUE(fixture.create());
+  auto accept = [](wint_t source, void *expected) {
+    return source == *static_cast<wint_t *>(expected);
+  };
+  wint_t expected = 'i';
+  EXPECT_TRUE(case_source_matches(0x130, true, fixture.category, accept, &expected));
+  EXPECT_FALSE(case_source_matches('I', true, fixture.category, accept, &expected));
+  expected = 0x131;
+  EXPECT_TRUE(case_source_matches('I', true, fixture.category, accept, &expected));
+  expected = 'I';
+  EXPECT_TRUE(case_source_matches(0x131, false, fixture.category, accept, &expected));
+}
 
 struct Classification {
   const char *name;
