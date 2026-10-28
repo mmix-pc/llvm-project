@@ -2492,9 +2492,8 @@ getEvaluationRoundingMode(const ConstrainedFPIntrinsic *CI) {
   std::optional<RoundingMode> ORM = CI->getRoundingMode();
   if (!ORM || *ORM == RoundingMode::Dynamic)
     // Even if the rounding mode is unknown, try evaluating the operation.
-    // If it does not raise inexact exception, rounding was not applied,
-    // so the result is exact and does not depend on rounding mode. Whether
-    // other FP exceptions are raised, it does not depend on rounding mode.
+    // Exact results are usually independent of rounding mode. Addition and
+    // fused operations must also check the sign of an exact zero result.
     return RoundingMode::NearestTiesToEven;
   return *ORM;
 }
@@ -3529,6 +3528,19 @@ static Constant *ConstantFoldIntrinsicCall2(Intrinsic::ID IntrinsicID, Type *Ty,
         case Intrinsic::experimental_constrained_fcmps:
           return evaluateCompare(Op1V, Op2V, ConstrIntr);
         }
+        if (ConstrIntr->getRoundingMode() == RoundingMode::Dynamic &&
+            Res.isZero() &&
+            (IntrinsicID == Intrinsic::experimental_constrained_fadd ||
+             IntrinsicID == Intrinsic::experimental_constrained_fsub)) {
+          // Exact cancellation can change zero sign without raising inexact.
+          APFloat Down = Op1V;
+          if (IntrinsicID == Intrinsic::experimental_constrained_fadd)
+            Down.add(Op2V, RoundingMode::TowardNegative);
+          else
+            Down.subtract(Op2V, RoundingMode::TowardNegative);
+          if (!Res.bitwiseIsEqual(Down))
+            return nullptr;
+        }
         if (mayFoldConstrained(const_cast<ConstrainedFPIntrinsic *>(ConstrIntr),
                                St))
           return ConstantFP::get(Ty, Res);
@@ -4130,6 +4142,13 @@ static Constant *ConstantFoldScalarCall3(StringRef Name,
           case Intrinsic::experimental_constrained_fmuladd:
             St = Res.fusedMultiplyAdd(C2, C3, RM);
             break;
+          }
+          if (ConstrIntr->getRoundingMode() == RoundingMode::Dynamic &&
+              Res.isZero()) {
+            APFloat Down = C1;
+            Down.fusedMultiplyAdd(C2, C3, RoundingMode::TowardNegative);
+            if (!Res.bitwiseIsEqual(Down))
+              return nullptr;
           }
           if (mayFoldConstrained(
                   const_cast<ConstrainedFPIntrinsic *>(ConstrIntr), St))
