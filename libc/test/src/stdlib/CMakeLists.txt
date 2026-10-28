@@ -2,6 +2,30 @@ add_custom_target(libc-stdlib-tests)
 
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
+    random_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS random_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/random.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/srandom.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/initstate.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/setstate.cpp
+    DEPENDS libc.src.stdlib.random_utils libc.src.__support.common
+  )
+
+  set(random48_sources random48_test.cpp)
+  foreach(name drand48 erand48 lrand48 nrand48 mrand48 jrand48 srand48 seed48 lcong48)
+    list(APPEND random48_sources ${LIBC_SOURCE_DIR}/src/stdlib/${name}.cpp)
+  endforeach()
+  add_libc_test(
+    random48_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS ${random48_sources}
+    DEPENDS libc.src.stdlib.random48_utils libc.src.__support.common
+  )
+
+  add_libc_test(
     getsubopt_test
     OVERLAY_BUILD_ONLY
     SUITE libc-stdlib-tests

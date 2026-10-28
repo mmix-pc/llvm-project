@@ -1,3 +1,38 @@
+add_object_library(
+  random_utils
+  SRCS random_utils.cpp
+  HDRS random_utils.h
+  DEPENDS libc.hdr.stdint_proxy libc.hdr.types.size_t libc.hdr.errno_macros
+    libc.src.__support.CPP.mutex libc.src.__support.threads.mutex
+    libc.src.__support.libc_errno libc.src.string.memory_utils.inline_memcpy
+)
+
+foreach(name random srandom initstate setstate)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .random_utils libc.src.__support.common
+  )
+endforeach()
+
+add_object_library(
+  random48_utils
+  SRCS random48_utils.cpp
+  HDRS random48_utils.h
+  DEPENDS libc.hdr.stdint_proxy libc.src.__support.CPP.mutex
+    libc.src.__support.threads.mutex
+)
+
+foreach(name drand48 erand48 lrand48 nrand48 mrand48 jrand48 srand48 seed48 lcong48)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ${name}.h
+    DEPENDS .random48_utils libc.src.__support.common
+  )
+endforeach()
+
 add_entrypoint_object(
   getsubopt
   SRCS getsubopt.cpp
