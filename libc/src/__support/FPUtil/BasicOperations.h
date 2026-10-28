@@ -283,6 +283,33 @@ LIBC_INLINE T constexpr fdim(T x, T y) {
   volatile BarrierType left = static_cast<BarrierType>(positive ? x : T(0));
   volatile BarrierType right = static_cast<BarrierType>(positive ? y : T(0));
   T difference = static_cast<T>(left) - static_cast<T>(right);
+  if (bitx.is_finite() && bity.is_finite()) {
+    FPBits<T> result(difference);
+    bool overflow = result.is_inf();
+    if (result == FPBits<T>::max_normal() && bitx.is_pos() && bity.is_neg()) {
+      auto large = bitx.abs(), small = bity.abs();
+      if (large.uintval() < small.uintval()) {
+        auto tmp = large;
+        large = small;
+        small = tmp;
+      }
+      // Directed rounding can saturate at the largest finite value. Compare
+      // the exact sum against 2^(emax+1), without reading preexisting flags or
+      // performing another floating-point operation that could raise them.
+      if (large.get_biased_exponent() == FPBits<T>::MAX_BIASED_EXPONENT - 1) {
+        using StorageType = typename FPBits<T>::StorageType;
+        constexpr int PRECISION = FPBits<T>::FRACTION_LEN + 1;
+        StorageType gap =
+            (StorageType(1) << PRECISION) - large.get_explicit_mantissa();
+        int shift =
+            large.get_explicit_exponent() - small.get_explicit_exponent();
+        overflow = shift < PRECISION &&
+                   (small.get_explicit_mantissa() >> shift) >= gap;
+      }
+    }
+    if (overflow)
+      set_errno_if_required(ERANGE);
+  }
   return positive ? difference : T(0);
 }
 
