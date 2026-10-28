@@ -16,7 +16,7 @@ sources = [libc / ("src/stdlib/linux/mmix/" + name + ".cpp")
                         "aligned_alloc", "posix_memalign")]
 sources += [libc / "src/__support/OSUtil/linux/mmix/heap.cpp",
             libc / "src/__support/freelist.cpp", libc / "src/__support/freetrie.cpp",
-            libc / "src/errno/libc_errno.cpp"]
+            libc / "src/errno/libc_errno.cpp", libc / "src/stdlib/reallocarray.cpp"]
 defines = ["-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=allocation_test", "-DNDEBUG",
            "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED"]
 includes = ["-I", str(mapping / "headers"), "-I", str(libc), "-I", str(libc / "include")]
@@ -37,7 +37,7 @@ for opt in ("0", "2"):
     for name in ("pthread_", "__tls_get_addr", "__atomic_", "freelist_heap", "_end"):
         assert name not in undefined, undefined
     defined = subprocess.check_output(["llvm-nm", "--defined-only", str(combined)], text=True)
-    for name in ("malloc", "free", "calloc", "realloc", "aligned_alloc", "posix_memalign"):
+    for name in ("malloc", "free", "calloc", "realloc", "reallocarray", "aligned_alloc", "posix_memalign"):
         assert sum(line.split()[-1] == name for line in defined.splitlines() if line.split()) == 1
     elf = subprocess.check_output(["llvm-readobj", "--sections", str(combined)], text=True)
     assert "SHF_TLS" not in elf and ".init_array" not in elf
@@ -64,7 +64,8 @@ if len(sys.argv) == 4:
         subprocess.run([sys.argv[3], "-std=c++17", "-O" + opt,
             "-I", str(mapping / "fake"), "-I", str(libc),
             *[flag for flag in defines if flag != "-DLIBC_FULL_BUILD"],
-            *map(str, sources), str(root / "test.cpp"), "-o", str(exe)], check=True)
+            *map(str, sources), str(root / "test.cpp"), "-Wl,--wrap=realloc",
+            "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
 
 #--- test.cpp
@@ -72,6 +73,7 @@ if len(sys.argv) == 4:
 #include "src/stdlib/free.h"
 #include "src/stdlib/calloc.h"
 #include "src/stdlib/realloc.h"
+#include "src/stdlib/reallocarray.h"
 #include "src/stdlib/aligned_alloc.h"
 #include "src/stdlib/linux/mmix/posix_memalign.h"
 #include "src/__support/libc_errno.h"
@@ -85,6 +87,10 @@ bool used[4];
 int maps, releases;
 bool fail_map, fail_unmap;
 size_t last_request;
+
+extern "C" void *__wrap_realloc(void *ptr, size_t size) {
+  return allocation_test::realloc(ptr, size);
+}
 
 namespace allocation_test::linux_syscalls {
 ErrorOr<void *> mmap(void *, size_t size, int, int, int, off_t) {
@@ -215,8 +221,18 @@ int main() {
   if (realloc(moved, static_cast<size_t>(-1)) || int(libc_errno) != ENOMEM)
     return 23;
   libc_errno = 31;
-  if (realloc(moved, 0) || realloc(nullptr, 0) || int(libc_errno) != 31)
+  int old_releases = releases;
+  calls = maps;
+  if (realloc(moved, 0) || int(libc_errno) != EINVAL ||
+      releases != old_releases || maps != calls)
     return 24;
+  for (size_t i = 0; i != 50; ++i)
+    if (moved[i] != i)
+      return 37;
+  free(moved);
+  libc_errno = 31;
+  if (realloc(nullptr, 0) || int(libc_errno) != 31 || maps != calls)
+    return 38;
   for (bool live : used)
     if (live)
       return 25;
@@ -235,9 +251,21 @@ int main() {
       aligned_alloc(64, 65) || int(libc_errno) != EINVAL)
     return 28;
   libc_errno = 37;
-  if (aligned_alloc(64, 0) || posix_memalign(&out, 64, 0) ||
-      out || int(libc_errno) != 37)
+  calls = maps;
+  if (aligned_alloc(64, 0) || int(libc_errno) != EINVAL || maps != calls)
     return 29;
+  libc_errno = 37;
+  if (posix_memalign(&out, 64, 0) || out || int(libc_errno) != 37 ||
+      maps != calls)
+    return 39;
+  const size_t small_alignments[] = {1, 2, 4};
+  for (size_t alignment : small_alignments) {
+    void *p = aligned_alloc(alignment, alignment * 2);
+    if (!p || reinterpret_cast<uintptr_t>(p) % alignment ||
+        int(libc_errno) != 37)
+      return 40;
+    free(p);
+  }
   const size_t valid_alignments[] = {8, 64, 8192, 16384};
   for (size_t alignment : valid_alignments) {
     auto *p = aligned_alloc(alignment, alignment * 2);
@@ -268,6 +296,35 @@ int main() {
   for (bool live : used)
     if (live)
       return 36;
+  using allocation_test::reallocarray;
+  auto *array = static_cast<unsigned char *>(reallocarray(nullptr, 4, 8));
+  if (!array)
+    return 41;
+  for (size_t i = 0; i < 32; ++i)
+    array[i] = static_cast<unsigned char>(i);
+  calls = maps;
+  old_releases = releases;
+  if (reallocarray(array, size_t(-1), 2) || int(libc_errno) != ENOMEM ||
+      reallocarray(array, 0, size_t(-1)) || int(libc_errno) != EINVAL ||
+      reallocarray(array, size_t(-1), 0) || int(libc_errno) != EINVAL ||
+      maps != calls || releases != old_releases)
+    return 42;
+  for (size_t i = 0; i < 32; ++i)
+    if (array[i] != i)
+      return 43;
+  auto *bigger = static_cast<unsigned char *>(reallocarray(array, 8, 8));
+  if (!bigger)
+    return 44;
+  for (size_t i = 0; i < 32; ++i)
+    if (bigger[i] != i)
+      return 45;
+  free(bigger);
+  libc_errno = 41;
+  if (reallocarray(nullptr, 0, size_t(-1)) || int(libc_errno) != 41)
+    return 46;
+  for (bool live : used)
+    if (live)
+      return 47;
   return 0;
 }
 

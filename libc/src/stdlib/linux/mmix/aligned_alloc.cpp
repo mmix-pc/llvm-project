@@ -14,12 +14,13 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(void *, aligned_alloc, (size_t alignment, size_t size)) {
-  if (!alignment || (alignment & (alignment - 1)) || size % alignment) {
+  if (!alignment || (alignment & (alignment - 1)) || size % alignment ||
+      size == 0) {
     libc_errno = EINVAL;
     return nullptr;
   }
   void *ptr = mmix::allocate(size, alignment);
-  if (!ptr && size)
+  if (!ptr)
     libc_errno = ENOMEM;
   return ptr;
 }

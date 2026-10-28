@@ -15,6 +15,10 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(void *, realloc, (void *ptr, size_t size)) {
+  if (ptr && size == 0) {
+    libc_errno = EINVAL;
+    return nullptr;
+  }
   int saved_errno = libc_errno;
   void *result = mmix::resize(ptr, size);
   libc_errno = !result && size ? ENOMEM : saved_errno;
