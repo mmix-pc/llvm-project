@@ -275,18 +275,17 @@ public:
       return nullptr;
     AllocChecker ac;
 
-    void *mem = operator new(total_size, std::align_val_t{table_alignment()},
-                             ac);
+    void *mem = operator new(total_size, std::align_val_t{table_alignment()}, ac);
+    if (!ac)
+      return nullptr;
 
     HashTable *table = reinterpret_cast<HashTable *>(
         static_cast<uint8_t *>(mem) + align_boundary);
-    if (ac) {
-      table->entries_mask = entries - 1u;
-      table->available_slots = entries / 8 * 7;
-      table->state = HashState{randomness};
-      __builtin_memset(&table->control(0), 0x80, ctrl_sizes);
-      __builtin_memset(mem, 0, table->offset_from_entries());
-    }
+    table->entries_mask = entries - 1u;
+    table->available_slots = entries / 8 * 7;
+    table->state = HashState{randomness};
+    __builtin_memset(&table->control(0), 0x80, ctrl_sizes);
+    __builtin_memset(mem, 0, table->offset_from_entries());
     return table;
   }
 

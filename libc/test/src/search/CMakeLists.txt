@@ -1,6 +1,25 @@
 add_custom_target(libc_search_unittests)
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
+    hsearch_allocation_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc_search_unittests
+    SRCS
+      hsearch_allocation_test.cpp
+      ${LIBC_SOURCE_DIR}/src/search/hcreate.cpp
+      ${LIBC_SOURCE_DIR}/src/search/hsearch.cpp
+      ${LIBC_SOURCE_DIR}/src/search/hdestroy.cpp
+      ${LIBC_SOURCE_DIR}/src/search/hsearch/global.cpp
+    DEPENDS
+      libc.src.__support.HashTable.table
+      libc.src.__support.HashTable.randomness
+      libc.src.errno.errno
+    # The linker wrappers must observe changes to the injection state.
+    COMPILE_OPTIONS -fno-builtin-aligned_alloc -fno-builtin-free
+    LINK_LIBRARIES "-Wl,--wrap=aligned_alloc,--wrap=free"
+  )
+
+  add_libc_test(
     tsearch_allocation_test
     OVERLAY_BUILD_ONLY
     SUITE libc_search_unittests
