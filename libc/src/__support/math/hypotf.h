@@ -11,6 +11,7 @@
 
 #include "src/__support/FPUtil/FEnvImpl.h"
 #include "src/__support/FPUtil/FPBits.h"
+#include "src/__support/FPUtil/Hypot.h"
 #include "src/__support/FPUtil/double_double.h"
 #include "src/__support/FPUtil/multiply_add.h"
 #include "src/__support/FPUtil/sqrt.h"
@@ -44,6 +45,9 @@ LIBC_INLINE float hypotf(float x, float y) {
       return FPBits::inf().get_val();
     return x + y;
   }
+
+  if (LIBC_UNLIKELY(x_a >= 0x7f00'0000 || y_a >= 0x7f00'0000))
+    return fputil::hypot(x, y);
 
   double xd = static_cast<double>(x);
   double yd = static_cast<double>(y);

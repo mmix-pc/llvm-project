@@ -19,6 +19,73 @@ struct HypotTestTemplate : public LIBC_NAMESPACE::testing::Test {
 
   DECLARE_SPECIAL_CONSTANTS(T)
 
+  void test_large_finite_flags(Func func, T scale) {
+    using namespace LIBC_NAMESPACE::fputil::testing;
+    for (auto mode : LIBC_NAMESPACE::testing::FPTest<T>::ROUNDING_MODES) {
+      ForceRoundingMode rounding(mode);
+      if (!rounding.success)
+        continue;
+      LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+      LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+      libc_errno = EDOM;
+      T result = func(T(4) * scale, T(4) * scale);
+      int flags = LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT);
+      EXPECT_TRUE(result > T(5) * scale && result < T(6) * scale);
+      EXPECT_MATH_ERRNO(EDOM);
+      if (math_errhandling & MATH_ERREXCEPT)
+        EXPECT_EQ(FE_INVALID | FE_INEXACT, flags);
+
+      LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+      LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+      libc_errno = EDOM;
+      result = func(T(3) * scale, T(4) * scale);
+      flags = LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT);
+      EXPECT_FP_EQ(T(5) * scale, result);
+      EXPECT_MATH_ERRNO(EDOM);
+      // Rounding-mode detection may itself raise the permitted inexact flag.
+      if (math_errhandling & MATH_ERREXCEPT)
+        EXPECT_EQ(FE_INVALID, flags & ~FE_INEXACT);
+
+      LIBC_NAMESPACE::fputil::raise_except(FE_INEXACT);
+      result = func(T(3) * scale, T(4) * scale);
+      flags = LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT);
+      EXPECT_FP_EQ(T(5) * scale, result);
+      if (math_errhandling & MATH_ERREXCEPT)
+        EXPECT_EQ(FE_INVALID | FE_INEXACT, flags);
+    }
+  }
+
+  void test_overflow(Func func) {
+    using namespace LIBC_NAMESPACE::fputil::testing;
+    for (auto mode : LIBC_NAMESPACE::testing::FPTest<T>::ROUNDING_MODES) {
+      ForceRoundingMode rounding(mode);
+      if (!rounding.success)
+        continue;
+      const T signs[] = {T(1), T(-1)};
+      for (T sign : signs) {
+        LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+        LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+        libc_errno = 0;
+        T expected =
+            mode == RoundingMode::TowardZero || mode == RoundingMode::Downward
+                ? max_normal
+                : inf;
+        EXPECT_FP_EQ(expected, func(sign * max_normal, max_normal));
+        EXPECT_MATH_ERRNO(ERANGE);
+        if (math_errhandling & MATH_ERREXCEPT)
+          EXPECT_EQ(FE_INVALID | FE_OVERFLOW | FE_INEXACT,
+                    LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+      }
+      // A preexisting overflow flag must not report an error for valid inputs.
+      libc_errno = EDOM;
+      EXPECT_FP_EQ(max_normal, func(max_normal, T(0)));
+      EXPECT_MATH_ERRNO(EDOM);
+      libc_errno = EDOM;
+      EXPECT_FP_EQ(inf, func(inf, max_normal));
+      EXPECT_MATH_ERRNO(EDOM);
+    }
+  }
+
   void test_special_numbers(Func func) {
     constexpr int N = 4;
     // Pythagorean triples.

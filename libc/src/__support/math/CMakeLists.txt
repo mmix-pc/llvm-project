@@ -4575,6 +4575,7 @@ add_header_library(
     libc.src.__support.FPUtil.double_double
     libc.src.__support.FPUtil.fenv_impl
     libc.src.__support.FPUtil.fp_bits
+    libc.src.__support.FPUtil.hypot
     libc.src.__support.FPUtil.multiply_add
     libc.src.__support.FPUtil.sqrt
     libc.src.__support.macros.optimization

@@ -141,10 +141,18 @@ LIBC_INLINE T hypot(T x, T y) {
       // rounded for all rounding modes.
       float af = fputil::cast<float>(x_abs.get_val());
       float bf = fputil::cast<float>(y_abs.get_val());
-      return fputil::cast<float16>(af + bf);
+      T result = fputil::cast<float16>(af + bf);
+      if (FPBits_t(result).is_inf())
+        fputil::set_errno_if_required(ERANGE);
+      return result;
     } else
 #endif // LIBC_TYPES_HAS_FLOAT16
-      return x_abs.get_val() + y_abs.get_val();
+    {
+      T result = x_abs.get_val() + y_abs.get_val();
+      if (FPBits_t(result).is_inf())
+        fputil::set_errno_if_required(ERANGE);
+      return result;
+    }
   }
 
   uint64_t out_exp = a_exp;
@@ -199,6 +207,7 @@ LIBC_INLINE T hypot(T x, T y) {
       sum >>= 2;
       ++out_exp;
       if (out_exp >= FPBits_t::MAX_BIASED_EXPONENT) {
+        fputil::set_errno_if_required(ERANGE);
         fputil::raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
 #ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
         if (int round_mode = quick_get_round();
@@ -257,6 +266,7 @@ LIBC_INLINE T hypot(T x, T y) {
     y_new -= ONE >> 1;
     ++out_exp;
     if (out_exp >= FPBits_t::MAX_BIASED_EXPONENT) {
+      fputil::set_errno_if_required(ERANGE);
       fputil::raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
       return FPBits_t::inf().get_val();
     }
@@ -280,6 +290,7 @@ LIBC_INLINE T hypot(T x, T y) {
     y_new -= ONE >> 1;
     ++out_exp;
     if (out_exp >= FPBits_t::MAX_BIASED_EXPONENT) {
+      fputil::set_errno_if_required(ERANGE);
       fputil::raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
       if (round_mode == FE_TONEAREST || round_mode == FE_UPWARD)
         return FPBits_t::inf().get_val();

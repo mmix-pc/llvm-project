@@ -12,6 +12,14 @@
 
 using LlvmLibcHypotfTest = HypotTestTemplate<float>;
 
+TEST_F(LlvmLibcHypotfTest, LargeFiniteFlags) {
+  test_large_finite_flags(&LIBC_NAMESPACE::hypotf, 0x1p125f);
+}
+
+TEST_F(LlvmLibcHypotfTest, OverflowReporting) {
+  test_overflow(&LIBC_NAMESPACE::hypotf);
+}
+
 TEST_F(LlvmLibcHypotfTest, SpecialNumbers) {
   test_special_numbers(&LIBC_NAMESPACE::hypotf);
 }

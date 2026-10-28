@@ -146,6 +146,11 @@ LIBC_INLINE double hypot(double x, double y) {
       return y;
     }
 
+    // Only the largest binade can overflow. Use the exact significand path
+    // there so endpoint rounding and errno share the same range decision.
+    if (a_e >= ((1023U + FPBits::EXP_BIAS) << (32 - 11)))
+      return fputil::hypot(x, y);
+
     // Check the exponent gap here so that all the follow up pre-scaling and
     // overflow check won't generate spurious underflow exceptions.
     if (LIBC_UNLIKELY(a_e - b_e >= (54U << (32 - 11)))) {
@@ -158,23 +163,6 @@ LIBC_INLINE double hypot(double x, double y) {
     scale_back = 0x1.0p600;
     a *= scale;
     b *= scale;
-    // Check for overflow to raise the exception correctly.
-#if !defined(LIBC_MATH_HAS_NO_EXCEPT)
-    // No overflow when calculating a^2 + b^2.
-    double asq = a * a;
-    double bsq = b * b;
-    double sumsq = asq + bsq;
-    // Overflow happens when:
-    //   2^600 * sqrt(a^2 + b^2) >= 2^1023 * (2 - 2^-53)
-    // Which is equivalent to:
-    //   sqrt(a^2 + b^2) >= 2^424 * (1 - 2^-54).
-    // Square both sides:
-    //   a^2 + b^2 >= 2^848 * (1 - 2^-53 + 2^-108).
-    // For a fast sufficient condition that can be done in double precision:
-    //   a^2 + b^2 >= 2^848.
-    if (sumsq >= 0x1.0p848)
-      return sumsq * scale_back;
-#endif // !LIBC_MATH_HAS_NO_EXCEPT
   } else if (LIBC_UNLIKELY(b_e <= ((FPBits::EXP_BIAS - 400) << (32 - 11)))) {
     // The smaller magnitude is below 2^-400 (or 0), need to scale up to prevent
     // underflow when squaring.
