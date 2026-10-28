@@ -130,5 +130,40 @@ TEST(LlvmLibcTableTest, Insertion) {
   HashTable::deallocate(table);
 }
 
+TEST(LlvmLibcTableTest, CollidingProbeStarts) {
+  constexpr size_t COUNT = sizeof(Group) + 2;
+  char keys[COUNT][5]{};
+  HashTable *table = HashTable::allocate(COUNT + 1, 0x12345678);
+  ASSERT_NE(table, static_cast<HashTable *>(nullptr));
+  size_t found = 0;
+  // Fixed seed and bounded enumeration make the shared probe start explicit.
+  for (unsigned candidate = 0; candidate < 65536 && found < COUNT;
+       ++candidate) {
+    unsigned value = candidate;
+    for (unsigned digit = 0; digit < 4; ++digit) {
+      keys[found][digit] = static_cast<char>('a' + value % 26);
+      value /= 26;
+    }
+    HashState hash = table->state;
+    hash.update(keys[found], 4);
+    if ((hash.finish() & table->entries_mask) == 0)
+      ++found;
+  }
+  ASSERT_EQ(found, COUNT);
+  for (size_t i = 0; i < COUNT; ++i)
+    ASSERT_NE(HashTable::insert(table, {keys[i], keys[i]}),
+              static_cast<ENTRY *>(nullptr));
+  for (size_t i = 0; i < COUNT; ++i) {
+    ENTRY *entry = table->find(keys[i]);
+    ASSERT_NE(entry, static_cast<ENTRY *>(nullptr));
+    EXPECT_EQ(entry->key, keys[i]);
+    EXPECT_EQ(entry->data, static_cast<void *>(keys[i]));
+    EXPECT_EQ(HashTable::insert(table, {keys[i], nullptr}), entry);
+    EXPECT_EQ(entry->data, static_cast<void *>(keys[i]));
+  }
+  EXPECT_EQ(table->find("missing"), static_cast<ENTRY *>(nullptr));
+  HashTable::deallocate(table);
+}
+
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
