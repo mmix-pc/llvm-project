@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_TEST_SRC_MATH_LDEXPTEST_H
 #define LLVM_LIBC_TEST_SRC_MATH_LDEXPTEST_H
 
+#include "hdr/errno_macros.h"
+#include "hdr/math_macros.h"
 #include "hdr/stdint_proxy.h"
 #include "src/__support/CPP/algorithm.h" // cpp::min
 #include "src/__support/CPP/limits.h"    // INT_MAX
@@ -78,6 +80,57 @@ public:
     for (int32_t exp = 10; exp < 100; ++exp) {
       ASSERT_FP_EQ(inf, func(T(x), exp));
       ASSERT_FP_EQ(neg_inf, func(-T(x), exp));
+    }
+  }
+
+  void testOverflowReporting(LdExpFunc func) {
+    using namespace LIBC_NAMESPACE::fputil::testing;
+    constexpr U limit = FPBits::MAX_BIASED_EXPONENT + FPBits::FRACTION_LEN + 1;
+    const U exponents[] = {limit, U(limit + 1),
+                           LIBC_NAMESPACE::cpp::numeric_limits<U>::max()};
+    const RoundingMode modes[] = {RoundingMode::Nearest,
+#ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
+                                  RoundingMode::Upward, RoundingMode::Downward,
+                                  RoundingMode::TowardZero
+#endif
+    };
+    const Sign signs[] = {Sign::POS, Sign::NEG};
+    for (auto mode : modes) {
+      ForceRoundingMode rounding(mode);
+      if (!rounding.success)
+        continue;
+      for (Sign sign : signs) {
+        bool finite = mode == RoundingMode::TowardZero ||
+                      (sign == Sign::POS && mode == RoundingMode::Downward) ||
+                      (sign == Sign::NEG && mode == RoundingMode::Upward);
+        T expected = finite ? FPBits::max_normal(sign).get_val()
+                            : FPBits::inf(sign).get_val();
+        for (U exp : exponents) {
+          LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+          LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+          libc_errno = 0;
+          T result = func(sign == Sign::POS ? T(1) : T(-1), exp);
+          int flags = LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT);
+          EXPECT_MATH_ERRNO(ERANGE);
+          EXPECT_FP_EQ(expected, result);
+          if (math_errhandling & MATH_ERREXCEPT)
+            EXPECT_EQ(FE_INVALID | FE_OVERFLOW,
+                      flags & (FE_INVALID | FE_OVERFLOW));
+          EXPECT_EQ(0, flags & (FE_DIVBYZERO | FE_UNDERFLOW));
+        }
+      }
+
+      const T controls[] = {zero, neg_zero, inf, neg_inf, nan};
+      for (T x : controls) {
+        LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+        LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+        libc_errno = EDOM;
+        T result = func(x, exponents[2]);
+        int flags = LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT);
+        EXPECT_MATH_ERRNO(EDOM);
+        EXPECT_EQ(FE_INVALID, flags);
+        EXPECT_FP_EQ(x, result);
+      }
     }
   }
 
@@ -172,6 +225,9 @@ public:
   TEST_F(LlvmLibcLdExpTest, SpecialNumbers) { testSpecialNumbers(&func); }     \
   TEST_F(LlvmLibcLdExpTest, PowersOfTwo) { testPowersOfTwo(&func); }           \
   TEST_F(LlvmLibcLdExpTest, OverFlow) { testOverflow(&func); }                 \
+  TEST_F(LlvmLibcLdExpTest, OverflowReporting) {                              \
+    testOverflowReporting(&func);                                            \
+  }                                                                            \
   TEST_F(LlvmLibcLdExpTest, UnderflowToZeroOnNormal) {                         \
     testUnderflowToZeroOnNormal(&func);                                        \
   }                                                                            \

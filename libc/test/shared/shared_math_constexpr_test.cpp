@@ -9,6 +9,7 @@
 #define LIBC_ENABLE_CONSTEXPR 1
 
 #include "shared/math.h"
+#include "src/__support/CPP/limits.h"
 #include "src/__support/FPUtil/float128.h"
 #include "test/UnitTest/Test.h"
 
@@ -72,6 +73,13 @@ static_assert(0.0 == [] {
 static_assert(0.0 == LIBC_NAMESPACE::shared::ldexp(0.0, 0.0));
 static_assert(0.0 == LIBC_NAMESPACE::shared::scalbln(0.0, 0.0));
 static_assert(0.0 == LIBC_NAMESPACE::shared::scalbn(0.0, 0.0));
+static_assert(LIBC_NAMESPACE::shared::ldexp(1.0, INT_MAX) ==
+              LIBC_NAMESPACE::fputil::FPBits<double>::inf().get_val());
+static_assert(LIBC_NAMESPACE::shared::scalbn(-1.0, INT_MAX) ==
+              LIBC_NAMESPACE::fputil::FPBits<double>::inf(LIBC_NAMESPACE::Sign::NEG)
+                  .get_val());
+static_assert(LIBC_NAMESPACE::shared::scalbln(1.0, LONG_MAX) ==
+              LIBC_NAMESPACE::fputil::FPBits<double>::inf().get_val());
 static_assert(0 == [] {
   double setpayload_x = 0.0;
   return LIBC_NAMESPACE::shared::setpayload(&setpayload_x, 0.0);

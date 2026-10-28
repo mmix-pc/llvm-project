@@ -172,6 +172,8 @@ ldexp(T x, U exp) {
 
   if (LIBC_UNLIKELY(exp > EXP_LIMIT)) {
     Sign sign = bits.sign();
+    set_errno_if_required(ERANGE);
+    raise_except_if_required(FE_OVERFLOW);
 #ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
     int rounding_mode = quick_get_round();
 
@@ -181,8 +183,6 @@ ldexp(T x, U exp) {
       return FPBits<T>::max_normal(sign).get_val();
 #endif
 
-    set_errno_if_required(ERANGE);
-    raise_except_if_required(FE_OVERFLOW);
     return FPBits<T>::inf(sign).get_val();
   }
 

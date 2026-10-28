@@ -17,6 +17,9 @@
   TEST_F(LlvmLibcScalbnTest, SpecialNumbers) { testSpecialNumbers(&func); }    \
   TEST_F(LlvmLibcScalbnTest, PowersOfTwo) { testPowersOfTwo(&func); }          \
   TEST_F(LlvmLibcScalbnTest, OverFlow) { testOverflow(&func); }                \
+  TEST_F(LlvmLibcScalbnTest, OverflowReporting) {                             \
+    testOverflowReporting(&func);                                            \
+  }                                                                            \
   TEST_F(LlvmLibcScalbnTest, UnderflowToZeroOnNormal) {                        \
     testUnderflowToZeroOnNormal(&func);                                        \
   }                                                                            \
