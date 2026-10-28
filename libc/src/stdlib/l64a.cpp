@@ -16,9 +16,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-// the standard says to only use up to 6 characters. Null terminator is
-// unnecessary, but we'll add it for ease-of-use. Also going from 48 -> 56 bits
-// probably won't matter since it's likely 32-bit aligned anyways.
+// Six radix-64 digits suffice for the low 32 bits, followed by a terminator.
 constexpr size_t MAX_BASE64_LENGTH = 6;
 LIBC_THREAD_LOCAL char BASE64_BUFFER[MAX_BASE64_LENGTH + 1];
 
@@ -48,13 +46,14 @@ LLVM_LIBC_FUNCTION(char *, l64a, (long value)) {
   // The standard says negative values are undefined, so I'm just defining them
   // to be treated as unsigned.
   uint32_t cur_value = static_cast<uint32_t>(value);
-  for (size_t i = 0; i < MAX_BASE64_LENGTH; ++i) {
+  size_t i = 0;
+  for (; cur_value != 0; ++i) {
     uint32_t cur_char = cur_value % 64;
     BASE64_BUFFER[i] = b64_int_to_char(cur_char);
     cur_value /= 64;
   }
 
-  BASE64_BUFFER[MAX_BASE64_LENGTH] = '\0'; // force null termination.
+  BASE64_BUFFER[i] = '\0';
   return BASE64_BUFFER;
 }
 
