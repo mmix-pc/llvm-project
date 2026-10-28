@@ -13,3 +13,10 @@ add_libc_test(
   SRCS hash_page_test.cpp
   DEPENDS libc.src.ndbm.hash_page
 )
+
+add_libc_test(
+  hash_io_test
+  SUITE libc-ndbm-tests
+  SRCS hash_io_test.cpp
+  DEPENDS libc.src.ndbm.hash_io libc.src.ndbm.hash_page
+)

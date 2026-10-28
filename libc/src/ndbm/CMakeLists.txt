@@ -14,3 +14,13 @@ add_object_library(
     libc.src.string.memory_utils.inline_memcpy
     libc.src.string.memory_utils.inline_memmove
 )
+
+add_object_library(
+  hash_io
+  SRCS hash_io.cpp
+  HDRS hash_io.h
+  DEPENDS .hash_validation
+    libc.hdr.errno_macros
+    libc.src.__support.error_or
+    libc.src.string.memory_utils.inline_memcpy
+)
