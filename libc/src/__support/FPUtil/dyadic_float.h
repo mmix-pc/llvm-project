@@ -206,7 +206,9 @@ template <size_t Bits> struct DyadicFloat {
 #ifdef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
       return FPBits::inf(sign).get_val();
 #else  // !LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
-      switch (quick_get_round()) {
+      // Arithmetic rounding probes would raise FE_INEXACT even when this
+      // conversion is not meant to signal exceptions.
+      switch (cpp::is_constant_evaluated() ? FE_TONEAREST : get_round()) {
       case FE_TONEAREST:
         return FPBits::inf(sign).get_val();
       case FE_TOWARDZERO:
@@ -271,7 +273,8 @@ template <size_t Bits> struct DyadicFloat {
     if (round && (lsb || sticky))
       ++result;
 #else
-    switch (quick_get_round()) {
+    // Exact conversions must not acquire flags just from querying the mode.
+    switch (cpp::is_constant_evaluated() ? FE_TONEAREST : get_round()) {
     case FE_TONEAREST:
       if (round && (lsb || sticky))
         ++result;

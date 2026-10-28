@@ -101,7 +101,8 @@ add_or_sub(InType x, InType y) {
 #ifdef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
         return OutFPBits::zero(Sign::POS).get_val();
 #else
-        switch (fputil::quick_get_round()) {
+        // Determining the zero sign must not raise FE_INEXACT.
+        switch (cpp::is_constant_evaluated() ? FE_TONEAREST : get_round()) {
         case FE_DOWNWARD:
           return OutFPBits::zero(Sign::NEG).get_val();
         default:
@@ -145,7 +146,8 @@ add_or_sub(InType x, InType y) {
 #ifdef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
     return OutFPBits::zero(Sign::POS).get_val();
 #else
-    switch (fputil::quick_get_round()) {
+    // Cancellation is exact, including its rounding-dependent zero sign.
+    switch (cpp::is_constant_evaluated() ? FE_TONEAREST : get_round()) {
     case FE_DOWNWARD:
       return OutFPBits::zero(Sign::NEG).get_val();
     default:
