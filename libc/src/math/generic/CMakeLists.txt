@@ -1,4 +1,10 @@
 
+set(signgam_deps)
+set(signgam_options)
+if("signgam" IN_LIST TARGET_ENTRYPOINT_NAME_LIST)
+  list(APPEND signgam_deps libc.src.math.signgam)
+  list(APPEND signgam_options -DLIBC_MATH_HAS_SIGNGAM)
+endif()
 
 add_entrypoint_object(
   canonicalize
@@ -1611,7 +1617,9 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.macros.config
     libc.src.__support.math.lgammaf
+    ${signgam_deps}
     libc.src.errno.errno
+  COMPILE_OPTIONS ${signgam_options}
 )
 
 add_entrypoint_object(
@@ -5088,11 +5096,18 @@ foreach(name lgamma lgamma_r tgamma tgammaf)
   if(name STREQUAL "lgamma_r")
     set(support lgamma)
   endif()
+  set(extra_deps)
+  set(extra_options)
+  if(name STREQUAL "lgamma")
+    set(extra_deps ${signgam_deps})
+    set(extra_options ${signgam_options})
+  endif()
   add_entrypoint_object(
     ${name}
     SRCS ${name}.cpp
     HDRS ../${name}.h
-    DEPENDS libc.src.__support.math.${support}
+    DEPENDS libc.src.__support.math.${support} ${extra_deps}
+    COMPILE_OPTIONS ${extra_options}
   )
 endforeach()
 

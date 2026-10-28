@@ -1,3 +1,10 @@
+add_entrypoint_object(
+  signgam
+  SRCS signgam.cpp
+  HDRS signgam.h
+  DEPENDS libc.src.__support.common
+)
+
 add_subdirectory(generic)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_ARCHITECTURE})
   add_subdirectory(${LIBC_TARGET_ARCHITECTURE})

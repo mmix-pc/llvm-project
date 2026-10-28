@@ -3924,6 +3924,23 @@ add_fp_unittest(
 
 add_subdirectory(smoke)
 
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
+    signgam_state_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-math-unittests
+    SRCS signgam_state_test.cpp
+      ${LIBC_SOURCE_DIR}/src/math/signgam.cpp
+      ${LIBC_SOURCE_DIR}/src/math/generic/lgamma.cpp
+      ${LIBC_SOURCE_DIR}/src/math/generic/lgammaf.cpp
+      ${LIBC_SOURCE_DIR}/src/math/generic/lgamma_r.cpp
+    DEPENDS libc.src.__support.math.lgamma
+      libc.src.__support.math.lgammaf
+      libc.src.__support.common
+    COMPILE_OPTIONS -DLIBC_MATH_HAS_SIGNGAM
+  )
+endif()
+
 if(NOT LLVM_LIBC_FULL_BUILD)
   add_subdirectory(exhaustive)
   add_subdirectory(performance_testing)

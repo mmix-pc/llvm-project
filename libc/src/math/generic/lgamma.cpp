@@ -10,9 +10,18 @@
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/math/lgamma.h"
+#ifdef LIBC_MATH_HAS_SIGNGAM
+#include "src/math/signgam.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(double, lgamma, (double x)) { return math::lgamma(x); }
+LLVM_LIBC_FUNCTION(double, lgamma, (double x)) {
+#ifdef LIBC_MATH_HAS_SIGNGAM
+  return math::lgamma_r(x, &signgam);
+#else
+  return math::lgamma(x);
+#endif
+}
 
 } // namespace LIBC_NAMESPACE_DECL
