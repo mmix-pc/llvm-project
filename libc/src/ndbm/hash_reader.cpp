@@ -23,6 +23,11 @@ ErrorOr<bool> HashChainReader::fail(int error) {
 }
 
 ErrorOr<size_t> HashChainReader::begin(uint32_t selected) {
+  return begin_bucket(selected, true);
+}
+
+ErrorOr<size_t> HashChainReader::begin_bucket(uint32_t selected,
+                                             bool reset_visited) {
   loaded = false;
   finished = true;
   failure = 0;
@@ -39,11 +44,83 @@ ErrorOr<size_t> HashChainReader::begin(uint32_t selected) {
     failure = EIO;
     return Error(failure);
   }
-  for (auto &byte : visited)
-    byte = 0;
+  if (reset_visited)
+    for (auto &byte : visited)
+      byte = 0;
   bucket = selected;
   finished = false;
   return size_t{0};
+}
+
+ErrorOr<size_t> HashChainReader::validate_file() {
+  auto started = begin(header.max_bucket);
+  if (!started)
+    return Error(started.error());
+  // Fail closed even if validation stops before traversing the first bucket.
+  finished = true;
+  auto reject = [this](int error) -> ErrorOr<size_t> {
+    failure = error;
+    return Error(error);
+  };
+  if (file_size % HASH_PAGE_SIZE)
+    return reject(EIO);
+  const uint32_t total = header.spares[header.overflow_point];
+  const uint32_t maps = (total + HASH_PAGE_SIZE * 8 - 1) / (HASH_PAGE_SIZE * 8);
+  for (uint32_t i = 0; i < maps; ++i) {
+    uint16_t address = header.bitmaps[i];
+    visited[address / 8] |= static_cast<unsigned char>(1U << (address % 8));
+  }
+  size_t count = 0;
+  for (uint32_t selected = 0; selected <= header.max_bucket; ++selected) {
+    auto start = begin_bucket(selected, false);
+    if (!start)
+      return Error(start.error());
+    HashRecord entry{};
+    for (;;) {
+      auto result = next(entry);
+      if (!result)
+        return Error(result.error());
+      if (!*result)
+        break;
+      if (++count > header.keys)
+        return reject(EINVAL);
+    }
+  }
+  if (count != header.keys)
+    return reject(EINVAL);
+
+  // Compare every allocated logical page with its unique owner, including the
+  // bitmap pages themselves. Unused tail bits are reserved by the BSD format.
+  uint32_t bit = 0, split = 0;
+  for (uint32_t i = 0; i < maps; ++i) {
+    uint32_t bitmap_page;
+    if (!hash_overflow_page(header, header.bitmaps[i], bitmap_page))
+      return reject(EINVAL);
+    if (!page_exists(bitmap_page))
+      return reject(EIO);
+    auto read = read_hash_block(io, page, sizeof(page),
+                               uint64_t(bitmap_page) * HASH_PAGE_SIZE);
+    if (!read)
+      return reject(read.error());
+    for (uint32_t local = 0; local < HASH_PAGE_SIZE * 8 && bit < total;
+         ++local, ++bit) {
+      while (bit >= header.spares[split])
+        ++split;
+      uint32_t previous = split ? header.spares[split - 1] : 0;
+      uint16_t address =
+          static_cast<uint16_t>((split << 11) | (bit - previous + 1));
+      uint32_t word = 0;
+      for (unsigned byte = 0; byte < 4; ++byte)
+        word =
+            (word << 8) | page[(local / 32) * 4 +
+                               (header.byte_order == 4321 ? byte : 3 - byte)];
+      bool allocated = (word & (uint32_t{1} << (local % 32))) != 0;
+      bool owned = (visited[address / 8] & (1U << (address % 8))) != 0;
+      if (allocated != owned)
+        return reject(EINVAL);
+    }
+  }
+  return count;
 }
 
 ErrorOr<size_t> HashChainReader::check_overflow(uint16_t address) {

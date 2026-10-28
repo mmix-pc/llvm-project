@@ -34,6 +34,7 @@ class HashChainReader {
   bool page_exists(uint32_t number) const;
   ErrorOr<size_t> check_overflow(uint16_t address);
   ErrorOr<size_t> load_page(bool primary);
+  ErrorOr<size_t> begin_bucket(uint32_t selected, bool reset_visited);
   ErrorOr<bool> fail(int error);
 
 public:
@@ -43,6 +44,10 @@ public:
   HashChainReader &operator=(const HashChainReader &) = delete;
 
   ErrorOr<size_t> begin(uint32_t bucket);
+  // Validate all chains, allocation ownership and the header's record count.
+  // This does not establish key uniqueness or transaction/crash consistency.
+  // No record escapes before the complete traversal succeeds.
+  ErrorOr<size_t> validate_file();
   // A true result borrows page storage until the next cursor operation.
   // End/error clears out; an error remains sticky until begin is called again.
   ErrorOr<bool> next(HashRecord &out);

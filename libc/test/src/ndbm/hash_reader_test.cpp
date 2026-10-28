@@ -372,3 +372,121 @@ TEST(LlvmLibcHashReaderTest, BitmapWordAndPageSelection) {
     }
   }
 }
+
+TEST(LlvmLibcHashReaderTest, ValidateWholeFileBothOrders) {
+  const bool orders[] = {false, true};
+  for (bool be : orders) {
+    Storage storage;
+    storage.initialize(be);
+    auto header = make_header(be);
+    db::HashChainReader reader(storage.io(), header, storage.length);
+    auto result = reader.validate_file();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, size_t{3});
+    db::HashRecord record{};
+    EXPECT_FALSE(*reader.next(record));
+    // Validation does not prevent restarting an ordinary bucket traversal.
+    ASSERT_TRUE(reader.begin(0).has_value());
+    EXPECT_TRUE(*reader.next(record));
+    EXPECT_TRUE(reader.validate_file().has_value());
+  }
+}
+
+TEST(LlvmLibcHashReaderTest, RejectSharedOverflowEvenWithoutRecords) {
+  Storage storage;
+  storage.initialize(true, false);
+  ASSERT_TRUE(db::set_hash_overflow(storage.pages[2], db::HASH_PAGE_SIZE, true,
+                                    2050) == db::HashPageResult::Success);
+  auto header = make_header(true);
+  header.keys = 0;
+  db::HashChainReader reader(storage.io(), header, storage.length);
+  auto result = reader.validate_file();
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), EINVAL);
+  // Each chain is valid separately, but the second chain has no unique owner.
+  ASSERT_TRUE(reader.begin(1).has_value());
+  db::HashRecord record{};
+  EXPECT_FALSE(*reader.next(record));
+}
+
+TEST(LlvmLibcHashReaderTest, RejectOrphanAndUnallocatedBitmap) {
+  const bool orders[] = {false, true};
+  for (bool be : orders) {
+    Storage storage;
+    storage.initialize(be, false);
+    ASSERT_TRUE(
+        db::initialize_hash_page(storage.pages[4], db::HASH_PAGE_SIZE, be));
+    auto header = make_header(be);
+    header.keys = 0;
+    db::HashChainReader reader(storage.io(), header, storage.length);
+    auto result = reader.validate_file();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), EINVAL); // Allocated 2051 has no chain owner.
+    storage.bitmap(3, be);
+    ASSERT_TRUE(reader.validate_file().has_value());
+    storage.bitmap(2, be);
+    result = reader.validate_file();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(),
+              EINVAL); // Bitmap's own allocation bit is missing.
+    db::HashRecord record{};
+    result = reader.validate_file();
+    EXPECT_FALSE(result.has_value());
+    size_t calls = storage.calls;
+    auto next = reader.next(record);
+    ASSERT_FALSE(next.has_value());
+    EXPECT_EQ(next.error(), EINVAL);
+    EXPECT_EQ(storage.calls, calls);
+  }
+}
+
+TEST(LlvmLibcHashReaderTest, RejectRecordCountMismatch) {
+  const uint32_t counts[] = {2, 4};
+  for (uint32_t count : counts) {
+    Storage storage;
+    storage.initialize(true);
+    auto header = make_header(true);
+    header.keys = count;
+    db::HashChainReader reader(storage.io(), header, storage.length);
+    auto result = reader.validate_file();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), EINVAL);
+  }
+}
+
+TEST(LlvmLibcHashReaderTest, WholeFileBitmapFailureAndReservedBits) {
+  Storage storage;
+  storage.initialize(true, false);
+  ASSERT_TRUE(
+      db::initialize_hash_page(storage.pages[1], db::HASH_PAGE_SIZE, true));
+  auto header = make_header(true);
+  header.keys = 0;
+  storage.bitmap(0xfffffff9,
+                 true); // Only the bitmap is owned; tail is reserved.
+  db::HashChainReader reader(storage.io(), header, storage.length);
+  ASSERT_TRUE(reader.validate_file().has_value());
+  storage.error_offset = 3 * db::HASH_PAGE_SIZE;
+  auto result = reader.validate_file();
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), EINTR);
+  storage.error_offset = uint64_t(-1);
+  storage.length = 3 * db::HASH_PAGE_SIZE + 4;
+  result = reader.validate_file();
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(),
+            EIO); // A present first word is not a complete bitmap.
+}
+
+TEST(LlvmLibcHashReaderTest, WholeFileExtentBeforeTraversal) {
+  Storage storage;
+  auto header = make_header(true);
+  header.keys = 0;
+  const size_t lengths[] = {db::HASH_PAGE_SIZE, sizeof(storage.pages) - 1};
+  for (size_t length : lengths) {
+    db::HashChainReader reader(storage.io(), header, length);
+    auto result = reader.validate_file();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), EIO);
+    EXPECT_EQ(storage.calls, size_t{0});
+  }
+}
