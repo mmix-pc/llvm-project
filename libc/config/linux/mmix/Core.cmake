@@ -5,6 +5,9 @@ if(NOT LIBC_MMIX_BUILD_CORE)
 endif()
 
 set(MMIX_CORE_ENTRYPOINTS
+  libc.src.search.hcreate
+  libc.src.search.hdestroy
+  libc.src.search.hsearch
   libc.src.search.lfind
   libc.src.search.lsearch
   libc.src.search.tsearch
@@ -49,6 +52,8 @@ set(MMIX_CORE_ENTRYPOINTS
   libc.src.unistd.swab
   libc.src.unistd.getentropy
   libc.src.stdlib.abs
+  libc.src.stdlib.a64l
+  libc.src.stdlib.l64a
   libc.src.stdlib.labs
   libc.src.stdlib.llabs
   libc.src.stdlib.div
@@ -71,6 +76,19 @@ set(MMIX_CORE_ENTRYPOINTS
   libc.src.stdlib.qsort_r
   libc.src.stdlib.rand
   libc.src.stdlib.srand
+  libc.src.stdlib.drand48
+  libc.src.stdlib.erand48
+  libc.src.stdlib.lrand48
+  libc.src.stdlib.nrand48
+  libc.src.stdlib.mrand48
+  libc.src.stdlib.jrand48
+  libc.src.stdlib.srand48
+  libc.src.stdlib.seed48
+  libc.src.stdlib.lcong48
+  libc.src.stdlib.random
+  libc.src.stdlib.srandom
+  libc.src.stdlib.initstate
+  libc.src.stdlib.setstate
   libc.src.inttypes.imaxabs
   libc.src.inttypes.imaxdiv
   libc.src.inttypes.strtoimax

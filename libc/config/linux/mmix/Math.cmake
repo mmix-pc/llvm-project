@@ -3,6 +3,10 @@ if(NOT LIBC_MMIX_BUILD_MATH)
   return()
 endif()
 
+list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.math.signgam
+  libc.src.math.j0 libc.src.math.j1 libc.src.math.y0 libc.src.math.y1)
+
 foreach(name
     acos asin atan atan2 cos sin tan acosh asinh atanh cosh sinh tanh
     exp exp2 expm1 frexp ilogb ldexp log log10 log1p log2 logb modf scalbn scalbln

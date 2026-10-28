@@ -37,6 +37,10 @@ bool try_lock_domain_bindings_for_fork() __attribute__((weak));
 void unlock_domain_bindings_after_fork() __attribute__((weak));
 bool try_lock_message_results_for_fork() __attribute__((weak));
 void unlock_message_results_after_fork() __attribute__((weak));
+bool try_lock_random48_for_fork() __attribute__((weak));
+void unlock_random48_after_fork() __attribute__((weak));
+bool try_lock_random_for_fork() __attribute__((weak));
+void unlock_random_after_fork() __attribute__((weak));
 } // namespace internal
 namespace mmix {
 extern Mutex quick_exit_mutex __attribute__((weak));
@@ -150,6 +154,16 @@ int ForkOperation::prepare_runtime() {
       return EAGAIN;
     message_results = true;
   }
+  if (internal::try_lock_random48_for_fork) {
+    if (!internal::try_lock_random48_for_fork())
+      return EAGAIN;
+    random48_locked = true;
+  }
+  if (internal::try_lock_random_for_fork) {
+    if (!internal::try_lock_random_for_fork())
+      return EAGAIN;
+    random_locked = true;
+  }
   allocator_fork_prepare();
   allocator = true;
   return 0;
@@ -187,6 +201,14 @@ void ForkOperation::restore_runtime(bool child) {
   if (allocator) {
     allocator_fork_release();
     allocator = false;
+  }
+  if (random_locked) {
+    internal::unlock_random_after_fork();
+    random_locked = false;
+  }
+  if (random48_locked) {
+    internal::unlock_random48_after_fork();
+    random48_locked = false;
   }
   if (message_results) {
     internal::unlock_message_results_after_fork();

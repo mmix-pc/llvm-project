@@ -21,6 +21,8 @@ class ForkOperation {
   bool credentials = false;
   bool exit_callbacks = false, quick_callbacks = false;
   bool message_bindings = false, message_results = false;
+  bool random48_locked = false;
+  bool random_locked = false;
   internal::ForkRecovery child_recovery = internal::ForkRecovery::child();
 #ifdef LIBC_MMIX_SHARED_STARTUP
   bool loader_locked = false;
