@@ -803,8 +803,11 @@ LIBC_INLINE FloatConvertReturn<T> binary_exp_to_float(ExpandedFloat<T> init_num,
     biased_exponent = 0;
 
     if (amount_to_shift_right > FPBits::STORAGE_LEN) {
-      // Return 0 if the exponent is too small.
-      output.num = {0, 0};
+      // All stored bits are discarded, but a nonzero magnitude still rounds
+      // to the least subnormal when rounding away from zero.
+      output.num = {round == RoundDirection::Up ? StorageType(1)
+                                                : StorageType(0),
+                    0};
       output.error = ERANGE;
       return output;
     }
@@ -824,8 +827,6 @@ LIBC_INLINE FloatConvertReturn<T> binary_exp_to_float(ExpandedFloat<T> init_num,
   }
   bool least_significant_bit = static_cast<bool>(mantissa & StorageType(1));
 
-  // TODO: check that this rounding behavior is correct.
-
   if (round == RoundDirection::Nearest) {
     // Perform rounding-to-nearest, tie-to-even.
     if (round_bit && (least_significant_bit || sticky_bit)) {
@@ -835,11 +836,8 @@ LIBC_INLINE FloatConvertReturn<T> binary_exp_to_float(ExpandedFloat<T> init_num,
     if (round_bit || sticky_bit) {
       ++mantissa;
     }
-  } else /* (round == RoundDirection::Down)*/ {
-    if (round_bit && sticky_bit) {
-      ++mantissa;
-    }
   }
+  // RoundDirection::Down truncates the magnitude, regardless of discarded bits.
 
   if (mantissa > FPBits::FRACTION_MASK) {
     // Rounding causes the exponent to increase.

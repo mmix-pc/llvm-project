@@ -13,6 +13,46 @@ namespace LIBC_NAMESPACE_DECL {
 
 using LlvmLibcStrToFltTest = LlvmLibcStrToFloatTest<float>;
 
+template <typename T> static void check_binary_rounding() {
+  using Bits = fputil::FPBits<T>;
+  using UInt = typename Bits::StorageType;
+  using internal::RoundDirection;
+  const RoundDirection modes[] = {RoundDirection::Nearest, RoundDirection::Up,
+                                  RoundDirection::Down};
+  for (auto mode : modes) {
+    // 1 + 3/4 ulp: rounding toward zero must not round up.
+    UInt input = (UInt(1) << (Bits::FRACTION_LEN + 3)) + UInt(6);
+    auto normal = internal::binary_exp_to_float<T>(
+        {input, -int32_t(Bits::FRACTION_LEN + 3)}, false, mode);
+    EXPECT_EQ(normal.num.mantissa,
+              mode == RoundDirection::Down ? UInt(0) : UInt(1));
+    EXPECT_EQ(normal.num.exponent, int32_t(Bits::EXP_BIAS));
+    EXPECT_EQ(normal.error, 0);
+
+    auto tiny = internal::binary_exp_to_float<T>(
+        {UInt(1), -int32_t(Bits::EXP_BIAS + Bits::FRACTION_LEN + 100)},
+        false, mode);
+    EXPECT_EQ(tiny.num.mantissa,
+              mode == RoundDirection::Up ? UInt(1) : UInt(0));
+    EXPECT_EQ(tiny.num.exponent, 0);
+    EXPECT_EQ(tiny.error, ERANGE);
+
+    auto tie = internal::binary_exp_to_float<T>(
+        {UInt(1), -int32_t(Bits::EXP_BIAS + Bits::FRACTION_LEN)}, false,
+        mode);
+    EXPECT_EQ(tie.num.mantissa,
+              mode == RoundDirection::Up ? UInt(1) : UInt(0));
+    EXPECT_EQ(tie.num.exponent, 0);
+    EXPECT_EQ(tie.error, ERANGE);
+  }
+}
+
+TEST(LlvmLibcStrToFltTest, BinaryDirectedRoundingAllPrecisions) {
+  check_binary_rounding<float>();
+  check_binary_rounding<double>();
+  check_binary_rounding<long double>();
+}
+
 TEST_F(LlvmLibcStrToFltTest, ClingerFastPathFloat32Simple) {
   clinger_fast_path_test(123, 0, 0xf60000, 133);
   clinger_fast_path_test(1234567, 1, 0xbc6146, 150);
