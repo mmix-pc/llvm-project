@@ -35,6 +35,13 @@ add_libc_test(
   DEPENDS libc.src.ndbm.hash_growth
 )
 
+add_libc_test(
+  hash_overflow_test
+  SUITE libc-ndbm-tests
+  SRCS hash_overflow_test.cpp
+  DEPENDS libc.src.ndbm.hash_overflow
+)
+
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
     hash_database_test

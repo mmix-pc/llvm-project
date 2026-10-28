@@ -58,3 +58,9 @@ add_object_library(
     libc.src.string.memory_utils.inline_memcpy
 )
 
+add_object_library(
+  hash_overflow
+  SRCS hash_overflow.cpp
+  HDRS hash_overflow.h
+  DEPENDS .hash_function .hash_io libc.hdr.errno_macros
+)
