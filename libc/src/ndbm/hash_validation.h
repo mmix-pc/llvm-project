@@ -39,6 +39,11 @@ struct HashHeader {
 bool decode_hash_header(const unsigned char *bytes, size_t size,
                         uint32_t expected_hash, HashHeader &out);
 
+// Reject invalid geometry before changing output; the header is big-endian
+// independently of the data-page byte order stored in it.
+bool encode_hash_header(const HashHeader &header, uint32_t expected_hash,
+                        unsigned char *bytes, size_t size);
+
 // Translate an allocated logical address using a decoded header. These do not
 // prove that a physical page exists in the file or belongs to a given chain.
 bool hash_bucket_page(const HashHeader &header, uint32_t bucket,

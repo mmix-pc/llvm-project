@@ -16,6 +16,10 @@ uint32_t word(const unsigned char *bytes, size_t index) {
   return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 |
          uint32_t(p[3]);
 }
+void put_word(unsigned char *bytes, size_t index, uint32_t value) {
+  for (unsigned i = 0; i < 4; ++i)
+    bytes[4 * index + i] = static_cast<unsigned char>(value >> (24 - 8 * i));
+}
 uint16_t half(const unsigned char *bytes, size_t index, bool big_endian) {
   const unsigned char *p = bytes + 2 * index;
   return big_endian ? uint16_t(uint16_t(p[0]) << 8 | p[1])
@@ -128,6 +132,43 @@ bool decode_hash_header(const unsigned char *bytes, size_t size,
         return false;
   }
   out = h;
+  return true;
+}
+
+bool encode_hash_header(const HashHeader &header, uint32_t expected_hash,
+                        unsigned char *bytes, size_t size) {
+  if (!bytes || size != HASH_HEADER_SIZE)
+    return false;
+  unsigned char encoded[HASH_HEADER_SIZE];
+  const uint32_t fields[] = {0x061561,
+                             2,
+                             header.byte_order,
+                             HASH_PAGE_SIZE,
+                             12,
+                             header.directory_size,
+                             256,
+                             8,
+                             header.overflow_point,
+                             header.last_freed,
+                             header.max_bucket,
+                             header.high_mask,
+                             header.low_mask,
+                             header.fill_factor,
+                             header.keys,
+                             1,
+                             expected_hash};
+  for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i)
+    put_word(encoded, i, fields[i]);
+  for (size_t i = 0; i < 32; ++i) {
+    put_word(encoded, 17 + i, header.spares[i]);
+    encoded[196 + 2 * i] = static_cast<unsigned char>(header.bitmaps[i] >> 8);
+    encoded[197 + 2 * i] = static_cast<unsigned char>(header.bitmaps[i]);
+  }
+  HashHeader checked{};
+  if (!decode_hash_header(encoded, sizeof(encoded), expected_hash, checked))
+    return false;
+  for (size_t i = 0; i < sizeof(encoded); ++i)
+    bytes[i] = encoded[i];
   return true;
 }
 

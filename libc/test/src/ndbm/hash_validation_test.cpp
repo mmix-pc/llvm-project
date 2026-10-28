@@ -93,6 +93,44 @@ TEST(LlvmLibcHashValidationTest, HeaderArithmeticAndFailureOwnership) {
   EXPECT_FALSE(db::decode_hash_header(bytes, sizeof(bytes), 123, decoded));
 }
 
+TEST(LlvmLibcHashValidationTest, EncodedHeaderBytesAndFailureOwnership) {
+  unsigned char reference[db::HASH_HEADER_SIZE];
+  unsigned char storage[db::HASH_HEADER_SIZE + 2];
+  const uint32_t orders[] = {1234, 4321};
+  for (uint32_t order : orders) {
+    header(reference);
+    word(reference, 2, order);
+    word(reference, 14, 0x123456);
+    db::HashHeader decoded{};
+    ASSERT_TRUE(
+        db::decode_hash_header(reference, sizeof(reference), 123, decoded));
+    for (auto &byte : storage)
+      byte = 0xa5;
+    ASSERT_TRUE(db::encode_hash_header(decoded, 123, storage + 1,
+                                       db::HASH_HEADER_SIZE));
+    EXPECT_EQ(storage[0], static_cast<unsigned char>(0xa5));
+    EXPECT_EQ(storage[sizeof(storage) - 1], static_cast<unsigned char>(0xa5));
+    for (size_t i = 0; i < sizeof(reference); ++i)
+      EXPECT_EQ(storage[1 + i], reference[i]);
+    // Persistent scalar fields remain big-endian for either page order.
+    EXPECT_EQ(storage[1 + 56], static_cast<unsigned char>(0));
+    EXPECT_EQ(storage[1 + 57], static_cast<unsigned char>(0x12));
+    EXPECT_EQ(storage[1 + 58], static_cast<unsigned char>(0x34));
+    EXPECT_EQ(storage[1 + 59], static_cast<unsigned char>(0x56));
+    EXPECT_EQ(storage[1 + 196], static_cast<unsigned char>(8));
+    EXPECT_EQ(storage[1 + 197], static_cast<unsigned char>(1));
+    for (size_t length = 0; length < db::HASH_HEADER_SIZE; ++length)
+      EXPECT_FALSE(db::encode_hash_header(decoded, 123, storage + 1, length));
+    EXPECT_FALSE(
+        db::encode_hash_header(decoded, 123, nullptr, db::HASH_HEADER_SIZE));
+    decoded.fill_factor = 0;
+    EXPECT_FALSE(db::encode_hash_header(decoded, 123, storage + 1,
+                                        db::HASH_HEADER_SIZE));
+    for (size_t i = 0; i < sizeof(reference); ++i)
+      EXPECT_EQ(storage[1 + i], reference[i]);
+  }
+}
+
 TEST(LlvmLibcHashValidationTest, EmptyAndOrdinaryPages) {
   const bool orders[] = {false, true};
   for (bool be : orders) {
