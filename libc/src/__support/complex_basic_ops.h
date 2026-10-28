@@ -28,7 +28,8 @@ template <typename T> LIBC_INLINE LIBC_BIT_CAST_CONSTEXPR T project(T c) {
       fputil::FPBits<real_t>(c_c.imag).is_inf())
     return cpp::bit_cast<T>(
         Complex<real_t>{(fputil::FPBits<real_t>::inf(Sign::POS).get_val()),
-                        static_cast<real_t>(c_c.imag > 0 ? 0.0 : -0.0)});
+                        fputil::FPBits<real_t>::zero(
+                            fputil::FPBits<real_t>(c_c.imag).sign()).get_val()});
   return c;
 }
 

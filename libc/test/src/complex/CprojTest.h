@@ -23,6 +23,25 @@ class CprojTest : public LIBC_NAMESPACE::testing::FEnvSafeTest {
 public:
   typedef CFPT (*CprojFunc)(CFPT);
 
+  void testProjectionSigns(CprojFunc func) {
+    const FPT real[] = {inf, neg_inf};
+    const FPT imaginary[] = {zero, neg_zero, aNaN, neg_aNaN,
+                             min_denormal, neg_min_denormal, inf, neg_inf};
+    const FPT expected[] = {zero, neg_zero, zero, neg_zero,
+                            zero, neg_zero, zero, neg_zero};
+    for (FPT re : real) {
+      for (unsigned i = 0; i < sizeof(imaginary) / sizeof(FPT); ++i) {
+        // Arithmetic construction can change zero signs or contaminate infinities.
+        CFPT input;
+        __real__ input = re;
+        __imag__ input = imaginary[i];
+        CFPT result = func(input);
+        EXPECT_FP_EQ(inf, __real__ result);
+        EXPECT_FP_EQ(expected[i], __imag__ result);
+      }
+    }
+  }
+
   void testSpecialNumbers(CprojFunc func) {
     EXPECT_CFP_EQ(func(CFPT(inf + 9024.2442i)), CFPT(inf + 0.0i));
     EXPECT_CFP_EQ(func(CFPT(inf - 9024.2442i)), CFPT(inf - 0.0i));
@@ -125,6 +144,7 @@ public:
 
 #define LIST_CPROJ_TESTS(U, T, func)                                           \
   using LlvmLibcCprojTest = CprojTest<U, T>;                                   \
+  TEST_F(LlvmLibcCprojTest, ProjectionSigns) { testProjectionSigns(&func); }   \
   TEST_F(LlvmLibcCprojTest, SpecialNumbers) { testSpecialNumbers(&func); }     \
   TEST_F(LlvmLibcCprojTest, RoundedNumbers) { testRoundedNumbers(&func); }
 
