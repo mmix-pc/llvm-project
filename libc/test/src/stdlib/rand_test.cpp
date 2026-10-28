@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/stdlib/rand.h"
+#include "src/stdlib/rand_util.h"
 #include "src/stdlib/srand.h"
 #include "test/UnitTest/Test.h"
 
@@ -48,4 +49,22 @@ TEST(LlvmLibcRandTest, SetSeed) {
     int val = LIBC_NAMESPACE::rand();
     EXPECT_EQ(results[i], val);
   }
+}
+
+TEST(LlvmLibcRandTest, ZeroSeedUsesNonzeroState) {
+  LIBC_NAMESPACE::srand(0);
+  EXPECT_EQ(
+      LIBC_NAMESPACE::rand_next.load(LIBC_NAMESPACE::cpp::MemoryOrder::RELAXED),
+      1UL);
+  int expected[16];
+  for (int &value : expected)
+    value = LIBC_NAMESPACE::rand();
+  LIBC_NAMESPACE::srand(1);
+  for (int value : expected)
+    EXPECT_EQ(LIBC_NAMESPACE::rand(), value);
+
+  LIBC_NAMESPACE::srand(12344321);
+  EXPECT_EQ(
+      LIBC_NAMESPACE::rand_next.load(LIBC_NAMESPACE::cpp::MemoryOrder::RELAXED),
+      12344321UL);
 }

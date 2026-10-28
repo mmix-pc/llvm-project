@@ -14,7 +14,8 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(void, srand, (unsigned int seed)) {
-  rand_next.store(seed, cpp::MemoryOrder::RELAXED);
+  // Zero is a fixed point of the xorshift transition.
+  rand_next.store(seed ? seed : 1, cpp::MemoryOrder::RELAXED);
 }
 
 } // namespace LIBC_NAMESPACE_DECL
