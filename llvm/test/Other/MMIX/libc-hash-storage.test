@@ -1,0 +1,33 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- probe.cpp
+#include "src/__support/HashTable/randomness.h"
+using namespace LIBC_NAMESPACE::internal::randomness;
+extern "C" void *state_address() { return &state; }
+extern "C" void *counter_address() { return &counter; }
+extern "C" uint64_t next_seed() { return next_random_seed(); }
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:])
+for mode in ("SINGLE", "PLATFORM"):
+    obj = root / (mode + ".o")
+    subprocess.run([
+        "clang", "--no-default-config", "--target=mmix-unknown-linux",
+        "-ffreestanding", "-std=c++17", "-O2", "-c", root / "probe.cpp",
+        "-I", libc, "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=hash_test",
+        "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_" + mode, "-o", obj,
+    ], check=True)
+    symbols = subprocess.check_output([
+        "llvm-readobj", "--symbols", "--sections", obj], text=True)
+    assert ("SHF_TLS" in symbols) == (mode == "PLATFORM"), symbols
+    for name in ("stateE", "counterE"):
+        records = [r for r in symbols.split("Symbol {") if "Name:" in r
+                   and name in r.split("\n", 2)[1]]
+        assert len(records) == 1, symbols
+        assert ("Type: TLS" in records[0]) == (mode == "PLATFORM"), records[0]

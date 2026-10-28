@@ -24,10 +24,10 @@ namespace randomness {
 // We need an initial state for the hash function. More entropy are to be added
 // at the first use and each round of reseeding. The following random numbers
 // are generated from https://www.random.org/cgi-bin/randbyte?nbytes=64&format=h
-LIBC_INLINE_VAR thread_local HashState state = {
+LIBC_INLINE_VAR LIBC_THREAD_LOCAL HashState state = {
     0x38049a7ea6f5a79b, 0x45cb02147c3f718a, 0x53eb431c12770718,
     0x5b55742bd20a2fcb};
-LIBC_INLINE_VAR thread_local uint64_t counter = 0;
+LIBC_INLINE_VAR LIBC_THREAD_LOCAL uint64_t counter = 0;
 LIBC_INLINE_VAR constexpr uint64_t RESEED_PERIOD = 1024;
 LIBC_INLINE uint64_t next_random_seed() {
   if (counter % RESEED_PERIOD == 0) {
