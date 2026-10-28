@@ -22,6 +22,14 @@ struct HashRecord {
   size_t content_size;
 };
 
+struct HashPageInfo {
+  size_t records;
+  uint16_t overflow;
+};
+
+bool read_hash_page_info(const unsigned char *bytes, size_t size,
+                         bool big_endian, HashPageInfo &out);
+
 enum class HashPageResult {
   Success,
   Malformed,

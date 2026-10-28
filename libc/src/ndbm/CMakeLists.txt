@@ -24,3 +24,18 @@ add_object_library(
     libc.src.__support.error_or
     libc.src.string.memory_utils.inline_memcpy
 )
+
+add_object_library(
+  hash_function
+  SRCS hash_function.cpp
+  HDRS hash_function.h
+  DEPENDS .hash_validation
+)
+
+add_object_library(
+  hash_reader
+  SRCS hash_reader.cpp
+  HDRS hash_reader.h
+  DEPENDS .hash_function .hash_io .hash_page
+    libc.hdr.errno_macros
+)

@@ -77,6 +77,16 @@ bool initialize_hash_page(unsigned char *bytes, size_t size, bool big_endian) {
   return true;
 }
 
+bool read_hash_page_info(const unsigned char *bytes, size_t size,
+                         bool big_endian, HashPageInfo &out) {
+  if (!valid(bytes, size, big_endian))
+    return false;
+  const Page page(const_cast<unsigned char *>(bytes), big_endian);
+  out = {page.records(),
+         page.has_overflow() ? page.get(page.get(0) - 1) : uint16_t{0}};
+  return true;
+}
+
 HashPageResult read_hash_record(const unsigned char *bytes, size_t size,
                                 bool big_endian, size_t record,
                                 HashRecord &out) {
