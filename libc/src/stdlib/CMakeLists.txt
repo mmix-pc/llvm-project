@@ -1,4 +1,15 @@
 add_entrypoint_object(
+  reallocarray
+  SRCS reallocarray.cpp
+  HDRS reallocarray.h
+  DEPENDS
+    libc.hdr.func.realloc
+    libc.hdr.types.size_t
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+)
+
+add_entrypoint_object(
   atoi
   SRCS
     atoi.cpp

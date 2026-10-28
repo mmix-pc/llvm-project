@@ -2,6 +2,23 @@ add_custom_target(libc-stdlib-tests)
 
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
+    reallocarray_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS
+      reallocarray_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/reallocarray.cpp
+    DEPENDS
+      libc.hdr.func.realloc
+      libc.hdr.types.size_t
+      libc.src.__support.common
+      libc.src.__support.libc_errno
+    LINK_LIBRARIES "-Wl,--wrap=realloc"
+  )
+endif()
+
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
     getenv_initialization_test
     OVERLAY_BUILD_ONLY
     SUITE
