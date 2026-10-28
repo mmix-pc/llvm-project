@@ -1,6 +1,18 @@
 add_custom_target(libc-fputil-tests)
 
 add_fp_unittest(
+  dyadic_float_range_test
+  SUITE libc-fputil-tests
+  SRCS dyadic_float_range_test.cpp
+  DEPENDS
+    libc.src.__support.FPUtil.dyadic_float
+    libc.src.__support.FPUtil.generic.div
+    libc.src.__support.libc_errno
+    libc.hdr.errno_macros
+  COMPILE_OPTIONS "-frounding-math"
+)
+
+add_fp_unittest(
   dyadic_float_test
   NEED_MPFR
   SUITE

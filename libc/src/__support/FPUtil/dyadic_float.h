@@ -330,9 +330,9 @@ template <size_t Bits> struct DyadicFloat {
       volatile T two = static_cast<T>(2.0);
       T r = two * d_hi;
 
-      // TODO: Whether rounding down the absolute value to max_normal should
-      // also raise FE_OVERFLOW and set ERANGE is debatable.
-      if (ShouldSignalExceptions && FPBits<T>(r).is_inf())
+      // The exponent is out of range even when directed rounding produces
+      // the largest finite value. The multiplication raises the FP flags.
+      if (ShouldSignalExceptions)
         set_errno_if_required(ERANGE);
 
       return r;
@@ -426,6 +426,8 @@ template <size_t Bits> struct DyadicFloat {
       return FPBits<T>(r_bits).get_val();
     }
 
+    if (ShouldSignalExceptions && FPBits<T>(r).is_inf())
+      set_errno_if_required(ERANGE);
     return r;
   }
 
