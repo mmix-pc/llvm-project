@@ -14,9 +14,9 @@
 
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, getentropy, (void *buffer, size_t length)) {
-  // check the length limit
+  // POSIX requires rejecting an excessive request before accessing the buffer.
   if (length > 256) {
-    libc_errno = EIO;
+    libc_errno = EINVAL;
     return -1;
   }
 

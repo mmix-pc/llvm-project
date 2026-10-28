@@ -16,8 +16,21 @@ using namespace LIBC_NAMESPACE::testing::ErrnoSetterMatcher;
 using LlvmLibcUnistdGetEntropyTest = LIBC_NAMESPACE::testing::ErrnoCheckingTest;
 
 TEST_F(LlvmLibcUnistdGetEntropyTest, LengthTooLong) {
-  char buf[1024];
-  ASSERT_THAT(LIBC_NAMESPACE::getentropy(buf, 257), Fails(EIO));
+  char buf[257];
+  for (char &byte : buf)
+    byte = 42;
+  ASSERT_THAT(LIBC_NAMESPACE::getentropy(buf, sizeof(buf)), Fails(EINVAL));
+  for (char byte : buf)
+    EXPECT_EQ(byte, char(42));
+  ASSERT_THAT(LIBC_NAMESPACE::getentropy(nullptr, 257), Fails(EINVAL));
+  ASSERT_THAT(LIBC_NAMESPACE::getentropy(nullptr, size_t(-1)), Fails(EINVAL));
+}
+
+TEST_F(LlvmLibcUnistdGetEntropyTest, ZeroLength) {
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::getentropy(nullptr, 0), 0);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
+  LIBC_NAMESPACE::libc_errno = 0;
 }
 
 TEST_F(LlvmLibcUnistdGetEntropyTest, SmokeTest) {

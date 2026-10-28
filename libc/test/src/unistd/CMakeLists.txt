@@ -1106,6 +1106,17 @@ add_libc_test(
     libc.test.UnitTest.ErrnoSetterMatcher
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    getentropy_syscall_test
+    SUITE libc_unistd_unittests
+    SRCS getentropy_syscall_test.cpp
+    DEPENDS
+      libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
+      libc.src.__support.libc_errno
+  )
+endif()
+
 if(LLVM_LIBC_FULL_BUILD)
   add_libc_test(
     _exit_test
