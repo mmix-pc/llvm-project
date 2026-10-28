@@ -62,7 +62,7 @@ private:
   static int type_erased_comp(const void *l, const void *r,
                               void *erased_func_ptr) {
     using TypedComp = int (*)(const T *, const T *);
-    TypedComp typed_func_ptr = reinterpret_cast<TypedComp>(erased_func_ptr);
+    TypedComp typed_func_ptr = *static_cast<TypedComp *>(erased_func_ptr);
     const T *lt = static_cast<const T *>(l);
     const T *rt = static_cast<const T *>(r);
     return typed_func_ptr(lt, rt);
@@ -74,36 +74,15 @@ public:
                      123,  133,  135,  155,  170,  171,   1100, 1110, 1123,
                      1133, 1135, 1155, 1170, 1171, 11100, 12310};
     constexpr SizeTy ARRAY_SIZE = sizeof(array) / sizeof(int);
-
+    int expected[ARRAY_SIZE];
+    for (SizeTy i = 0; i < ARRAY_SIZE; ++i)
+      expected[i] = array[i];
     SizeTy count = 0;
 
     func(array, ARRAY_SIZE, sizeof(int), int_compare_count, &count);
 
-    ASSERT_LE(array[0], 10);
-    ASSERT_LE(array[1], 23);
-    ASSERT_LE(array[2], 33);
-    ASSERT_LE(array[3], 35);
-    ASSERT_LE(array[4], 55);
-    ASSERT_LE(array[5], 70);
-    ASSERT_LE(array[6], 71);
-    ASSERT_LE(array[7], 100);
-    ASSERT_LE(array[8], 110);
-    ASSERT_LE(array[9], 123);
-    ASSERT_LE(array[10], 133);
-    ASSERT_LE(array[11], 135);
-    ASSERT_LE(array[12], 155);
-    ASSERT_LE(array[13], 170);
-    ASSERT_LE(array[14], 171);
-    ASSERT_LE(array[15], 1100);
-    ASSERT_LE(array[16], 1110);
-    ASSERT_LE(array[17], 1123);
-    ASSERT_LE(array[18], 1133);
-    ASSERT_LE(array[19], 1135);
-    ASSERT_LE(array[20], 1155);
-    ASSERT_LE(array[21], 1170);
-    ASSERT_LE(array[22], 1171);
-    ASSERT_LE(array[23], 11100);
-    ASSERT_LE(array[24], 12310);
+    for (SizeTy i = 0; i < ARRAY_SIZE; ++i)
+      ASSERT_EQ(array[i], expected[i]);
 
     // This is a sorted list, but there still have to have been at least N - 1
     // comparisons made.
@@ -119,8 +98,8 @@ public:
 
     func(array, ARRAY_SIZE, sizeof(int), int_compare_count, &count);
 
-    for (int i = 0; i < int(ARRAY_SIZE - 1); ++i)
-      ASSERT_LE(array[i], i + 1);
+    for (int i = 0; i < int(ARRAY_SIZE); ++i)
+      ASSERT_EQ(array[i], i + 1);
 
     ASSERT_GE(count, ARRAY_SIZE);
   }
@@ -131,8 +110,9 @@ public:
     };
     constexpr SizeTy ARRAY_SIZE = sizeof(array) / sizeof(PriorityVal);
 
+    auto compare = compare_priority_val;
     func(array, ARRAY_SIZE, sizeof(PriorityVal), type_erased_comp<PriorityVal>,
-         reinterpret_cast<void *>(compare_priority_val));
+         &compare);
 
     EXPECT_EQ(array[0].priority, -1);
     EXPECT_EQ(array[0].size, 100);
@@ -145,6 +125,24 @@ public:
     EXPECT_EQ(array[4].priority, 10);
     EXPECT_EQ(array[4].size, 3);
   }
+
+  void empty_array(QsortFnTy func) {
+    int value = 42;
+    SizeTy count = 0;
+    func(&value, 0, sizeof(value), int_compare_count, &count);
+    EXPECT_EQ(count, SizeTy(0));
+    EXPECT_EQ(value, 42);
+  }
+
+  void duplicate_keys(QsortFnTy func) {
+    int array[] = {2, -1, 2, 0, -1, 2, 0};
+    const int expected[] = {-1, -1, 0, 0, 2, 2, 2};
+    constexpr SizeTy ARRAY_SIZE = sizeof(array) / sizeof(int);
+    SizeTy count = 0;
+    func(array, ARRAY_SIZE, sizeof(int), int_compare_count, &count);
+    for (SizeTy i = 0; i < ARRAY_SIZE; ++i)
+      ASSERT_EQ(array[i], expected[i]);
+  }
 };
 
 #define QSORTREENTRANT_TEST(name, func, sizetype)                              \
@@ -153,4 +151,6 @@ public:
   TEST_F(LlvmLibc##name##Test, ReverseSortedArray) {                           \
     reverse_sorted_array(func);                                                \
   }                                                                            \
-  TEST_F(LlvmLibc##name##Test, SafeTypeErasure) { safe_type_erasure(func); }
+  TEST_F(LlvmLibc##name##Test, SafeTypeErasure) { safe_type_erasure(func); }      \
+  TEST_F(LlvmLibc##name##Test, EmptyArray) { empty_array(func); }                \
+  TEST_F(LlvmLibc##name##Test, DuplicateKeys) { duplicate_keys(func); }
