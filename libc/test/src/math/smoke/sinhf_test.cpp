@@ -17,6 +17,40 @@
 
 using LlvmLibcSinhfTest = LIBC_NAMESPACE::testing::FPTest<float>;
 
+TEST_F(LlvmLibcSinhfTest, OverflowBoundaryReporting) {
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  const float signs[] = {1, -1};
+  const float inputs[] = {0x1.65a9fap+6f, 90.0f, max_normal};
+  for (auto mode : ROUNDING_MODES) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    for (float sign : signs) {
+      for (float x : inputs) {
+        LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+        LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+        libc_errno = 0;
+        bool finite = mode == RoundingMode::TowardZero ||
+                      (sign > 0 && mode == RoundingMode::Downward) ||
+                      (sign < 0 && mode == RoundingMode::Upward);
+        EXPECT_FP_EQ(sign * (finite ? max_normal : inf),
+                     LIBC_NAMESPACE::sinhf(sign * x));
+        EXPECT_MATH_ERRNO(ERANGE);
+        if (math_errhandling & MATH_ERREXCEPT)
+          EXPECT_EQ(FE_INVALID | FE_OVERFLOW | FE_INEXACT,
+                    LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+      }
+      LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+      libc_errno = 0;
+      float result = LIBC_NAMESPACE::sinhf(sign * 0x1.65a9f8p+6f);
+      EXPECT_FALSE(FPBits(result).is_inf_or_nan());
+      EXPECT_EQ(FPBits(result).is_neg(), sign < 0);
+      EXPECT_MATH_ERRNO(0);
+      EXPECT_EQ(0, LIBC_NAMESPACE::fputil::test_except(FE_OVERFLOW));
+    }
+  }
+}
+
 TEST_F(LlvmLibcSinhfTest, DirectedOverflowExceptions) {
   using LIBC_NAMESPACE::fputil::testing::RoundingMode;
   const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,

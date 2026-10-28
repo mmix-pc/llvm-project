@@ -27,8 +27,8 @@ LIBC_INLINE float sinhf(float x) {
   FPBits xbits(x);
   uint32_t x_abs = xbits.abs().uintval();
 
-  // When |x| >= 90, or x is inf or nan
-  if (LIBC_UNLIKELY(x_abs >= 0x42b4'0000U || x_abs <= 0x3da0'0000U)) {
+  // 0x1.65a9fap+6 is the first float whose sinh magnitude exceeds FLT_MAX.
+  if (LIBC_UNLIKELY(x_abs >= 0x42b2'd4fdU || x_abs <= 0x3da0'0000U)) {
     // |x| <= 0.078125
     if (x_abs <= 0x3da0'0000U) {
 #ifndef LIBC_MATH_HAS_SKIP_ACCURATE_PASS

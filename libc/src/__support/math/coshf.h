@@ -30,8 +30,8 @@ LIBC_INLINE float coshf(float x) {
 
   uint32_t x_u = xbits.uintval();
 
-  // When |x| >= 90, or x is inf or nan
-  if (LIBC_UNLIKELY(x_u >= 0x42b4'0000U || x_u <= 0x3280'0000U)) {
+  // 0x1.65a9fap+6 is the first float whose cosh exceeds FLT_MAX.
+  if (LIBC_UNLIKELY(x_u >= 0x42b2'd4fdU || x_u <= 0x3280'0000U)) {
     // |x| <= 2^-26
     if (x_u <= 0x3280'0000U) {
       return 1.0f + x;
