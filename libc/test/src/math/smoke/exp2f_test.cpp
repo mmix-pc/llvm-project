@@ -55,6 +55,33 @@ TEST_F(LlvmLibcExp2fTest, Overflow) {
   EXPECT_MATH_ERRNO(ERANGE);
 }
 
+TEST_F(LlvmLibcExp2fTest, DirectedOverflowReporting) {
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  for (auto mode : ROUNDING_MODES) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    const float inputs[] = {128.0f, 10000.0f, max_normal};
+    for (float x : inputs) {
+      LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+      LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+      libc_errno = 0;
+      const bool finite =
+          mode == RoundingMode::Downward || mode == RoundingMode::TowardZero;
+      EXPECT_FP_EQ(finite ? max_normal : inf, LIBC_NAMESPACE::exp2f(x));
+      EXPECT_MATH_ERRNO(ERANGE);
+      if (math_errhandling & MATH_ERREXCEPT)
+        EXPECT_EQ(FE_INVALID | FE_OVERFLOW, LIBC_NAMESPACE::fputil::test_except(
+                                                FE_INVALID | FE_OVERFLOW));
+    }
+    LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+    libc_errno = EDOM;
+    EXPECT_FP_EQ(inf, LIBC_NAMESPACE::exp2f(inf));
+    EXPECT_MATH_ERRNO(EDOM);
+    EXPECT_EQ(0, LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+  }
+}
+
 #ifdef LIBC_TEST_FTZ_DAZ
 
 using namespace LIBC_NAMESPACE::testing;

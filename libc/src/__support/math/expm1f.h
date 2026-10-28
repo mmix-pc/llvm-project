@@ -81,14 +81,13 @@ LIBC_INLINE float expm1f(float x) {
       // x >= 89 or nan
       if (xbits.uintval() >= 0x42b2'0000) {
         if (xbits.uintval() < 0x7f80'0000U) {
+          fputil::set_errno_if_required(ERANGE);
+          fputil::raise_except_if_required(FE_OVERFLOW);
 #ifndef LIBC_MATH_HAS_ASSUME_ROUND_NEAREST_ONLY
           int rounding = fputil::quick_get_round();
           if (rounding == FE_DOWNWARD || rounding == FE_TOWARDZERO)
             return FPBits::max_normal().get_val();
 #endif
-
-          fputil::set_errno_if_required(ERANGE);
-          fputil::raise_except_if_required(FE_OVERFLOW);
         }
         return x + FPBits::inf().get_val();
       }
