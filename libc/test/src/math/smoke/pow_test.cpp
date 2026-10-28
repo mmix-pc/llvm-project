@@ -13,6 +13,40 @@
 
 using LlvmLibcPowTest = LIBC_NAMESPACE::testing::FPTest<double>;
 
+TEST_F(LlvmLibcPowTest, OverflowReporting) {
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  const double inputs[][2] = {
+      {2, 10000},         {-2, 10001},         {0x1p512, 2},      {-0x1p512, 2},
+      {min_denormal, -1}, {-min_denormal, -1}, {min_denormal, -2}};
+  for (auto mode : ROUNDING_MODES) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    for (const auto &row : inputs) {
+      LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+      LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+      libc_errno = 0;
+      bool negative = row[0] < 0 && row[1] != 2;
+      bool finite = mode == RoundingMode::TowardZero ||
+                    (mode == RoundingMode::Downward && !negative) ||
+                    (mode == RoundingMode::Upward && negative);
+      double expected = finite ? max_normal : inf;
+      EXPECT_FP_EQ(negative ? -expected : expected,
+                   LIBC_NAMESPACE::pow(row[0], row[1]));
+      EXPECT_MATH_ERRNO(ERANGE);
+      if (math_errhandling & MATH_ERREXCEPT)
+        EXPECT_EQ(FE_INVALID | FE_OVERFLOW | FE_INEXACT,
+                  LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+    }
+    libc_errno = EDOM;
+    EXPECT_FP_EQ(0x1p1022, LIBC_NAMESPACE::pow(0x1p511, 2));
+    EXPECT_MATH_ERRNO(EDOM);
+    libc_errno = EDOM;
+    EXPECT_FP_EQ(inf, LIBC_NAMESPACE::pow(inf, 2));
+    EXPECT_MATH_ERRNO(EDOM);
+  }
+}
+
 TEST_F(LlvmLibcPowTest, ZeroBasePoleReporting) {
   using namespace LIBC_NAMESPACE::fputil::testing;
   const double exponents[] = {-0.5, -1.0,  -2.0,          -3.0,

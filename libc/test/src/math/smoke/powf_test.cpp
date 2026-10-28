@@ -9,11 +9,99 @@
 #include "hdr/math_macros.h"
 #include "hdr/stdint_proxy.h"
 #include "src/__support/FPUtil/FPBits.h"
+#include "src/__support/math/powf.h"
+#include "src/__support/math/powf_small_tables.h"
 #include "src/math/powf.h"
 #include "test/UnitTest/FPMatcher.h"
 #include "test/UnitTest/Test.h"
 
+LIBC_FENV_ACCESS_ON
+
 using LlvmLibcPowfTest = LIBC_NAMESPACE::testing::FPTest<float>;
+
+TEST_F(LlvmLibcPowfTest, NarrowingOverflowBoundary) {
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  using LIBC_NAMESPACE::math::powf_internal::narrow_result;
+  const double values[] = {0x1.fffffep127, 0x1.fffffe8p127, 0x1.ffffffp127,
+                           0x1.fffffffffffffp127, 0x1.0p128};
+  const bool signs[] = {false, true};
+  for (auto mode : ROUNDING_MODES) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    for (bool negative : signs) {
+      for (double x : values) {
+        bool away = (mode == RoundingMode::Upward && !negative) ||
+                    (mode == RoundingMode::Downward && negative);
+        bool infinite = (away && x > 0x1.fffffep127) ||
+                        (mode == RoundingMode::Nearest && x >= 0x1.ffffffp127);
+        bool overflow = infinite || x >= 0x1p128;
+        LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+        LIBC_NAMESPACE::fputil::raise_except(FE_OVERFLOW);
+        libc_errno = EDOM;
+        float expected = infinite ? inf : max_normal;
+        EXPECT_FP_EQ(negative ? -expected : expected,
+                     narrow_result(negative ? -x : x));
+        EXPECT_MATH_ERRNO(overflow ? ERANGE : EDOM);
+      }
+    }
+  }
+}
+
+TEST_F(LlvmLibcPowfTest, SmallTableRange) {
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  using namespace LIBC_NAMESPACE::math::powf_internal;
+  const bool signs[] = {false, true};
+  for (auto mode : ROUNDING_MODES) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    for (bool negative : signs) {
+      libc_errno = 0;
+      double result = powf_small_tables(
+          2.0f, -127, negative ? uint64_t(1) << 63 : 0, 10000.0f);
+      bool finite = mode == RoundingMode::TowardZero ||
+                    (mode == RoundingMode::Downward && !negative) ||
+                    (mode == RoundingMode::Upward && negative);
+      float expected = finite ? max_normal : inf;
+      EXPECT_FP_EQ(negative ? -expected : expected, narrow_result(result));
+      EXPECT_MATH_ERRNO(ERANGE);
+    }
+  }
+}
+
+TEST_F(LlvmLibcPowfTest, OverflowReporting) {
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  const float inputs[][2] = {{2, 10000},    {-2, 10001},  {0x1p64f, 2},
+                             {-0x1p64f, 2}, {0x1p43f, 3}, {-0x1p43f, 3}};
+  for (auto mode : ROUNDING_MODES) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    for (const auto &row : inputs) {
+      LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+      LIBC_NAMESPACE::fputil::raise_except(FE_INVALID);
+      libc_errno = 0;
+      bool negative = row[0] < 0 && row[1] != 2;
+      bool finite = mode == RoundingMode::TowardZero ||
+                    (mode == RoundingMode::Downward && !negative) ||
+                    (mode == RoundingMode::Upward && negative);
+      float expected = finite ? max_normal : inf;
+      EXPECT_FP_EQ(negative ? -expected : expected,
+                   LIBC_NAMESPACE::powf(row[0], row[1]));
+      EXPECT_MATH_ERRNO(ERANGE);
+      if (math_errhandling & MATH_ERREXCEPT)
+        EXPECT_EQ(FE_INVALID | FE_OVERFLOW | FE_INEXACT,
+                  LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+    }
+    libc_errno = EDOM;
+    EXPECT_FP_EQ(0x1p126f, LIBC_NAMESPACE::powf(0x1p63f, 2));
+    EXPECT_MATH_ERRNO(EDOM);
+    libc_errno = EDOM;
+    EXPECT_FP_EQ(inf, LIBC_NAMESPACE::powf(inf, 2));
+    EXPECT_MATH_ERRNO(EDOM);
+  }
+}
 
 TEST_F(LlvmLibcPowfTest, ZeroBasePoleReporting) {
   using namespace LIBC_NAMESPACE::fputil::testing;

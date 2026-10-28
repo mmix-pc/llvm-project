@@ -24,7 +24,7 @@ namespace math {
 
 namespace powf_internal {
 
-LIBC_INLINE LIBC_CONSTEXPR float powf_small_tables(float x, int ex,
+LIBC_INLINE LIBC_CONSTEXPR double powf_small_tables(float x, int ex,
                                                    uint64_t sign, float y) {
   using FloatBits = fputil::FPBits<float>;
   using DoubleBits = fputil::FPBits<double>;
@@ -85,6 +85,10 @@ LIBC_INLINE LIBC_CONSTEXPR float powf_small_tables(float x, int ex,
   // u ~ y * log2(x).
   double u = yd * fputil::multiply_add(dx, p, e_x);
 
+  // Keep the intermediate exponent representable while retaining every
+  // binary32 overflow/underflow outcome at the caller's final conversion.
+  u = u > 512.0 ? 512.0 : (u < -512.0 ? -512.0 : u);
+
   double hi = fputil::nearest_integer(u);
   double lo = u - hi;
   int e_hi = static_cast<int>(hi) + DoubleBits::EXP_BIAS;
@@ -110,7 +114,7 @@ LIBC_INLINE LIBC_CONSTEXPR float powf_small_tables(float x, int ex,
 
   double result = r * exp_hi;
 
-  return static_cast<float>(result);
+  return result;
 }
 
 } // namespace powf_internal

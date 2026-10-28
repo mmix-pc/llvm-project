@@ -283,6 +283,8 @@ LIBC_INLINE double pow(double x, double y) {
     }
     case 0x3ff0'0000'0000'0000: // y = +-1.0
       if (y_sign) {
+        if (x_a != 0 && x_a <= 0x0004'0000'0000'0000)
+          fputil::set_errno_if_required(ERANGE);
         // Do not speculate a reciprocal on the identity path.
         volatile double divisor = x;
         return 1.0 / divisor;
@@ -297,6 +299,8 @@ LIBC_INLINE double pow(double x, double y) {
           volatile double input = x;
           return 1.0 / (input * input);
         }
+        if (!x_abs.is_inf_or_nan() && x_a >= 0x5ff0'0000'0000'0000)
+          fputil::set_errno_if_required(ERANGE);
         return x * x;
       }
       break;
@@ -563,6 +567,10 @@ LIBC_INLINE double pow(double x, double y) {
   double r = fputil::multiply_add(exp2_hm_hi * lo6, pp, exp2_hm_lo);
   r += exp2_hm_hi;
 
+  // The power-of-two rescaling is exact until its exponent leaves the format,
+  // including directed rounding to a finite endpoint.
+  if (scale > 1.0 && FPBits(r).abs().get_val() >= 0x1.0p512)
+    fputil::set_errno_if_required(ERANGE);
   return r * scale;
 }
 

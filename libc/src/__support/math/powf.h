@@ -26,6 +26,7 @@
 #endif // LIBC_MATH_HAS_SKIP_ACCURATE_PASS && LIBC_MATH_HAS_SMALL_TABLES
 
 #include "src/__support/CPP/bit.h"
+#include "src/__support/FPUtil/FEnvImpl.h"
 #include "src/__support/FPUtil/FPBits.h"
 #include "src/__support/FPUtil/PolyEval.h"
 #include "src/__support/FPUtil/double_double.h"
@@ -44,6 +45,23 @@ namespace powf_internal {
 
 using fputil::DoubleDouble;
 using fputil::TripleDouble;
+
+LIBC_INLINE float narrow_result(double value) {
+  using Bits = fputil::FPBits<double>;
+  Bits bits(value);
+  double magnitude = bits.abs().get_val();
+  if (LIBC_UNLIKELY(magnitude > 0x1.fffffep127)) {
+    int mode = fputil::quick_get_round();
+    bool away = (mode == FE_UPWARD && bits.is_pos()) ||
+                (mode == FE_DOWNWARD && bits.is_neg());
+    bool overflow = away || (mode == FE_TONEAREST
+                                 ? magnitude >= 0x1.ffffffp127
+                                 : magnitude >= 0x1.0p128);
+    if (overflow)
+      fputil::set_errno_if_required(ERANGE);
+  }
+  return static_cast<float>(value);
+}
 
 #ifdef LIBC_MATH_HAS_SKIP_ACCURATE_PASS
 alignas(16) LIBC_INLINE_VAR constexpr DoubleDouble LOG2_R_DD[128] = {
@@ -732,6 +750,8 @@ LIBC_INLINE float powf(float x, float y) {
         return x;
       case 0x4000'0000: { // y = 2.0f
         // pow(x, 2) = x^2
+        if (!xbits.is_inf_or_nan() && x_abs >= 0x5f80'0000)
+          fputil::set_errno_if_required(ERANGE);
         // Keep a potentially overflowing square on its selected path.
         volatile float input = x;
         return input * input;
@@ -757,7 +777,8 @@ LIBC_INLINE float powf(float x, float y) {
           double result = x_d;
           for (int i = 1; i < iter; ++i)
             result *= x_d;
-          return static_cast<float>(result);
+          return xbits.is_inf_or_nan() ? static_cast<float>(result)
+                                      : narrow_result(result);
         }
       }
       if (y_abs > 0x4f17'0000) {
@@ -864,7 +885,7 @@ LIBC_INLINE float powf(float x, float y) {
 
 #if defined(LIBC_MATH_HAS_SKIP_ACCURATE_PASS) &&                               \
     defined(LIBC_MATH_HAS_SMALL_TABLES)
-  return powf_small_tables(x, ex, sign, y);
+  return narrow_result(powf_small_tables(x, ex, sign, y));
 #else
   using namespace common_constants_internal;
 
@@ -1034,7 +1055,7 @@ LIBC_INLINE float powf(float x, float y) {
   double r = pp * exp2_hi_mid;
 
 #ifdef LIBC_MATH_HAS_SKIP_ACCURATE_PASS
-  return static_cast<float>(r);
+  return narrow_result(r);
 #else
   // Ziv accuracy test.
   uint64_t r_u = cpp::bit_cast<uint64_t>(r);
@@ -1052,7 +1073,7 @@ LIBC_INLINE float powf(float x, float y) {
         fputil::raise_except_if_required(FE_UNDERFLOW);
       }
     }
-    return r_upper;
+    return narrow_result(r);
   }
 
   // Scale lower part of 2^(hi + mid)
@@ -1066,7 +1087,7 @@ LIBC_INLINE float powf(float x, float y) {
 
   double r_dd = powf_double_double(idx_x, dx, y6, lo6_hi, exp2_hi_mid_dd);
 
-  return static_cast<float>(r_dd);
+  return narrow_result(r_dd);
 #endif // LIBC_MATH_HAS_SKIP_ACCURATE_PASS
 
 #endif // LIBC_MATH_HAS_SKIP_ACCURATE_PASS && LIBC_MATH_HAS_SMALL_TABLES
