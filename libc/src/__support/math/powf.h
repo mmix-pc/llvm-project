@@ -811,7 +811,7 @@ LIBC_INLINE float powf(float x, float y) {
           x_is_neg && is_odd_integer(FloatBits(y_u).get_val());
       if (y_u > 0x8000'0000U) {
         // pow(0, negative number) = inf
-        fputil::set_errno_if_required(EDOM);
+        fputil::set_errno_if_required(ERANGE);
         fputil::raise_except_if_required(FE_DIVBYZERO);
         return FloatBits::inf(out_is_neg ? Sign::NEG : Sign::POS).get_val();
       }

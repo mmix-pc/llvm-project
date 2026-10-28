@@ -244,6 +244,17 @@ LIBC_INLINE double pow(double x, double y) {
     if (y == 0.0)
       return 1.0;
 
+    // Handle finite-exponent poles before reciprocal shortcuts bypass errno.
+    if (x == 0.0 && !y_abs.is_inf_or_nan()) {
+      bool out_is_neg = x_sign && is_odd_integer(y);
+      if (y_sign) {
+        fputil::set_errno_if_required(ERANGE);
+        fputil::raise_except_if_required(FE_DIVBYZERO);
+        return FPBits::inf(out_is_neg ? Sign::NEG : Sign::POS).get_val();
+      }
+      return out_is_neg ? -0.0 : 0.0;
+    }
+
     switch (y_a) {
     case 0x3fe0'0000'0000'0000: { // y = +-0.5
       // TODO: speed up x^(-1/2) with rsqrt(x) when available.
@@ -335,18 +346,6 @@ LIBC_INLINE double pow(double x, double y) {
     }
 
     // TODO: Speed things up with pow(2, y) = exp2(y) and pow(10, y) = exp10(y).
-
-    if (x == 0.0) {
-      bool out_is_neg = x_sign && is_odd_integer(y);
-      if (y_sign) {
-        // pow(0, negative number) = inf
-        fputil::set_errno_if_required(EDOM);
-        fputil::raise_except_if_required(FE_DIVBYZERO);
-        return FPBits::inf(out_is_neg ? Sign::NEG : Sign::POS).get_val();
-      }
-      // pow(0, positive number) = 0
-      return out_is_neg ? -0.0 : 0.0;
-    }
 
     if (x_a == FPBits::inf().uintval()) {
       bool out_is_neg = x_sign && is_odd_integer(y);

@@ -15,6 +15,51 @@
 
 using LlvmLibcPowfTest = LIBC_NAMESPACE::testing::FPTest<float>;
 
+TEST_F(LlvmLibcPowfTest, ZeroBasePoleReporting) {
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  const float exponents[] = {-0.5, -1.0,  -2.0,          -3.0,
+                             -6.0, -1.25, -min_denormal, -max_normal};
+  for (auto mode : ROUNDING_MODES) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    const float bases[] = {zero, neg_zero};
+    const float controls[] = {inf, neg_inf, zero, neg_zero, aNaN};
+    for (float x : bases) {
+      for (float y : exponents) {
+        LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+        LIBC_NAMESPACE::fputil::raise_except(FE_OVERFLOW);
+        libc_errno = 0;
+        const bool negative = FPBits(x).is_neg() && (y == -1.0 || y == -3.0);
+        EXPECT_FP_EQ(negative ? neg_inf : inf, LIBC_NAMESPACE::powf(x, y));
+        EXPECT_MATH_ERRNO(ERANGE);
+        if (math_errhandling & MATH_ERREXCEPT)
+          EXPECT_EQ(FE_OVERFLOW | FE_DIVBYZERO,
+                    LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+      }
+      for (float y : controls) {
+        LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+        libc_errno = EDOM;
+        if (FPBits(y).is_nan())
+          EXPECT_FP_IS_NAN(LIBC_NAMESPACE::powf(x, y));
+        else
+          EXPECT_FP_EQ(y == inf ? zero : (y == neg_inf ? inf : float(1)),
+                       LIBC_NAMESPACE::powf(x, y));
+        EXPECT_MATH_ERRNO(EDOM);
+        EXPECT_EQ(0, LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+      }
+      libc_errno = 0;
+      EXPECT_FP_IS_NAN_WITH_EXCEPTION(LIBC_NAMESPACE::powf(x, sNaN),
+                                      FE_INVALID);
+      EXPECT_MATH_ERRNO(0);
+    }
+    libc_errno = 0;
+    EXPECT_FP_IS_NAN_WITH_EXCEPTION(LIBC_NAMESPACE::powf(-2.0, -0.5),
+                                    FE_INVALID);
+    EXPECT_MATH_ERRNO(EDOM);
+  }
+}
+
 TEST_F(LlvmLibcPowfTest, ExactSubnormalPowers) {
   EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
       aNaN, LIBC_NAMESPACE::powf(-0.5f, 0.5f), FE_INVALID);

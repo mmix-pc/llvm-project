@@ -13,6 +13,50 @@
 
 using LlvmLibcPowTest = LIBC_NAMESPACE::testing::FPTest<double>;
 
+TEST_F(LlvmLibcPowTest, ZeroBasePoleReporting) {
+  using namespace LIBC_NAMESPACE::fputil::testing;
+  const double exponents[] = {-0.5, -1.0,  -2.0,          -3.0,
+                              -6.0, -1.25, -min_denormal, -max_normal};
+  for (auto mode : ROUNDING_MODES) {
+    ForceRoundingMode rounding(mode);
+    if (!rounding.success)
+      continue;
+    const double bases[] = {zero, neg_zero};
+    const double controls[] = {inf, neg_inf, zero, neg_zero, aNaN};
+    for (double x : bases) {
+      for (double y : exponents) {
+        LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+        LIBC_NAMESPACE::fputil::raise_except(FE_OVERFLOW);
+        libc_errno = 0;
+        const bool negative = FPBits(x).is_neg() && (y == -1.0 || y == -3.0);
+        EXPECT_FP_EQ(negative ? neg_inf : inf, LIBC_NAMESPACE::pow(x, y));
+        EXPECT_MATH_ERRNO(ERANGE);
+        if (math_errhandling & MATH_ERREXCEPT)
+          EXPECT_EQ(FE_OVERFLOW | FE_DIVBYZERO,
+                    LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+      }
+      for (double y : controls) {
+        LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+        libc_errno = EDOM;
+        if (FPBits(y).is_nan())
+          EXPECT_FP_IS_NAN(LIBC_NAMESPACE::pow(x, y));
+        else
+          EXPECT_FP_EQ(y == inf ? zero : (y == neg_inf ? inf : double(1)),
+                       LIBC_NAMESPACE::pow(x, y));
+        EXPECT_MATH_ERRNO(EDOM);
+        EXPECT_EQ(0, LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT));
+      }
+      libc_errno = 0;
+      EXPECT_FP_IS_NAN_WITH_EXCEPTION(LIBC_NAMESPACE::pow(x, sNaN), FE_INVALID);
+      EXPECT_MATH_ERRNO(0);
+    }
+    libc_errno = 0;
+    EXPECT_FP_IS_NAN_WITH_EXCEPTION(LIBC_NAMESPACE::pow(-2.0, -0.5),
+                                    FE_INVALID);
+    EXPECT_MATH_ERRNO(EDOM);
+  }
+}
+
 TEST_F(LlvmLibcPowTest, ExtremeExponentRange) {
   EXPECT_FP_EQ_WITH_EXCEPTION_ALL_ROUNDING(
       min_denormal, LIBC_NAMESPACE::pow(min_denormal, 1.0), 0);
