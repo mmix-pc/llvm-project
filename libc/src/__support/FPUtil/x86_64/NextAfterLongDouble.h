@@ -61,8 +61,10 @@ LIBC_INLINE LIBC_BIT_CAST_CONSTEXPR long double nextafter(long double from,
         // which is what is expected. Since NaNs are handling separately,
         // it will never overflow "beyond" infinity.
         from_bits.set_biased_exponent(from_bits.get_biased_exponent() + 1);
-        if (from_bits.is_inf())
+        if (from_bits.is_inf()) {
+          set_errno_if_required(ERANGE);
           raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
+        }
         return from_bits.get_val();
       } else {
         from_bits = FPBits(StorageType(from_bits.uintval() + 1));
@@ -104,8 +106,10 @@ LIBC_INLINE LIBC_BIT_CAST_CONSTEXPR long double nextafter(long double from,
         // which is what is expected. Since NaNs are handling separately,
         // it will never overflow "beyond" infinity.
         from_bits.set_biased_exponent(from_bits.get_biased_exponent() + 1);
-        if (from_bits.is_inf())
+        if (from_bits.is_inf()) {
+          set_errno_if_required(ERANGE);
           raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
+        }
         return from_bits.get_val();
       } else {
         from_bits = FPBits(StorageType(from_bits.uintval() + 1));

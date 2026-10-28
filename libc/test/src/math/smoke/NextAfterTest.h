@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_TEST_SRC_MATH_NEXTAFTERTEST_H
 #define LLVM_LIBC_TEST_SRC_MATH_NEXTAFTERTEST_H
 
+#include "hdr/errno_macros.h"
 #include "hdr/fenv_macros.h"
 #include "src/__support/CPP/bit.h"
 #include "src/__support/FPUtil/FEnvImpl.h"
@@ -68,6 +69,38 @@ class NextAfterTestTemplate : public LIBC_NAMESPACE::testing::FEnvSafeTest {
 
 public:
   typedef T (*NextAfterFunc)(T, T);
+
+  void testOverflowErrno(NextAfterFunc func) {
+    using namespace LIBC_NAMESPACE::fputil::testing;
+    const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                  RoundingMode::Downward,
+                                  RoundingMode::TowardZero};
+    for (auto mode : modes) {
+      ForceRoundingMode rounding(mode);
+      if (!rounding.success)
+        continue;
+      const Sign signs[] = {Sign::POS, Sign::NEG};
+      for (auto sign : signs) {
+        const T max = FPBits::max_normal(sign).get_val();
+        const T infinity = FPBits::inf(sign).get_val();
+        libc_errno = 0;
+        EXPECT_FP_EQ_WITH_EXCEPTION(infinity,
+                                    func(max, sign.is_pos() ? inf : -inf),
+                                    FE_OVERFLOW | FE_INEXACT);
+        EXPECT_MATH_ERRNO(ERANGE);
+        libc_errno = EDOM;
+        EXPECT_FP_EQ_WITH_EXCEPTION(max, func(infinity, zero), 0);
+        EXPECT_MATH_ERRNO(EDOM);
+        libc_errno = EDOM;
+        EXPECT_FP_EQ_WITH_EXCEPTION(
+            infinity, func(infinity, sign.is_pos() ? inf : -inf), 0);
+        EXPECT_MATH_ERRNO(EDOM);
+      }
+      libc_errno = EDOM;
+      EXPECT_FP_EQ_WITH_EXCEPTION(nan, func(nan, zero), 0);
+      EXPECT_MATH_ERRNO(EDOM);
+    }
+  }
 
   void testNaN(NextAfterFunc func) {
     ASSERT_FP_EQ(func(nan, zero), nan);
@@ -218,6 +251,7 @@ public:
 
 #define LIST_NEXTAFTER_TESTS(T, func)                                          \
   using LlvmLibcNextAfterTest = NextAfterTestTemplate<T>;                      \
+  TEST_F(LlvmLibcNextAfterTest, OverflowErrno) { testOverflowErrno(&func); }   \
   TEST_F(LlvmLibcNextAfterTest, TestNaN) { testNaN(&func); }                   \
   TEST_F(LlvmLibcNextAfterTest, TestBoundaries) { testBoundaries(&func); }
 

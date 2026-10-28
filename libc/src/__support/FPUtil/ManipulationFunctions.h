@@ -241,8 +241,10 @@ LIBC_INLINE constexpr T nextafter(T from, U to) {
 
   if (from_bits.is_subnormal())
     raise_except_if_required(FE_UNDERFLOW | FE_INEXACT);
-  else if (from_bits.is_inf())
+  else if (from_bits.is_inf()) {
+    set_errno_if_required(ERANGE);
     raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
+  }
 
   return from_bits.get_val();
 }
