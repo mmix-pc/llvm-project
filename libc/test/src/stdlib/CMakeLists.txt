@@ -2,6 +2,18 @@ add_custom_target(libc-stdlib-tests)
 
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
+    getsubopt_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS
+      getsubopt_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/getsubopt.cpp
+    DEPENDS
+      libc.src.__support.common
+      libc.src.__support.libc_errno
+  )
+
+  add_libc_test(
     reallocarray_test
     OVERLAY_BUILD_ONLY
     SUITE libc-stdlib-tests

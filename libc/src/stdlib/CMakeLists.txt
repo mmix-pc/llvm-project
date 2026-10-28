@@ -1,4 +1,11 @@
 add_entrypoint_object(
+  getsubopt
+  SRCS getsubopt.cpp
+  HDRS getsubopt.h
+  DEPENDS libc.src.__support.common
+)
+
+add_entrypoint_object(
   reallocarray
   SRCS reallocarray.cpp
   HDRS reallocarray.h
