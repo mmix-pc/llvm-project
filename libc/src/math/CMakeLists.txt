@@ -54,6 +54,10 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   endforeach()
 endif()
 
+foreach(name j0 j1 y0 y1)
+  add_math_entrypoint_object(${name})
+endforeach()
+
 add_math_entrypoint_object(acos)
 add_math_entrypoint_object(acosbf16)
 add_math_entrypoint_object(acosf)

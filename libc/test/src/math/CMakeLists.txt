@@ -1,6 +1,18 @@
 add_custom_target(libc-math-unittests)
 
 add_fp_unittest(
+  bessel_test
+  NEED_MPFR
+  SUITE libc-math-unittests
+  SRCS bessel_test.cpp
+    ${LIBC_SOURCE_DIR}/src/math/generic/j0.cpp
+    ${LIBC_SOURCE_DIR}/src/math/generic/j1.cpp
+    ${LIBC_SOURCE_DIR}/src/math/generic/y0.cpp
+    ${LIBC_SOURCE_DIR}/src/math/generic/y1.cpp
+  DEPENDS libc.src.__support.math.bessel libc.src.__support.common
+)
+
+add_fp_unittest(
   cosf_test
   NEED_MPFR
   SUITE

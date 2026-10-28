@@ -1,3 +1,17 @@
+foreach(order 0 1)
+  add_header_library(
+    bessel${order}
+    HDRS bessel${order}.h
+    DEPENDS .sin .cos .log .sqrt libc.src.__support.FPUtil.fp_bits
+  )
+endforeach()
+add_header_library(
+  bessel
+  HDRS bessel.h
+  DEPENDS .bessel0 .bessel1 libc.hdr.errno_macros libc.hdr.fenv_macros
+    libc.src.__support.FPUtil.fenv_impl libc.src.__support.FPUtil.generic.div
+)
+
 add_header_library(
   tiny_result
   HDRS tiny_result.h
