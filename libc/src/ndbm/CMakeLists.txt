@@ -47,3 +47,14 @@ add_object_library(
   DEPENDS .hash_function .hash_validation
     libc.hdr.errno_macros libc.src.__support.error_or
 )
+
+add_object_library(
+  hash_database
+  SRCS hash_database.cpp
+  HDRS hash_database.h
+  DEPENDS .hash_reader libc.hdr.errno_macros
+    libc.src.__support.alloc_checker libc.src.__support.CPP.new
+    libc.src.stdlib.qsort_util
+    libc.src.string.memory_utils.inline_memcpy
+)
+

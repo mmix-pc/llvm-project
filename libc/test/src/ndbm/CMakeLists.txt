@@ -34,3 +34,13 @@ add_libc_test(
   SRCS hash_growth_test.cpp
   DEPENDS libc.src.ndbm.hash_growth
 )
+
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
+    hash_database_test
+    SUITE libc-ndbm-tests
+    SRCS hash_database_test.cpp
+    DEPENDS libc.src.ndbm.hash_database
+    LINK_LIBRARIES "-Wl,--wrap=malloc,--wrap=free"
+  )
+endif()
