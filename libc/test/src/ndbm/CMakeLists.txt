@@ -27,3 +27,10 @@ add_libc_test(
   SRCS hash_reader_test.cpp
   DEPENDS libc.src.ndbm.hash_reader
 )
+
+add_libc_test(
+  hash_growth_test
+  SUITE libc-ndbm-tests
+  SRCS hash_growth_test.cpp
+  DEPENDS libc.src.ndbm.hash_growth
+)

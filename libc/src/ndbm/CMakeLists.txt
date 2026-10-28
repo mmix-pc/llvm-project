@@ -39,3 +39,11 @@ add_object_library(
   DEPENDS .hash_function .hash_io .hash_page
     libc.hdr.errno_macros
 )
+
+add_object_library(
+  hash_growth
+  SRCS hash_growth.cpp
+  HDRS hash_growth.h
+  DEPENDS .hash_function .hash_validation
+    libc.hdr.errno_macros libc.src.__support.error_or
+)
