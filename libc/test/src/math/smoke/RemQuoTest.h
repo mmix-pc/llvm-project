@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_TEST_SRC_MATH_REMQUOTEST_H
 #define LLVM_LIBC_TEST_SRC_MATH_REMQUOTEST_H
 
+#include "hdr/errno_macros.h"
 #include "src/__support/FPUtil/FPBits.h"
 #include "test/UnitTest/FEnvSafeTest.h"
 #include "test/UnitTest/FPMatcher.h"
@@ -29,6 +30,45 @@ class RemQuoTestTemplate : public LIBC_NAMESPACE::testing::FEnvSafeTest {
 
 public:
   typedef T (*RemQuoFunc)(T, T, int *);
+
+  void testDomainErrors(RemQuoFunc func) {
+    using namespace LIBC_NAMESPACE::fputil::testing;
+    const T one = FPBits::one().get_val();
+    const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                  RoundingMode::Downward,
+                                  RoundingMode::TowardZero};
+    for (auto mode : modes) {
+      ForceRoundingMode rounding(mode);
+      if (!rounding.success)
+        continue;
+      int quotient;
+      const T numerators[] = {T(1), T(-1), zero, inf, neg_inf};
+      const T zeros[] = {zero, neg_zero};
+      const T infinities[] = {inf, neg_inf};
+      for (T x : numerators) {
+        for (T y : zeros) {
+          libc_errno = 0;
+          EXPECT_FP_EQ_WITH_EXCEPTION(nan, func(x, y, &quotient), FE_INVALID);
+          EXPECT_MATH_ERRNO(EDOM);
+        }
+      }
+      for (T x : infinities) {
+        libc_errno = 0;
+        EXPECT_FP_EQ_WITH_EXCEPTION(nan, func(x, T(1), &quotient), FE_INVALID);
+        EXPECT_MATH_ERRNO(EDOM);
+        libc_errno = ERANGE;
+        EXPECT_FP_EQ_WITH_EXCEPTION(nan, func(x, nan, &quotient), 0);
+        EXPECT_MATH_ERRNO(ERANGE);
+      }
+      libc_errno = ERANGE;
+      EXPECT_FP_EQ_WITH_EXCEPTION(nan, func(nan, zero, &quotient), 0);
+      EXPECT_MATH_ERRNO(ERANGE);
+      libc_errno = ERANGE;
+      EXPECT_FP_EQ_WITH_EXCEPTION(one, func(one, inf, &quotient), 0);
+      EXPECT_MATH_ERRNO(ERANGE);
+      EXPECT_EQ(quotient, 0);
+    }
+  }
 
   void testSpecialNumbers(RemQuoFunc func) {
     int quotient;
@@ -100,6 +140,7 @@ public:
 #define LIST_REMQUO_TESTS(T, func)                                             \
   using LlvmLibcRemQuoTest = RemQuoTestTemplate<T>;                            \
   TEST_F(LlvmLibcRemQuoTest, SpecialNumbers) { testSpecialNumbers(&func); }    \
+  TEST_F(LlvmLibcRemQuoTest, DomainErrors) { testDomainErrors(&func); }        \
   TEST_F(LlvmLibcRemQuoTest, EqualNumeratorAndDenominator) {                   \
     testEqualNumeratorAndDenominator(&func);                                   \
   }

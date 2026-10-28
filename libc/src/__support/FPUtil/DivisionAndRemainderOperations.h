@@ -32,6 +32,7 @@ LIBC_INLINE constexpr T remquo(T x, T y, int &q) {
   if (ybits.is_nan())
     return y;
   if (xbits.is_inf() || ybits.is_zero()) {
+    set_errno_if_required(EDOM);
     raise_except_if_required(FE_INVALID);
     return FPBits<T>::quiet_nan().get_val();
   }
