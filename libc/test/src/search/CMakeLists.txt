@@ -1,4 +1,21 @@
 add_custom_target(libc_search_unittests)
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
+    tsearch_allocation_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc_search_unittests
+    SRCS
+      tsearch_allocation_test.cpp
+      ${LIBC_SOURCE_DIR}/src/search/tsearch.cpp
+      ${LIBC_SOURCE_DIR}/src/search/tfind.cpp
+      ${LIBC_SOURCE_DIR}/src/search/tdelete.cpp
+    DEPENDS
+      libc.hdr.types.posix_tnode
+      libc.src.__support.weak_avl
+    LINK_LIBRARIES "-Wl,--wrap=malloc,--wrap=free"
+  )
+endif()
+
 add_libc_test(
   hsearch_test
   SUITE
