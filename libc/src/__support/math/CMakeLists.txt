@@ -1,3 +1,15 @@
+add_header_library(
+  airy_scaled
+  HDRS airy_scaled.h
+  DEPENDS .exp .sqrt
+)
+
+add_header_library(
+  bessel_transition
+  HDRS bessel_transition.h
+  DEPENDS .cbrt .sqrt
+)
+
 foreach(order 0 1)
   add_header_library(
     bessel${order}

@@ -1,6 +1,23 @@
 add_custom_target(libc-math-unittests)
 
 add_fp_unittest(
+  airy_scaled_test
+  NEED_MPFR
+  SUITE libc-math-unittests
+  SRCS airy_scaled_test.cpp
+  DEPENDS libc.src.__support.math.airy_scaled
+    libc.src.__support.FPUtil.fenv_impl libc.src.__support.libc_errno
+)
+
+add_fp_unittest(
+  bessel_transition_test
+  NEED_MPFR
+  SUITE libc-math-unittests
+  SRCS bessel_transition_test.cpp
+  DEPENDS libc.src.__support.math.bessel_transition
+)
+
+add_fp_unittest(
   bessel_test
   NEED_MPFR
   SUITE libc-math-unittests
