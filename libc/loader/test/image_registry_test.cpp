@@ -115,6 +115,7 @@ extern "C" int main() {
     check(view->images[1]->ancestry[0].origin.size() == 1 &&
           view->images[1]->ancestry[0].origin[0] == '/');
     const auto &ancestor = view->images[1]->ancestry[0];
+    check(ancestor.main_executable);
     check(ancestor.has_runpath && ancestor.rpath.size() == 7 &&
           ancestor.runpath.size() == 7);
     parent_file.bytes[0x700 + 21] = '!';

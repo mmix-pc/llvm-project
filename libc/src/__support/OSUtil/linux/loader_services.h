@@ -215,11 +215,13 @@ struct LoaderServices {
   long (*pin_unwind_lease)(void *, uintptr_t) = nullptr;
   LoaderLifetime lifetime = LoaderLifetime::Unspecified;
   void *(*try_resolve_tls)(void *, const TLSIndex *) = nullptr;
+  uint64_t secure = 1;
 };
 
 inline bool has_reclaiming_services(const LoaderServices &s) {
   // Check size before reading the new tail of an older provider descriptor.
-  return s.size == sizeof(s) && s.lifetime == LoaderLifetime::Reclaiming &&
+  return s.size == sizeof(s) && s.secure <= 1 &&
+         s.lifetime == LoaderLifetime::Reclaiming &&
          s.context && s.tls_set && s.prepare_thread_tls && s.release_thread_tls &&
          s.resolve_startup_tls && s.finalize_startup && s.find_unwind_image &&
          s.release_unwind_image && s.acquire_unwind_image &&
@@ -241,7 +243,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 280);
+static_assert(sizeof(LoaderServices) == 288);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

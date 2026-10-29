@@ -690,6 +690,14 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
+if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  add_entrypoint_object(
+    secure_getenv
+    ALIAS
+    DEPENDS .linux.mmix.secure_getenv
+  )
+endif()
+
 add_entrypoint_object(
   realpath
   ALIAS

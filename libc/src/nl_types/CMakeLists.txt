@@ -25,7 +25,7 @@ set(catopen_deps)
 if(LIBC_TARGET_OS_IS_LINUX)
   set(catopen_source linux/catopen.cpp)
   list(APPEND catopen_deps .catalog_path libc.src.locale.locale
-    libc.src.stdlib.environ_internal libc.src.__support.OSUtil.linux.auxv
+    libc.src.stdlib.environ_internal libc.src.__support.OSUtil.linux.secure_execution
     libc.hdr.sys_stat_macros
     libc.src.__support.OSUtil.linux.stat.kernel_statx_types
     libc.src.__support.OSUtil.linux.syscall_wrappers.statx)

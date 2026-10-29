@@ -48,7 +48,7 @@ long RuntimeState::prepare(const StartupGraph &graph,
   for (size_t i = 0; i < search.main_origin().size(); ++i)
     origin[i] = search.main_origin()[i];
   Bytes env(paths, sizeof(prefix) - 1 + search.paths().size());
-  error = environment.parse(false, {&env, 1},
+  error = environment.parse(search.secure(), {&env, 1},
                             {origin, search.main_origin().size()});
   if (error)
     return error;
@@ -141,6 +141,7 @@ long RuntimeState::reset() {
 }
 
 void RuntimeState::services(LoaderServices &out, StartupUnwindImages *unwind) {
+  out.secure = environment.secure();
   startup_unwind = unwind;
   out.lifetime = LoaderLifetime::Reclaiming;
   out.context = this;

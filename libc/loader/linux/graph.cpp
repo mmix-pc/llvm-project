@@ -81,6 +81,8 @@ SearchObject StartupGraph::search_object(const Node &node) {
   Bytes origin(node.pathname.data(), end > 1 ? end - 1 : end);
   const DynamicInfo &info = *node.metadata();
   SearchObject object{origin, {}, {}, info.has(DynamicTag::Runpath)};
+  object.main_executable = node.image()->role() == ImageRole::MainExecutable ||
+                           node.image()->role() == ImageRole::MainPIE;
   if (info.has(DynamicTag::Rpath))
     info.string(info.value(DynamicTag::Rpath), object.rpath);
   if (object.has_runpath)

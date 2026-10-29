@@ -59,6 +59,13 @@ extern "C" int main() {
   CHECK(state.argv == sp + 8 && state.envp == sp + 24 && state.auxv == sp + 40);
   CHECK(state.value(AuxField::Base) != state.value(AuxField::Entry));
   CHECK(state.value(AuxField::Base) != state.value(AuxField::Phdr));
+  CHECK(!state.secure());
+  for (unsigned changed = 7; changed < 12; ++changed) {
+    StackFixture secure;
+    secure.aux(changed, 1234);
+    CHECK(decode_initial_stack(secure.view(), sp, true, state) == EntryError::None);
+    CHECK(state.secure());
+  }
   CHECK(decode_initial_stack(stack.view(), sp + 1, true, state) ==
         EntryError::Stack);
   CHECK(!state.valid);
@@ -97,7 +104,6 @@ extern "C" int main() {
       {16, 0, EntryError::AddressRange},
       {16, bias + 0x2001, EntryError::AddressRange},
       {18, (Address(1) << 43) - 8, EntryError::AddressRange},
-      {20, 1, EntryError::Secure},
       {22, Address(1) << 32, EntryError::Auxv},
       {30, 1, EntryError::Auxv},
   };
@@ -127,7 +133,8 @@ extern "C" int main() {
   secure.aux(7, 1);
   secure.word(3, sp + 8192); // Valid address, not accessible fixture storage.
   CHECK(decode_initial_stack(secure.view(), sp, true, state) ==
-        EntryError::Secure);
+        EntryError::None);
+  CHECK(state.secure()); // Entry validation does not dereference strings.
   StackFixture unknown;
   unknown.word(29, 0x12345);
   unknown.word(30, ~Address(0));

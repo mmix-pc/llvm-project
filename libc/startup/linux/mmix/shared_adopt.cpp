@@ -12,6 +12,7 @@
 #include "src/__support/OSUtil/linux/auxv.h"
 #include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
+#include "src/__support/OSUtil/linux/mmix/startup_security.h"
 #include "src/__support/threads/linux/mmix/loader_cancellation.h"
 #include "src/dlfcn/linux/mmix/loading.h"
 #include "src/errno/program_invocation_name.h"
@@ -30,6 +31,7 @@ __llvm_libc_mmix_linux_init_guard(const unsigned char *);
 namespace LIBC_NAMESPACE_DECL {
 AppProperties app;
 namespace mmix {
+bool secure_execution = true;
 static loader::LoaderServices services{};
 static bool attempted;
 
@@ -151,6 +153,7 @@ long adopt_shared_main(const loader::StartupProcessView *process,
           reinterpret_cast<uintptr_t>(state))
     return EINVAL;
   attempted = true;
+  secure_execution = input->secure;
   __builtin_memcpy_inline(&services, input, sizeof(services));
   if (!adopt_startup_tls_resolver(
           {services.context, services.resolve_startup_tls,

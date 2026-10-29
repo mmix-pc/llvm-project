@@ -7,6 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "process_args.h"
+#include "src/__support/OSUtil/linux/mmix/startup_security.h"
+#include "src/__support/OSUtil/linux/syscall.h"
+#include "src/__support/OSUtil/linux/startup_fds.h"
+#include "src/__support/OSUtil/linux/startup_security.h"
 #include "src/errno/program_invocation_name.h"
 #include "src/errno/program_invocation_short_name.h"
 #include "src/unistd/environ.h"
@@ -26,13 +30,24 @@ __llvm_libc_mmix_linux_init_guard(const unsigned char *random);
 
 namespace LIBC_NAMESPACE_DECL {
 AppProperties app;
+bool mmix::secure_execution = true;
 
 void mmix::publish_process_args(const ProcessArgs &args) {
+  if (args.secure && startup_security::protect_standard_fds(
+                         [](long n, long a, long b, long c, long d, long e,
+                            long f) { return syscall_impl<long>(n, a, b, c, d, e, f); }))
+    __llvm_libc_mmix_linux_start_fail();
   app.args = args.args;
   app.env_ptr = args.env;
   app.page_size = args.page_size;
   app.tls = args.tls;
-  auxv::Vector::initialize_unsafe(args.aux);
+  mmix::secure_execution = args.secure;
+  const auto *aux = args.aux;
+  if (args.secure)
+    aux = reinterpret_cast<const auxv::Entry *>(startup_security::sanitize(
+        reinterpret_cast<char **>(args.env),
+        reinterpret_cast<const uintptr_t *>(args.aux)));
+  auxv::Vector::initialize_unsafe(aux);
   environ = reinterpret_cast<char **>(args.env);
   if (args.args->argc != 0) {
     program_invocation_name = reinterpret_cast<char *>(args.args->argv[0]);

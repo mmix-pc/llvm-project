@@ -162,6 +162,10 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
     failed_syscall = number;
     return -EIO;
   }
+  if (number == SYS_fcntl) {
+    assert(a >= 0 && a < 3 && b == F_GETFD);
+    return 0;
+  }
   if (number == SYS_openat) {
     assert(!fd_live);
     for (unsigned i = 0; i < file_count; ++i) {
@@ -319,7 +323,7 @@ static void record_startup(Address address, int argc, char **argv, char **envp) 
 static int startup_tests() {
   alignas(page) static Library executable(ImageRole::MainPIE);
   alignas(page) static Fixture interpreter(ImageRole::Interpreter);
-  alignas(8) static unsigned char env[16];
+  alignas(8) static unsigned char env[32];
   static unsigned char random[16];
   static const char setting[] = "LD_LIBRARY_PATH=/lib";
   borrowed_main = reinterpret_cast<Address>(executable.bytes);
@@ -336,7 +340,7 @@ static int startup_tests() {
   arguments.argc = 2;
   arguments.argv = 0x8000;
   arguments.envp = reinterpret_cast<Address>(env);
-  arguments.auxv = arguments.envp + sizeof(env);
+  arguments.auxv = arguments.envp + 16;
   Address pointer = reinterpret_cast<Address>(setting);
   for (unsigned i = 0; i < 8; ++i)
     env[7 - i] = pointer >> (8 * i);
@@ -429,9 +433,25 @@ static int startup_tests() {
   executable.set(DT_FLAGS, 0);
   start();
   arguments.values[unsigned(AuxField::Secure)] = 1;
+  // An empty environment and AT_NULL are byte-order independent, allowing the
+  // native transaction test to exercise target secure startup as well.
+  memset(env, 0, sizeof(env));
+  arguments.auxv = arguments.envp + 8;
   Startup secure(page);
-  CHECK(secure.prepare(arguments, self).error == -EINVAL && !calls);
+  CHECK(!secure.prepare(arguments, self).error);
+  CHECK(!secure.run(record_startup) && trace_count == 4);
+  CHECK(!secure.reset() && !live() && !fd_live);
+  trace_count = 0;
+  start();
+  fail_at = 1;
+  Startup failed_security(page);
+  CHECK(failed_security.prepare(arguments, self).error == -EIO);
+  CHECK(failed_syscall == SYS_fcntl && !opens && !trace_count);
+  CHECK(!failed_security.reset() && !live());
   arguments.values[unsigned(AuxField::Secure)] = 0;
+  arguments.auxv = arguments.envp + 16;
+  for (unsigned i = 0; i < 8; ++i)
+    env[7 - i] = pointer >> (8 * i);
   // The same physical main image can be a fixed ET_EXEC: all linked virtual
   // addresses become absolute while AT_ENTRY/AT_PHDR remain runtime addresses.
   executable.put(16, 2, ET_EXEC);
@@ -512,6 +532,7 @@ static int runtime_tests() {
   CHECK(snapshot->images[1]->dependencies[0] == snapshot->images[2]);
   CHECK(snapshot->images[2]->dependencies[0] == snapshot->images[1]);
   CHECK(snapshot->images[1]->ancestry.size() == 1);
+  CHECK(snapshot->images[1]->ancestry[0].main_executable);
   CHECK(snapshot->images[0]->path.data() != origins[0].path.data());
   const unsigned resident_live = live(),
                  resident_allocations = allocations_count;
@@ -1484,7 +1505,11 @@ extern "C" int main() {
   services.tls_set = graph.relocated_tls().modules();
   state.services(services);
   CHECK(has_reclaiming_services(services));
+  CHECK(!services.secure);
   auto incompatible = services;
+  incompatible.secure = 2;
+  CHECK(!has_reclaiming_services(incompatible));
+  incompatible = services;
   incompatible.size -= sizeof(uint64_t);
   CHECK(!has_reclaiming_services(incompatible));
   incompatible = services;

@@ -196,6 +196,7 @@ add_object_library(
   DEPENDS .initialization .entry .graph .io .arena .unwind_images .runtime .mmix.target .mmix.syscall
     libc.hdr.errno_macros libc.hdr.fcntl_macros libc.include.sys_syscall
     libc.hdr.func.free libc.src.__support.common
+    libc.src.__support.OSUtil.linux.startup_fds
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 
@@ -280,7 +281,7 @@ add_object_library(
   entry
   SRCS entry.cpp
   HDRS entry.h
-  DEPENDS .elf .mmix.target
+  DEPENDS .elf .mmix.target libc.src.__support.OSUtil.linux.startup_security
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 

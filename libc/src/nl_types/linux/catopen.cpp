@@ -12,7 +12,7 @@
 #include "hdr/func/free.h"
 #include "hdr/sys_stat_macros.h"
 #include "include/llvm-libc-macros/nl_types-macros.h"
-#include "src/__support/OSUtil/linux/auxv.h"
+#include "src/__support/OSUtil/linux/secure_execution.h"
 #include "src/__support/OSUtil/linux/stat/kernel_statx_types.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/read.h"
@@ -90,8 +90,7 @@ LLVM_LIBC_FUNCTION(nl_catd, catopen, (const char *name, int flag)) {
   int saved_errno = libc_errno;
   // Fail closed when startup security metadata is unavailable. Explicit paths
   // remain caller-selected; environment search is only for unprivileged use.
-  auto secure = auxv::get(AT_SECURE);
-  bool environment = secure && *secure == 0;
+  bool environment = !is_secure_execution();
   const char *locale = "C";
   if (flag == NL_CAT_LOCALE)
     locale = internal::locale_snapshot(internal::thread_locale)

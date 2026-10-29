@@ -27,7 +27,7 @@ if(LIBC_TARGET_OS_IS_LINUX AND LLVM_LIBC_FULL_BUILD)
       .message_translation libc.src.locale.locale
       libc.src.locale.linux_locale_file libc.src.locale.builtin_transliteration
       libc.src.stdlib.environ_internal libc.src.__support.libc_errno
-      libc.src.__support.OSUtil.linux.auxv
+      libc.src.__support.OSUtil.linux.secure_execution
   )
   foreach(name gettext dgettext dcgettext ngettext dngettext dcngettext
                gettext_l dgettext_l dcgettext_l ngettext_l dngettext_l dcngettext_l)

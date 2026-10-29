@@ -1,5 +1,4 @@
-//===-- Compose the loader startup transaction
-//-----------------------------===//
+//===-- Compose the loader startup transaction ----------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,6 +12,7 @@
 #include "loader/linux/syscall.h"
 #include "loader/linux/target.h"
 #include "src/__support/CPP/new.h"
+#include "src/__support/OSUtil/linux/startup_fds.h"
 #include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
@@ -58,11 +58,16 @@ static long executable_path(OwnedFd &fd, char *path, size_t capacity) {
 }
 
 long Startup::prepare_impl(const InitialStack &input, const ElfImage &self) {
-  if (!input.valid || !input.big_endian || input.value(AuxField::Secure) ||
+  if (!input.valid || !input.big_endian ||
       !is_supported_page_size(page_size) ||
       input.value(AuxField::Pagesz) != page_size)
     return -EINVAL;
   __builtin_memcpy_inline(&stack, &input, sizeof(stack));
+  if (stack.secure()) {
+    long error = startup_security::protect_standard_fds(raw_syscall);
+    if (error)
+      return error;
+  }
   Address count = stack.value(AuxField::Phnum);
   if (!count || count >= PN_XNUM ||
       !is_user_range(stack.value(AuxField::Phdr), count * 56))
@@ -167,9 +172,13 @@ long Startup::prepare_impl(const InitialStack &input, const ElfImage &self) {
     }
   }
   SearchEnvironment search;
-  error = search.parse(false, {environment, env_count}, origin);
+  error = search.parse(stack.secure(), {environment, env_count}, origin);
   if (error)
     return error;
+  if (stack.secure())
+    stack.auxv = reinterpret_cast<Address>(startup_security::sanitize(
+        reinterpret_cast<char **>(stack.envp),
+        reinterpret_cast<const uintptr_t *>(stack.auxv)));
   auto result = graph.build(main, identity_known ? &identity : nullptr,
                             pathname, search);
   if (!result.error)

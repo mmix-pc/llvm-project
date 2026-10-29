@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/libintl/message_lookup.h"
-#include "src/__support/OSUtil/linux/auxv.h"
+#include "src/__support/OSUtil/linux/secure_execution.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/wchar/encoding_converter.h"
 #include "src/libintl/domain_bindings.h"
@@ -44,8 +44,7 @@ char *lookup(const char *domain, const char *singular, const char *plural,
   DomainSnapshot binding;
   if (!snapshot_text_domain(domain, binding))
     return fallback;
-  auto secure = auxv::get(AT_SECURE);
-  bool environment = secure && *secure == 0;
+  bool environment = !is_secure_execution();
   auto &env = EnvironmentManager::get_instance();
   auto found = search_message_object(
       binding.directory(), name, category_names[category], binding.domain(),

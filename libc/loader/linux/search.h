@@ -22,11 +22,13 @@ namespace loader {
 struct SearchObject {
   Bytes origin, rpath, runpath;
   bool has_runpath;
+  bool main_executable = false;
 };
 
 class SearchEnvironment {
   Bytes library_path, origin, rejected;
   bool valid = false;
+  bool secure_mode = false;
 
 public:
   // Check secure admission before inspecting any environment string. The caller
@@ -34,6 +36,7 @@ public:
   long parse(bool secure, cpp::span<const Bytes> environment,
              Bytes main_origin);
   bool admitted() const { return valid; }
+  bool secure() const { return secure_mode; }
   Bytes paths() const { return library_path; }
   Bytes main_origin() const { return origin; }
   // The startup diagnostic can name a rejected setting (for example LD_PRELOAD).

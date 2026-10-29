@@ -400,6 +400,9 @@ long ImageRegistry::prepare(Transaction &transaction,
         --end;
       SearchObject direct{{parent->path.data(), end > 1 ? end - 1 : end},
                           {}, {}, dynamic.has(DynamicTag::Runpath)};
+      direct.main_executable =
+          parent->elf.role() == ImageRole::MainExecutable ||
+          parent->elf.role() == ImageRole::MainPIE;
       if (dynamic.has(DynamicTag::Rpath))
         dynamic.string(dynamic.value(DynamicTag::Rpath), direct.rpath);
       if (direct.has_runpath)

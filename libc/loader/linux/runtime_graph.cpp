@@ -73,7 +73,8 @@ long RuntimeGraph::edge(Node &source, Node &target) {
   return 0;
 }
 
-SearchObject RuntimeGraph::search_object(Bytes path, const DynamicInfo &info) {
+SearchObject RuntimeGraph::search_object(Bytes path, const DynamicInfo &info,
+                                         ImageRole role) {
   size_t end = path.size();
   while (end && path[end - 1] != '/')
     --end;
@@ -81,6 +82,8 @@ SearchObject RuntimeGraph::search_object(Bytes path, const DynamicInfo &info) {
                       {},
                       {},
                       info.has(DynamicTag::Runpath)};
+  object.main_executable = role == ImageRole::MainExecutable ||
+                           role == ImageRole::MainPIE;
   if (info.has(DynamicTag::Rpath))
     info.string(info.value(DynamicTag::Rpath), object.rpath);
   if (object.has_runpath)
@@ -114,12 +117,13 @@ long RuntimeGraph::ancestry(const Node *node,
   size_t index = 0;
   for (const Node *p = node ? node->parent : nullptr; p; p = p->parent)
     new (objects + index++)
-        SearchObject(search_object(p->path(), *p->metadata()));
+        SearchObject(search_object(p->path(), *p->metadata(), p->image()->role()));
   if (node) {
     if (!requester->metadata())
       return -ENOEXEC;
     new (objects + index++)
-        SearchObject(search_object(requester->path, *requester->metadata()));
+        SearchObject(search_object(requester->path, *requester->metadata(),
+                                   requester->elf.role()));
   }
   for (const auto &ancestor : requester->ancestry)
     new (objects + index++) SearchObject(ancestor);
@@ -218,8 +222,10 @@ MapResult RuntimeGraph::resolve(Bytes name, Node *parent,
     return {error, 0};
   if (!parent && !requester->metadata())
     return {-ENOEXEC, 0};
-  auto object = parent ? search_object(parent->path(), *parent->metadata())
-                       : search_object(requester->path, *requester->metadata());
+  auto object = parent ? search_object(parent->path(), *parent->metadata(),
+                                       parent->image()->role())
+                       : search_object(requester->path, *requester->metadata(),
+                                       requester->elf.role());
   Request request{this, parent, no_load};
   MapResult result = DependencySearch::resolve(
       name, object, ancestors, environment, candidate, &request);

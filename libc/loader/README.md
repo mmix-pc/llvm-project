@@ -390,8 +390,20 @@ not yet a concurrent dynamic-loading allocator.
 ## Initial Entry
 
 The bounded stack decoder checks argc/argv/envp layout, mandatory auxv values,
-duplicates, page size and user-address arithmetic. It rejects AT_SECURE before
-any environment string is read. Main-image discovery derives bias from its
+duplicates, page size and user-address arithmetic. Secure execution is selected
+by nonzero AT_SECURE or unequal startup UID/EUID or GID/EGID; missing or invalid
+security metadata cannot select ordinary mode. Before opening dependency
+files, secure startup repairs missing standard descriptors using verified
+character devices: write-only /dev/full for stdin, read-only /dev/null for
+stdout and stderr. Existing descriptors are unchanged; repair failure aborts
+startup. Symlink device paths are rejected.
+
+Secure search ignores environmental loader controls, and startup removes an
+explicit dangerous-variable list before constructors. The captured decision is
+passed to shared libc and retained for later loading, independent of changes
+to credentials, environ or auxv. The private service descriptor requires an
+exact-size match, so loader and shared libc must be rebuilt together.
+Main-image discovery derives bias from its
 PT_PHDR, not AT_BASE. Admission then cross-checks both mapped images, the actual
 interpreter PC, main entry, complete tables and readable random bytes, including
 rejection of overlapping main/interpreter load pages.

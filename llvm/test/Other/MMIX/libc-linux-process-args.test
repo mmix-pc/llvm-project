@@ -42,7 +42,7 @@ for opt in ("0", "2"):
     undefined = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
     assert {line.split()[-1] for line in undefined.splitlines()} == {
         "__llvm_libc_mmix_linux_start_fail", "__llvm_libc_mmix_linux_init_guard",
-        "__llvm_libc_mmix_linux_run"}, undefined
+        "__llvm_libc_mmix_linux_run", "__llvm_libc_mmix_syscall"}, undefined
     elf = subprocess.check_output(["llvm-readobj", "--sections", str(obj)], text=True)
     for name in ("SHF_TLS", ".init_array", ".MMIX.reg_contents"):
         assert name not in elf, elf
@@ -72,6 +72,10 @@ if len(sys.argv) == 4:
 #--- headers/linux/param.h
 #define EXEC_PAGESIZE 8192
 #--- headers/linux/prctl.h
+#--- headers/linux/stat.h
+#include "src/__support/OSUtil/linux/stat/kernel_statx_types.h"
+#define statx LIBC_NAMESPACE::internal::kernel_statx_buf
+#define STATX_TYPE 0x0001U
 #--- headers/sys/syscall.h
 #define SYS_openat 56
 #define SYS_close 57
@@ -80,6 +84,8 @@ if len(sys.argv) == 4:
 #define SYS_mmap 222
 #define SYS_munmap 215
 #define SYS_futex 98
+#define SYS_fcntl 25
+#define SYS_statx 291
 
 #--- test.cpp
 #include "startup/linux/mmix/process_args.h"
@@ -131,7 +137,12 @@ static void prepare(unsigned argc, unsigned envc) {
   aux[6] = {AT_EXECFN, reinterpret_cast<uintptr_t>(name)};
   aux[7] = {AT_BASE, 0};
   aux[8] = {0x12345, 0xabcdef}; // Preserve tags not interpreted by bootstrap.
-  aux[9] = {AT_NULL, 0};
+  aux[9] = {AT_SECURE, 0};
+  aux[10] = {AT_UID, 0};
+  aux[11] = {AT_EUID, 0};
+  aux[12] = {AT_GID, 0};
+  aux[13] = {AT_EGID, 0};
+  aux[14] = {AT_NULL, 0};
 }
 
 extern "C" [[noreturn]] void __llvm_libc_mmix_linux_start(uintptr_t *);
@@ -206,7 +217,7 @@ extern "C" int main() {
   aux[7].val = 8192;
   require(!mmix::parse_process_args(stack, parsed));
   aux[7].val = 0;
-  aux[9].val = 1;
+  aux[14].val = 1;
   require(!mmix::parse_process_args(stack, parsed));
   prepare(0, 0);
   aux[3].val = 4096;

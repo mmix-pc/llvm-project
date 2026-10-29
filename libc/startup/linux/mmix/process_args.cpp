@@ -8,6 +8,7 @@
 
 #include "process_args.h"
 #include "hdr/elf_proxy.h"
+#include "src/__support/OSUtil/linux/startup_security.h"
 #include "src/__support/threads/linux/mmix/tls.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -103,11 +104,14 @@ bool parse_process_args(uintptr_t *stack, ProcessArgs &result) {
     ALL = PHDR | PHNUM | PHENT | PAGESZ | RANDOM,
   };
   unsigned seen = 0;
+  startup_security::Inputs security;
   for (;;) {
     if (!user_range(cursor, sizeof(auxv::Entry)))
       return false;
     const auto &entry = *reinterpret_cast<const auxv::Entry *>(cursor);
     cursor += sizeof(auxv::Entry);
+    if (!security.observe(entry.type, entry.val))
+      return false;
     if (entry.type == AT_NULL) {
       if (entry.val != 0)
         return false;
@@ -150,7 +154,8 @@ bool parse_process_args(uintptr_t *stack, ProcessArgs &result) {
       return false;
     seen |= bit;
   }
-  if ((seen & ALL) != ALL || phdr % alignof(Elf64_Phdr) || phnum == 0 ||
+  if (!security.complete() || (seen & ALL) != ALL ||
+      phdr % alignof(Elf64_Phdr) || phnum == 0 ||
       phnum > UINTPTR_MAX / sizeof(Elf64_Phdr) ||
       !user_range(phdr, phnum * sizeof(Elf64_Phdr)) || !user_range(random, 16))
     return false;
@@ -217,6 +222,7 @@ bool parse_process_args(uintptr_t *stack, ProcessArgs &result) {
   result.phnum = phnum;
   result.tls = image;
   result.has_tls = tls != nullptr;
+  result.secure = security.secure();
   return true;
 }
 

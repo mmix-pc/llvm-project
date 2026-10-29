@@ -10,6 +10,33 @@ endif()
 add_subdirectory(syscall_wrappers)
 add_subdirectory(stat)
 
+set(secure_execution_source secure_execution.cpp)
+set(secure_execution_deps .auxv)
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  set(secure_execution_source mmix/secure_execution.cpp)
+  set(secure_execution_deps .mmix.startup_security)
+endif()
+add_object_library(
+  secure_execution
+  SRCS ${secure_execution_source}
+  HDRS secure_execution.h
+  DEPENDS ${secure_execution_deps} libc.src.__support.macros.config
+)
+
+add_header_library(
+  startup_fds
+  HDRS startup_fds.h
+  DEPENDS libc.hdr.errno_macros libc.hdr.fcntl_macros libc.hdr.sys_stat_macros
+    libc.include.sys_syscall libc.src.__support.macros.config
+)
+
+add_header_library(
+  startup_security
+  HDRS startup_security.h
+  DEPENDS libc.hdr.stdint_proxy libc.hdr.sys_auxv_macros
+    libc.src.__support.macros.config
+)
+
 add_header_library(
   loader_services
   HDRS loader_services.h

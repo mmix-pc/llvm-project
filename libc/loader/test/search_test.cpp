@@ -248,10 +248,61 @@ extern "C" int main() {
   const Bytes duplicate[] = {bytes("LD_LIBRARY_PATH=/a"),
                              bytes("LD_LIBRARY_PATH=/b")};
   CHECK(environment.parse(false, duplicate, {}) == -EINVAL);
-  // An unreadable view is never touched on the secure rejection path.
+  // Secure search never interprets the environment, even malformed settings.
   CHECK(environment.parse(true, {reinterpret_cast<const Bytes *>(1), 1}, {}) ==
-        -ENOTSUP);
+        0);
+  CHECK(environment.secure() && environment.paths().empty());
+  CHECK(environment.parse(true, duplicate, bytes("/usr/bin")) == 0);
+  const SearchObject secure_parents[] = {
+      {bytes("/untrusted/main"), bytes("$ORIGIN"), {}, false, true},
+      {bytes("/private/dso"), bytes("${ORIGIN}"), {}, false, false}};
+  requester = {bytes("/usr/bin"),
+               bytes("$ORIGIN/../lib/./private:prefix/$ORIGIN:${ORIGIN}suffix:"
+                     "$ORIGIN/../../tmp:/explicit"),
+               {}, false, true};
+  files = FileModel{};
+  CHECK(DependencySearch::resolve(bytes("libx.so"), requester, secure_parents,
+                                  environment, FileModel::load, &files)
+            .error == -ENOENT);
+  const char *secure_order[] = {"/usr/lib/private/libx.so", "/explicit/libx.so",
+                                 "/private/dso/libx.so", "/lib/libx.so",
+                                 "/usr/lib/libx.so"};
+  CHECK(files.count == 5);
+  for (unsigned i = 0; i < files.count; ++i)
+    CHECK(!strcmp(files.attempted[i], secure_order[i]));
+  const Bytes untrusted[] = {bytes("/lib-other"), bytes("/usr/library"),
+                             bytes("/lib/../../tmp"), bytes("/tmp"), Bytes()};
+  for (Bytes origin : untrusted) {
+    requester = {origin, bytes("$ORIGIN"), {}, false, true};
+    files = FileModel{};
+    CHECK(DependencySearch::resolve(bytes("libx.so"), requester, {}, environment,
+                                    FileModel::load, &files).error == -ENOENT);
+    CHECK(files.count == 2);
+    CHECK(!strcmp(files.attempted[0], "/lib/libx.so"));
+    files = FileModel{};
+    CHECK(DependencySearch::resolve(bytes("$ORIGIN/libx.so"), requester, {},
+                                    environment, FileModel::load, &files).error != 0);
+    CHECK(files.count == 0); // Direct names cannot fall back to a search.
+  }
+  requester = {bytes("/private/dso"), {}, bytes("${ORIGIN}"), true, false};
+  files = FileModel{};
+  CHECK(DependencySearch::resolve(bytes("libx.so"), requester, secure_parents,
+                                  environment, FileModel::load, &files).error == -ENOENT);
+  CHECK(files.count == 3 && !strcmp(files.attempted[0], "/private/dso/libx.so"));
+  requester.main_executable = true;
+  requester.origin = bytes("/usr//lib/child/../.");
+  files = FileModel{};
+  files.success = "/usr/lib/libx.so";
+  CHECK(!DependencySearch::resolve(bytes("libx.so"), requester, {}, environment,
+                                   FileModel::load, &files).error);
+  CHECK(files.count == 1);
+  files = FileModel{};
+  files.success = "/explicit/libx.so";
+  CHECK(!DependencySearch::resolve(bytes("/explicit/libx.so"), requester, {},
+                                   environment, FileModel::load, &files).error);
+  CHECK(files.count == 1);
   CHECK(environment.parse(false, {}, {}) == 0);
+  CHECK(!environment.secure());
   requester = {{}, bytes(":::"), {}, false};
   DsoMapping owner(8192);
   CHECK(DependencySearch::load(bytes("libx.so"), requester, {}, environment,

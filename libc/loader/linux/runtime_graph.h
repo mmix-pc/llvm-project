@@ -66,7 +66,8 @@ private:
   long borrow(const ImageRegistry::Image &, Node *&out);
   long edge(Node &source, Node &target);
   long ancestry(const Node *node, cpp::span<const SearchObject> &out);
-  static SearchObject search_object(Bytes path, const DynamicInfo &info);
+  static SearchObject search_object(Bytes path, const DynamicInfo &info,
+                                    ImageRole role);
   struct Request {
     RuntimeGraph *graph;
     Node *parent;

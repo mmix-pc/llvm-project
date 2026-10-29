@@ -26,6 +26,7 @@ struct ProcessArgs {
   uintptr_t phnum;
   TLSImage tls;
   bool has_tls;
+  bool secure;
 };
 
 // Accessible, terminated initial memory is a kernel obligation. This checks

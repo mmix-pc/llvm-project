@@ -32,6 +32,7 @@ if(LIBC_MMIX_BUILD_SHARED_LIBC)
       DEPENDS libc.src.__support.threads.linux.mmix.main_thread
         libc.src.__support.OSUtil.linux.mmix.dynamic_tls
         libc.src.__support.OSUtil.linux.auxv
+        libc.src.__support.OSUtil.linux.mmix.startup_security
         libc.src.stdlib.atexit
         libc.src.dlfcn.linux.mmix.loading
         libc.src.__support.threads.linux.mmix.loader_cancellation
@@ -91,6 +92,7 @@ add_startup_object(
     libc.hdr.elf_proxy
     libc.src.__support.threads.linux.mmix.tls_h
     libc.src.__support.OSUtil.linux.auxv
+    libc.src.__support.OSUtil.linux.startup_security
   COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector -fno-lto
 )
 
@@ -101,6 +103,9 @@ add_startup_object(
   SRC bootstrap.cpp
   DEPENDS
     .process_args
+    libc.src.__support.OSUtil.linux.mmix.startup_security
+    libc.src.__support.OSUtil.linux.startup_fds
+    libc.src.__support.OSUtil.linux.mmix.syscall
   COMPILE_OPTIONS -ffreestanding -fno-builtin -fno-stack-protector -fno-lto
 )
 

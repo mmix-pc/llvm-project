@@ -7,6 +7,15 @@ add_header_library(
     libc.src.signal.linux.mmix.rt_sigaction
 )
 
+add_entrypoint_object(
+  secure_getenv
+  SRCS secure_getenv.cpp
+  HDRS ../../secure_getenv.h
+  DEPENDS libc.src.stdlib.getenv
+    libc.src.__support.OSUtil.linux.mmix.startup_security
+    libc.src.__support.common
+)
+
 add_object_library(
   allocator
   SRCS allocator.cpp

@@ -97,8 +97,6 @@ EntryError decode_initial_stack(Bytes bytes, Address sp, bool big,
     unsigned bit = 1U << index;
     if (seen & bit)
       return EntryError::Duplicate;
-    if (f == AuxField::Secure && value != 0)
-      return EntryError::Secure;
     seen |= bit;
     state.values[index] = value;
   }

@@ -25,9 +25,49 @@ static bool token_character(unsigned char c) {
          (c >= '0' && c <= '9') || c == '_';
 }
 
-static long expand(Bytes input, Bytes origin, char *out) {
+// Normalize in place so the actual lookup uses precisely the checked path.
+static void normalize_absolute(char *path) {
+  size_t read = 1, written = 1;
+  while (path[read]) {
+    while (path[read] == '/')
+      ++read;
+    size_t start = read;
+    while (path[read] && path[read] != '/')
+      ++read;
+    size_t length = read - start;
+    if (!length || (length == 1 && path[start] == '.'))
+      continue;
+    if (length == 2 && path[start] == '.' && path[start + 1] == '.') {
+      while (written > 1 && path[written - 1] != '/')
+        --written;
+      if (written > 1)
+        --written;
+      continue;
+    }
+    if (written > 1)
+      path[written++] = '/';
+    for (size_t i = 0; i < length; ++i)
+      path[written++] = path[start + i];
+  }
+  path[written] = 0;
+}
+
+static bool trusted_directory(const char *path) {
+  const char *roots[] = {"/lib", "/usr/lib"};
+  for (const char *root : roots) {
+    size_t i = 0;
+    while (root[i] && path[i] == root[i])
+      ++i;
+    if (!root[i] && (!path[i] || path[i] == '/'))
+      return true;
+  }
+  return false;
+}
+
+static long expand(Bytes input, Bytes origin, char *out, bool secure = false,
+                   bool main_executable = false) {
   size_t used = 0;
-  bool missing_origin = false;
+  bool missing_origin = false, expanded_origin = false;
   for (size_t i = 0; i < input.size();) {
     if (!input[i])
       return -EINVAL;
@@ -37,7 +77,7 @@ static long expand(Bytes input, Bytes origin, char *out) {
       out[used++] = input[i++];
       continue;
     }
-    ++i;
+    size_t token = i++;
     bool braces = i < input.size() && input[i] == '{';
     if (braces)
       ++i;
@@ -47,6 +87,9 @@ static long expand(Bytes input, Bytes origin, char *out) {
     if (!equal(Bytes(input.data() + start, i - start), "ORIGIN") ||
         (braces && (i == input.size() || input[i++] != '}')))
       return -ENOTSUP;
+    if (secure && (token != 0 || (i < input.size() && input[i] != '/')))
+      return -EACCES;
+    expanded_origin = true;
     if (origin.empty()) {
       // Still validate later tokens instead of hiding unsupported syntax.
       missing_origin = true;
@@ -63,7 +106,14 @@ static long expand(Bytes input, Bytes origin, char *out) {
     }
   }
   out[used] = 0;
-  return missing_origin ? -ENOENT : 0;
+  if (missing_origin)
+    return -ENOENT;
+  if (secure && main_executable && expanded_origin) {
+    normalize_absolute(out);
+    if (!trusted_directory(out))
+      return -EACCES;
+  }
+  return 0;
 }
 
 // One traversal is used for both preflight and attempts. Preflight validates
@@ -71,7 +121,8 @@ static long expand(Bytes input, Bytes origin, char *out) {
 // unsupported token in a later directory.
 using PathVisitor = MapResult (*)(void *, const char *);
 static MapResult visit_paths(Bytes list, Bytes origin, const char *name,
-                             PathVisitor visit, void *context) {
+                             PathVisitor visit, void *context,
+                             bool secure = false, bool main_executable = false) {
   char path[DependencySearch::PATH_CAPACITY];
   for (size_t begin = 0; begin < list.size();) {
     size_t end = begin;
@@ -81,9 +132,10 @@ static MapResult visit_paths(Bytes list, Bytes origin, const char *name,
     begin = end == list.size() ? end : end + 1;
     if (start == end)
       continue;
-    long error = expand(Bytes(list.data() + start, end - start), origin, path);
-    if (error == -ENOENT)
-      continue; // An unavailable ORIGIN disables this element, not the list.
+    long error = expand(Bytes(list.data() + start, end - start), origin, path,
+                        secure, main_executable);
+    if (error == -ENOENT || (secure && error == -EACCES))
+      continue; // An unavailable or unsafe ORIGIN disables only this element.
     if (error)
       return {error, 0};
     size_t used = 0;
@@ -115,8 +167,14 @@ long SearchEnvironment::parse(bool secure, cpp::span<const Bytes> env,
   library_path = {};
   origin = {};
   rejected = {};
-  if (secure)
-    return -ENOTSUP;
+  secure_mode = secure;
+  if (secure) {
+    // Do not even interpret attacker-controlled settings. Startup separately
+    // removes dangerous entries from the environment delivered to libc.
+    origin = main_origin;
+    valid = true;
+    return 0;
+  }
   bool seen = false;
   for (Bytes entry : env) {
     size_t split = 0;
@@ -181,7 +239,8 @@ MapResult DependencySearch::resolve(Bytes name, const SearchObject &requester,
   if (!environment.admitted() || !load || name.empty())
     return {-EINVAL, 0};
   char expanded[PATH_CAPACITY];
-  long error = expand(name, requester.origin, expanded);
+  long error = expand(name, requester.origin, expanded, environment.secure(),
+                      requester.main_executable);
   if (error)
     return {error, 0};
   bool pathname = false;
@@ -196,14 +255,16 @@ MapResult DependencySearch::resolve(Bytes name, const SearchObject &requester,
     PathVisitor visit = pass ? candidate : nullptr;
     if (!requester.has_runpath) {
       MapResult result = visit_paths(requester.rpath, requester.origin,
-                                     expanded, visit, &attempt);
+                                     expanded, visit, &attempt,
+                                     environment.secure(), requester.main_executable);
       if (result.error != -ENOENT || result.cleanup_error)
         return result;
       for (const auto &parent : ancestry) {
         if (parent.has_runpath)
           continue;
         result =
-            visit_paths(parent.rpath, parent.origin, expanded, visit, &attempt);
+            visit_paths(parent.rpath, parent.origin, expanded, visit, &attempt,
+                        environment.secure(), parent.main_executable);
         if (result.error != -ENOENT || result.cleanup_error)
           return result;
       }
@@ -215,7 +276,7 @@ MapResult DependencySearch::resolve(Bytes name, const SearchObject &requester,
       return result;
     if (requester.has_runpath) {
       result = visit_paths(requester.runpath, requester.origin, expanded, visit,
-                           &attempt);
+                           &attempt, environment.secure(), requester.main_executable);
       if (result.error != -ENOENT || result.cleanup_error)
         return result;
     }

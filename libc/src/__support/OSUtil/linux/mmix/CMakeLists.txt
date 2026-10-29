@@ -1,4 +1,9 @@
 set(mmix_resolver_dependencies)
+add_header_library(
+  startup_security
+  HDRS startup_security.h
+  DEPENDS libc.src.__support.macros.config
+)
 if(LIBC_MMIX_BUILD_SHARED_LIBC)
   list(APPEND mmix_resolver_dependencies
     libc.src.__support.threads.linux.mmix.loader_cancellation)

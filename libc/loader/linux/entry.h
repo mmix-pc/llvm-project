@@ -10,6 +10,7 @@
 #define LLVM_LIBC_LOADER_LINUX_ENTRY_H
 
 #include "loader/linux/elf.h"
+#include "src/__support/OSUtil/linux/startup_security.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
@@ -54,6 +55,11 @@ struct InitialStack {
   Address value(AuxField field) const {
     return values[static_cast<unsigned>(field)];
   }
+  bool secure() const {
+    return startup_security::required(value(AuxField::Secure),
+        value(AuxField::Uid), value(AuxField::Euid),
+        value(AuxField::Gid), value(AuxField::Egid));
+  }
 };
 
 struct MainLocation {
@@ -63,7 +69,7 @@ struct MainLocation {
 
 // The caller supplies a readable initial-stack extent, including any auxv
 // padding. Only pointer values are inspected: no argv/env string is read here.
-// In particular, AT_SECURE is rejected before any environment interpretation.
+// Security metadata is mandatory and checked before environment interpretation.
 EntryError decode_initial_stack(Bytes bytes, Address sp, bool big_endian,
                                 InitialStack &out);
 
