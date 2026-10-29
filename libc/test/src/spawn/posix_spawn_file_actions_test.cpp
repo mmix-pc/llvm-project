@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/errno_macros.h"
+#include "hdr/limits_macros.h"
 #include "hdr/stdint_proxy.h"
 #include "src/spawn/file_actions.h"
 #include "src/spawn/posix_spawn_file_actions_addclose.h"
@@ -77,4 +78,61 @@ TEST(LlvmLibcPosixSpawnFileActionsTest, InvalidActions) {
                                                              nullptr, 0, 0),
             EBADF);
   ASSERT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_destroy(&actions), 0);
+}
+
+TEST(LlvmLibcPosixSpawnFileActionsTest, OwnsPathSnapshot) {
+  posix_spawn_file_actions_t actions;
+  ASSERT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_init(&actions), 0);
+  {
+    char path[] = "path/to/file";
+    ASSERT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_addopen(&actions, 0,
+                                                               path, 0, 0600),
+              0);
+    auto *open =
+        static_cast<LIBC_NAMESPACE::SpawnFileOpenAction *>(actions.__back);
+    EXPECT_NE(open->path, path);
+    path[0] = 'X';
+    EXPECT_STREQ(open->path, "path/to/file");
+    EXPECT_EQ(open->fd, 0);
+    EXPECT_EQ(open->oflag, 0);
+    EXPECT_EQ(open->mode, mode_t(0600));
+  }
+  auto *open =
+      static_cast<LIBC_NAMESPACE::SpawnFileOpenAction *>(actions.__front);
+  EXPECT_STREQ(open->path, "path/to/file");
+  ASSERT_EQ(
+      LIBC_NAMESPACE::posix_spawn_file_actions_addopen(&actions, 0, "", 0, 0),
+      0);
+  auto *empty =
+      static_cast<LIBC_NAMESPACE::SpawnFileOpenAction *>(actions.__back);
+  EXPECT_STREQ(empty->path, "");
+  ASSERT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_destroy(&actions), 0);
+  EXPECT_EQ(actions.__front, nullptr);
+  EXPECT_EQ(actions.__back, nullptr);
+}
+
+TEST(LlvmLibcPosixSpawnFileActionsTest, CurrentOpenLimit) {
+  long limit = LIBC_NAMESPACE::sysconf(_SC_OPEN_MAX);
+  if (limit < 1 || limit > INT_MAX)
+    return;
+  int fd = static_cast<int>(limit);
+  posix_spawn_file_actions_t actions;
+  ASSERT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_init(&actions), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_addopen(&actions, fd,
+                                                             "unused", 0, 0),
+            EBADF);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_adddup2(&actions, fd, 0),
+            EBADF);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_adddup2(&actions, 0, fd),
+            EBADF);
+  EXPECT_EQ(actions.__front, nullptr);
+  EXPECT_EQ(actions.__back, nullptr);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_addopen(&actions, fd - 1,
+                                                             "unused", 0, 0),
+            0);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_adddup2(&actions, fd - 1,
+                                                             fd - 1),
+            0);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_addclose(&actions, fd), 0);
+  EXPECT_EQ(LIBC_NAMESPACE::posix_spawn_file_actions_destroy(&actions), 0);
 }

@@ -92,6 +92,18 @@ void child_process(const char *const *paths,
           exit();
         break;
       }
+      case BaseSpawnFileAction::CHDIR: {
+        auto *change = static_cast<SpawnFileChdirAction *>(act);
+        if (syscall_impl<long>(SYS_chdir, change->path) < 0)
+          exit();
+        break;
+      }
+      case BaseSpawnFileAction::FCHDIR: {
+        auto *change = static_cast<SpawnFileFchdirAction *>(act);
+        if (syscall_impl<long>(SYS_fchdir, change->fd) < 0)
+          exit();
+        break;
+      }
       }
       act = act->next;
     }

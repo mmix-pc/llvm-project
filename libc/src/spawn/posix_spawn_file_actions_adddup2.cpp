@@ -23,8 +23,8 @@ LLVM_LIBC_FUNCTION(int, posix_spawn_file_actions_adddup2,
                    (posix_spawn_file_actions_t * actions, int fd, int newfd)) {
   if (actions == nullptr)
     return EINVAL;
-  if (fd < 0 || newfd < 0)
-    return EBADF;
+  if (int error = check_spawn_file_action_fds(fd, newfd))
+    return error;
 
   AllocChecker ac;
   auto *act = new (ac) SpawnFileDup2Action(fd, newfd);

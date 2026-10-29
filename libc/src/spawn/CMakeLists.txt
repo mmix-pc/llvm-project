@@ -2,13 +2,17 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
+# Keep the shared action layout header-only for child executors. Link sysconf
+# from addopen and adddup2, which use the shared fd-range helper.
 add_header_library(
   file_actions
   HDRS
     file_actions.h
   DEPENDS
     libc.hdr.stdint_proxy
+    libc.hdr.unistd_macros
     libc.include.spawn
+    libc.src.__support.libc_errno
 )
 
 add_entrypoint_object(
@@ -45,6 +49,7 @@ add_entrypoint_object(
     libc.include.spawn
     libc.src.__support.CPP.new
     libc.src.errno.errno
+    libc.src.unistd.sysconf
 )
 
 add_entrypoint_object(
@@ -58,6 +63,9 @@ add_entrypoint_object(
     libc.include.spawn
     libc.src.__support.CPP.new
     libc.src.errno.errno
+    libc.src.string.memory_utils.inline_memcpy
+    libc.src.string.string_utils
+    libc.src.unistd.sysconf
 )
 
 add_entrypoint_object(
@@ -66,6 +74,34 @@ add_entrypoint_object(
     posix_spawn_file_actions_addclose.cpp
   HDRS
     posix_spawn_file_actions_addclose.h
+  DEPENDS
+    .file_actions
+    libc.include.spawn
+    libc.src.__support.CPP.new
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
+  posix_spawn_file_actions_addchdir
+  SRCS
+    posix_spawn_file_actions_addchdir.cpp
+  HDRS
+    posix_spawn_file_actions_addchdir.h
+  DEPENDS
+    .file_actions
+    libc.include.spawn
+    libc.src.__support.CPP.new
+    libc.src.errno.errno
+    libc.src.string.memory_utils.inline_memcpy
+    libc.src.string.string_utils
+)
+
+add_entrypoint_object(
+  posix_spawn_file_actions_addfchdir
+  SRCS
+    posix_spawn_file_actions_addfchdir.cpp
+  HDRS
+    posix_spawn_file_actions_addfchdir.h
   DEPENDS
     .file_actions
     libc.include.spawn

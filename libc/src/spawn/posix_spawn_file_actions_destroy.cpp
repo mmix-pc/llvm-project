@@ -36,14 +36,26 @@ LLVM_LIBC_FUNCTION(int, posix_spawn_file_actions_destroy,
     auto *temp = act;
     act = act->next;
     switch (temp->type) {
-    case BaseSpawnFileAction::OPEN:
-      delete reinterpret_cast<SpawnFileOpenAction *>(temp);
+    case BaseSpawnFileAction::OPEN: {
+      auto *open_act = reinterpret_cast<SpawnFileOpenAction *>(temp);
+      delete[] open_act->path;
+      delete open_act;
       break;
+    }
     case BaseSpawnFileAction::CLOSE:
       delete reinterpret_cast<SpawnFileCloseAction *>(temp);
       break;
     case BaseSpawnFileAction::DUP2:
       delete reinterpret_cast<SpawnFileDup2Action *>(temp);
+      break;
+    case BaseSpawnFileAction::CHDIR: {
+      auto *chdir_act = reinterpret_cast<SpawnFileChdirAction *>(temp);
+      delete[] chdir_act->path;
+      delete chdir_act;
+      break;
+    }
+    case BaseSpawnFileAction::FCHDIR:
+      delete reinterpret_cast<SpawnFileFchdirAction *>(temp);
       break;
     }
   }
