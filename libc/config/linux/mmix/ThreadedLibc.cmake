@@ -15,6 +15,7 @@ list(REMOVE_ITEM TARGET_LIBC_ENTRYPOINTS libc.src.compiler.__stack_chk_fail)
 # Supplement the optional Unix families with required pthread providers.
 # Fork and credential wrappers retain their target-owned coordination rules.
 list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.fmtmsg.fmtmsg
   libc.src.unistd.fork
   libc.src.unistd._Fork
   libc.src.stdlib.system
