@@ -302,6 +302,22 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  fexecve
+  SRCS
+    fexecve.cpp
+  HDRS
+    ../fexecve.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fcntl_macros
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.common
+    libc.src.__support.macros.config
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
   fsync
   SRCS
     ${fsync_source}
@@ -352,6 +368,24 @@ add_entrypoint_object(
   DEPENDS
     libc.hdr.types.gid_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.getegid
+)
+
+add_entrypoint_object(
+  gethostid
+  SRCS
+    gethostid.cpp
+  HDRS
+    ../gethostid.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fcntl_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.types.size_t
+    libc.src.__support.OSUtil.linux.syscall_wrappers.close
+    libc.src.__support.OSUtil.linux.syscall_wrappers.open
+    libc.src.__support.OSUtil.linux.syscall_wrappers.read
+    libc.src.__support.common
+    libc.src.__support.macros.config
 )
 
 add_entrypoint_object(
@@ -1026,3 +1060,19 @@ foreach(name seteuid setegid getgroups)
       ${extra_deps}
   )
 endforeach()
+
+add_entrypoint_object(
+  nice
+  SRCS
+    nice.cpp
+  HDRS
+    ../nice.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.sys_resource_macros
+    libc.src.__support.OSUtil.linux.syscall_wrappers.getpriority
+    libc.src.__support.OSUtil.linux.syscall_wrappers.setpriority
+    libc.src.__support.common
+    libc.src.__support.macros.config
+    libc.src.errno.errno
+)

@@ -4,6 +4,36 @@ add_subdirectory(testdata)
 
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
+    fexecve_syscall_test
+    SUITE libc_unistd_unittests
+    SRCS fexecve_syscall_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.include.sys_syscall
+      libc.src.__support.CPP.limits
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.common
+      libc.src.__support.macros.config
+      libc.src.errno.errno
+  )
+  add_libc_test(
+    gethostid_syscall_test
+    SUITE libc_unistd_unittests
+    SRCS gethostid_syscall_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.fcntl_macros
+      libc.hdr.stdint_proxy
+      libc.hdr.types.size_t
+      libc.src.__support.OSUtil.linux.syscall_wrappers.close
+      libc.src.__support.OSUtil.linux.syscall_wrappers.open
+      libc.src.__support.OSUtil.linux.syscall_wrappers.read
+      libc.src.__support.common
+      libc.src.__support.macros.config
+      libc.src.__support.libc_errno
+  )
+  add_libc_test(
     mmix_fsync_test
     SUITE libc_unistd_unittests
     SRCS mmix_fsync_test.cpp
@@ -1127,5 +1157,23 @@ if(LLVM_LIBC_FULL_BUILD)
     DEPENDS
       libc.include.unistd
       libc.src.unistd._exit
+  )
+endif()
+
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    nice_syscall_test
+    SUITE libc_unistd_unittests
+    SRCS nice_syscall_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.sys_resource_macros
+      libc.hdr.types.id_t
+      libc.src.__support.CPP.limits
+      libc.src.__support.OSUtil.linux.syscall_wrappers.getpriority
+      libc.src.__support.OSUtil.linux.syscall_wrappers.setpriority
+      libc.src.__support.common
+      libc.src.__support.macros.config
+      libc.src.errno.errno
   )
 endif()

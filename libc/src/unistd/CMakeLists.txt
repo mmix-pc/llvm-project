@@ -213,6 +213,13 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  fexecve
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.fexecve
+)
+
+add_entrypoint_object(
   fsync
   ALIAS
   DEPENDS
@@ -238,6 +245,13 @@ add_entrypoint_object(
   ALIAS
   DEPENDS
     .${LIBC_TARGET_OS}.getegid
+)
+
+add_entrypoint_object(
+  gethostid
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.gethostid
 )
 
 add_entrypoint_object(
@@ -642,3 +656,10 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS_IS_LINUX)
     DEPENDS .linux.posix_close
   )
 endif()
+
+add_entrypoint_object(
+  nice
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.nice
+)

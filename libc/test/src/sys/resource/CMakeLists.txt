@@ -1,5 +1,23 @@
 add_custom_target(libc_sys_resource_unittests)
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    priority_syscall_test
+    SUITE libc_sys_resource_unittests
+    SRCS priority_syscall_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.sys_resource_macros
+      libc.hdr.types.id_t
+      libc.src.__support.CPP.limits
+      libc.src.__support.OSUtil.linux.syscall_wrappers.getpriority
+      libc.src.__support.OSUtil.linux.syscall_wrappers.setpriority
+      libc.src.__support.common
+      libc.src.__support.macros.config
+      libc.src.errno.errno
+  )
+endif()
+
 add_libc_test(
   getpriority_setpriority_test
   SUITE
