@@ -1,0 +1,158 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+sources = [libc / ('src/sys/wait/linux/mmix/cancellation_' + name + '.cpp')
+           for name in ('wait', 'waitpid', 'wait4')]
+subprocess.run(['cmake', '-DLIBC_SOURCE_DIR=' + str(libc),
+                '-P', str(root / 'selection.cmake')], check=True)
+for opt in ('0', '2'):
+    for source in sources:
+        obj = root / (source.stem + opt + '.o')
+        subprocess.run(['clang', '--target=mmix-unknown-linux', '-O' + opt,
+                        '-std=c++17', '-ffreestanding', '-fexceptions',
+                        '-funwind-tables', '-DLIBC_FULL_BUILD',
+                        '-DLIBC_NAMESPACE=wait_test', '-I', str(root),
+                        '-I', str(libc), '-c', str(source), '-o', str(obj)], check=True)
+        undefined = subprocess.check_output(['llvm-nm', '-u', str(obj)], text=True)
+        assert 'cancellation_syscall' in undefined, undefined
+        assert '__llvm_libc_mmix_syscall' not in undefined, undefined
+        sections = subprocess.check_output(['llvm-readobj', '--sections', str(obj)], text=True)
+        assert '.eh_frame' in sections, sections
+    if len(sys.argv) == 4:
+        binary = root / ('native-' + opt)
+        subprocess.run([sys.argv[3], '--no-default-config', '-O' + opt, '-std=c++17',
+                        '-DLIBC_NAMESPACE=wait_test', '-DLIBC_ERRNO_MODE=6',
+                        '-I', str(libc), *map(str, sources), str(root / 'native.cpp'),
+                        '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=10)
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+function(add_entrypoint_object name)
+  cmake_parse_arguments(arg "" "" "SRCS;HDRS;DEPENDS;COMPILE_OPTIONS" ${ARGN})
+  if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+     LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    if(NOT arg_SRCS STREQUAL "mmix/cancellation_${name}.cpp" OR
+       NOT "libc.src.__support.threads.linux.mmix.cancellation_point" IN_LIST arg_DEPENDS OR
+       NOT "-fexceptions" IN_LIST arg_COMPILE_OPTIONS OR
+       NOT "-funwind-tables" IN_LIST arg_COMPILE_OPTIONS)
+      message(FATAL_ERROR "Missing cancellable provider or unwind support: ${name}")
+    endif()
+  else()
+    if(NOT arg_SRCS STREQUAL "${name}.cpp" OR
+       "libc.src.__support.threads.linux.mmix.cancellation_point" IN_LIST arg_DEPENDS OR
+       arg_COMPILE_OPTIONS)
+      message(FATAL_ERROR "Changed ordinary provider: ${name}")
+    endif()
+  endif()
+  set_property(GLOBAL APPEND PROPERTY checked_names ${name})
+endfunction()
+function(check_selection arch cancellation)
+  set(LIBC_TARGET_ARCHITECTURE ${arch})
+  set(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS ${cancellation})
+  set_property(GLOBAL PROPERTY checked_names "")
+  include("${LIBC_SOURCE_DIR}/src/sys/wait/linux/CMakeLists.txt")
+  get_property(names GLOBAL PROPERTY checked_names)
+  list(SORT names)
+  if(NOT names STREQUAL "wait;wait4;waitpid")
+    message(FATAL_ERROR "Missing wait entrypoint: ${names}")
+  endif()
+endfunction()
+check_selection(mmix ON)
+check_selection(mmix OFF)
+check_selection(x86_64 ON)
+check_selection(x86_64 OFF)
+
+#--- sys/syscall.h
+#define SYS_wait4 260
+
+#--- linux/errno.h
+// This compile-only fixture does not inspect errno constants.
+
+#--- native.cpp
+#include "src/__support/threads/linux/mmix/cancellation_point.h"
+#include "src/sys/wait/wait.h"
+#include "src/sys/wait/wait4.h"
+#include "src/sys/wait/waitpid.h"
+#include <assert.h>
+#include <errno.h>
+#include <limits.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+
+static long returned, expected_pid, expected_status, expected_options, expected_usage;
+static int calls;
+static bool cancel;
+namespace wait_test { namespace mmix {
+long cancellation_syscall(unsigned long number, long pid, long status, long options,
+                          long usage, long a5, long a6) {
+  ++calls;
+  assert(number == SYS_wait4 && pid == expected_pid);
+  assert(status == expected_status && options == expected_options);
+  assert(usage == expected_usage && !a5 && !a6);
+  if (cancel)
+    throw 42;
+  return returned;
+}
+} }
+
+template <class F>
+void check(F call, pid_t pid, int *status, int options, rusage *usage) {
+  expected_pid = pid;
+  expected_status = reinterpret_cast<long>(status);
+  expected_options = options;
+  expected_usage = reinterpret_cast<long>(usage);
+  const long results[] = {17, 0, -ECHILD, -EINTR, -EINVAL, -EFAULT};
+  for (long result : results) {
+    returned = result;
+    calls = 0;
+    errno = EDOM;
+    assert(call() == (result < 0 ? -1 : result));
+    assert(errno == (result < 0 ? -result : EDOM) && calls == 1);
+    // No wrapper may invent an event or overwrite the caller's status.
+    if (status)
+      assert(*status == 123);
+    if (usage)
+      assert(usage->ru_maxrss == 456);
+  }
+  cancel = true;
+  calls = 0;
+  bool cleaned = false;
+  struct Guard {
+    bool &cleaned;
+    ~Guard() { cleaned = true; }
+  };
+  try {
+    Guard guard{cleaned};
+    call();
+    assert(false);
+  } catch (int value) {
+    assert(value == 42 && cleaned && calls == 1);
+  }
+  cancel = false;
+}
+
+int main() {
+  int status = 123;
+  rusage usage{};
+  usage.ru_maxrss = 456;
+  check([&] { return wait_test::wait(&status); }, -1, &status, 0, nullptr);
+  check([&] { return wait_test::wait(nullptr); }, -1, nullptr, 0, nullptr);
+  const pid_t pids[] = {INT_MIN, -17, -1, 0, 17, INT_MAX};
+  for (pid_t pid : pids) {
+    check([&] { return wait_test::waitpid(pid, &status, WNOHANG); },
+          pid, &status, WNOHANG, nullptr);
+    check([&] { return wait_test::wait4(pid, &status, WUNTRACED | WCONTINUED, &usage); },
+          pid, &status, WUNTRACED | WCONTINUED, &usage);
+  }
+  check([&] { return wait_test::wait4(17, nullptr, 0, nullptr); },
+        17, nullptr, 0, nullptr);
+}

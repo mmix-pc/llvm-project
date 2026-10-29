@@ -1,7 +1,15 @@
+foreach(name wait waitpid wait4)
+  set(${name}_source ${name}.cpp)
+endforeach()
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
+  mmix_select_cancellation_points(wait waitpid wait4)
+endif()
+
 add_entrypoint_object(
   wait
   SRCS
-    wait.cpp
+    ${wait_source}
   HDRS
     ../wait.h
   DEPENDS
@@ -9,12 +17,14 @@ add_entrypoint_object(
     libc.hdr.types.struct_rusage
     libc.src.__support.OSUtil.linux.syscall_wrappers.wait4
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   wait4
   SRCS
-    wait4.cpp
+    ${wait4_source}
   HDRS
     ../wait4.h
   DEPENDS
@@ -22,12 +32,14 @@ add_entrypoint_object(
     libc.hdr.types.struct_rusage
     libc.src.__support.OSUtil.linux.syscall_wrappers.wait4
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   waitpid
   SRCS
-    waitpid.cpp
+    ${waitpid_source}
   HDRS
     ../waitpid.h
   DEPENDS
@@ -35,4 +47,6 @@ add_entrypoint_object(
     libc.hdr.types.struct_rusage
     libc.src.__support.OSUtil.linux.syscall_wrappers.wait4
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
