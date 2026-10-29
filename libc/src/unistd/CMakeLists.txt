@@ -663,3 +663,11 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.nice
 )
+
+foreach(name getresuid getresgid setresuid setresgid)
+  add_entrypoint_object(
+    ${name}
+    ALIAS
+    DEPENDS .${LIBC_TARGET_OS}.${name}
+  )
+endforeach()

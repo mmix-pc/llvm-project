@@ -4,6 +4,21 @@ add_subdirectory(testdata)
 
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
+    credential_triplet_syscall_test
+    SUITE libc_unistd_unittests
+    SRCS credential_triplet_syscall_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.limits_macros
+      libc.hdr.types.uid_t
+      libc.hdr.types.gid_t
+      libc.include.sys_syscall
+      libc.src.__support.CPP.type_traits
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.common
+      libc.src.errno.errno
+  )
+  add_libc_test(
     fexecve_syscall_test
     SUITE libc_unistd_unittests
     SRCS fexecve_syscall_test.cpp

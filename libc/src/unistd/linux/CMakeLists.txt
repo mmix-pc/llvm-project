@@ -27,6 +27,29 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   )
 endif()
 
+foreach(kind uid gid)
+  add_entrypoint_object(
+    getres${kind}
+    SRCS getres${kind}.cpp
+    HDRS ../getres${kind}.h
+    DEPENDS
+      libc.hdr.types.${kind}_t
+      libc.include.sys_syscall
+      libc.src.__support.OSUtil.osutil
+      libc.src.errno.errno
+  )
+  add_entrypoint_object(
+    setres${kind}
+    SRCS setres${kind}.cpp
+    HDRS ../setres${kind}.h
+    DEPENDS
+      libc.hdr.types.${kind}_t
+      libc.include.sys_syscall
+      libc.src.__support.OSUtil.osutil
+      libc.src.errno.errno
+  )
+endforeach()
+
 add_entrypoint_object(
   fchownat
   SRCS fchownat.cpp
