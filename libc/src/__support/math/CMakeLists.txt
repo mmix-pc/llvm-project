@@ -5,6 +5,12 @@ add_header_library(
 )
 
 add_header_library(
+  bessel_recurrence
+  HDRS bessel_recurrence.h
+  DEPENDS .bessel0 .bessel1 libc.src.__support.FPUtil.dyadic_float
+)
+
+add_header_library(
   bessel_hankel
   HDRS bessel_hankel.h
   DEPENDS .sin .cos .sqrt
