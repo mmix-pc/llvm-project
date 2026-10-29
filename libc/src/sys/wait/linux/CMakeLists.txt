@@ -7,6 +7,20 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
 endif()
 
 add_entrypoint_object(
+  waitid
+  SRCS waitid.cpp
+  HDRS ../waitid.h
+  DEPENDS
+    libc.hdr.types.id_t
+    libc.hdr.types.idtype_t
+    libc.hdr.types.siginfo_t
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.common
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
   wait
   SRCS
     ${wait_source}
