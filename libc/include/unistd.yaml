@@ -140,10 +140,12 @@ functions:
     arguments:
       - type: int
   - name: getlogin
+    noexcept: false
     standards: [posix]
     return_type: char *
     arguments: []
   - name: getlogin_r
+    noexcept: false
     standards: [posix]
     return_type: int
     arguments:

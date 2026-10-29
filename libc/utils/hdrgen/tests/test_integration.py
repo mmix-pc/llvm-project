@@ -404,7 +404,8 @@ class TestHeaderGenIntegration(unittest.TestCase):
 
     def test_blocking_syscall_exception_specifications(self):
         for header, functions in (
-            ("unistd", ["read", "write", "close"]),
+            ("unistd", ["read", "write", "close", "getlogin", "getlogin_r"]),
+            ("fmtmsg", ["fmtmsg"]),
             ("fcntl", ["open", "openat"]),
             ("time", ["nanosleep"]),
             ("signal", ["sigsuspend", "sigtimedwait", "sigwait", "sigwaitinfo", "psignal"]),
