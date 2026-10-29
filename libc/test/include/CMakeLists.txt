@@ -54,6 +54,18 @@ add_libc_test(
 
 if(LIBC_TARGET_OS_IS_LINUX)
   foreach(language IN ITEMS c cpp)
+    set(wait_status_options)
+    if(language STREQUAL "c")
+      list(APPEND wait_status_options C_TEST)
+    endif()
+    add_libc_test(
+      wait_status_macros_${language}_test
+      ${wait_status_options}
+      SUITE libc_include_tests
+      SRCS wait_status_macros_test.${language}
+      HDRS wait_status_macros_test.h
+      DEPENDS libc.include.llvm-libc-macros.sys_wait_macros
+    )
     add_libc_test(
       process_types_${language}_test
       C_TEST

@@ -33,8 +33,8 @@ enum __libc_idtype {
 #define WEXITSTATUS(status) (((status) & 0xff00) >> 8)
 #define WIFCONTINUED(status) ((status) == 0xffff)
 #define WIFEXITED(status) (WTERMSIG(status) == 0)
-#define WIFSIGNALED(status) ((WTERMSIG(status) + 1) >= 2)
-#define WIFSTOPPED(status) (WTERMSIG(status) == 0x7f)
+#define WIFSIGNALED(status) ((unsigned int)WTERMSIG(status) - 1U < 0x7eU)
+#define WIFSTOPPED(status) (((status) & 0xff) == 0x7f)
 #define WSTOPSIG(status) WEXITSTATUS(status)
 #define WTERMSIG(status) ((status) & 0x7f)
 
