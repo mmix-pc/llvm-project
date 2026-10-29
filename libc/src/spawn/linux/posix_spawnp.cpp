@@ -34,7 +34,7 @@ LLVM_LIBC_FUNCTION(int, posix_spawnp,
   // Search the caller's PATH, not envp. Copy all candidates before cloning;
   // getenv, allocation and formatting must never run in the spawn child.
   const char *value = LIBC_NAMESPACE::getenv("PATH");
-  cpp::string_view path(value ? value : "/usr/bin:/bin");
+  cpp::string_view path(value ? value : "/bin:/usr/bin");
   size_t count = 1;
   for (char c : path)
     if (c == ':')

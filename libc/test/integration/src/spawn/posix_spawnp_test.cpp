@@ -10,6 +10,7 @@
 #include "src/__support/CPP/stringstream.h"
 #include "src/__support/libc_errno.h"
 #include "src/fcntl/open.h"
+#include "src/spawn/linux/spawn.h"
 #include "src/spawn/posix_spawn_file_actions_addopen.h"
 #include "src/spawn/posix_spawn_file_actions_destroy.h"
 #include "src/spawn/posix_spawn_file_actions_init.h"
@@ -32,6 +33,59 @@
 #include <sys/wait.h>
 
 namespace {
+const char *const *expected_paths;
+unsigned spawn_calls;
+} // namespace
+
+namespace LIBC_NAMESPACE_DECL {
+int capture_spawn(pid_t *, const char *const *paths,
+                  const posix_spawn_file_actions_t *, const posix_spawnattr_t *,
+                  char *const *, char *const *) {
+  ++spawn_calls;
+  size_t i = 0;
+  for (; expected_paths[i]; ++i)
+    ASSERT_STREQ(paths[i], expected_paths[i]);
+  ASSERT_EQ(paths[i], nullptr);
+  return ENOENT;
+}
+} // namespace LIBC_NAMESPACE_DECL
+
+// Inspect the production candidate builder without relying on distinct /bin
+// and /usr/bin directories or changing the real spawn integration below.
+#define spawn capture_spawn
+#define posix_spawnp injected_posix_spawnp
+#include "src/spawn/linux/posix_spawnp.cpp"
+#undef posix_spawnp
+#undef spawn
+
+namespace {
+void check_candidates(const char *const *expected) {
+  expected_paths = expected;
+  spawn_calls = 0;
+  char zero[] = "tool", path[] = "PATH=/not-the-caller-path";
+  char *args[] = {zero, nullptr};
+  char *env[] = {path, nullptr};
+  pid_t pid = -1;
+  ASSERT_EQ(LIBC_NAMESPACE::injected_posix_spawnp(&pid, "tool", nullptr,
+                                                nullptr, args, env),
+            ENOENT);
+  ASSERT_EQ(spawn_calls, 1U);
+}
+
+void check_default_and_empty_path() {
+  ASSERT_EQ(LIBC_NAMESPACE::unsetenv("PATH"), 0);
+  const char *defaults[] = {"/bin/tool", "/usr/bin/tool", nullptr};
+  check_candidates(defaults);
+
+  ASSERT_EQ(LIBC_NAMESPACE::setenv("PATH", "", 1), 0);
+  const char *current[] = {"tool", nullptr};
+  check_candidates(current);
+
+  ASSERT_EQ(LIBC_NAMESPACE::setenv("PATH", "/usr/bin:/bin", 1), 0);
+  const char *explicit_path[] = {"/usr/bin/tool", "/bin/tool", nullptr};
+  check_candidates(explicit_path);
+}
+
 void join(char (&buffer)[512], const char *dir, const char *name) {
   LIBC_NAMESPACE::cpp::StringStream stream(buffer);
   stream << dir << '/' << name << '\0';
@@ -75,6 +129,8 @@ TEST_MAIN(int argc, char **argv, char **) {
     ASSERT_EQ(c, 'e');
     return 23;
   }
+
+  check_default_and_empty_path();
 
   char dir[] = "spawnp.XXXXXX";
   ASSERT_NE(LIBC_NAMESPACE::mkdtemp(dir), nullptr);

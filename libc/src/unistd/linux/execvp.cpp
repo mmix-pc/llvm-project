@@ -18,7 +18,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace {
-constexpr char DEFAULT_PATH[] = "/usr/bin:/bin";
+constexpr char DEFAULT_PATH[] = "/bin:/usr/bin";
 constexpr char SHELL_PATH[] = "/bin/sh";
 
 int execute_script(const char *file, char *const argv[]) {

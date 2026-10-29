@@ -116,6 +116,29 @@ static void expect(const char *name, int error) {
     CHECK(int(libc_errno) == error && calls == expected_calls && !mismatch &&  \
           live == 0);                                                          \
   } while (0)
+TEST(LlvmLibcExecvpTest, DefaultAndEmptyPath) {
+  reset(nullptr);
+  expect("/bin/tool", ENOENT);
+  expect("/usr/bin/tool", ENOENT);
+  EXEC("tool", ENOENT);
+  reset(nullptr);
+  expect("/bin/tool", EACCES);
+  expect("/usr/bin/tool", ENOTDIR);
+  EXEC("tool", EACCES);
+  reset(nullptr);
+  expect("/bin/tool", ENOENT);
+  expect("/usr/bin/tool", EACCES);
+  EXEC("tool", EACCES);
+  reset(nullptr);
+  script_path = "/bin/script";
+  expect("/bin/script", ENOEXEC);
+  expect("/bin/sh", ENOENT);
+  EXEC("script", ENOENT); // Shell failure must not try /usr/bin/script.
+  reset("");
+  expect("tool", ENOENT);
+  EXEC("tool", ENOENT);
+}
+
 TEST(LlvmLibcExecvpTest, SearchAndFallback) {
   reset("/ignored");
   EXEC("", ENOENT);
@@ -127,13 +150,6 @@ TEST(LlvmLibcExecvpTest, SearchAndFallback) {
   reset("/ignored");
   expect("/absolute/tool", ENOENT);
   EXEC("/absolute/tool", ENOENT);
-  reset(nullptr);
-  expect("/usr/bin/tool", ENOENT);
-  expect("/bin/tool", ENOENT);
-  EXEC("tool", ENOENT);
-  reset("");
-  expect("tool", ENOENT);
-  EXEC("tool", ENOENT);
   reset(":a::b/:");
   expect("tool", ENOENT);
   expect("a/tool", ENOTDIR);
