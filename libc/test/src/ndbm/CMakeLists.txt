@@ -44,6 +44,28 @@ add_libc_test(
 
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
+    database_test
+    SUITE libc-ndbm-tests
+    SRCS database_test.cpp
+    DEPENDS libc.src.ndbm.linux.database
+    LINK_LIBRARIES "-Wl,--wrap=malloc,--wrap=free"
+  )
+  add_libc_test(
+    hash_file_test
+    SUITE libc-ndbm-tests
+    SRCS hash_file_test.cpp
+    DEPENDS libc.src.ndbm.linux.hash_file libc.src.ndbm.hash_rebuild
+    LINK_LIBRARIES "-Wl,--wrap=malloc"
+  )
+  add_libc_test(
+    hash_write_batch_test
+    SUITE libc-ndbm-tests
+    SRCS hash_write_batch_test.cpp
+    DEPENDS libc.src.ndbm.hash_write_batch libc.src.ndbm.hash_rebuild
+      libc.src.ndbm.hash_growth
+    LINK_LIBRARIES "-Wl,--wrap=malloc,--wrap=free"
+  )
+  add_libc_test(
     hash_database_test
     SUITE libc-ndbm-tests
     SRCS hash_database_test.cpp

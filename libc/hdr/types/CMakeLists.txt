@@ -1,3 +1,11 @@
+foreach(type DBM datum)
+  add_proxy_header_library(
+    ${type}
+    HDRS ${type}.h
+    FULL_BUILD_DEPENDS libc.include.llvm-libc-types.${type}
+  )
+endforeach()
+
 add_proxy_header_library(
   wordexp_t
   HDRS wordexp_t.h
