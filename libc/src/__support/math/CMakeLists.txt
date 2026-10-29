@@ -58,6 +58,7 @@ add_header_library(
   HDRS bessel.h
   DEPENDS .bessel0 .bessel1 libc.hdr.errno_macros libc.hdr.fenv_macros
     libc.src.__support.FPUtil.fenv_impl libc.src.__support.FPUtil.generic.div
+    libc.src.__support.FPUtil.dyadic_float
 )
 
 add_header_library(

@@ -146,7 +146,7 @@ TEST(LlvmLibcBesselIntegerTest, EntrySpecialValuesAndEnvironment) {
       libc_errno = 0;
       EXPECT_EQ(Bits(LIBC_NAMESPACE::yn(n, -1.0)).uintval(),
                 Bits::inf((n < 0 && (n & 1)) ? LIBC_NAMESPACE::Sign::POS
-                                           : LIBC_NAMESPACE::Sign::NEG)
+                                             : LIBC_NAMESPACE::Sign::NEG)
                     .uintval());
       EXPECT_EQ(int(libc_errno), EDOM);
       EXPECT_EQ(LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT), FE_INVALID);
@@ -223,4 +223,27 @@ TEST(LlvmLibcBesselIntegerTest, EntryFourModeFiniteReference) {
   }
   mpfr_clears(input, reference, actual, error, limit, amplitude, temporary,
               (mpfr_ptr)0);
+}
+
+TEST(LlvmLibcBesselIntegerTest, SecondKindOverflowResult) {
+  const int orders[] = {1,    -1,    2,          -3,
+                        2049, -2049, 2147483647, (-2147483647 - 1)};
+  for (auto mode : MODES) {
+    ForceRoundingMode guard(mode);
+    ASSERT_TRUE(guard.success);
+    for (int n : orders) {
+      LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
+      LIBC_NAMESPACE::fputil::raise_except(FE_OVERFLOW | FE_DIVBYZERO);
+      libc_errno = 0;
+      double result = LIBC_NAMESPACE::yn(n, Bits::min_subnormal().get_val());
+      EXPECT_EQ(Bits(result).uintval(),
+                Bits::inf(n < 0 && (n & 1) ? LIBC_NAMESPACE::Sign::POS
+                                           : LIBC_NAMESPACE::Sign::NEG)
+                    .uintval());
+      EXPECT_EQ(int(libc_errno), ERANGE);
+      EXPECT_EQ(LIBC_NAMESPACE::fputil::get_round(), guard.rounding_mode);
+      EXPECT_EQ(LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT),
+                FE_OVERFLOW | FE_DIVBYZERO | FE_INEXACT);
+    }
+  }
 }

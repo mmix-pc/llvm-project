@@ -136,6 +136,14 @@ LIBC_INLINE double integer_bessel(int signed_order, double x) {
   }
   fputil::set_env(&environment);
   libc_errno = saved_errno;
+  if constexpr (SecondKind) {
+    BesselFloat maximum(Bits::max_normal().get_val());
+    int64_t exponent = int64_t(value.exponent) + scale;
+    if (exponent > maximum.exponent ||
+        (exponent == maximum.exponent && value.mantissa > maximum.mantissa))
+      return bessel_overflow((value.sign.is_neg() != negate) ? Sign::NEG
+                                                             : Sign::POS);
+  }
   return bessel_integer_result(value, scale, negate);
 }
 

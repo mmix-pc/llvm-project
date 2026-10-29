@@ -84,11 +84,7 @@ TEST(LlvmLibcBesselTest, DirectedRangeErrors) {
       fp::clear_except(FE_ALL_EXCEPT);
       fp::raise_except(previous);
       double result = LIBC_NAMESPACE::y1(Bits::min_subnormal().get_val());
-      bool finite =
-          mode == RoundingMode::Upward || mode == RoundingMode::TowardZero;
-      EXPECT_EQ(Bits(result).uintval(),
-                (finite ? Bits::max_normal(Sign::NEG) : Bits::inf(Sign::NEG))
-                    .uintval());
+      EXPECT_EQ(Bits(result).uintval(), Bits::inf(Sign::NEG).uintval());
       EXPECT_EQ(int(libc_errno), ERANGE);
       EXPECT_EQ(fp::test_except(FE_ALL_EXCEPT), FE_OVERFLOW | FE_INEXACT);
     }
@@ -175,4 +171,46 @@ TEST(LlvmLibcBesselTest, IndependentMPFRScaledError) {
   }
   mpfr_clears(input, reference, more, rounded, actual, scale, error,
               (mpfr_ptr)0);
+}
+
+TEST(LlvmLibcBesselTest, Y1OverflowBoundary) {
+  using fp::testing::RoundingMode;
+  const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                RoundingMode::Downward, RoundingMode::TowardZero};
+  mpfr_t input, reference, maximum, actual, error, bound;
+  mpfr_inits2(512, input, reference, maximum, actual, error, bound, (mpfr_ptr)0);
+  mpfr_set_d(maximum, Bits::max_normal().get_val(), MPFR_RNDN);
+  mpfr_const_pi(reference, MPFR_RNDN);
+  mpfr_mul(reference, reference, maximum, MPFR_RNDN);
+  mpfr_ui_div(reference, 2, reference, MPFR_RNDN);
+  uint64_t boundary = Bits(mpfr_get_d(reference, MPFR_RNDN)).uintval();
+  for (uint64_t bit = boundary - 2; bit <= boundary + 2; ++bit) {
+    double x = Bits(bit).get_val();
+    mpfr_set_d(input, x, MPFR_RNDN);
+    mpfr_y1(reference, input, MPFR_RNDN);
+    mpfr_abs(bound, reference, MPFR_RNDN);
+    bool overflow = mpfr_cmp(bound, maximum) > 0;
+    mpfr_mul_2si(bound, bound, -48, MPFR_RNDN);
+    for (auto mode : modes) {
+      fp::testing::ForceRoundingMode guard(mode);
+      ASSERT_TRUE(guard.success);
+      fp::clear_except(FE_ALL_EXCEPT);
+      fp::raise_except(FE_DIVBYZERO);
+      libc_errno = 17;
+      double result = LIBC_NAMESPACE::y1(x);
+      EXPECT_EQ(int(libc_errno), overflow ? ERANGE : 17);
+      EXPECT_EQ(fp::get_round(), guard.rounding_mode);
+      EXPECT_EQ(fp::test_except(FE_ALL_EXCEPT) & ~FE_INEXACT,
+                FE_DIVBYZERO | (overflow ? FE_OVERFLOW : 0));
+      if (overflow) {
+        EXPECT_EQ(Bits(result).uintval(), Bits::inf(Sign::NEG).uintval());
+      } else {
+        mpfr_set_d(actual, result, MPFR_RNDN);
+        mpfr_sub(error, actual, reference, MPFR_RNDN);
+        mpfr_abs(error, error, MPFR_RNDN);
+        EXPECT_TRUE(mpfr_number_p(error) && mpfr_cmp(error, bound) <= 0);
+      }
+    }
+  }
+  mpfr_clears(input, reference, maximum, actual, error, bound, (mpfr_ptr)0);
 }

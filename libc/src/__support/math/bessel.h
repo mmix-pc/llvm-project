@@ -15,10 +15,18 @@
 #include "hdr/errno_macros.h"
 #include "hdr/fenv_macros.h"
 #include "src/__support/FPUtil/FEnvImpl.h"
+#include "src/__support/FPUtil/dyadic_float.h"
 #include "src/__support/FPUtil/generic/div.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace math {
+
+LIBC_INLINE double bessel_overflow(Sign sign) {
+  fputil::set_errno_if_required(ERANGE);
+  fputil::raise_except_if_required(FE_OVERFLOW | FE_INEXACT);
+  // XSI specifies signed HUGE_VAL, including inward rounding modes.
+  return fputil::FPBits<double>::inf(sign).get_val();
+}
 
 template <unsigned Order, bool SecondKind> LIBC_INLINE double bessel(double x) {
   using Bits = fputil::FPBits<double>;
@@ -48,10 +56,19 @@ template <unsigned Order, bool SecondKind> LIBC_INLINE double bessel(double x) {
   if (bits.is_zero())
     return Order == 0 ? 1.0 : x;
   if constexpr (SecondKind && Order == 1) {
-    // Directed overflow can return a finite value. Use the range-aware
-    // division for this asymptotic branch rather than inspect result infinity.
-    if (bits.uintval() < uint64_t(0x3c90000000000000))
+    if (bits.uintval() < uint64_t(0x3c90000000000000)) {
+      // Compare the exact product to avoid a rounded or underflowing
+      // threshold and to keep prior exception flags out of the decision.
+      using Wide = fputil::DyadicFloat<128>;
+      Wide product =
+          fputil::quick_mul(Wide(x), Wide(Bits::max_normal().get_val()));
+      Wide numerator(bessel1_internal::tpi);
+      if (product.exponent < numerator.exponent ||
+          (product.exponent == numerator.exponent &&
+           product.mantissa < numerator.mantissa))
+        return bessel_overflow(Sign::NEG);
       return fputil::generic::div<double>(-bessel1_internal::tpi, x);
+    }
   }
   double result;
   if constexpr (Order == 0)
