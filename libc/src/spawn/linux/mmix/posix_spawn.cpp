@@ -86,6 +86,18 @@ namespace {
       }
       break;
     }
+    case BaseSpawnFileAction::CHDIR: {
+      auto *change = static_cast<SpawnFileChdirAction *>(action);
+      if (syscall_impl<long>(SYS_chdir, change->path) < 0)
+        internal::exit(127);
+      break;
+    }
+    case BaseSpawnFileAction::FCHDIR: {
+      auto *change = static_cast<SpawnFileFchdirAction *>(action);
+      if (syscall_impl<long>(SYS_fchdir, change->fd) < 0)
+        internal::exit(127);
+      break;
+    }
     }
   }
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
