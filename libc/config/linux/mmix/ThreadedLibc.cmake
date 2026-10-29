@@ -28,6 +28,12 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.unistd.seteuid
   libc.src.unistd.setegid
   libc.src.stdlib.getenv
+  libc.src.stdlib.secure_getenv
+  libc.src.unistd.gethostid
+  libc.src.unistd.fexecve
+  libc.src.unistd.nice
+  libc.src.sys.resource.getpriority
+  libc.src.sys.resource.setpriority
   libc.src.stdlib.rand
   libc.src.stdlib.srand
   libc.src.string.strtok
@@ -46,9 +52,15 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.signal.sigaddset
 )
 list(REMOVE_DUPLICATES TARGET_LIBC_ENTRYPOINTS)
-foreach(operation init destroy addopen adddup2 addclose)
+foreach(operation init destroy addopen adddup2 addclose addchdir addfchdir)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.spawn.posix_spawn_file_actions_${operation})
+endforeach()
+foreach(operation init destroy getflags setflags getpgroup setpgroup
+    getschedparam setschedparam getschedpolicy setschedpolicy
+    getsigdefault setsigdefault getsigmask setsigmask)
+  list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.spawn.posix_spawnattr_${operation})
 endforeach()
 if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION)
   foreach(operation cancel setcancelstate setcanceltype testcancel)
