@@ -1,6 +1,14 @@
 add_custom_target(libc-math-unittests)
 
 add_fp_unittest(
+  bessel_turning_test
+  NEED_MPFR
+  SUITE libc-math-unittests
+  SRCS bessel_turning_test.cpp
+  DEPENDS libc.src.__support.math.bessel_turning
+)
+
+add_fp_unittest(
   airy_scaled_test
   NEED_MPFR
   SUITE libc-math-unittests

@@ -5,6 +5,12 @@ add_header_library(
 )
 
 add_header_library(
+  bessel_turning
+  HDRS bessel_turning.h
+  DEPENDS .airy_scaled .cbrt
+)
+
+add_header_library(
   bessel_transition
   HDRS bessel_transition.h
   DEPENDS .cbrt .sqrt
