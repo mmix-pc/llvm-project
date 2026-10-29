@@ -5,6 +5,8 @@ if(NOT LIBC_MMIX_BUILD_USER_ACCOUNTING)
 endif()
 
 list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.unistd.getlogin
+  libc.src.unistd.getlogin_r
   libc.src.utmp.setutent
   libc.src.utmp.getutent
   libc.src.utmp.endutent
