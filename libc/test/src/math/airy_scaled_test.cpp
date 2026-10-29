@@ -1,5 +1,4 @@
-//===-- Tests for the internal scaled Airy kernel
-//--------------------------===//
+//===-- Tests for internal Airy kernels -----------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -70,11 +69,15 @@ bool reference(double x, mpfr_prec_t precision, double (&result)[4]) {
   mpfr_mul(g, g, c2, MPFR_RNDN);
   mpfr_mul(fp, fp, c1, MPFR_RNDN);
   mpfr_mul(gp, gp, c2, MPFR_RNDN);
-  mpfr_sqrt(root, a, MPFR_RNDN);
-  mpfr_mul(scale, a, root, MPFR_RNDN);
-  mpfr_mul_ui(scale, scale, 2, MPFR_RNDN);
-  mpfr_div_ui(scale, scale, 3, MPFR_RNDN);
-  mpfr_exp(scale, scale, MPFR_RNDN);
+  if (x >= 0) {
+    mpfr_sqrt(root, a, MPFR_RNDN);
+    mpfr_mul(scale, a, root, MPFR_RNDN);
+    mpfr_mul_ui(scale, scale, 2, MPFR_RNDN);
+    mpfr_div_ui(scale, scale, 3, MPFR_RNDN);
+    mpfr_exp(scale, scale, MPFR_RNDN);
+  } else {
+    mpfr_set_ui(scale, 1, MPFR_RNDN);
+  }
   mpfr_sub(term, f, g, MPFR_RNDN);
   mpfr_mul(term, term, scale, MPFR_RNDN);
   result[0] = mpfr_get_d(term, MPFR_RNDN);
@@ -153,6 +156,79 @@ bool asymptotic_reference(double x, mpfr_prec_t precision,
   mpfr_clears(zeta, root, factor, u, v, tail, (mpfr_ptr)0);
   return bounded;
 }
+// Negative-axis expansion from DLMF 9.7.9--12, at |x| >= 128.
+bool oscillatory_reference(double a, mpfr_prec_t precision,
+                           double (&result)[4]) {
+  mpfr_t zeta, root, u, v, factor, phase, s, c, t, tail, sum[4];
+  mpfr_inits2(precision, zeta, root, u, v, factor, phase, s, c, t, tail,
+              (mpfr_ptr)0);
+  mpfr_set_d(root, a, MPFR_RNDN);
+  mpfr_sqrt(root, root, MPFR_RNDN);
+  mpfr_mul_d(zeta, root, a, MPFR_RNDN);
+  mpfr_mul_ui(zeta, zeta, 2, MPFR_RNDN);
+  mpfr_div_ui(zeta, zeta, 3, MPFR_RNDN);
+  mpfr_sqrt(root, root, MPFR_RNDN);
+  mpfr_const_pi(phase, MPFR_RNDN);
+  mpfr_div_ui(phase, phase, 4, MPFR_RNDN);
+  mpfr_add(phase, phase, zeta, MPFR_RNDN);
+  mpfr_sin_cos(s, c, phase, MPFR_RNDN);
+  for (unsigned i = 0; i < 4; ++i) {
+    mpfr_init2(sum[i], precision);
+    mpfr_set_ui(sum[i], (i & 1) ? 0 : 1, MPFR_RNDN);
+  }
+  mpfr_set_ui(u, 1, MPFR_RNDN);
+  for (unsigned k = 1; k <= 34; ++k) {
+    mpfr_mul_ui(u, u, (6 * k - 5) * (6 * k - 1), MPFR_RNDN);
+    mpfr_div_ui(u, u, 72 * k, MPFR_RNDN);
+    mpfr_div(u, u, zeta, MPFR_RNDN);
+    mpfr_mul_ui(v, u, 6 * k + 1, MPFR_RNDN);
+    mpfr_div_si(v, v, 1 - long(6 * k), MPFR_RNDN);
+    if (k >= 33) {
+      mpfr_abs(tail, v, MPFR_RNDN);
+      if (mpfr_get_exp(tail) >= -200) {
+        for (auto &value : sum)
+          mpfr_clear(value);
+        mpfr_clears(zeta, root, u, v, factor, phase, s, c, t, tail,
+                    (mpfr_ptr)0);
+        return false;
+      }
+      continue;
+    }
+    unsigned index = k & 1;
+    if ((k / 2) & 1) {
+      mpfr_sub(sum[index], sum[index], u, MPFR_RNDN);
+      mpfr_sub(sum[index + 2], sum[index + 2], v, MPFR_RNDN);
+    } else {
+      mpfr_add(sum[index], sum[index], u, MPFR_RNDN);
+      mpfr_add(sum[index + 2], sum[index + 2], v, MPFR_RNDN);
+    }
+  }
+  mpfr_const_pi(factor, MPFR_RNDN);
+  mpfr_sqrt(factor, factor, MPFR_RNDN);
+  mpfr_ui_div(factor, 1, factor, MPFR_RNDN);
+  for (unsigned i = 0; i < 4; ++i) {
+    unsigned index = (i & 1) ? 2 : 0;
+    bool sin_first = i == 0 || i == 3;
+    mpfr_mul(phase, sum[index], sin_first ? s : c, MPFR_RNDN);
+    mpfr_mul(t, sum[index + 1], sin_first ? c : s, MPFR_RNDN);
+    if (sin_first)
+      mpfr_sub(phase, phase, t, MPFR_RNDN);
+    else
+      mpfr_add(phase, phase, t, MPFR_RNDN);
+    mpfr_mul(phase, phase, factor, MPFR_RNDN);
+    if (i & 1)
+      mpfr_mul(phase, phase, root, MPFR_RNDN);
+    else
+      mpfr_div(phase, phase, root, MPFR_RNDN);
+    if (i == 1)
+      mpfr_neg(phase, phase, MPFR_RNDN);
+    result[i] = mpfr_get_d(phase, MPFR_RNDN);
+  }
+  for (auto &value : sum)
+    mpfr_clear(value);
+  mpfr_clears(zeta, root, u, v, factor, phase, s, c, t, tail, (mpfr_ptr)0);
+  return true;
+}
 } // namespace
 
 TEST(LlvmLibcScaledAiryTest, IndependentEntireSeries) {
@@ -216,6 +292,73 @@ TEST(LlvmLibcScaledAiryTest, LargeArgumentsDoNotEvaluateExponentials) {
       double magnitude = high[i] < 0 ? -high[i] : high[i];
       EXPECT_TRUE(error <= 0x1p-45 * magnitude &&
                   error >= -0x1p-45 * magnitude);
+    }
+  }
+}
+
+TEST(LlvmLibcScaledAiryTest, NegativeEntireSeries) {
+  LIBC_NAMESPACE::fputil::testing::ForceRoundingMode guard(
+      LIBC_NAMESPACE::fputil::testing::RoundingMode::Nearest);
+  ASSERT_TRUE(guard.success);
+  auto check = [&](double x) {
+    double low[4], high[4];
+    ASSERT_TRUE(reference(x, 2048, low));
+    ASSERT_TRUE(reference(x, 4096, high));
+    ScaledAiry result = LIBC_NAMESPACE::math::airy_negative(x);
+    const double actual[] = {result.ai, result.ai_prime, result.bi,
+                             result.bi_prime};
+    double fourth_root =
+        x < -1 ? LIBC_NAMESPACE::math::sqrt(LIBC_NAMESPACE::math::sqrt(-x)) : 1;
+    for (unsigned i = 0; i < 4; ++i) {
+      ASSERT_EQ(Bits(low[i]).uintval(), Bits(high[i]).uintval());
+      double scale = (i & 1) ? fourth_root : 1 / fourth_root;
+      double error = actual[i] - high[i];
+      EXPECT_TRUE(error < 0x1p-45 * scale && error > -0x1p-45 * scale);
+    }
+  };
+  for (unsigned i = 0; i <= 160; ++i)
+    check(-double(i) / 16);
+  const double edges[] = {0x1p-54,
+                          2.09,
+                          2.338107410459767,
+                          1.173713222709128,
+                          1.018792971647471,
+                          2.294439682614123,
+                          32,
+                          64,
+                          100};
+  for (double x : edges) {
+    uint64_t bits = Bits(x).uintval();
+    check(-Bits(bits - 1).get_val());
+    check(-x);
+    check(-Bits(bits + 1).get_val());
+  }
+}
+
+TEST(LlvmLibcScaledAiryTest, NegativeLargePhase) {
+  LIBC_NAMESPACE::fputil::testing::ForceRoundingMode guard(
+      LIBC_NAMESPACE::fputil::testing::RoundingMode::Nearest);
+  ASSERT_TRUE(guard.success);
+  for (unsigned exponent = 7; exponent <= 32; ++exponent) {
+    double a = double(uint64_t(1) << exponent);
+    for (int offset = -1; offset <= 1; ++offset) {
+      double x = Bits(Bits(a).uintval() + offset).get_val();
+      if (x < 128 || x > 0x1p32)
+        continue;
+      double low[4], high[4];
+      ASSERT_TRUE(oscillatory_reference(x, 256, low));
+      ASSERT_TRUE(oscillatory_reference(x, 512, high));
+      ScaledAiry result = LIBC_NAMESPACE::math::airy_negative(-x);
+      const double actual[] = {result.ai, result.ai_prime, result.bi,
+                               result.bi_prime};
+      double fourth_root =
+          LIBC_NAMESPACE::math::sqrt(LIBC_NAMESPACE::math::sqrt(x));
+      for (unsigned i = 0; i < 4; ++i) {
+        ASSERT_EQ(Bits(low[i]).uintval(), Bits(high[i]).uintval());
+        double scale = (i & 1) ? fourth_root : 1 / fourth_root;
+        double error = actual[i] - high[i];
+        EXPECT_TRUE(error < 0x1p-45 * scale && error > -0x1p-45 * scale);
+      }
     }
   }
 }

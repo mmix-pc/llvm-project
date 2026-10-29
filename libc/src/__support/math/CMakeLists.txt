@@ -1,7 +1,7 @@
 add_header_library(
   airy_scaled
   HDRS airy_scaled.h
-  DEPENDS .exp .sqrt
+  DEPENDS .exp .sqrt .sin .cos libc.src.__support.FPUtil.double_double
 )
 
 add_header_library(
