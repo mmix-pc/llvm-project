@@ -364,6 +364,49 @@ public:
     EXPECT_FP_EQ(T(-pi * T(0.25)), p.imag);
   }
 
+  void logarithmNearUnit(Func f) {
+    using LIBC_NAMESPACE::fputil::testing::ForceRoundingMode;
+    using LIBC_NAMESPACE::fputil::testing::RoundingMode;
+    const T tiny = Bits::min_subnormal().get_val();
+    const T delta = sizeof(T) == sizeof(float) ? T(0x1p-23) : T(0x1p-52);
+    mpc_t input, output;
+    mpc_init2(input, 4096);
+    mpc_init2(output, 4096);
+    const RoundingMode modes[] = {RoundingMode::Nearest, RoundingMode::Upward,
+                                  RoundingMode::Downward,
+                                  RoundingMode::TowardZero};
+    const T signs[] = {T(-1), T(1)};
+    const T tiny_values[] = {tiny, -tiny};
+    for (auto mode : modes) {
+      ForceRoundingMode rounding(mode);
+      ASSERT_TRUE(rounding.success);
+      for (T sign : signs) {
+        for (T y : tiny_values) {
+          Pair got = call(f, sign, y);
+          // The exact positive real component is smaller than one subnormal.
+          // Permit rounding error here, but not a spurious normal residual.
+          EXPECT_TRUE(got.real >= T(0) && got.real <= tiny);
+        }
+        const Pair values[] = {{sign, T(0x1p-20)},
+                               {sign, T(-0x1p-26)},
+                               {sign * (T(1) - delta), T(0x1p-20)},
+                               {sign * (T(1) + delta), T(-0x1p-26)},
+                               {sign * T(0.8), T(0.6)}};
+        for (Pair z : values) {
+          reference_input = z;
+          reference_binary = false;
+          mpc_set_d_d(input, double(z.real), double(z.imag), MPC_RNDNN);
+          mpc_log(output, input, MPC_RNDNN);
+          auto got = call(f, z.real, z.imag);
+          referenceComponent(got.real, mpc_realref(output), 8.0, "real");
+          referenceComponent(got.imag, mpc_imagref(output), 8.0, "imaginary");
+        }
+      }
+    }
+    mpc_clear(input);
+    mpc_clear(output);
+  }
+
   void exponential(Func f) {
     T inf = Bits::inf().get_val(), nan = Bits::quiet_nan().get_val();
     Pair p = call(f, T(0), T(-0.0));
@@ -469,6 +512,10 @@ TEST_F(LlvmLibcComplexDoubleTest, Logarithm) {
   logarithm(LIBC_NAMESPACE::clog);
 }
 
+TEST_F(LlvmLibcComplexDoubleTest, LogarithmNearUnit) {
+  logarithmNearUnit(LIBC_NAMESPACE::clog);
+}
+
 TEST_F(LlvmLibcComplexDoubleTest, Exponential) {
   exponential(LIBC_NAMESPACE::cexp);
 }
@@ -549,6 +596,10 @@ TEST_F(LlvmLibcComplexFloatTest, SquareRoot) {
 
 TEST_F(LlvmLibcComplexFloatTest, Logarithm) {
   logarithm(LIBC_NAMESPACE::clogf);
+}
+
+TEST_F(LlvmLibcComplexFloatTest, LogarithmNearUnit) {
+  logarithmNearUnit(LIBC_NAMESPACE::clogf);
 }
 
 TEST_F(LlvmLibcComplexFloatTest, Exponential) {

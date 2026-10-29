@@ -41,6 +41,7 @@
 
 #include "src/__support/CPP/bit.h"
 #include "src/__support/FPUtil/FPBits.h"
+#include "src/__support/FPUtil/dyadic_float.h"
 #include "src/__support/complex_type.h"
 #include "src/__support/macros/attributes.h"
 #include "src/__support/macros/config.h"
@@ -133,13 +134,15 @@ LIBC_INLINE double log_abs(double x, double y) {
     return LIBC_NAMESPACE::log(a);
 
   if (a >= 0.75 && a <= 1.25) {
-    // Compensated squared norm: hypot can round to 1 even when log(|z|)
-    // is nonzero. Keep the residual of both squares and their sum.
-    double aa = a * a, bb = b * b;
-    double s = aa + bb;
-    double e = ((aa - s) + bb) + LIBC_NAMESPACE::fma(a, a, -aa);
-    e += LIBC_NAMESPACE::fma(b, b, -bb);
-    return 0.5 * LIBC_NAMESPACE::log1p((s - 1.0) + e);
+    // Cancel the unit term before adding b^2, so a == 1 retains even a
+    // subnormal b. Integer significand arithmetic also avoids compensation
+    // identities that require round-to-nearest in the hardware operations.
+    using Wide = fputil::DyadicFloat<128>;
+    Wide wa(a), wb(b);
+    Wide aa = fputil::rounded_mul(wa, wa);
+    Wide bb = fputil::rounded_mul(wb, wb);
+    Wide delta = fputil::quick_add(fputil::quick_sub(aa, Wide(1.0)), bb);
+    return 0.5 * LIBC_NAMESPACE::log1p(delta.as<double, false>());
   }
   // No overflowing norm, and no squaring of subnormal inputs.
   // Below this ratio the correction is negligible relative to log(a).

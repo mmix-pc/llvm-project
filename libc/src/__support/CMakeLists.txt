@@ -519,6 +519,7 @@ add_header_library(
   HDRS complex_transcendental.h
   DEPENDS
     libc.src.__support.CPP.bit
+    libc.src.__support.FPUtil.dyadic_float
     libc.src.__support.FPUtil.fp_bits
     libc.src.__support.complex_type
     libc.src.__support.macros.attributes
