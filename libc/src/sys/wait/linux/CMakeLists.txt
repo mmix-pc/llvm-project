@@ -1,14 +1,14 @@
-foreach(name wait waitpid wait4)
+foreach(name wait waitpid wait4 waitid)
   set(${name}_source ${name}.cpp)
 endforeach()
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
-  mmix_select_cancellation_points(wait waitpid wait4)
+  mmix_select_cancellation_points(wait waitpid wait4 waitid)
 endif()
 
 add_entrypoint_object(
   waitid
-  SRCS waitid.cpp
+  SRCS ${waitid_source}
   HDRS ../waitid.h
   DEPENDS
     libc.hdr.types.id_t
@@ -18,6 +18,8 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.__support.common
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
