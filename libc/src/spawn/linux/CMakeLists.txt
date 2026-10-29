@@ -17,6 +17,8 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(spawn_signal_deps
     libc.src.__support.threads.linux.mmix.process_operation_h
     libc.hdr.errno_macros
+    libc.hdr.types.struct_sched_param
+    libc.src.signal.linux.mmix.private_signals
     libc.src.signal.linux.mmix.rt_sigaction
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask)
   if(LIBC_MMIX_BUILD_COORDINATED_FORK)
@@ -24,7 +26,10 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     list(APPEND spawn_extra_headers mmix/coordinated_spawn.h)
     list(APPEND spawn_signal_deps
       libc.src.__support.threads.linux.mmix.fork_runtime)
-    set(spawn_options -DLIBC_MMIX_SPAWN_COORDINATED -fno-lto)
+    list(APPEND spawn_options -DLIBC_MMIX_SPAWN_COORDINATED -fno-lto)
+  endif()
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    list(APPEND spawn_options -DLIBC_MMIX_CANCELLATION_WINDOWS)
   endif()
 endif()
 add_entrypoint_object(

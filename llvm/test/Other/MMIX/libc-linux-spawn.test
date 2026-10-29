@@ -8,6 +8,7 @@
 #include "include/llvm-libc-types/posix_spawnattr_t.h"
 #include "include/llvm-libc-types/pid_t.h"
 #include "include/llvm-libc-types/mode_t.h"
+#include "include/llvm-libc-macros/spawn-macros.h"
 
 #--- sys/syscall.h
 // Independently checked against exported MMIX Linux UAPI.
@@ -21,6 +22,16 @@
 #define SYS_rt_sigprocmask 135
 #define SYS_clone 220
 #define SYS_execve 221
+#define SYS_chdir 49
+#define SYS_fchdir 50
+#define SYS_sched_setparam 118
+#define SYS_sched_setscheduler 119
+#define SYS_setpgid 154
+#define SYS_setsid 157
+#define SYS_getuid 174
+#define SYS_getgid 176
+#define SYS_setresuid 147
+#define SYS_setresgid 149
 
 #--- linux/errno.h
 #define ENOENT 2
@@ -67,8 +78,13 @@ for opt in ("0", "2"):
         subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
                         str(root / "native-boundary.h"), str(root / "semantics.cpp"),
                         "-o", str(exe)], check=True)
-        for mode in range(21):
+        for mode in range(22):
             subprocess.run([str(exe), str(mode)], check=True, timeout=30)
+        attr_exe = root / ("attributes" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+                        str(root / "native-boundary.h"), str(root / "attributes.cpp"),
+                        "-o", str(attr_exe)], check=True)
+        subprocess.run([str(attr_exe)], check=True, timeout=30)
 
 selection = root / "selection.cmake"
 selection.write_text('include("' + str(libc.resolve() / "config/linux/mmix/Spawn.cmake") + '")\n'
@@ -105,7 +121,7 @@ enum Case {
   Parent, NullPID, Again, NoMemory, NoSyscall, Interrupted, BlockFailure,
   ParentRestoreFailure, Attributes, Child, NoActions, OpenSameFD, OpenFailure,
   DupFailure, CloseFailure, GetFlagsFailure, SetFlagsFailure, QueryFailure,
-  ResetFailure, ChildRestoreFailure, ExecReturnsZero
+  ResetFailure, ChildRestoreFailure, ExecReturnsZero, CloseAlreadyClosed
 };
 static int mode, blocks, restores, clones, queries, resets, steps, execs, terminals;
 static constexpr unsigned long ORIGINAL_MASK = 0x120UL;
@@ -241,7 +257,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
     return mode == SetFlagsFailure ? -9 : 0;
   case 7:
     require(nr == SYS_close && a == 7 && !b && !c && !d);
-    return mode == CloseFailure ? -9 : 0;
+    return mode == CloseFailure ? -5 : mode == CloseAlreadyClosed ? -9 : 0;
   default: __builtin_trap();
   }
 }
@@ -258,7 +274,7 @@ extern "C" int main(int argc, char **argv) {
       mode == NoActions ? nullptr : &actions, mode == Attributes ? &attr : nullptr,
       args, env);
   if (mode == Attributes) {
-    require(result == ENOTSUP && !blocks && !clones && pid == -41);
+    require(result == 0 && blocks == 1 && clones == 1 && restores == 1 && pid == 501);
   } else if (mode == BlockFailure) {
     require(result == EINVAL && blocks == 1 && !clones && !restores && pid == -41);
   } else {
@@ -267,5 +283,58 @@ extern "C" int main(int argc, char **argv) {
     require(pid == (mode == Parent ? 501 : -41));
   }
   require(mask == ORIGINAL_MASK && !queries && !steps && !execs && !terminals);
+  return 0;
+}
+
+#--- attributes.cpp
+#include "src/spawn/linux/mmix/posix_spawn.cpp"
+#include "src/__support/OSUtil/linux/exit.cpp"
+
+using namespace spawn_test;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+static unsigned calls, fail_call;
+static long numbers[10], first[10], second[10], third[10];
+static int priorities[10];
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
+                                        long c, long d, long e, long f) {
+  require(calls < 10 && !d && !e && !f);
+  unsigned i = calls++;
+  numbers[i] = nr; first[i] = a; second[i] = b; third[i] = c;
+  if (nr == SYS_sched_setscheduler)
+    priorities[i] = reinterpret_cast<struct sched_param *>(c)->sched_priority;
+  if (nr == SYS_sched_setparam)
+    priorities[i] = reinterpret_cast<struct sched_param *>(b)->sched_priority;
+  if (calls == fail_call) return -13;
+  if (nr == SYS_getuid) return 1001;
+  if (nr == SYS_getgid) return 1002;
+  return 0;
+}
+extern "C" int main() {
+  require(apply_process_attributes(nullptr) == 0 && calls == 0);
+  posix_spawnattr_t attr{};
+  require(apply_process_attributes(&attr) == 0 && calls == 0);
+  attr.__flags = POSIX_SPAWN_SETSCHEDULER | POSIX_SPAWN_SETSCHEDPARAM |
+                 POSIX_SPAWN_SETSID | POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_RESETIDS;
+  attr.__policy = 1; attr.__priority = 3; attr.__pgrp = 43;
+  require(apply_process_attributes(&attr) == 0 && calls == 7);
+  const long expected[] = {SYS_sched_setscheduler, SYS_setsid, SYS_setpgid,
+                          SYS_getgid, SYS_setresgid, SYS_getuid, SYS_setresuid};
+  for (unsigned i = 0; i != 7; ++i) require(numbers[i] == expected[i]);
+  require(first[0] == 0 && second[0] == 1 && priorities[0] == 3);
+  require(first[2] == 0 && second[2] == 43);
+  require(first[4] == -1 && second[4] == 1002 && third[4] == -1);
+  require(first[6] == -1 && second[6] == 1001 && third[6] == -1);
+  // Getter syscalls cannot fail. Every fallible operation stops at its error.
+  const unsigned failures[] = {1U, 2U, 3U, 5U, 7U};
+  for (unsigned failure : failures) {
+    calls = 0; fail_call = failure;
+    require(apply_process_attributes(&attr) == 13 && calls == failure);
+  }
+  calls = 0; fail_call = 0;
+  attr.__flags = POSIX_SPAWN_SETSCHEDPARAM;
+  require(apply_process_attributes(&attr) == 0 && calls == 1);
+  require(numbers[0] == SYS_sched_setparam && first[0] == 0 && priorities[0] == 3);
+  calls = 0; fail_call = 1;
+  require(apply_process_attributes(&attr) == 13 && calls == 1);
   return 0;
 }

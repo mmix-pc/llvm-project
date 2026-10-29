@@ -8,6 +8,7 @@
 
 #include "src/spawn/posix_spawn.h"
 #include "hdr/errno_macros.h"
+#include "hdr/types/struct_sched_param.h"
 #include "src/__support/OSUtil/exit.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/dup2.h"
@@ -18,6 +19,7 @@
 #else
 #include "src/__support/threads/linux/mmix/process_operation.h"
 #endif
+#include "src/signal/linux/mmix/private_signals.h"
 #include "src/signal/linux/mmix/rt_sigaction.h"
 #include "src/spawn/file_actions.h"
 #include "src/spawn/linux/spawn.h"
@@ -30,8 +32,49 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace {
 
+int apply_process_attributes(const posix_spawnattr_t *attr) {
+  if (!attr)
+    return 0;
+  long result;
+  if (attr->__flags & POSIX_SPAWN_SETSCHEDULER) {
+    struct sched_param param{attr->__priority};
+    result =
+        syscall_impl<long>(SYS_sched_setscheduler, 0, attr->__policy, &param);
+    if (result < 0)
+      return static_cast<int>(-result);
+  } else if (attr->__flags & POSIX_SPAWN_SETSCHEDPARAM) {
+    struct sched_param param{attr->__priority};
+    result = syscall_impl<long>(SYS_sched_setparam, 0, &param);
+    if (result < 0)
+      return static_cast<int>(-result);
+  }
+  if (attr->__flags & POSIX_SPAWN_SETSID) {
+    result = syscall_impl<long>(SYS_setsid);
+    if (result < 0)
+      return static_cast<int>(-result);
+  }
+  if (attr->__flags & POSIX_SPAWN_SETPGROUP) {
+    result = syscall_impl<long>(SYS_setpgid, 0, attr->__pgrp);
+    if (result < 0)
+      return static_cast<int>(-result);
+  }
+  if (attr->__flags & POSIX_SPAWN_RESETIDS) {
+    // This private, single-task child must not broadcast to copied peers.
+    long gid = syscall_impl<long>(SYS_getgid);
+    result = syscall_impl<long>(SYS_setresgid, -1, gid, -1);
+    if (result < 0)
+      return static_cast<int>(-result);
+    long uid = syscall_impl<long>(SYS_getuid);
+    result = syscall_impl<long>(SYS_setresuid, -1, uid, -1);
+    if (result < 0)
+      return static_cast<int>(-result);
+  }
+  return 0;
+}
+
 [[noreturn]] void child_process(const char *const *paths,
                                 const posix_spawn_file_actions_t *actions,
+                                const posix_spawnattr_t *attr,
                                 const sigset_t &saved, char *const *argv,
                                 char *const *envp) {
   // Do not run inherited user handlers during child setup or before exec.
@@ -42,12 +85,19 @@ namespace {
     struct sigaction old{}, reset{};
     if (!mmix::rt_sigaction(signal, nullptr, &old))
       internal::exit(127);
-    if (old.sa_handler != SIG_DFL && old.sa_handler != SIG_IGN) {
+    bool explicit_default =
+        attr && (attr->__flags & POSIX_SPAWN_SETSIGDEF) &&
+        (attr->__sigdefault.__signals[0] & (1UL << (signal - 1)));
+    if (explicit_default ||
+        (old.sa_handler != SIG_DFL && old.sa_handler != SIG_IGN)) {
       reset.sa_handler = SIG_DFL;
       if (!mmix::rt_sigaction(signal, &reset, nullptr))
         internal::exit(127);
     }
   }
+
+  if (apply_process_attributes(attr))
+    internal::exit(127);
 
   auto *action =
       actions ? static_cast<BaseSpawnFileAction *>(actions->__front) : nullptr;
@@ -69,7 +119,8 @@ namespace {
     }
     case BaseSpawnFileAction::CLOSE: {
       auto *close = static_cast<SpawnFileCloseAction *>(action);
-      if (!linux_syscalls::close(close->fd))
+      auto result = linux_syscalls::close(close->fd);
+      if (!result && result.error() != EBADF)
         internal::exit(127);
       break;
     }
@@ -100,7 +151,11 @@ namespace {
     }
     }
   }
-  if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
+  sigset_t mask = attr && (attr->__flags & POSIX_SPAWN_SETSIGMASK)
+                      ? attr->__sigmask
+                      : saved;
+  mask.__signals[0] &= ~mmix::private_signal_mask;
+  if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &mask, nullptr))
     internal::exit(127);
   (void)spawn_exec(paths, argv, envp);
   // Exec must not return, including an unexpected nonnegative syscall result.
@@ -109,8 +164,6 @@ namespace {
 
 } // namespace
 
-// Attribute support is independent of process coordination. Only the existing
-// null-attribute caller profile is supported by either creation path.
 int spawn(pid_t *pid, const char *const *paths,
           const posix_spawn_file_actions_t *actions,
           const posix_spawnattr_t *attr, char *const *argv, char *const *envp) {
@@ -119,8 +172,6 @@ int spawn(pid_t *pid, const char *const *paths,
   if (operation.error())
     return operation.error();
 #endif
-  if (attr)
-    return ENOTSUP;
   sigset_t full{{-1UL}}, saved{};
   auto blocked = linux_syscalls::rt_sigprocmask(SIG_BLOCK, &full, &saved);
   if (!blocked)
@@ -134,7 +185,7 @@ int spawn(pid_t *pid, const char *const *paths,
   long result = syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
 #endif
   if (result == 0)
-    child_process(paths, actions, saved, argv, envp);
+    child_process(paths, actions, attr, saved, argv, envp);
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
     internal::exit(127);
   if (result < 0)
