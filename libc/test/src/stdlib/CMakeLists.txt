@@ -53,6 +53,23 @@ if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   )
 endif()
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  set(environ_test_options "")
+  if("libc.src.unistd.environ" IN_LIST TARGET_LLVMLIBC_ENTRYPOINTS)
+    list(APPEND environ_test_options "-DLIBC_COPT_SUPPORT_ENVIRON")
+  endif()
+  # Use the production object in both overlay and full builds, including full
+  # builds whose entrypoint list does not provide environ.
+  add_libc_test(
+    environ_test
+    SUITE libc-stdlib-tests
+    SRCS environ_test.cpp
+    DEPENDS libc.config.app_h libc.src.stdlib.environ_internal
+    COMPILE_OPTIONS ${environ_test_options}
+    LINK_LIBRARIES "-Wl,--wrap=malloc" "-Wl,--wrap=free"
+  )
+endif()
+
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
     getenv_initialization_test
@@ -68,8 +85,49 @@ if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
       libc.src.__support.CPP.atomic
       libc.src.__support.common
       libc.src.stdlib.environ_internal
+    COMPILE_OPTIONS ${environ_test_options}
     LINK_LIBRARIES
       pthread
+  )
+
+  # Overlay entrypoints normally omit environ. Compile a separate copy with a
+  # namespace-local public environ so that these regressions also run on hosts.
+  get_target_property(environ_test_deps libc.src.stdlib.environ_internal DEPS)
+  get_target_property(environ_test_compile_options
+    libc.src.stdlib.environ_internal COMPILE_OPTIONS)
+  list(REMOVE_ITEM environ_test_deps libc.src.unistd.environ)
+  add_object_library(
+    environ_public_test_support
+    SRCS ${LIBC_SOURCE_DIR}/src/stdlib/environ_internal.cpp
+    DEPENDS ${environ_test_deps}
+    COMPILE_OPTIONS
+      ${environ_test_compile_options} "-DLIBC_COPT_SUPPORT_ENVIRON"
+  )
+  add_libc_test(
+    environ_public_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS environ_test.cpp
+    DEPENDS libc.config.app_h .environ_public_test_support
+    COMPILE_OPTIONS
+      "-DLIBC_COPT_SUPPORT_ENVIRON" "-DLIBC_TEST_ENVIRON_STUB"
+    LINK_LIBRARIES "-Wl,--wrap=malloc" "-Wl,--wrap=free"
+  )
+  add_libc_test(
+    getenv_public_initialization_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS
+      getenv_initialization_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/getenv.cpp
+    DEPENDS
+      libc.config.app_h
+      libc.src.__support.CPP.atomic
+      libc.src.__support.common
+      .environ_public_test_support
+    COMPILE_OPTIONS
+      "-DLIBC_COPT_SUPPORT_ENVIRON" "-DLIBC_TEST_ENVIRON_STUB"
+    LINK_LIBRARIES pthread
   )
 endif()
 

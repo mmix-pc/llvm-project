@@ -15,70 +15,45 @@
 #define LLVM_LIBC_SRC_STDLIB_ENVIRON_INTERNAL_H
 
 #include "hdr/types/size_t.h"
-#include "src/__support/CPP/atomic.h"
 #include "src/__support/CPP/optional.h"
 #include "src/__support/CPP/string_view.h"
-#include "src/__support/macros/attributes.h"
 #include "src/__support/macros/config.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
-// Ownership information for environment strings.
-// We need to track ownership because environment strings come from three
-// sources:
-// 1. Startup environment (from program loader) - we don't own these
-// 2. putenv() calls where caller provides the string - we don't own these
-// 3. setenv() calls where we allocate the string - we DO own these
-// Only strings we allocated can be freed when replaced or removed.
+// Track allocations independently of the publicly writable environ slots.
+// Startup strings and strings supplied by putenv are never added to this list.
 struct EnvStringOwnership {
-  bool allocated_by_us; // True if we allocated this string (must delete).
-                        // False for startup environ or putenv strings (don't
-                        // free).
-
-  // Default: not owned by us (startup or putenv - don't free).
-  LIBC_INLINE EnvStringOwnership() : allocated_by_us(false) {}
-
-  // Returns true if this string can be safely freed.
-  LIBC_INLINE bool can_free() const { return allocated_by_us; }
+  char *string;
+  size_t size;
 };
 
 // Centralized manager for environment variable operations.
 // This class encapsulates all state and operations related to environment
 // management, including memory management and tracking of string ownership.
 //
-// The manager provides iterator support, allowing callers to iterate over
-// the current environment entries using standard begin()/end() semantics.
+// Read-only operations, including first use, do not modify shared state.
+// Callers must synchronize environment mutations with all other accesses,
+// including assignments to environ and edits to borrowed putenv strings.
 class EnvironmentManager {
-  // Our allocated environ array (nullptr if using startup environ)
+  // The last array we allocated, not necessarily the current environ. Never
+  // cache a borrowed array: the application may replace and then free it.
+  // Retain our last allocations across reads; the next successful mutation
+  // reclaims unreachable strings and replaces this array, or clear frees both.
   char **storage = nullptr;
 
-  // Parallel array tracking ownership of each environ string.
-  // Allocated with the same capacity as storage.
+  // Independent allocation records, with the same capacity as storage.
   EnvStringOwnership *ownership = nullptr;
-
-  // Allocated capacity of storage
   size_t capacity = 0;
+  size_t owned_count = 0;
 
-  // Current number of variables in environ
-  size_t count = 0;
-
-  enum class InitState : unsigned char { Uninitialized, Initializing, Ready };
-  cpp::Atomic<InitState> init_state{InitState::Uninitialized};
-
-  // True if we allocated storage (and are responsible for freeing it)
-  bool is_ours = false;
-
-  EnvironmentManager() = default;
+  constexpr EnvironmentManager() = default;
   ~EnvironmentManager() = default;
 
-  // Lazily initialize from the startup environment.
-  // Called internally by get_instance(); idempotent.
-  void init_once();
-
-  // Get a pointer to the current environ array.
-  // This may be app.env_ptr (startup environ) or storage (our copy).
-  char **get_array();
+  // Public environ is authoritative when supported, otherwise use app.env_ptr.
+  static char **get_array();
+  static void publish_array(char **array);
 
   // Search for a variable by name in the current environ array.
   // Returns the index if found, or nullopt if not found.
@@ -87,7 +62,13 @@ class EnvironmentManager {
   // Ensure environ has capacity for at least `needed` entries (plus null
   // terminator). May allocate or reallocate storage. Returns true on
   // success, false on allocation failure.
-  bool ensure_capacity(size_t needed);
+  // Also reserve space for extra_owned new allocation records. No strings are
+  // freed here: mutation arguments can themselves refer to owned strings.
+  bool ensure_capacity(size_t needed, size_t extra_owned = 0);
+
+  // After a successful mutation, free allocations no longer referenced by the
+  // current array. Reads and failed mutations leave ownership unchanged.
+  void reclaim_unused_strings(size_t count);
 
   // Result of a successful environment storage allocation.
   struct AllocResult {
@@ -96,13 +77,10 @@ class EnvironmentManager {
   };
 
   // Helper: allocate new storage and ownership arrays of the given capacity,
-  // copy the first `copy_count` entries from old_storage/old_ownership, and
-  // initialize the remaining ownership slots to default (not-owned).
+  // copy the current environment and the independent allocation records.
   // Returns nullopt on allocation failure; the old arrays are untouched.
-  cpp::optional<AllocResult> alloc_and_copy(size_t new_capacity,
-                                            char **old_storage,
-                                            EnvStringOwnership *old_ownership,
-                                            size_t copy_count);
+  cpp::optional<AllocResult>
+  alloc_and_copy(size_t new_capacity, char **old_storage, size_t copy_count);
 
 public:
   // Get the singleton instance of the environment manager.
@@ -132,13 +110,14 @@ public:
   int set(cpp::string_view name, cpp::string_view value, bool overwrite);
 
   // Insert a caller-provided "name=value" string into the environment.
-  // The caller retains ownership of the string; the manager will not
-  // free it. If string contains no '=', the named variable is removed
+  // The caller retains ownership of caller-allocated strings. Reusing a
+  // libc-owned string does not transfer ownership. If string contains no '=',
+  // the named variable is removed
   // (POSIX behavior). Returns 0 on success, -1 on failure.
   int put(char *string);
 
-  // Remove a variable by name. Frees the string if we own it, then
-  // compacts the array. Returns 0 on success (including if the variable
+  // Remove all matching variables, compact the array and reclaim unreferenced
+  // owned strings. Returns 0 on success (including if the variable
   // was not found), -1 on allocation failure during array transition.
   int unset(cpp::string_view name);
 

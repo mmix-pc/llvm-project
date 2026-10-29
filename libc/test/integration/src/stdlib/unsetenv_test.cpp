@@ -11,12 +11,10 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "src/__support/alloc-checker.h"
 #include "src/stdlib/environ_internal.h"
 #include "src/stdlib/getenv.h"
 #include "src/stdlib/setenv.h"
 #include "src/stdlib/unsetenv.h"
-#include "src/string/memory_utils/inline_memcpy.h"
 #include "src/unistd/environ.h"
 
 #include "test/IntegrationTest/test.h"
@@ -131,16 +129,8 @@ TEST_MAIN([[maybe_unused]] int argc, [[maybe_unused]] char **argv,
     ASSERT_EQ(setenv("DUP_VAL1", "1", 1), 0);
     ASSERT_EQ(setenv("DUP_VAL2", "2", 1), 0);
 
-    AllocChecker ac;
-    char *d1 = new (ac) char[14];
-    ASSERT_TRUE(ac);
-    const char *s1 = "DUP_VAR=first";
-    inline_memcpy(d1, s1, 14);
-
-    char *d2 = new (ac) char[15];
-    ASSERT_TRUE(ac);
-    const char *s2 = "DUP_VAR=second";
-    inline_memcpy(d2, s2, 15);
+    char d1[] = "DUP_VAR=first";
+    char d2[] = "DUP_VAR=second";
 
     internal::EnvironmentManager &mgr =
         internal::EnvironmentManager::get_instance();
@@ -159,14 +149,15 @@ TEST_MAIN([[maybe_unused]] int argc, [[maybe_unused]] char **argv,
     ASSERT_TRUE(idx1 < count);
     ASSERT_TRUE(idx2 < count);
 
-    delete[] env_array[idx1];
-    delete[] env_array[idx2];
-
+    // Applications may replace slots, but must not free libc-owned strings.
+    // Ownership must not transfer to these borrowed replacements.
     env_array[idx1] = d1;
     env_array[idx2] = d2;
 
     ASSERT_EQ(unsetenv("DUP_VAR"), 0);
     ASSERT_TRUE(getenv("DUP_VAR") == nullptr);
+    ASSERT_STREQ(d1, "DUP_VAR=first");
+    ASSERT_STREQ(d2, "DUP_VAR=second");
   }
 
   return 0;

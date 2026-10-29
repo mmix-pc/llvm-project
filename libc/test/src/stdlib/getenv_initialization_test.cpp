@@ -10,12 +10,18 @@
 #include "src/__support/CPP/atomic.h"
 #include "src/stdlib/getenv.h"
 #include "test/UnitTest/Test.h"
+#ifdef LIBC_COPT_SUPPORT_ENVIRON
+#include "src/unistd/environ.h"
+#endif
 #include <pthread.h>
 #include <sched.h>
 
 namespace LIBC_NAMESPACE_DECL {
 AppProperties app;
-}
+#ifdef LIBC_TEST_ENVIRON_STUB
+char **environ;
+#endif
+} // namespace LIBC_NAMESPACE_DECL
 
 namespace {
 using LIBC_NAMESPACE::cpp::Atomic;
@@ -48,6 +54,13 @@ TEST(LlvmLibcGetenvInitializationTest, ConcurrentFirstLookup) {
     environment[i] = first;
   environment[ENTRIES - 1] = last;
   LIBC_NAMESPACE::app.env_ptr = reinterpret_cast<uintptr_t *>(environment);
+#ifdef LIBC_COPT_SUPPORT_ENVIRON
+  // Before the first getenv, replace only public environ. A stale app.env_ptr
+  // must not hide LAST, even if the manager has never been initialized.
+  char *startup[] = {first, nullptr};
+  LIBC_NAMESPACE::app.env_ptr = reinterpret_cast<uintptr_t *>(startup);
+  LIBC_NAMESPACE::environ = environment;
+#endif
   pthread_t threads[THREADS];
   for (auto &thread : threads)
     ASSERT_EQ(pthread_create(&thread, nullptr, lookup, nullptr), 0);
@@ -59,4 +72,8 @@ TEST(LlvmLibcGetenvInitializationTest, ConcurrentFirstLookup) {
     ASSERT_EQ(pthread_join(thread, &result), 0);
     EXPECT_TRUE(result == nullptr);
   }
+  LIBC_NAMESPACE::app.env_ptr = nullptr;
+#ifdef LIBC_COPT_SUPPORT_ENVIRON
+  LIBC_NAMESPACE::environ = nullptr;
+#endif
 }

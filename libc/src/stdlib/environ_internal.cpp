@@ -17,7 +17,6 @@
 #include "src/__support/CPP/string_view.h"
 #include "src/__support/alloc-checker.h"
 #include "src/__support/macros/config.h"
-#include "src/__support/threads/sleep.h"
 #include "src/string/memory_utils/inline_memcpy.h"
 #ifdef LIBC_COPT_SUPPORT_ENVIRON
 #include "src/unistd/environ.h"
@@ -26,308 +25,240 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
-// Minimum initial capacity for the environment array when first allocated.
-// This avoids frequent reallocations for small environments.
 constexpr size_t MIN_ENVIRON_CAPACITY = 32;
-
-// Growth factor for environment array capacity when expanding.
-// When capacity is exceeded, new_capacity = old_capacity *
-// ENVIRON_GROWTH_FACTOR.
 constexpr size_t ENVIRON_GROWTH_FACTOR = 2;
 
-void EnvironmentManager::init_once() {
-  if (init_state.load(cpp::MemoryOrder::ACQUIRE) == InitState::Ready)
-    return;
-
-  InitState expected = InitState::Uninitialized;
-  if (!init_state.compare_exchange_strong(expected, InitState::Initializing,
-                                         cpp::MemoryOrder::RELAXED,
-                                         cpp::MemoryOrder::RELAXED)) {
-    while (init_state.load(cpp::MemoryOrder::ACQUIRE) != InitState::Ready)
-      sleep_briefly();
-    return;
-  }
-
-  // Count entries in the startup environ.
-  char **env_ptr = reinterpret_cast<char **>(app.env_ptr);
-  if (env_ptr) {
-    size_t c = 0;
-    for (char **env = env_ptr; *env != nullptr; env++)
-      c++;
-    count = c;
-  }
-
-  // Publish the scan before another reader uses count. Initialization cannot
-  // allocate or invoke callbacks; mutation still needs caller locking.
-  init_state.store(InitState::Ready, cpp::MemoryOrder::RELEASE);
-}
-
 EnvironmentManager &EnvironmentManager::get_instance() {
+  // Constant initialization; even the first lookup only reads shared state.
   static EnvironmentManager mgr;
-  mgr.init_once();
   return mgr;
 }
 
 char **EnvironmentManager::get_array() {
-  if (is_ours)
-    return storage;
+#ifdef LIBC_COPT_SUPPORT_ENVIRON
+  return environ;
+#else
   return reinterpret_cast<char **>(app.env_ptr);
+#endif
+}
+
+void EnvironmentManager::publish_array(char **array) {
+  app.env_ptr = reinterpret_cast<uintptr_t *>(array);
+#ifdef LIBC_COPT_SUPPORT_ENVIRON
+  environ = array;
+#endif
 }
 
 EnvironmentManager::iterator EnvironmentManager::begin() { return get_array(); }
 
 EnvironmentManager::iterator EnvironmentManager::end() {
-  return count ? get_array() + count : get_array();
+  char **array = get_array();
+  if (array)
+    while (*array)
+      ++array;
+  return array;
 }
 
-size_t EnvironmentManager::size() const { return count; }
+size_t EnvironmentManager::size() const {
+  char **array = get_array();
+  size_t count = 0;
+  if (array)
+    while (array[count])
+      ++count;
+  return count;
+}
 
 char *EnvironmentManager::get(cpp::string_view name) {
-  cpp::optional<size_t> idx = find_var(name);
-  if (!idx)
-    return nullptr;
-  return get_array()[*idx] + name.size() + 1;
+  auto idx = find_var(name);
+  return idx ? get_array()[*idx] + name.size() + 1 : nullptr;
 }
 
 cpp::optional<size_t> EnvironmentManager::find_var(cpp::string_view name) {
-  char **env_array = get_array();
-  if (!env_array)
-    return cpp::nullopt;
-
-  for (size_t i = 0; i < count; i++) {
-    cpp::string_view current(env_array[i]);
-    if (current.starts_with(name) && current.size() > name.size() &&
-        current[name.size()] == '=')
-      return i;
+  char **array = get_array();
+  if (array) {
+    for (size_t i = 0; array[i]; ++i) {
+      cpp::string_view current(array[i]);
+      if (current.starts_with(name) && current.size() > name.size() &&
+          current[name.size()] == '=')
+        return i;
+    }
   }
-
   return cpp::nullopt;
 }
 
-// Helper: allocate new storage and ownership arrays of the given capacity,
-// copy the first `copy_count` entries from old_storage/old_ownership, and
-// initialize the remaining ownership slots to default (not-owned).
-// Returns nullopt on allocation failure; the old arrays are untouched.
 cpp::optional<EnvironmentManager::AllocResult>
 EnvironmentManager::alloc_and_copy(size_t new_capacity, char **old_storage,
-                                   EnvStringOwnership *old_ownership,
                                    size_t copy_count) {
   AllocChecker ac;
   char **new_storage = new (ac) char *[new_capacity + 1];
   if (!ac)
     return cpp::nullopt;
 
-  EnvStringOwnership *new_ownership =
-      new (ac) EnvStringOwnership[new_capacity + 1];
+  auto *new_ownership = new (ac) EnvStringOwnership[new_capacity];
   if (!ac) {
     delete[] new_storage;
     return cpp::nullopt;
   }
 
-  for (size_t i = 0; i < copy_count; i++) {
-    new_storage[i] = old_storage ? old_storage[i] : nullptr;
-    new_ownership[i] = old_ownership ? old_ownership[i] : EnvStringOwnership();
-  }
+  for (size_t i = 0; i < copy_count; ++i)
+    new_storage[i] = old_storage[i];
   new_storage[copy_count] = nullptr;
+  for (size_t i = 0; i < owned_count; ++i)
+    new_ownership[i] = ownership[i];
 
   return AllocResult{new_storage, new_ownership};
 }
 
-bool EnvironmentManager::ensure_capacity(size_t needed) {
-  // If we're still using the startup environ (pointed to by app.env_ptr),
-  // we must transition to our own managed storage. This allows us to
-  // track ownership of strings and safely expand the array.
-  if (!is_ours) {
-    char **old_env = reinterpret_cast<char **>(app.env_ptr);
+bool EnvironmentManager::ensure_capacity(size_t needed, size_t extra_owned) {
+  if (extra_owned > size_t(-1) - owned_count)
+    return false;
+  if (needed < owned_count + extra_owned)
+    needed = owned_count + extra_owned;
 
-    // Allocate new array with room to grow.
-    size_t new_capacity = needed < MIN_ENVIRON_CAPACITY
-                              ? MIN_ENVIRON_CAPACITY
-                              : needed * ENVIRON_GROWTH_FACTOR;
-
-    auto result = alloc_and_copy(new_capacity, old_env, nullptr, count);
-    if (!result)
-      return false;
-
-    auto [new_storage, new_ownership] = *result;
-    storage = new_storage;
-    ownership = new_ownership;
-    capacity = new_capacity;
-    is_ours = true;
-
-    // Update the global environ pointer.
-    app.env_ptr = reinterpret_cast<uintptr_t *>(storage);
-#ifdef LIBC_COPT_SUPPORT_ENVIRON
-    environ = storage;
-#endif
-
-    return true;
-  }
-
-  // We already own the environment array. Check if it's large enough.
-  if (needed <= capacity)
+  char **array = get_array();
+  if (storage && array == storage && needed <= capacity)
     return true;
 
-  // Grow capacity. We avoid realloc to ensure that failures don't leave the
-  // manager in an inconsistent state.
-  size_t new_capacity = needed * ENVIRON_GROWTH_FACTOR;
+  // Check both allocation sizes, including the environment's null terminator.
+  constexpr size_t MAX_POINTERS = size_t(-1) / sizeof(char *) - 1;
+  constexpr size_t MAX_RECORDS = size_t(-1) / sizeof(EnvStringOwnership);
+  constexpr size_t MAX_CAPACITY =
+      MAX_POINTERS < MAX_RECORDS ? MAX_POINTERS : MAX_RECORDS;
+  if (needed > MAX_CAPACITY)
+    return false;
+  size_t new_capacity = needed <= MAX_CAPACITY / ENVIRON_GROWTH_FACTOR
+                            ? needed * ENVIRON_GROWTH_FACTOR
+                            : needed;
+  if (new_capacity < MIN_ENVIRON_CAPACITY)
+    new_capacity = MIN_ENVIRON_CAPACITY;
 
-  auto result = alloc_and_copy(new_capacity, storage, ownership, count);
+  auto result = alloc_and_copy(new_capacity, array, size());
   if (!result)
     return false;
 
-  delete[] storage;
-  delete[] ownership;
-
-  auto [new_storage, new_ownership] = *result;
-  storage = new_storage;
-  ownership = new_ownership;
+  // Copy before freeing: environ may point into our previous array. No old
+  // borrowed array or old public slot is consulted for ownership information.
+  char **old_storage = storage;
+  auto *old_ownership = ownership;
+  storage = result->storage;
+  ownership = result->ownership;
   capacity = new_capacity;
-
-  // Update the global environ pointer.
-  app.env_ptr = reinterpret_cast<uintptr_t *>(storage);
-#ifdef LIBC_COPT_SUPPORT_ENVIRON
-  environ = storage;
-#endif
-
+  publish_array(storage);
+  delete[] old_storage;
+  delete[] old_ownership;
   return true;
+}
+
+void EnvironmentManager::reclaim_unused_strings(size_t count) {
+  size_t retained = 0;
+  for (size_t i = 0; i < owned_count; ++i) {
+    bool referenced = false;
+    uintptr_t base = reinterpret_cast<uintptr_t>(ownership[i].string);
+    for (size_t j = 0; j < count; ++j) {
+      uintptr_t entry = reinterpret_cast<uintptr_t>(storage[j]);
+      // putenv can also reuse a suffix of an owned "name=value" string.
+      if (entry >= base && entry - base < ownership[i].size) {
+        referenced = true;
+        break;
+      }
+    }
+    if (referenced)
+      ownership[retained++] = ownership[i];
+    else
+      delete[] ownership[i].string;
+  }
+  owned_count = retained;
 }
 
 int EnvironmentManager::set(cpp::string_view name, cpp::string_view value,
                             bool overwrite) {
-  cpp::optional<size_t> idx = find_var(name);
-
-  // If the variable exists and we're not overwriting, do nothing.
+  auto idx = find_var(name);
   if (idx && !overwrite)
     return 0;
 
-  // Ensure we have capacity. If the variable doesn't exist, we need one
-  // more slot.
-  size_t needed = idx ? count : count + 1;
-  if (!ensure_capacity(needed))
-    return -1;
-
-  // Build the "name=value" string.
+  size_t count = size();
   size_t name_len = name.size();
   size_t value_len = value.size();
-  size_t total_len = name_len + 1 + value_len + 1; // name + '=' + value + '\0'
-
+  if (name_len > size_t(-1) - 2 || value_len > size_t(-1) - name_len - 2)
+    return -1;
+  size_t total_len = name_len + value_len + 2;
   AllocChecker ac;
   char *new_string = new (ac) char[total_len];
   if (!ac)
     return -1;
-
   inline_memcpy(new_string, name.data(), name_len);
   new_string[name_len] = '=';
   inline_memcpy(new_string + name_len + 1, value.data(), value_len);
-  new_string[name_len + 1 + value_len] = '\0';
+  new_string[total_len - 1] = '\0';
 
-  char **env_array = get_array();
-
-  if (idx) {
-    // Replace existing variable. Free old string if we own it.
-    if (ownership[*idx].can_free())
-      delete[] env_array[*idx];
-
-    env_array[*idx] = new_string;
-    ownership[*idx].allocated_by_us = true;
-  } else {
-    // Add new variable at the end.
-    env_array[count] = new_string;
-    ownership[count].allocated_by_us = true;
-    count++;
-    env_array[count] = nullptr; // Maintain null terminator.
+  // Finish every fallible step before publishing or reclaiming anything.
+  if (!ensure_capacity(idx ? count : count + 1, 1)) {
+    delete[] new_string;
+    return -1;
   }
-
+  if (idx)
+    storage[*idx] = new_string;
+  else {
+    storage[count++] = new_string;
+    storage[count] = nullptr;
+  }
+  ownership[owned_count++] = {new_string, total_len};
+  reclaim_unused_strings(count);
   return 0;
 }
 
 int EnvironmentManager::unset(cpp::string_view name) {
-  cpp::optional<size_t> idx = find_var(name);
+  auto idx = find_var(name);
   if (!idx)
-    return 0; // Variable not found; POSIX defines this as success.
+    return 0;
 
-  // Transition to managed storage so we can modify the array and track
-  // ownership correctly.
+  size_t count = size();
   if (!ensure_capacity(count))
     return -1;
 
-  char **env_array = get_array();
-
-  // Loop to remove all instances of the variable (e.g. duplicates from execve).
+  // Defer reclamation until all matches are removed: duplicates and even name
+  // itself may refer to the same owned allocation.
   while (idx) {
-    size_t i = *idx;
-    if (ownership[i].can_free())
-      delete[] env_array[i];
-
-    // Compact: shift remaining entries left to fill the gap.
-    // Shifting elements preserves the order of environment variables, which is
-    // desirable to maintain consistency with getenv resolution order and
-    // typical environ iteration behavior.
-    for (size_t j = i; j < count - 1; j++) {
-      env_array[j] = env_array[j + 1];
-      ownership[j] = ownership[j + 1];
-    }
-    count--;
-    env_array[count] = nullptr;
-
+    for (size_t j = *idx; j + 1 < count; ++j)
+      storage[j] = storage[j + 1];
+    storage[--count] = nullptr;
     idx = find_var(name);
   }
-
+  reclaim_unused_strings(count);
   return 0;
 }
 
 void EnvironmentManager::clear() {
-  if (is_ours) {
-    for (size_t i = 0; i < count; ++i)
-      if (ownership[i].can_free())
-        delete[] storage[i];
-    delete[] storage;
-    delete[] ownership;
-  }
+  publish_array(nullptr);
+  for (size_t i = 0; i < owned_count; ++i)
+    delete[] ownership[i].string;
+  delete[] storage;
+  delete[] ownership;
   storage = nullptr;
   ownership = nullptr;
-  count = capacity = 0;
-  is_ours = false;
-  app.env_ptr = nullptr;
-#ifdef LIBC_COPT_SUPPORT_ENVIRON
-  environ = nullptr;
-#endif
+  owned_count = capacity = 0;
 }
 
 int EnvironmentManager::put(char *string) {
   cpp::string_view sv(string);
   size_t eq_pos = sv.find_first_of('=');
-
-  // No '=' found: treat as unset (POSIX behavior).
   if (eq_pos == cpp::string_view::npos)
     return unset(sv);
 
-  cpp::string_view name = sv.substr(0, eq_pos);
-
-  cpp::optional<size_t> idx = find_var(name);
-
-  size_t needed = idx ? count : count + 1;
-  if (!ensure_capacity(needed))
+  auto idx = find_var(sv.substr(0, eq_pos));
+  size_t count = size();
+  if (!ensure_capacity(idx ? count : count + 1))
     return -1;
 
-  char **env_array = get_array();
-
-  if (idx) {
-    // Replace existing variable. Free old string if we own it.
-    if (ownership[*idx].can_free())
-      delete[] env_array[*idx];
-
-    env_array[*idx] = string;
-    ownership[*idx].allocated_by_us = false; // Caller owns this string.
-  } else {
-    // Add new variable at the end.
-    env_array[count] = string;
-    ownership[count].allocated_by_us = false;
-    count++;
-    env_array[count] = nullptr;
+  if (idx)
+    storage[*idx] = string;
+  else {
+    storage[count++] = string;
+    storage[count] = nullptr;
   }
-
+  // Do not acquire ownership of caller memory. An existing libc allocation
+  // reused by putenv remains owned and live until its last reference is gone.
+  reclaim_unused_strings(count);
   return 0;
 }
 
