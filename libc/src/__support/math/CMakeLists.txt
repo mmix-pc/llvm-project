@@ -5,6 +5,12 @@ add_header_library(
 )
 
 add_header_library(
+  bessel_hankel
+  HDRS bessel_hankel.h
+  DEPENDS .sin .cos .sqrt
+)
+
+add_header_library(
   bessel_turning
   HDRS bessel_turning.h
   DEPENDS .airy_scaled .cbrt
