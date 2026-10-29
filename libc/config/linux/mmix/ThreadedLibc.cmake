@@ -37,6 +37,7 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.stdlib.secure_getenv
   libc.src.unistd.gethostid
   libc.src.unistd.fexecve
+  libc.src.unistd.execlp
   libc.src.unistd.nice
   libc.src.sys.resource.getpriority
   libc.src.sys.resource.setpriority

@@ -2,6 +2,17 @@ add_custom_target(libc_unistd_unittests)
 
 add_subdirectory(testdata)
 
+add_libc_test(
+  execlp_test
+  SUITE libc_unistd_unittests
+  SRCS execlp_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.src.unistd.exec_args
+    libc.src.__support.common
+    libc.src.errno.errno
+)
+
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
     credential_triplet_syscall_test

@@ -185,6 +185,16 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  execlp
+  SRCS execlp.cpp
+  HDRS execlp.h
+  DEPENDS
+    .exec_args
+    .execvp
+    libc.src.__support.common
+)
+
+add_entrypoint_object(
   execle
   ALIAS
   DEPENDS
