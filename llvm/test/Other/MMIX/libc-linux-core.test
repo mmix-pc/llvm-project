@@ -81,12 +81,17 @@ support_entries = ["search/hsearch/global", "search/hcreate_r",
                    "search/hdestroy_r", "search/hsearch_r",
                    "stdlib/linux/mmix/aligned_alloc", "stdlib/random48_utils",
                    "stdlib/random_utils"]
+support_entries += ["ndbm/" + name for name in (
+    "hash_database", "hash_function", "hash_growth", "hash_io", "hash_overflow",
+    "hash_page", "hash_reader", "hash_rebuild", "hash_validation", "hash_write_batch",
+    "linux/database", "linux/hash_file")]
+support_entries.append("sys/sysmacros/linux/makedev")
 headers = crt / "lifecycle/guard/args/headers"
 # stdlib.h imports wait selectors; reuse the isolated UAPI fixture without
 # adding host kernel headers to the target compilation.
 (headers / "linux").mkdir(exist_ok=True)
 shutil.copyfile(root / "text/wait.h", headers / "linux/wait.h")
-for name in ("ctype", "inttypes", "string", "strings", "stdlib", "fenv", "stdio", "unistd", "search"):
+for name in ("ctype", "inttypes", "string", "strings", "stdlib", "fenv", "stdio", "unistd", "search", "ndbm"):
     run(sys.executable, libc / "utils/hdrgen/main.py", "-o", headers / (name + ".h"),
         libc / "include" / (name + ".yaml"))
 
@@ -119,8 +124,13 @@ for opt in ("0", "2"):
     for entry in entries + support_entries:
         obj = out / (entry.replace("/", "-") + ".o")
         source = "unistd/linux/getentropy" if entry == "unistd/getentropy" else entry
+        if entry.startswith("ndbm/dbm_"):
+            source = entry.replace("ndbm/", "ndbm/linux/")
         # Extend the isolated asm-generic UAPI fixture for getrandom.
         flags = ["-DSYS_getrandom=278", "-DENOSYS=38"] if entry == "unistd/getentropy" else []
+        if entry.startswith("ndbm/"):
+            flags += ["-DSYS_openat=56", "-DSYS_close=57", "-DSYS_statx=291",
+                      "-DSYS_pread64=67", "-DSYS_pwrite64=68", "-DSYS_fsync=82"]
         run(*base, *flags, "-O" + opt, "-emit-obj", "-o", obj,
             libc / "src" / (source + ".cpp"))
         objects.append(obj)
@@ -134,7 +144,7 @@ for opt in ("0", "2"):
     consumer = out / "consumer.c"
     lines = ["#include <ctype.h>", "#include <inttypes.h>", "#include <stdlib.h>",
              "#include <string.h>", "#include <strings.h>", "#include <unistd.h>",
-             "#include <search.h>"]
+             "#include <search.h>", "#include <ndbm.h>"]
     for entry in entries:
         name = entry.split("/")[-1]
         lines.append(f"__typeof__(&{name}) volatile use_{name} = &{name};")

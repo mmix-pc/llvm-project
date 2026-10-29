@@ -67,7 +67,7 @@ set(expected libc.src.errno.errno libc.src.string.memcpy libc.src.string.memmove
     libc.src.unistd.getpid libc.src.unistd.__llvm_libc_syscall
     libc.src.unistd._exit libc.src.stdlib._Exit
     libc.src.stdlib.malloc libc.src.stdlib.free
-    libc.src.stdlib.calloc libc.src.stdlib.realloc
+    libc.src.stdlib.calloc libc.src.stdlib.realloc libc.src.stdlib.reallocarray
     libc.src.stdlib.aligned_alloc libc.src.stdlib.posix_memalign)
 set(foundation_expected ${expected})
 list(APPEND expected libc.src.setjmp.setjmp libc.src.setjmp.sigsetjmp
