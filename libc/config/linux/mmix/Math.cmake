@@ -5,7 +5,8 @@ endif()
 
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.math.signgam
-  libc.src.math.j0 libc.src.math.j1 libc.src.math.y0 libc.src.math.y1)
+  libc.src.math.j0 libc.src.math.j1 libc.src.math.jn
+  libc.src.math.y0 libc.src.math.y1 libc.src.math.yn)
 
 foreach(name
     acos asin atan atan2 cos sin tan acosh asinh atanh cosh sinh tanh
