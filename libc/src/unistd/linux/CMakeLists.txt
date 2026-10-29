@@ -12,7 +12,7 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   mmix_select_cancellation_points(close read write pread fdatasync fsync sleep usleep)
   include(${CMAKE_CURRENT_SOURCE_DIR}/mmix/ProcessOperations.cmake)
 else()
-  foreach(name setuid setgid seteuid setegid)
+  foreach(name setuid setgid seteuid setegid setreuid setregid setresuid setresgid)
     set(${name}_source ${name}.cpp)
   endforeach()
 endif()
@@ -40,13 +40,14 @@ foreach(kind uid gid)
   )
   add_entrypoint_object(
     setres${kind}
-    SRCS setres${kind}.cpp
+    SRCS ${setres${kind}_source}
     HDRS ../setres${kind}.h
     DEPENDS
       libc.hdr.types.${kind}_t
       libc.include.sys_syscall
       libc.src.__support.OSUtil.osutil
       libc.src.errno.errno
+      ${mmix_credential_dependencies}
   )
 endforeach()
 
@@ -791,24 +792,26 @@ add_entrypoint_object(
 add_entrypoint_object(
   setregid
   SRCS
-    setregid.cpp
+    ${setregid_source}
   HDRS
     ../setregid.h
   DEPENDS
     libc.hdr.types.gid_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.setregid
+    ${mmix_credential_dependencies}
     libc.src.errno.errno
 )
 
 add_entrypoint_object(
   setreuid
   SRCS
-    setreuid.cpp
+    ${setreuid_source}
   HDRS
     ../setreuid.h
   DEPENDS
     libc.hdr.types.uid_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.setreuid
+    ${mmix_credential_dependencies}
     libc.src.errno.errno
 )
 

@@ -19,7 +19,7 @@ if(MODE STREQUAL "PLATFORM")
   set(prefix "mmix/")
 endif()
 include(${SOURCE}/libc/src/unistd/linux/mmix/ProcessOperations.cmake)
-foreach(name setuid setgid seteuid setegid)
+foreach(name setuid setgid seteuid setegid setreuid setregid setresuid setresgid)
   if(NOT "${${name}_source}" STREQUAL "${prefix}${name}.cpp")
     message(FATAL_ERROR "wrong ${MODE} credential provider for ${name}")
   endif()
@@ -90,6 +90,8 @@ for opt in ("0", "2"):
 
 #--- sys/syscall.h
 #define SYS_setgid 144
+#define SYS_setregid 143
+#define SYS_setreuid 145
 #define SYS_setuid 146
 #define SYS_setresuid 147
 #define SYS_setresgid 149
@@ -117,6 +119,10 @@ for opt in ("0", "2"):
 #include "src/unistd/linux/mmix/setgid.cpp"
 #include "src/unistd/linux/mmix/seteuid.cpp"
 #include "src/unistd/linux/mmix/setegid.cpp"
+#include "src/unistd/linux/mmix/setreuid.cpp"
+#include "src/unistd/linux/mmix/setregid.cpp"
+#include "src/unistd/linux/mmix/setresuid.cpp"
+#include "src/unistd/linux/mmix/setresgid.cpp"
 static int admission_error;
 namespace credential_test::mmix {
 long change_credentials(unsigned long number, long first, long second, long third) {
@@ -216,6 +222,24 @@ extern "C" int main() {
   require(linux_syscalls::setgroups(0, nullptr).has_value());
   require(args[0] == 0 && args[1] == 0);
 #ifdef TEST_ADMISSION
+  require(setreuid(uid_t(-1), 0x80000001U) == 0 && number == SYS_setreuid);
+  require(args[0] == static_cast<long>(uid_t(-1)) && args[1] == 0x80000001U);
+  require(setregid(0x80000002U, gid_t(-1)) == 0 && number == SYS_setregid);
+  require(args[0] == 0x80000002U && args[1] == static_cast<long>(gid_t(-1)));
+  require(setresuid(uid_t(-1), 0x80000003U, 7) == 0 && number == SYS_setresuid);
+  require(args[0] == static_cast<long>(uid_t(-1)) && args[1] == 0x80000003U && args[2] == 7);
+  require(setresgid(8, 0x80000004U, gid_t(-1)) == 0 && number == SYS_setresgid);
+  require(args[0] == 8 && args[1] == 0x80000004U && args[2] == static_cast<long>(gid_t(-1)));
+  for (int error : errors) {
+    reply = -error;
+    before = calls;
+    require(setreuid(1, 2) == -1 && libc_errno == error);
+    require(setregid(1, 2) == -1 && libc_errno == error);
+    require(setresuid(1, 2, 3) == -1 && libc_errno == error);
+    require(setresgid(1, 2, 3) == -1 && libc_errno == error);
+    require(calls == before + 4);
+  }
+  reply = 0;
   require(initgroups("alice", 7) == 0 && number == SETGROUPS && args[0] == 2);
   require(collections == 1);
   collection_error = ENOMEM;
@@ -230,6 +254,10 @@ extern "C" int main() {
     require(setgid(0) == -1 && libc_errno == error);
     require(seteuid(0) == -1 && libc_errno == error);
     require(setegid(0) == -1 && libc_errno == error);
+    require(setreuid(0, 0) == -1 && libc_errno == error);
+    require(setregid(0, 0) == -1 && libc_errno == error);
+    require(setresuid(0, 0, 0) == -1 && libc_errno == error);
+    require(setresgid(0, 0, 0) == -1 && libc_errno == error);
     unsigned collected = collections;
     require(initgroups("alice", 7) == -1 && libc_errno == error);
     require(collections == collected + 1);

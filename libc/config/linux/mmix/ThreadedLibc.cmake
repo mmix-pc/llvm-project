@@ -13,7 +13,7 @@ mmix_check_runtime_mode()
 list(REMOVE_ITEM TARGET_LIBC_ENTRYPOINTS libc.src.compiler.__stack_chk_fail)
 
 # Supplement the optional Unix families with required pthread providers.
-# Fork and credential wrappers retain pre-creation-only runtime admission.
+# Fork and credential wrappers retain their target-owned coordination rules.
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.unistd.fork
   libc.src.unistd._Fork
@@ -27,6 +27,12 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.unistd.setgid
   libc.src.unistd.seteuid
   libc.src.unistd.setegid
+  libc.src.unistd.getresuid
+  libc.src.unistd.getresgid
+  libc.src.unistd.setreuid
+  libc.src.unistd.setregid
+  libc.src.unistd.setresuid
+  libc.src.unistd.setresgid
   libc.src.stdlib.getenv
   libc.src.stdlib.secure_getenv
   libc.src.unistd.gethostid
