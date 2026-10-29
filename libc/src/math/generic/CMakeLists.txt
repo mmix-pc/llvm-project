@@ -1,3 +1,12 @@
+foreach(name jn yn)
+  add_entrypoint_object(
+    ${name}
+    SRCS ${name}.cpp
+    HDRS ../${name}.h
+    DEPENDS libc.src.__support.math.bessel_integer
+  )
+endforeach()
+
 foreach(name j0 j1 y0 y1)
   add_entrypoint_object(
     ${name}

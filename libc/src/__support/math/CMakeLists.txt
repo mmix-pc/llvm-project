@@ -1,7 +1,25 @@
 add_header_library(
+  bessel_integer
+  HDRS bessel_integer.h
+  DEPENDS .bessel .bessel_hankel .bessel_recurrence .bessel_uniform .exp
+)
+
+add_header_library(
   airy_scaled
   HDRS airy_scaled.h
   DEPENDS .exp .sqrt .sin .cos libc.src.__support.FPUtil.double_double
+)
+
+add_header_library(
+  bessel_uniform
+  HDRS bessel_uniform.h
+  DEPENDS .bessel_phase .bessel_turning
+)
+
+add_header_library(
+  bessel_phase
+  HDRS bessel_phase.h
+  DEPENDS .atan_utils .cbrt .sqrt
 )
 
 add_header_library(

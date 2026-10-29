@@ -54,7 +54,7 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   endforeach()
 endif()
 
-foreach(name j0 j1 y0 y1)
+foreach(name j0 j1 jn y0 y1 yn)
   add_math_entrypoint_object(${name})
 endforeach()
 

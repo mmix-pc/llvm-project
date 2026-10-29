@@ -235,6 +235,30 @@ LIBC_INLINE ScaledAiry airy_scaled_positive(double x) {
   return result;
 }
 
+// Negative-axis amplitude/corrections with an independently reduced phase.
+// a > 2.09; s/c are sin/cos(2*a^(3/2)/3), inverse_phase is its reciprocal.
+LIBC_INLINE ScaledAiry airy_negative_asymptotic(double a, double inverse_phase,
+                                                double s, double c) {
+  using namespace airy_internal;
+  constexpr double INV_SQRT2 = 0.707106781186547524401;
+  double f = (s + c) * INV_SQRT2;
+  double g = (c - s) * INV_SQRT2;
+  double z = inverse_phase, zz = z * z;
+  double uf =
+      1.0 + zz * polynomial(zz, NEG_AFN) / monic_polynomial(zz, NEG_AFD);
+  double ug = z * polynomial(zz, NEG_AGN) / monic_polynomial(zz, NEG_AGD);
+  double fourth_root = math::sqrt(math::sqrt(a));
+  constexpr double INV_SQRT_PI = 0.564189583547756286948;
+  double k = INV_SQRT_PI / fourth_root;
+  ScaledAiry result{k * (f * uf - g * ug), 0.0, k * (g * uf + f * ug), 0.0};
+  uf = 1.0 + zz * polynomial(zz, NEG_APFN) / monic_polynomial(zz, NEG_APFD);
+  ug = z * polynomial(zz, NEG_APGN) / monic_polynomial(zz, NEG_APGD);
+  k = INV_SQRT_PI * fourth_root;
+  result.ai_prime = -k * (g * uf + f * ug);
+  result.bi_prime = k * (f * uf - g * ug);
+  return result;
+}
+
 // Ai, Ai', Bi, Bi' without exponential scaling for -2^32 <= x <= 0, RN.
 LIBC_INLINE ScaledAiry airy_negative(double x) {
   using namespace airy_internal;
@@ -280,24 +304,7 @@ LIBC_INLINE ScaledAiry airy_negative(double x) {
   double sl = math::sin(phase.lo), cl = math::cos(phase.lo);
   double s = sh * cl + ch * sl;
   double c = ch * cl - sh * sl;
-  constexpr double INV_SQRT2 = 0.707106781186547524401;
-  // Rotate by pi/4 without rounding a large phase plus pi/4.
-  double f = (s + c) * INV_SQRT2;
-  double g = (c - s) * INV_SQRT2;
-  double z = 1.0 / phase.hi, zz = z * z;
-  double uf =
-      1.0 + zz * polynomial(zz, NEG_AFN) / monic_polynomial(zz, NEG_AFD);
-  double ug = z * polynomial(zz, NEG_AGN) / monic_polynomial(zz, NEG_AGD);
-  double fourth_root = math::sqrt(root);
-  constexpr double INV_SQRT_PI = 0.564189583547756286948;
-  double k = INV_SQRT_PI / fourth_root;
-  ScaledAiry result{k * (f * uf - g * ug), 0.0, k * (g * uf + f * ug), 0.0};
-  uf = 1.0 + zz * polynomial(zz, NEG_APFN) / monic_polynomial(zz, NEG_APFD);
-  ug = z * polynomial(zz, NEG_APGN) / monic_polynomial(zz, NEG_APGD);
-  k = INV_SQRT_PI * fourth_root;
-  result.ai_prime = -k * (g * uf + f * ug);
-  result.bi_prime = k * (f * uf - g * ug);
-  return result;
+  return airy_negative_asymptotic(a, 1.0 / phase.hi, s, c);
 }
 
 } // namespace math
