@@ -144,7 +144,10 @@ TEST(LlvmLibcBesselIntegerTest, EntrySpecialValuesAndEnvironment) {
       }
       LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);
       libc_errno = 0;
-      EXPECT_TRUE(Bits(LIBC_NAMESPACE::yn(n, -1.0)).is_quiet_nan());
+      EXPECT_EQ(Bits(LIBC_NAMESPACE::yn(n, -1.0)).uintval(),
+                Bits::inf((n < 0 && (n & 1)) ? LIBC_NAMESPACE::Sign::POS
+                                           : LIBC_NAMESPACE::Sign::NEG)
+                    .uintval());
       EXPECT_EQ(int(libc_errno), EDOM);
       EXPECT_EQ(LIBC_NAMESPACE::fputil::test_except(FE_ALL_EXCEPT), FE_INVALID);
       LIBC_NAMESPACE::fputil::clear_except(FE_ALL_EXCEPT);

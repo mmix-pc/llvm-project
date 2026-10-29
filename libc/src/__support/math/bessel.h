@@ -39,7 +39,7 @@ template <unsigned Order, bool SecondKind> LIBC_INLINE double bessel(double x) {
     if (bits.is_neg()) {
       fputil::set_errno_if_required(EDOM);
       fputil::raise_except_if_required(FE_INVALID);
-      return Bits::quiet_nan().get_val();
+      return Bits::inf(Sign::NEG).get_val();
     }
   }
   if (bits.is_inf())

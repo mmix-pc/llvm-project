@@ -51,7 +51,7 @@ TEST(LlvmLibcBesselTest, SpecialValuesAndErrors) {
   for (auto function : second_kind) {
     libc_errno = 0;
     fp::clear_except(FE_ALL_EXCEPT);
-    EXPECT_TRUE(Bits(function(-1.0)).is_nan());
+    EXPECT_EQ(Bits(function(-1.0)).uintval(), Bits::inf(Sign::NEG).uintval());
     EXPECT_EQ(int(libc_errno), EDOM);
     EXPECT_EQ(fp::test_except(FE_ALL_EXCEPT), FE_INVALID);
   }
