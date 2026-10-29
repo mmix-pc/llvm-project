@@ -42,6 +42,7 @@ add_object_library(
     libc.hdr.stdio_macros
     libc.hdr.types.struct_utmp
     libc.hdr.types.struct_utmpx
+    libc.hdr.types.size_t
     libc.hdr.utmp_macros
     libc.src.__support.CPP.limits
     libc.src.__support.CPP.mutex

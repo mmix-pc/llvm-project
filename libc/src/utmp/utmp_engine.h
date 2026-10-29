@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SRC_UTMP_UTMP_ENGINE_H
 #define LLVM_LIBC_SRC_UTMP_UTMP_ENGINE_H
 
+#include "hdr/types/size_t.h"
 #include "src/__support/macros/config.h"
 
 namespace LIBC_NAMESPACE_DECL {
@@ -26,6 +27,9 @@ int name(const char *path);
 void *get(Family family, Search search, const void *key = nullptr);
 void *put(Family family, const void *record);
 void append(const char *path, const void *record);
+
+// Independent lookup: never changes the shared cursor or returned records.
+int login_name(const char *line, char *buffer, size_t size);
 
 } // namespace utmp_backend
 } // namespace LIBC_NAMESPACE_DECL

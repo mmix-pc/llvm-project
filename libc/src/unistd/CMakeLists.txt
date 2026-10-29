@@ -674,7 +674,7 @@ add_entrypoint_object(
     .${LIBC_TARGET_OS}.nice
 )
 
-foreach(name getresuid getresgid setresuid setresgid)
+foreach(name getresuid getresgid setresuid setresgid getlogin getlogin_r)
   add_entrypoint_object(
     ${name}
     ALIAS

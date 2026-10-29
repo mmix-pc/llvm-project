@@ -27,6 +27,30 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   )
 endif()
 
+add_entrypoint_object(
+  getlogin_r
+  SRCS getlogin_r.cpp
+  HDRS ../getlogin_r.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.limits_macros
+    libc.hdr.types.size_t
+    libc.src.__support.common
+    libc.src.errno.errno
+    libc.src.unistd.ttyname_r
+    libc.src.utmp.utmp_engine
+)
+add_entrypoint_object(
+  getlogin
+  SRCS getlogin.cpp
+  HDRS ../getlogin.h
+  DEPENDS
+    libc.hdr.utmp_macros
+    libc.src.__support.common
+    libc.src.errno.errno
+    libc.src.unistd.getlogin_r
+)
+
 foreach(kind uid gid)
   add_entrypoint_object(
     getres${kind}

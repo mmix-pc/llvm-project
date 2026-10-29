@@ -361,6 +361,53 @@ void *get(Family family, Search search, const void *key) {
   return publish(family, record);
 }
 
+int login_name(const char *line, char *buffer, size_t size) {
+  CancellationScope cancellation;
+  cpp::lock_guard guard(mutex);
+  utmp key{};
+  size_t length = 0;
+  while (line[length] && length < sizeof(key.ut_line))
+    ++length;
+  if (!length || line[length])
+    return ENOENT;
+  inline_memcpy(key.ut_line, line, length);
+  auto opened = linux_syscalls::open(
+      pathname, O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOCTTY, 0);
+  if (!opened)
+    return opened.error();
+  struct Descriptor {
+    int fd;
+    ~Descriptor() { linux_syscalls::close(fd); }
+  } descriptor{*opened};
+  FileLock lock(descriptor.fd, F_RDLCK);
+  if (!lock)
+    return libc_errno;
+  off_t size_on_disk;
+  if (!file_size(descriptor.fd, size_on_disk))
+    return libc_errno;
+  for (off_t offset = 0; offset < size_on_disk; offset += RECORD_SIZE) {
+    utmp record;
+    int status = read_record(descriptor.fd, offset, record);
+    if (status != 1)
+      return status < 0 ? int(libc_errno) : EIO;
+    if (record.ut_type != USER_PROCESS || !matches(record, key, Search::LINE))
+      continue;
+    size_t used = 0;
+    while (used < sizeof(record.ut_user) && record.ut_user[used])
+      ++used;
+    if (!used)
+      return ENOENT;
+    if (size <= used)
+      return ERANGE;
+    if (!buffer)
+      return EINVAL;
+    inline_memcpy(buffer, record.ut_user, used);
+    buffer[used] = '\0';
+    return 0;
+  }
+  return ENOENT;
+}
+
 void *put(Family family, const void *entry) {
   CancellationScope cancellation;
   cpp::lock_guard guard(mutex);

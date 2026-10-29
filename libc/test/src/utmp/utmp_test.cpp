@@ -33,6 +33,17 @@ using LlvmLibcUtmpTest = UtmpTest<UtmpApi>;
 TEST_F(LlvmLibcUtmpTest, IterationRewindEndAndEof) { sequence(); }
 TEST_F(LlvmLibcUtmpTest, IdAndBoundedLineLookup) { lookup(); }
 TEST_F(LlvmLibcUtmpTest, LinePadding) { line_padding(); }
+TEST_F(LlvmLibcUtmpTest, LoginPreservesCursorAndRecord) {
+  login_preserves_cursor_and_record();
+}
+TEST_F(LlvmLibcUtmpTest, LoginUserProcessOnly) { login_user_process_only(); }
+TEST_F(LlvmLibcUtmpTest, LoginNameBounds) { login_name_bounds(); }
+TEST_F(LlvmLibcUtmpTest, LoginEmptyAndMalformedFiles) {
+  login_empty_and_malformed_files();
+}
+TEST_F(LlvmLibcUtmpTest, LoginMissingPathPreservesDescriptor) {
+  login_missing_path_preserves_descriptor();
+}
 TEST_F(LlvmLibcUtmpTest, ReplaceAppendAndAliasedInput) {
   replacement_and_append();
 }

@@ -25,6 +25,7 @@
 #include "src/unistd/read.h"
 #include "src/unistd/unlink.h"
 #include "src/unistd/write.h"
+#include "src/utmp/utmp_engine.h"
 #include "test/UnitTest/Test.h"
 
 #include <stddef.h>
@@ -45,6 +46,14 @@ protected:
     record.ut_id[3] = 'Y';
     for (char &c : record.ut_line)
       c = id;
+    return record;
+  }
+
+  static Record login_entry(short type, char id, int pid, const char *user) {
+    Record record = entry(type, id, pid);
+    record.ut_line[1] = '\0';
+    for (size_t i = 0; i < sizeof(record.ut_user) && user[i]; ++i)
+      record.ut_user[i] = user[i];
     return record;
   }
 
@@ -159,6 +168,179 @@ public:
     auto *found = Api::line(&key);
     ASSERT_NE(found, nullptr);
     EXPECT_EQ(found->ut_pid, 33);
+  }
+
+  void login_preserves_cursor_and_record() {
+    Record records[] = {login_entry(USER_PROCESS, 'a', 10, "alice"),
+                        login_entry(USER_PROCESS, 'b', 20, "bob"),
+                        login_entry(USER_PROCESS, 'c', 30, "carol")};
+    seed(records, sizeof(records));
+    auto *first = Api::get();
+    ASSERT_NE(first, nullptr);
+    const auto *bytes = reinterpret_cast<const unsigned char *>(first);
+    unsigned char saved[sizeof(Record)];
+    for (size_t i = 0; i < sizeof(saved); ++i)
+      saved[i] = bytes[i];
+    auto check_retained = [&]() {
+      for (size_t i = 0; i < sizeof(saved); ++i)
+        EXPECT_EQ(bytes[i], saved[i]);
+    };
+
+    char name[UT_NAMESIZE + 1];
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("c", name, sizeof(name)),
+              0);
+    EXPECT_STREQ(name, "carol");
+    check_retained();
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("missing", name,
+                                                    sizeof(name)),
+              ENOENT);
+    check_retained();
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("c", name, 1), ERANGE);
+    check_retained();
+    auto *next = Api::get();
+    ASSERT_NE(next, nullptr);
+    EXPECT_EQ(next->ut_pid, 20);
+    next = Api::get();
+    ASSERT_NE(next, nullptr);
+    EXPECT_EQ(next->ut_pid, 30);
+    EXPECT_EQ(Api::get(), static_cast<Record *>(nullptr));
+
+    // Private lookup starts at zero even when the public cursor is at EOF.
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("a", name, sizeof(name)),
+              0);
+    EXPECT_STREQ(name, "alice");
+    EXPECT_EQ(next->ut_pid, 30);
+    EXPECT_EQ(Api::get(), static_cast<Record *>(nullptr));
+  }
+
+  void login_user_process_only() {
+    const short types[] = {EMPTY,         RUN_LVL,      BOOT_TIME,
+                           NEW_TIME,      OLD_TIME,     INIT_PROCESS,
+                           LOGIN_PROCESS, DEAD_PROCESS, ACCOUNTING};
+    char name[] = "unchanged";
+    for (short type : types) {
+      Record record = login_entry(type, 'a', 10, "ignored");
+      seed(&record, sizeof(record));
+      EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("a", name,
+                                                      sizeof(name)),
+                ENOENT);
+      EXPECT_STREQ(name, "unchanged");
+    }
+
+    Record records[] = {login_entry(LOGIN_PROCESS, 'a', 10, "login"),
+                        login_entry(DEAD_PROCESS, 'a', 20, "dead"),
+                        login_entry(USER_PROCESS, 'b', 30, "other"),
+                        login_entry(USER_PROCESS, 'a', 40, "alice")};
+    seed(records, sizeof(records));
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("a", name, sizeof(name)),
+              0);
+    EXPECT_STREQ(name, "alice");
+
+    Record empty = login_entry(USER_PROCESS, 'a', 10, "");
+    seed(&empty, sizeof(empty));
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("a", name, sizeof(name)),
+              ENOENT);
+    EXPECT_STREQ(name, "alice");
+  }
+
+  void login_name_bounds() {
+    Record record = entry(USER_PROCESS, 't', 10);
+    static_assert(sizeof(record.ut_user) == 32);
+    for (size_t i = 0; i < sizeof(record.ut_user); ++i)
+      record.ut_user[i] = 'a' + i % 26;
+    seed(&record, sizeof(record));
+    char line[sizeof(record.ut_line) + 1]{};
+    for (size_t i = 0; i < sizeof(record.ut_line); ++i)
+      line[i] = record.ut_line[i];
+    char name[sizeof(record.ut_user) + 3];
+    for (char &c : name)
+      c = '!';
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name(line, name + 1, 33), 0);
+    EXPECT_EQ(name[0], '!');
+    for (size_t i = 0; i < sizeof(record.ut_user); ++i)
+      EXPECT_EQ(name[i + 1], record.ut_user[i]);
+    EXPECT_EQ(name[33], '\0');
+    EXPECT_EQ(name[34], '!');
+
+    const size_t sizes[] = {0, 1, 31, 32};
+    for (size_t size : sizes) {
+      for (char &c : name)
+        c = '!';
+      EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name(line, name + 1, size),
+                ERANGE);
+      for (char c : name)
+        EXPECT_EQ(c, '!');
+    }
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name(line, nullptr, 33),
+              EINVAL);
+    char too_long[sizeof(line) + 1];
+    for (char &c : too_long)
+      c = 't';
+    too_long[sizeof(too_long) - 1] = '\0';
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name(too_long, name,
+                                                    sizeof(name)),
+              ENOENT);
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("", name, sizeof(name)),
+              ENOENT);
+    for (char c : name)
+      EXPECT_EQ(c, '!');
+
+    // Bytes after an embedded username NUL are not part of the login name.
+    record.ut_user[2] = '\0';
+    seed(&record, sizeof(record));
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name(line, name + 1, 3), 0);
+    EXPECT_STREQ(name + 1, "ab");
+    EXPECT_EQ(name[0], '!');
+    EXPECT_EQ(name[4], '!');
+  }
+
+  void login_empty_and_malformed_files() {
+    char name[] = "unchanged";
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("a", name, sizeof(name)),
+              ENOENT);
+    EXPECT_STREQ(name, "unchanged");
+    Record record = login_entry(USER_PROCESS, 'a', 10, "alice");
+    const size_t sizes[] = {1, sizeof(record) - 1};
+    for (size_t size : sizes) {
+      seed(&record, size);
+      EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("a", name,
+                                                      sizeof(name)),
+                EIO);
+      EXPECT_STREQ(name, "unchanged");
+    }
+    seed(&record, sizeof(record));
+    const char tail = '!';
+    ASSERT_EQ(LIBC_NAMESPACE::write(fd, &tail, 1), ssize_t(1));
+    // A matching complete record must not hide a malformed trailing record.
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("a", name, sizeof(name)),
+              EIO);
+    EXPECT_STREQ(name, "unchanged");
+  }
+
+  void login_missing_path_preserves_descriptor() {
+    Record records[] = {login_entry(USER_PROCESS, 'a', 10, "alice"),
+                        login_entry(USER_PROCESS, 'b', 20, "bob")};
+    seed(records, sizeof(records));
+    auto *first = Api::get();
+    ASSERT_NE(first, nullptr);
+    ASSERT_EQ(first->ut_pid, 10);
+    ASSERT_EQ(LIBC_NAMESPACE::unlink(path), 0);
+    EXPECT_EQ(LIBC_NAMESPACE::close(fd), 0);
+    fd = -1;
+
+    // A cached public descriptor must not satisfy a private pathname lookup.
+    char name[] = "unchanged";
+    EXPECT_EQ(LIBC_NAMESPACE::utmp_backend::login_name("a", name, sizeof(name)),
+              ENOENT);
+    EXPECT_STREQ(name, "unchanged");
+    EXPECT_EQ(first->ut_pid, 10);
+    EXPECT_STREQ(first->ut_user, "alice");
+    auto *next = Api::get();
+    ASSERT_NE(next, nullptr);
+    EXPECT_EQ(next->ut_pid, 20);
+    EXPECT_EQ(Api::get(), static_cast<Record *>(nullptr));
+    EXPECT_EQ(LIBC_NAMESPACE::unlink(path), -1);
+    EXPECT_EQ(int(libc_errno), ENOENT);
   }
 
   void replacement_and_append() {

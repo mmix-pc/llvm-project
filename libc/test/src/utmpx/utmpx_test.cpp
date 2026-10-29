@@ -40,6 +40,17 @@ using LlvmLibcUtmpxTest = UtmpTest<UtmpxApi>;
 TEST_F(LlvmLibcUtmpxTest, IterationRewindEndAndEof) { sequence(); }
 TEST_F(LlvmLibcUtmpxTest, IdAndBoundedLineLookup) { lookup(); }
 TEST_F(LlvmLibcUtmpxTest, LinePadding) { line_padding(); }
+TEST_F(LlvmLibcUtmpxTest, LoginPreservesCursorAndRecord) {
+  login_preserves_cursor_and_record();
+}
+TEST_F(LlvmLibcUtmpxTest, LoginUserProcessOnly) { login_user_process_only(); }
+TEST_F(LlvmLibcUtmpxTest, LoginNameBounds) { login_name_bounds(); }
+TEST_F(LlvmLibcUtmpxTest, LoginEmptyAndMalformedFiles) {
+  login_empty_and_malformed_files();
+}
+TEST_F(LlvmLibcUtmpxTest, LoginMissingPathPreservesDescriptor) {
+  login_missing_path_preserves_descriptor();
+}
 TEST_F(LlvmLibcUtmpxTest, ReplaceAppendAndAliasedInput) {
   replacement_and_append();
 }

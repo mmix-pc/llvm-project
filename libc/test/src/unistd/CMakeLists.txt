@@ -15,6 +15,18 @@ add_libc_test(
 
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
+    getlogin_test
+    SUITE libc_unistd_unittests
+    SRCS getlogin_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.limits_macros
+      libc.hdr.types.size_t
+      libc.hdr.utmp_macros
+      libc.src.__support.common
+      libc.src.errno.errno
+  )
+  add_libc_test(
     credential_triplet_syscall_test
     SUITE libc_unistd_unittests
     SRCS credential_triplet_syscall_test.cpp
