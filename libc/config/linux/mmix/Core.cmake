@@ -5,6 +5,15 @@ if(NOT LIBC_MMIX_BUILD_CORE)
 endif()
 
 set(MMIX_CORE_ENTRYPOINTS
+  libc.src.ndbm.dbm_clearerr
+  libc.src.ndbm.dbm_close
+  libc.src.ndbm.dbm_delete
+  libc.src.ndbm.dbm_error
+  libc.src.ndbm.dbm_fetch
+  libc.src.ndbm.dbm_firstkey
+  libc.src.ndbm.dbm_nextkey
+  libc.src.ndbm.dbm_open
+  libc.src.ndbm.dbm_store
   libc.src.search.hcreate
   libc.src.search.hdestroy
   libc.src.search.hsearch
