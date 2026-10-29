@@ -340,6 +340,24 @@ class TestHeaderGenIntegration(unittest.TestCase):
         self.assertIn("int usleep(useconds_t);", content)
         self.assertIn("int getpid(void) __NOEXCEPT;", content)
 
+    def test_wait_exception_specifications(self):
+        output_file = self.output_dir / "wait.h"
+        self.run_script(self.source_dir.parents[2] / "include/sys/wait.yaml",
+                        output_file, ["wait", "waitpid", "wait4"])
+        content = output_file.read_text()
+        for declaration in (
+            "pid_t wait(int *);",
+            "pid_t waitpid(pid_t, int *, int);",
+            "pid_t wait4(pid_t, int *, int, struct rusage *);",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, content)
+
+        output_file = self.output_dir / "wait-control.h"
+        self.run_script(self.source_dir.parents[2] / "include/unistd.yaml",
+                        output_file, ["getpid"])
+        self.assertIn("int getpid(void) __NOEXCEPT;", output_file.read_text())
+
     def test_poll_exception_specifications(self):
         output = self.output_dir / "poll.h"
         self.run_script(self.source_dir.parents[2] / "include/poll.yaml",

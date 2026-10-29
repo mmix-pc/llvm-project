@@ -23,12 +23,14 @@ functions:
       - type: siginfo_t *
       - type: int
   - name: wait
+    noexcept: false
     standards:
       - posix
     return_type: pid_t
     arguments:
       - type: int *
   - name: wait4
+    noexcept: false
     standards:
       - bsd
       - posix
@@ -39,6 +41,7 @@ functions:
       - type: int
       - type: struct rusage *
   - name: waitpid
+    noexcept: false
     standards:
       - posix
     return_type: pid_t
