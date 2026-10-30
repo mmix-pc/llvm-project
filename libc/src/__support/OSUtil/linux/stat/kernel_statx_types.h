@@ -66,7 +66,7 @@ struct kernel_statx_buf {
 constexpr unsigned int KERNEL_STATX_BASIC_STATS_MASK = 0x7FF;
 
 // This mask is used to check the type of the file descriptor.
-constexpr unsigned int KERNEL_STATX_TYPE_MASK = 0x008;
+constexpr unsigned int KERNEL_STATX_TYPE_MASK = 0x001;
 
 } // namespace internal
 

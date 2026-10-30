@@ -570,6 +570,27 @@ add_libc_test(
     libc.src.stdlib.realpath
 )
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    realpath_statx_test
+    SUITE libc-stdlib-tests
+    SRCS realpath_statx_test.cpp
+    DEPENDS
+      libc.hdr.func.malloc
+      libc.hdr.limits_macros
+      libc.src.__support.common
+      libc.src.__support.CPP.optional
+      libc.src.__support.CPP.string_view
+      libc.src.__support.File.platform_dir
+      libc.src.__support.OSUtil.path
+      libc.src.__support.OSUtil.linux.syscall_wrappers.getcwd
+      libc.src.__support.OSUtil.linux.syscall_wrappers.readlink
+      libc.src.string.memory_utils.inline_memcpy
+      libc.src.string.memory_utils.inline_memmove
+      libc.src.errno.errno
+  )
+endif()
+
 add_libc_test(
   memalignment_test
   SUITE
