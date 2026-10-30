@@ -32,6 +32,8 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 
+#include "src/spawn/linux/spawn.h"
+
 namespace {
 const char *const *expected_paths;
 unsigned spawn_calls;
@@ -40,7 +42,8 @@ unsigned spawn_calls;
 namespace LIBC_NAMESPACE_DECL {
 int capture_spawn(pid_t *, const char *const *paths,
                   const posix_spawn_file_actions_t *, const posix_spawnattr_t *,
-                  char *const *, char *const *) {
+                  char *const *, char *const *,
+                  SpawnErrorPolicy = SpawnErrorPolicy::ProviderDefault) {
   ++spawn_calls;
   size_t i = 0;
   for (; expected_paths[i]; ++i)
@@ -99,16 +102,21 @@ void make_file(const char *path, mode_t mode) {
   ASSERT_EQ(LIBC_NAMESPACE::chmod(path, mode), 0);
 }
 
-void run(const char *file, posix_spawn_file_actions_t *actions, int expected) {
+void run(const char *file, posix_spawn_file_actions_t *actions, int expected,
+         int launch_error = 0) {
   char zero[] = "spawn-custom-zero", child[] = "child";
   char *argv[] = {zero, child, nullptr};
   char marker[] = "SPAWNP=explicit", path[] = "PATH=/no-child-path";
   char *env[] = {marker, path, nullptr};
   pid_t pid = -1;
   libc_errno = EDOM;
-  ASSERT_EQ(
-      LIBC_NAMESPACE::posix_spawnp(&pid, file, actions, nullptr, argv, env), 0);
+  int result = LIBC_NAMESPACE::posix_spawnp(&pid, file, actions, nullptr, argv, env);
   ASSERT_EQ(libc_errno, EDOM);
+  if (result) {
+    ASSERT_EQ(result, launch_error);
+    ASSERT_EQ(pid, -1);
+    return;
+  }
   ASSERT_TRUE(pid > 0);
   int status;
   ASSERT_EQ(LIBC_NAMESPACE::waitpid(pid, &status, 0), pid);
@@ -158,9 +166,9 @@ TEST_MAIN(int argc, char **argv, char **) {
          << '\0';
   ASSERT_EQ(LIBC_NAMESPACE::setenv("PATH", path, 1), 0);
   run("program", &actions, 23); // EACCES, ENOTDIR, ENOENT, then success.
-  run("absent", &actions, 127);
+  run("absent", &actions, 127, ENOENT);
   ASSERT_EQ(LIBC_NAMESPACE::chmod(denied, 0700), 0);
-  run("program", &actions, 127); // ENOEXEC stops search; no shell fallback.
+  run("program", &actions, 127, ENOEXEC); // No shell fallback.
   run(program, &actions, 23);    // A slash bypasses PATH.
 
   // Empty leading, middle, trailing and sole components mean cwd. Include a

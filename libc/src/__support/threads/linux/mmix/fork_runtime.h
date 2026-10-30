@@ -42,7 +42,7 @@ public:
   int error() const { return error_code; }
   int prepare_runtime();
   int freeze_registry();
-  long create_child();
+  long create_child(bool wait_for_exec = false);
   void restore_runtime(bool child);
 };
 } // namespace mmix

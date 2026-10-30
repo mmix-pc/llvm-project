@@ -32,10 +32,31 @@
 #define SYS_getgid 176
 #define SYS_setresuid 147
 #define SYS_setresgid 149
+#define SYS_mmap 222
+#define SYS_munmap 215
+#define SYS_waitid 95
+
+#--- linux/sched.h
+#define CLONE_VFORK 0x4000
+
+#--- linux/mman.h
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define MAP_SHARED 1
+#define MAP_ANONYMOUS 0x20
+
+#--- linux/wait.h
+#define P_ALL 0
+#define P_PID 1
+#define P_PGID 2
+#define P_PIDFD 3
+#define WEXITED 4
 
 #--- linux/errno.h
 #define ENOENT 2
 #define EIO 5
+#define EINTR 4
+#define ECHILD 10
 #define EBADF 9
 #define ENOMEM 12
 #define EACCES 13
@@ -85,6 +106,12 @@ for opt in ("0", "2"):
                         str(root / "native-boundary.h"), str(root / "attributes.cpp"),
                         "-o", str(attr_exe)], check=True)
         subprocess.run([str(attr_exe)], check=True, timeout=30)
+        sync_exe = root / ("synchronous" + opt)
+        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+                        str(root / "native-boundary.h"), str(root / "synchronous.cpp"),
+                        "-o", str(sync_exe)], check=True)
+        for mode in range(9):
+            subprocess.run([str(sync_exe), str(mode)], check=True, timeout=30)
 
 selection = root / "selection.cmake"
 selection.write_text('include("' + str(libc.resolve() / "config/linux/mmix/Spawn.cmake") + '")\n'
@@ -142,7 +169,7 @@ static long clone_result() {
   return 501;
 }
 static void terminal_checks() {
-  require(pid == -41 && blocks == 1 && clones == 1);
+  require((pid == -41 || mode == ParentRestoreFailure) && blocks == 1 && clones == 1);
   require(actions.__front == &open_action && actions.__back == &close_action);
   require(open_action.next == &dup_action && dup_action.next == &same_action);
   require(same_action.next == &close_action && !close_action.next);
@@ -174,7 +201,7 @@ static void terminal_checks() {
 }
 extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
                                         long c, long d, long e, long f) {
-  require(!e && !f && pid == -41);
+  require(!e && !f);
   if (nr == SYS_rt_sigprocmask) {
     require(b && d == 8);
     unsigned long bits = reinterpret_cast<const sigset_t *>(b)->__signals[0];
@@ -270,9 +297,10 @@ extern "C" int main(int argc, char **argv) {
   BaseSpawnFileAction::add_action(&actions, &same_action);
   BaseSpawnFileAction::add_action(&actions, &close_action);
   posix_spawnattr_t attr{};
-  int result = spawn_test::posix_spawn(mode == NullPID ? nullptr : &pid, path,
+  const char *paths[] = {path, nullptr};
+  int result = spawn_test::spawn(mode == NullPID ? nullptr : &pid, paths,
       mode == NoActions ? nullptr : &actions, mode == Attributes ? &attr : nullptr,
-      args, env);
+      args, env, SpawnErrorPolicy::ChildStatus);
   if (mode == Attributes) {
     require(result == 0 && blocks == 1 && clones == 1 && restores == 1 && pid == 501);
   } else if (mode == BlockFailure) {
@@ -283,6 +311,83 @@ extern "C" int main(int argc, char **argv) {
     require(pid == (mode == Parent ? 501 : -41));
   }
   require(mask == ORIGINAL_MASK && !queries && !steps && !execs && !terminals);
+  return 0;
+}
+
+#--- synchronous.cpp
+#include "src/spawn/linux/mmix/posix_spawn.cpp"
+#include "src/__support/OSUtil/linux/exit.cpp"
+extern "C" [[noreturn]] void _Exit(int);
+using namespace spawn_test;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+// Successful exec, diagnosed failure, clone/mmap failure, autoreap, interrupted
+// reap, child diagnostic publication, unavailable clone mode and null PID.
+static int mode, mapped, unmapped, cloned, waited, restored, diagnostic;
+static pid_t pid = -7;
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
+                                        long c, long d, long e, long f) {
+  if (nr == SYS_rt_sigprocmask) {
+    require(d == 8);
+    if (a == SIG_BLOCK) {
+      require(!mapped && !cloned && c);
+      reinterpret_cast<sigset_t *>(c)->__signals[0] = 0x20;
+    } else {
+      require(a == SIG_SETMASK && !restored++);
+      require(reinterpret_cast<sigset_t *>(b)->__signals[0] == 0x20);
+      require(unmapped == (mode == 3 ? 0 : 1));
+      require(pid == ((mode == 0) ? 501 : -7));
+    }
+    return 0;
+  }
+  if (nr == SYS_mmap) {
+    require(!mapped++ && !a && b == sizeof(int));
+    require(c == (PROT_READ | PROT_WRITE) && d == (MAP_SHARED | MAP_ANONYMOUS));
+    require(e == -1 && !f);
+    return mode == 3 ? -ENOMEM : reinterpret_cast<long>(&diagnostic);
+  }
+  if (nr == SYS_clone) {
+    require(!cloned++ && a == (SIGCHLD | CLONE_VFORK) && !b && !c && !d && !e && !f);
+    if (mode == 2) return -11;
+    if (mode == 7) return -ENOTSUP;
+    if (mode == 6) return 0;
+    diagnostic = (mode == 1 || mode == 4 || mode == 5) ? EACCES : 0;
+    return 501;
+  }
+  if (nr == SYS_rt_sigaction) {
+    require(mode == 6 && !b && c);
+    return -EFAULT;
+  }
+  if (nr == SYS_exit_group) {
+    require(mode == 6 && a == 127 && diagnostic == EFAULT && !unmapped && !restored);
+    _Exit(0);
+  }
+  if (nr == SYS_munmap) {
+    require(!unmapped++ && a == reinterpret_cast<long>(&diagnostic) && b == sizeof(int));
+    return 0;
+  }
+  if (nr == SYS_waitid) {
+    require(a == P_PID && b == 501 && d == WEXITED && !e && !f && unmapped == 1);
+    ++waited;
+    if (mode == 4) return -ECHILD;
+    if (mode == 5 && waited == 1) return -EINTR;
+    reinterpret_cast<siginfo_t *>(c)->si_pid = 501;
+    return 0;
+  }
+  __builtin_trap();
+}
+extern "C" int main(int argc, char **argv) {
+  require(argc == 2);
+  mode = argv[1][0] - '0';
+  char path[] = "/missing";
+  char *args[] = {path, nullptr};
+  int result = spawn_test::posix_spawn(mode == 8 ? nullptr : &pid, path,
+                                      nullptr, nullptr, args, args);
+  int expected = (mode == 1 || mode == 4 || mode == 5) ? EACCES :
+                 mode == 2 ? 11 : mode == 3 ? ENOMEM : mode == 7 ? ENOTSUP : 0;
+  require(result == expected && mapped == 1 && restored == 1);
+  require(cloned == (mode == 3 ? 0 : 1));
+  require(waited == (mode == 5 ? 2 : (mode == 1 || mode == 4) ? 1 : 0));
+  require(pid == (mode == 0 ? 501 : -7));
   return 0;
 }
 

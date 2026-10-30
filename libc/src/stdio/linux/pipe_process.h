@@ -12,7 +12,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 // The selected implementation controls cancellation, not process creation.
-// Creation always goes through public posix_spawn and its admission policy.
+// Creation uses the spawn engine and its child-status error policy.
 class PipeProcess {
   [[maybe_unused]] int old_state = 0;
   [[maybe_unused]] int old_type = 0;

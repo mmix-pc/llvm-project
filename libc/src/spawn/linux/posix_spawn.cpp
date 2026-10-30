@@ -117,7 +117,8 @@ void child_process(const char *const *paths,
 
 int spawn(pid_t *pid, const char *const *paths,
           const posix_spawn_file_actions_t *file_actions,
-          const posix_spawnattr_t *attr, char *const *argv, char *const *envp) {
+          const posix_spawnattr_t *attr, char *const *argv, char *const *envp,
+          [[maybe_unused]] SpawnErrorPolicy policy) {
   pid_t cpid = fork();
   if (cpid == 0)
     child_process(paths, file_actions, attr, argv, envp);

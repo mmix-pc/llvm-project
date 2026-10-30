@@ -3,6 +3,7 @@ add_header_library(
   HDRS spawn.h
   DEPENDS
     libc.hdr.errno_macros
+    libc.hdr.sys_mman_macros
     libc.include.spawn
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
@@ -20,7 +21,8 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     libc.hdr.types.struct_sched_param
     libc.src.signal.linux.mmix.private_signals
     libc.src.signal.linux.mmix.rt_sigaction
-    libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask)
+    libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
+    libc.src.__support.OSUtil.linux.syscall_wrappers.wait4)
   if(LIBC_MMIX_BUILD_COORDINATED_FORK)
     list(APPEND spawn_source mmix/coordinated_spawn.cpp)
     list(APPEND spawn_extra_headers mmix/coordinated_spawn.h)

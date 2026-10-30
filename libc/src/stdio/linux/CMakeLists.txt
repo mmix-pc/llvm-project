@@ -61,6 +61,7 @@ if(LLVM_LIBC_FULL_BUILD)
       ${pipe_fork_deps}
       libc.src.errno.errno
       libc.src.spawn.posix_spawn
+      libc.src.spawn.linux.spawn
       libc.src.spawn.posix_spawn_file_actions_addclose
       libc.src.spawn.posix_spawn_file_actions_adddup2
       libc.src.spawn.posix_spawn_file_actions_destroy

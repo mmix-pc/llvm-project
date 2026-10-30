@@ -13,7 +13,7 @@
 #include "src/__support/alloc-checker.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/raw_mutex.h"
-#include "src/spawn/posix_spawn.h"
+#include "src/spawn/linux/spawn.h"
 #include "src/spawn/posix_spawn_file_actions_addclose.h"
 #include "src/spawn/posix_spawn_file_actions_adddup2.h"
 #include "src/spawn/posix_spawn_file_actions_destroy.h"
@@ -194,12 +194,13 @@ File *open_pipe(const char *command, const char *mode) {
     char *args[] = {const_cast<char *>("sh"), const_cast<char *>("-c"),
                     const_cast<char *>("--"), const_cast<char *>(command),
                     nullptr};
+    const char *paths[] = {"/bin/sh", nullptr};
     if (!error)
       // Both selected spawn providers clone directly, without atfork
       // callbacks. Replacing this with public fork would recurse on this lock.
-      error =
-          LIBC_NAMESPACE::posix_spawn(&file->child, "/bin/sh", &actions.value,
-                                      nullptr, args, LIBC_NAMESPACE::environ);
+      error = LIBC_NAMESPACE::spawn(&file->child, paths, &actions.value,
+                                    nullptr, args, LIBC_NAMESPACE::environ,
+                                    SpawnErrorPolicy::ChildStatus);
     if (!error && !cloexec) {
       auto flags = linux_syscalls::fcntl(file->get_fd(), F_SETFD, nullptr);
       if (!flags)

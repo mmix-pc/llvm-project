@@ -101,8 +101,9 @@ TEST_MAIN(int argc, char **, char **) {
   posix_spawnattr_t attr{};
   ASSERT_EQ(LIBC_NAMESPACE::posix_spawn(&pid, "/proc/self/exe", nullptr, &attr,
                                         args, LIBC_NAMESPACE::environ),
-            ENOTSUP);
-  ASSERT_EQ(pid, -1);
+            0);
+  wait_for(pid, 23);
+  pid = -1;
   check_mask();
 
   // Deterministic admission failure after spawn has saved/blocked the mask.
@@ -123,8 +124,8 @@ TEST_MAIN(int argc, char **, char **) {
   ASSERT_EQ(LIBC_NAMESPACE::posix_spawn(&pid, "/no-such-spawn-executable",
                                         nullptr, nullptr, args,
                                         LIBC_NAMESPACE::environ),
-            0);
-  wait_for(pid, 127);
+            ENOENT);
+  ASSERT_EQ(pid, -1);
   check_mask();
   ASSERT_EQ(callbacks, 0);
   ASSERT_EQ(LIBC_NAMESPACE::sigaction(SIGUSR1, nullptr, &action), 0);

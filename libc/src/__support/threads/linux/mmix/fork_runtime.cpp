@@ -182,10 +182,10 @@ int ForkOperation::freeze_registry() {
   return registry ? 0 : EAGAIN;
 }
 
-long ForkOperation::create_child() {
+long ForkOperation::create_child(bool wait_for_exec) {
   if (!registry)
     __builtin_trap();
-  ForkResult result = fork_process();
+  ForkResult result = fork_process(wait_for_exec);
   previous_tid = result.previous_tid;
   return result.value;
 }

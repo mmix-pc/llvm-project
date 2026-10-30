@@ -16,12 +16,17 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
+// Pipe streams require setup failures to remain child exit status, even when
+// the provider diagnoses public spawn failures synchronously.
+enum class SpawnErrorPolicy { ProviderDefault, ChildStatus };
+
 // Paths and their null-terminated pointer array are prepared before cloning.
 // Providers copy the address space (no CLONE_VM), so the parent can release
 // this storage as soon as spawn returns, independently of child progress.
 int spawn(pid_t *pid, const char *const *paths,
           const posix_spawn_file_actions_t *actions,
-          const posix_spawnattr_t *attr, char *const *argv, char *const *envp);
+          const posix_spawnattr_t *attr, char *const *argv, char *const *envp,
+          SpawnErrorPolicy policy = SpawnErrorPolicy::ProviderDefault);
 
 inline int spawn_exec(const char *const *paths, char *const *argv,
                       char *const *envp) {

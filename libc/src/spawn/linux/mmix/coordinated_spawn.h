@@ -12,7 +12,7 @@ namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 // Caller blocks signals before entry and keeps them blocked through child
 // disposition setup. Returns a PID, zero in the child, or a negative errno.
-long coordinated_spawn_clone();
+long coordinated_spawn_clone(bool wait_for_exec);
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif

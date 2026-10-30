@@ -19,10 +19,11 @@ struct ForkResult {
   pid_t previous_tid;
 };
 
-// Caller masks application signals through its remaining recovery. Publish the new
-// TID, but retain the old one for private lock rebinding. No callbacks, locks,
-// allocation, robust-list changes or recovery-policy decisions occur here.
-ForkResult fork_process();
+// Caller masks application signals through its remaining recovery. Publish the
+// new TID, but retain the old one for private lock rebinding. No callbacks,
+// locks, allocation, robust-list changes or recovery-policy decisions occur
+// here. wait_for_exec suspends only the caller; the child's VM is still copied.
+ForkResult fork_process(bool wait_for_exec = false);
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 

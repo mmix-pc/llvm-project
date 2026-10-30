@@ -10,7 +10,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
-long coordinated_spawn_clone() {
+long coordinated_spawn_clone(bool wait_for_exec) {
   ForkOperation operation;
   if (operation.error())
     return -operation.error();
@@ -19,7 +19,7 @@ long coordinated_spawn_clone() {
   int error = operation.prepare_runtime();
   if (!error)
     error = operation.freeze_registry();
-  long result = error ? -error : operation.create_child();
+  long result = error ? -error : operation.create_child(wait_for_exec);
   operation.restore_runtime(result == 0);
   // Destroy the operation in both processes before returning to raw child
   // setup. Its saved mask was already fully blocked by the spawn caller.

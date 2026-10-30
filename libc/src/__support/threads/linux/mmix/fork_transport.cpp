@@ -13,17 +13,19 @@
 #include "src/__support/OSUtil/exit.h"
 #include "src/__support/OSUtil/syscall.h"
 #include "src/__support/threads/thread.h"
+#include <linux/sched.h>
 #include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
-ForkResult fork_process() {
+ForkResult fork_process(bool wait_for_exec) {
   auto *attributes = internal::self.attrib;
   if (!attributes)
     return {-EINVAL, 0};
   pid_t previous = attributes->tid;
   // Linux copies both stacks; the child resumes the ordinary syscall leaf.
-  long result = syscall_impl<long>(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+  long result = syscall_impl<long>(
+      SYS_clone, SIGCHLD | (wait_for_exec ? CLONE_VFORK : 0), 0, 0, 0, 0);
   if (!result) {
     long tid = syscall_impl<long>(SYS_gettid);
     if (tid <= 0 || tid > cpp::numeric_limits<pid_t>::max())
