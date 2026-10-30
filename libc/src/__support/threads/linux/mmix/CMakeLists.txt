@@ -206,6 +206,36 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
   )
   add_object_library(
+    notification_mq
+    SRCS notification_mq.cpp
+    HDRS notification_mq.h
+    DEPENDS .notification_callback .thread_create
+      libc.src.__support.threads.notification_registry
+      libc.src.__support.threads.raw_mutex
+      libc.src.__support.OSUtil.linux.notification_transport
+      libc.src.__support.OSUtil.linux.kernel_sigevent
+      libc.src.__support.CPP.new libc.src.stdlib.malloc libc.src.stdlib.free
+      libc.include.sys_syscall
+    COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
+  )
+  add_object_library(
+    notification_timers
+    SRCS notification_timers.cpp
+    HDRS notification_timers.h
+    DEPENDS .notification_callback .thread_create .credentials
+      libc.src.__support.threads.notification_registry
+      libc.src.__support.threads.raw_mutex
+      libc.src.__support.OSUtil.linux.notification_transport
+      libc.src.__support.OSUtil.linux.kernel_sigevent
+      libc.src.__support.OSUtil.linux.syscall_wrappers.timer_delete
+      libc.src.__support.OSUtil.linux.syscall_wrappers.timer_settime
+      libc.src.signal.linux.mmix.private_signals
+      libc.hdr.types.struct_itimerspec libc.hdr.types.timer_t
+      libc.hdr.types.clockid_t libc.src.__support.CPP.new
+      libc.src.stdlib.malloc libc.src.stdlib.free
+    COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
+  )
+  add_object_library(
     notification_dispatcher
     SRCS notification_dispatcher.cpp
     HDRS notification_dispatcher.h
@@ -216,6 +246,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.signal.linux.mmix.private_signals
     COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
   )
+  if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION AND LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+    add_object_library(
+      notification_service
+      SRCS notification_service.cpp
+      HDRS notification_service.h
+      DEPENDS .notification_timers .notification_mq .notification_dispatcher
+        .cancellation .credentials libc.config.app_h libc.include.pthread
+        libc.src.__support.CPP.new libc.include.sys_syscall
+      COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
+    )
+  endif()
   # Native child entry is selected only by explicit thread compositions.
   add_object_library(
     thread_start

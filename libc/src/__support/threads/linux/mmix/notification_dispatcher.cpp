@@ -135,6 +135,25 @@ int NotificationDispatcher::stop() {
   Operation operation(*this);
   if (!operation)
     return EAGAIN;
+  return stop_impl();
+}
+
+int NotificationDispatcher::stop_parked() {
+  if (activity.load(cpp::MemoryOrder::ACQUIRE) != PARKED)
+    __builtin_trap();
+  return stop_impl();
+}
+
+void NotificationDispatcher::quarantine_parked_child() {
+  if (activity.load(cpp::MemoryOrder::ACQUIRE) != PARKED)
+    __builtin_trap();
+  // Closing the copied socket reference neither consumes messages nor removes
+  // the parent's MQ registrations. Never wake or reclaim the vanished helper.
+  (void)channels.reset();
+  published_mq.store(-1, cpp::MemoryOrder::RELAXED);
+}
+
+int NotificationDispatcher::stop_impl() {
   stopping.store(true, cpp::MemoryOrder::RELEASE);
   int result = 0;
   if (control) {
@@ -213,6 +232,8 @@ int NotificationDispatcher::run() {
         return waited.error();
       continue;
     }
+    if (handlers.maintain)
+      handlers.maintain(handlers.context);
     for (unsigned index = 0; index < 3; ++index) {
       if (stopping.load(cpp::MemoryOrder::ACQUIRE))
         return 0;

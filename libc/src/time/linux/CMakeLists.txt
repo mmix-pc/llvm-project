@@ -6,10 +6,22 @@ endif()
 
 set(nanosleep_source nanosleep.cpp)
 set(timer_create_source timer_create.cpp)
+set(timer_delete_source timer_delete.cpp)
+set(timer_settime_source timer_settime.cpp)
 set(timer_create_target_dependencies)
+set(timer_service_dependencies)
+set(timer_service_options)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(timer_create_source mmix/timer_create.cpp)
   set(timer_create_target_dependencies libc.src.signal.linux.mmix.private_signals)
+  if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION AND LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+    set(timer_delete_source mmix/timer_delete.cpp)
+    set(timer_settime_source mmix/timer_settime.cpp)
+    set(timer_service_dependencies
+      libc.src.__support.threads.linux.mmix.notification_service)
+    set(timer_service_options -DLIBC_MMIX_MANAGED_NOTIFICATIONS
+      -fexceptions -funwind-tables)
+  endif()
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
   mmix_select_cancellation_points(nanosleep)
 endif()
@@ -110,17 +122,19 @@ add_entrypoint_object(
     libc.hdr.types.struct_sigevent
     libc.hdr.types.timer_t
     ${timer_create_target_dependencies}
+    ${timer_service_dependencies}
     libc.src.__support.OSUtil.linux.syscall_wrappers.timer_create
     libc.src.__support.common
     libc.src.__support.libc_errno
     libc.src.__support.macros.config
     libc.src.errno.errno
+  COMPILE_OPTIONS ${timer_service_options}
 )
 
 add_entrypoint_object(
   timer_delete
   SRCS
-    timer_delete.cpp
+    ${timer_delete_source}
   HDRS
     ../timer_delete.h
   DEPENDS
@@ -130,6 +144,8 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     libc.src.__support.macros.config
     libc.src.errno.errno
+    ${timer_service_dependencies}
+  COMPILE_OPTIONS ${timer_service_options}
 )
 
 add_entrypoint_object(
@@ -151,7 +167,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   timer_settime
   SRCS
-    timer_settime.cpp
+    ${timer_settime_source}
   HDRS
     ../timer_settime.h
   DEPENDS
@@ -162,6 +178,8 @@ add_entrypoint_object(
     libc.src.__support.libc_errno
     libc.src.__support.macros.config
     libc.src.errno.errno
+    ${timer_service_dependencies}
+  COMPILE_OPTIONS ${timer_service_options}
 )
 
 add_entrypoint_object(

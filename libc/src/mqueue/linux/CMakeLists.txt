@@ -3,9 +3,16 @@ foreach(name mq_timedsend mq_timedreceive)
 endforeach()
 set(mq_notify_source mq_notify.cpp)
 set(mq_notify_target_dependencies)
+set(mq_notify_target_options)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(mq_notify_source mmix/mq_notify.cpp)
   set(mq_notify_target_dependencies libc.src.signal.linux.mmix.private_signals)
+  if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION AND LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+    list(APPEND mq_notify_target_dependencies
+      libc.src.__support.threads.linux.mmix.notification_service)
+    set(mq_notify_target_options -DLIBC_MMIX_MANAGED_NOTIFICATIONS
+      -fexceptions -funwind-tables)
+  endif()
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
   mmix_select_cancellation_points(mq_timedsend mq_timedreceive)
 endif()
@@ -35,6 +42,7 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.mqueue.types
     ${mq_notify_target_dependencies}
+  COMPILE_OPTIONS ${mq_notify_target_options}
 )
 
 add_header_library(

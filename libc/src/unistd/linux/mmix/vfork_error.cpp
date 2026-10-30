@@ -23,9 +23,12 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
+int prepare_notification_fork(bool, bool *) __attribute__((weak));
+void finish_notification_fork(bool) __attribute__((weak));
 namespace {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL uint64_t parent_mask;
 LIBC_CONSTINIT LIBC_THREAD_LOCAL int parent_errno;
+LIBC_CONSTINIT LIBC_THREAD_LOCAL bool notification_prepared = false;
 
 void restore_mask(uint64_t mask) {
   if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
@@ -55,13 +58,29 @@ extern "C" [[gnu::visibility("hidden")]] long __llvm_libc_mmix_vfork_begin() {
       !caller->cancellation_transfer.load() &&
       !caller->cancellation_point.load()) {
     caller->cancellation_suppression.fetch_add(1);
-    if (retire_reaper_for_fork(*caller)) {
+    // Helper TLS retirement can enter credential-coordinated creation/reaping.
+    // Permit the coordinator's private signal while application code is masked.
+    restore_mask(UINT64_MAX & ~CREDENTIAL_MASK);
+    bool notification_drained = true;
+    int prepared = prepare_notification_fork
+                       ? prepare_notification_fork(false, &notification_drained)
+                       : 0;
+    notification_prepared = prepare_notification_fork && !prepared;
+    bool reaper_drained = !prepared && notification_drained &&
+                          retire_reaper_for_fork(*caller);
+    restore_mask(UINT64_MAX);
+    if (reaper_drained) {
       ThreadRegistryLock lock(thread_registry);
       if (lock.begin_vfork(*caller))
         error = 0;
     }
-    if (error)
+    if (error) {
+      if (notification_prepared) {
+        finish_notification_fork(false);
+        notification_prepared = false;
+      }
       caller->cancellation_suppression.fetch_sub(1);
+    }
   }
   if (error) {
     restore_mask(saved);
@@ -90,6 +109,10 @@ __llvm_libc_mmix_vfork_end(long result) {
   }
   if (current_control->cancellation_suppression.fetch_sub(1) != 1)
     __builtin_trap();
+  if (notification_prepared) {
+    finish_notification_fork(false);
+    notification_prepared = false;
+  }
   libc_errno = parent_errno;
   restore_mask(parent_mask);
   return result;

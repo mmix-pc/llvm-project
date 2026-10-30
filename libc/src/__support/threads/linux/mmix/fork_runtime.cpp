@@ -43,6 +43,8 @@ bool try_lock_random_for_fork() __attribute__((weak));
 void unlock_random_after_fork() __attribute__((weak));
 } // namespace internal
 namespace mmix {
+int prepare_notification_fork(bool, bool *) __attribute__((weak));
+void finish_notification_fork(bool) __attribute__((weak));
 namespace {
 struct alignas(8) Serializer {
   RawMutex mutex;
@@ -124,8 +126,14 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
 int ForkOperation::prepare_runtime() {
   // Helper TLS retirement can enter the loader and allocator. Complete it
   // before either subsystem is locked for the clone snapshot.
+  bool notification_drained = true;
+  if (prepare_notification_fork) {
+    if (int error = prepare_notification_fork(minimal, &notification_drained))
+      return error;
+    notifications = true;
+  }
   if (!minimal)
-    helper_drained = retire_reaper_for_fork(*caller);
+    helper_drained = retire_reaper_for_fork(*caller) && notification_drained;
   if (!prepare_credentials_fork())
     return EAGAIN;
   credentials = true;
@@ -316,6 +324,10 @@ void ForkOperation::restore_runtime(bool child) {
   if (credentials) {
     finish_credentials_fork();
     credentials = false;
+  }
+  if (notifications) {
+    finish_notification_fork(child);
+    notifications = false;
   }
 }
 

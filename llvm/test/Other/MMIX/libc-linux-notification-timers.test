@@ -1,0 +1,247 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-notification-dispatcher.test %t/dispatch
+# RUN: split-file %S/libc-linux-thread-create.test %t/base
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+#--- run.py
+import pathlib
+import shlex
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+flags = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+         "-DEPROTO=71", "-DFUTEX_WAIT_PRIVATE=128",
+         "-DLIBC_NAMESPACE=timer_test",
+         "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+         "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
+         "-I", str(root / "headers"), "-I", str(root / "dispatch/headers"),
+         "-I", str(root / "base/headers"), "-I", str(root / "sync"),
+         "-I", str(libc), "-I", str(libc / "include")]
+sources = [libc / "src/__support/threads/linux/mmix" / (name + ".cpp")
+           for name in ("notification_timers", "notification_callback")]
+for opt in ("0", "2"):
+    for source in sources:
+        obj = root / (source.stem + "-O" + opt + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+            "-internal-isystem", resource + "/include", *flags, "-O" + opt,
+            "-emit-obj", str(source), "-o", str(obj)], check=True)
+        symbols = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+        assert all(s not in symbols for s in ("pthread_", "__emutls", "__atomic_"))
+    if len(sys.argv) == 4:
+        host = shlex.split(sys.argv[3])
+        bridge = root / "bridge.o"
+        subprocess.run([*host, "-std=c++17", "-c", str(root / "bridge.cpp"),
+                        "-o", str(bridge)], check=True)
+        exe = root / ("host-O" + opt)
+        subprocess.run([*host, *flags, "-D__mmix__", "-O" + opt,
+            "-include", str(root / "base/transport.h"), *map(str, sources),
+            str(root / "test.cpp"), str(bridge), "-o", str(exe)], check=True)
+        for mode in range(12):
+            subprocess.run([str(exe), str(mode)], check=True, timeout=10)
+        print(f"Notification timers: 12 scenarios passed at O{opt}", flush=True)
+
+#--- headers/sys/syscall.h
+#define SYS_timer_create 107
+#define SYS_timer_delete 111
+#define SYS_timer_settime 110
+#define SYS_futex 98
+#define SYS_write 64
+#define SYS_rt_sigprocmask 135
+#define SYS_clock_gettime 113
+
+#--- bridge.cpp
+#include <cstdlib>
+extern "C" void *host_allocate(__SIZE_TYPE__ size) { return std::malloc(size); }
+extern "C" void host_free(void *p) { std::free(p); }
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/notification_timers.h"
+#include "src/__support/threads/linux/mmix/thread_create.h"
+#include "src/__support/OSUtil/linux/kernel_sigevent.h"
+#include "hdr/pthread_macros.h"
+using namespace timer_test;
+using namespace timer_test::mmix;
+extern "C" void *host_allocate(__SIZE_TYPE__);
+extern "C" void host_free(void *);
+static void check(bool b) { if (!b) __builtin_trap(); }
+static int mode, allocations, frees, kernel_creates, kernel_deletes;
+static int set_calls, attempts, callbacks, allocation_failure;
+static uint64_t cookie;
+static uint64_t signal_mask;
+static int timer_id = 7;
+static bool delete_failure, launch_failure, delete_on_launch;
+static NotificationTimers *table;
+static ThreadPreparation pending;
+static ThreadAttributes attributes;
+
+namespace timer_test {
+void *malloc(size_t size) {
+  ++allocations;
+  if (allocations == allocation_failure) return nullptr;
+  return host_allocate(size);
+}
+void free(void *p) { check(p); ++frees; host_free(p); }
+namespace mmix {
+ThreadCreationResult create_thread(const ThreadPreparation &request,
+                                   ThreadAttributes *&output) {
+  ++attempts;
+  check(request.detached && request.page_size == 8192);
+  // Reentrant delete proves callback creation does not retain the table gate.
+  if (delete_on_launch) {
+    delete_on_launch = false;
+    check(table->remove(reinterpret_cast<timer_t>(long(timer_id))) == 0);
+    check(!frees);
+  }
+  if (launch_failure) return {-EAGAIN};
+  check(!pending.resource_owner.context);
+  check(request.resource_owner.retain(request.resource_owner.context) == 0);
+  pending = request;
+  output = &attributes;
+  return {};
+}
+}}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
+                                        long c, long, long, long) {
+  if (number == SYS_rt_sigprocmask) {
+    check(a == SIG_SETMASK && b);
+    if (c) *reinterpret_cast<uint64_t *>(c) = signal_mask;
+    signal_mask = *reinterpret_cast<uint64_t *>(b);
+    return 0;
+  }
+  if (number == SYS_timer_create) {
+    ++kernel_creates;
+    const auto &event = *reinterpret_cast<linux_syscalls::KernelSigevent *>(b);
+    check(event.sigev_notify == (SIGEV_SIGNAL | SIGEV_THREAD_ID));
+    check(event.sigev_signo == 34 && event._sigev_un._tid == 42);
+    uint64_t next = reinterpret_cast<uint64_t>(event.sigev_value.sival_ptr);
+    check(next > cookie); cookie = next;
+    if (mode == 11) {
+      itimerspec disarmed{};
+      // Simulate a handler interrupting the held registration table gate.
+      check(table->settime(reinterpret_cast<timer_t>(long(timer_id)), 0,
+                           &disarmed, nullptr) == 0);
+    }
+    if (mode == 3 && kernel_creates == 1) return -EAGAIN;
+    *reinterpret_cast<int *>(c) = timer_id;
+    return 0;
+  }
+  if (number == SYS_timer_delete) {
+    ++kernel_deletes;
+    check(a == timer_id);
+    return delete_failure ? -EINVAL : 0;
+  }
+  if (number == SYS_timer_settime) {
+    check(signal_mask == (UINT64_MAX & ~(uint64_t(1) << 32)));
+    ++set_calls;
+    if (mode == 10) {
+      check(table->remove(reinterpret_cast<timer_t>(long(timer_id))) == 0);
+      check(table->empty() && !frees && !table->collect_retired());
+    }
+    return 0;
+  }
+  check(false);
+  return -ENOSYS;
+}
+static void callback(sigval value) { check(value.sival_int == 73); ++callbacks; }
+static void finish_callback() {
+  check(pending.resource_owner.context);
+  pending.runner.posix_runner(pending.argument);
+  check(pending.resource_owner.release(pending.resource_owner.context) == 0);
+  pending = {};
+}
+static signalfd_siginfo notification() {
+  signalfd_siginfo info{};
+  info.ssi_signo = 34; info.ssi_code = SI_TIMER;
+  info.ssi_tid = timer_id; info.ssi_ptr = cookie; info.ssi_overrun = 9;
+  return info;
+}
+extern "C" int main(int argc, char **argv) {
+  check(argc == 2);
+  for (char *p = argv[1]; *p; ++p) mode = mode * 10 + *p - '0';
+  NotificationTimers timers; table = &timers;
+  sigevent event{};
+  event.sigev_notify = SIGEV_THREAD;
+  event.sigev_notify_function = callback;
+  event.sigev_value.sival_int = 73;
+  pthread_attr_t attr{};
+  alignas(8) unsigned char stack[65536];
+  if (mode == 8) {
+    attr.__detachstate = PTHREAD_CREATE_DETACHED;
+    attr.__stack = stack; attr.__stacksize = sizeof(stack);
+    attr.__inheritsched = PTHREAD_INHERIT_SCHED;
+    attr.__scope = PTHREAD_SCOPE_SYSTEM;
+    event.sigev_notify_attributes = &attr;
+  }
+  timer_t id = reinterpret_cast<timer_t>(long(1234));
+  if (mode == 1 || mode == 2) allocation_failure = mode;
+  int result = timers.create(0, event, {}, 8192, 42, id);
+  if (mode >= 1 && mode <= 3) {
+    check(result == (mode == 3 ? EAGAIN : ENOMEM));
+    check(id == reinterpret_cast<timer_t>(long(1234)) && timers.empty());
+    check(frees == (mode == 1 ? 0 : mode == 2 ? 1 : 2));
+    allocation_failure = 0;
+    check(timers.create(0, event, {}, 8192, 42, id) == 0);
+  } else check(result == 0);
+  check(id == reinterpret_cast<timer_t>(long(timer_id)) && !timers.empty());
+  auto info = notification();
+  if (mode == 10) {
+    itimerspec disarmed{};
+    check(timers.settime(id, 0, &disarmed, nullptr) == 0 && !frees);
+    check(signal_mask == 0);
+    check(timers.collect_retired() && frees == 2);
+    timers.dispatch(info); check(!attempts);
+    return 0;
+  }
+  event.sigev_value.sival_int = -1; // No borrowed notification record.
+  if (mode == 7) {
+    auto bad = info; bad.ssi_tid++;
+    timers.dispatch(bad);
+    bad = info; bad.ssi_signo++;
+    timers.dispatch(bad);
+    bad = info; bad.ssi_code = SI_USER;
+    timers.dispatch(bad);
+    bad = info; bad.ssi_ptr++;
+    timers.dispatch(bad);
+    check(!attempts);
+  }
+  if (mode == 8) {
+    itimerspec value{}; value.it_interval.tv_sec = 1;
+    check(timers.settime(id, 0, &value, nullptr) == EINVAL && !set_calls);
+    check(signal_mask == 0);
+    value.it_interval.tv_sec = 0; value.it_value.tv_sec = 1;
+    check(timers.settime(id, 0, &value, nullptr) == 0 && set_calls == 1);
+    check(signal_mask == 0);
+  }
+  if (mode == 4) {
+    delete_failure = true;
+    check(timers.remove(id) == EINVAL && !timers.empty() && !frees);
+    delete_failure = false;
+  }
+  if (mode == 5) {
+    launch_failure = true; timers.dispatch(info);
+    check(attempts == 1 && !frees && !timers.empty());
+    launch_failure = false;
+  }
+  if (mode == 6) delete_on_launch = true;
+  timers.dispatch(info);
+  check(!callbacks && pending.resource_owner.context);
+  if (mode != 6) check(timers.remove(id) == 0);
+  check(timers.empty());
+  int accepted = attempts;
+  timers.dispatch(info); check(attempts == accepted);
+  finish_callback(); check(callbacks == 1);
+  check(frees == allocations - ((mode == 1 || mode == 2) ? 1 : 0));
+  if (mode == 9) {
+    event.sigev_value.sival_int = 73;
+    check(timers.create(0, event, {}, 8192, 42, id) == 0);
+    timers.dispatch(info); check(attempts == accepted);
+    timers.dispatch(notification()); check(attempts == accepted + 1);
+    finish_callback(); check(timers.remove(id) == 0);
+    check(callbacks == 2 && frees == allocations && timers.empty());
+  }
+  return 0;
+}

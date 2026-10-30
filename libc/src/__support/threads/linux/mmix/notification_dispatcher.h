@@ -24,6 +24,7 @@ struct NotificationHandlers {
   void *context = nullptr;
   int (*timer)(void *, const signalfd_siginfo &) = nullptr;
   int (*mq)(void *, const notification_transport::Notification &) = nullptr;
+  void (*maintain)(void *) = nullptr;
 };
 
 // A service-owned helper, not a public provider or an ownership registry.
@@ -51,6 +52,7 @@ class NotificationDispatcher {
   int run();
   void publish_ready();
   int await_ready();
+  int stop_impl();
 
 public:
   // Covers service work outside its table lock, including allocation, thread
@@ -89,6 +91,14 @@ public:
   // clone snapshot. A failed attempt leaves admission unchanged.
   bool try_park();
   void resume();
+  // The service has parked intake and excluded external operations. No live
+  // kernel registration may still name this helper. Keeps the checkpoint held
+  // through resource reclamation; resume() is still required afterwards.
+  int stop_parked();
+  // Copied-process checkpoint only: close copied fd references, but leave
+  // vanished controls/TLS/loader pins quarantined until exec/exit. The owner
+  // must make this object permanently inaccessible and must not destroy it.
+  void quarantine_parked_child();
 
   // Positive errno. Success includes runner readiness, not merely clone READY.
   // A failure can retain cleanup ownership; stop() must succeed before retry.

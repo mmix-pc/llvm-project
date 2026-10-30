@@ -37,7 +37,7 @@ for opt in ("0", "2"):
         subprocess.run([*host, *flags, "-D__mmix__", "-O" + opt,
             "-include", str(root / "base/transport.h"), str(source),
             str(root / "test.cpp"), str(bridge), "-pthread", "-o", str(exe)], check=True)
-        for mode in range(21):
+        for mode in range(24):
             if mode == 16:
                 import resource as limits
                 import signal
@@ -46,7 +46,7 @@ for opt in ("0", "2"):
                 assert result.returncode == -signal.SIGILL, result
             else:
                 subprocess.run([str(exe), str(mode)], check=True, timeout=10)
-        print(f"Notification dispatcher: 21 scenarios passed at O{opt}", flush=True)
+        print(f"Notification dispatcher: 24 scenarios passed at O{opt}", flush=True)
 
 # Isolated transport definitions; real UAPI layout is checked by target builds.
 #--- headers/sys/syscall.h
@@ -92,11 +92,20 @@ struct signalfd_siginfo {
 #--- bridge.cpp
 #include <chrono>
 #include <thread>
+#include <sys/wait.h>
+#include <unistd.h>
 static std::thread worker;
 extern "C" void host_start(void (*run)()) { worker = std::thread(run); }
 extern "C" void host_join() { worker.join(); }
 extern "C" void host_pause() {
   std::this_thread::sleep_for(std::chrono::microseconds(100));
+}
+extern "C" int host_child(void (*run)(void *), void *argument) {
+  pid_t child = fork();
+  if (child < 0) return -1;
+  if (!child) { run(argument); _exit(0); }
+  int status = -1;
+  return waitpid(child, &status, 0) == child ? status : -1;
 }
 
 #--- test.cpp
@@ -110,10 +119,12 @@ using namespace dispatch_test::mmix;
 extern "C" void host_start(void (*)());
 extern "C" void host_join();
 extern "C" void host_pause();
+extern "C" int host_child(void (*)(void *), void *);
 static void check(bool b) { if (!b) __builtin_trap(); }
 static int mode, creates, reclaims, releases, closes, sockets;
 static cpp::Atomic<int> go{0}, received{0}, event_sent{0};
 static cpp::Atomic<int> reads{0}, handler_entered{0}, handler_release{0}, polls{0};
+static cpp::Atomic<int> maintained{0};
 static ThreadControl child;
 static ThreadPreparation preparation;
 static bool release_failed;
@@ -197,7 +208,9 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
     polls.fetch_add(1);
     if (!go.load()) return 0;
     if (mode == 5) return -EIO;
-    if (mode == 10 && !event_sent.exchange(1)) return -EINTR;
+    int no_event = 0;
+    if (mode == 10 && event_sent.compare_exchange_strong(no_event, 1))
+      return -EINTR;
     if ((mode == 19 || mode == 20) && !reads.load()) {
       fds[1].revents = POLLIN;
       return 1;
@@ -250,11 +263,15 @@ static int mq(void *context, const notification_transport::Notification &event) 
   received.fetch_add(1);
   return mode == 8 ? EIO : 0;
 }
+static void maintain(void *context) {
+  check(context == &child);
+  maintained.fetch_add(1);
+}
 extern "C" int main(int argc, char **argv) {
   check(argc == 2);
   for (char *p = argv[1]; *p; ++p) mode = mode * 10 + *p - '0';
   NotificationDispatcher dispatcher;
-  NotificationHandlers handlers{&child, timer, mq};
+  NotificationHandlers handlers{&child, timer, mq, maintain};
   if (mode == 18) {
     {
       NotificationDispatcher::Operation first(dispatcher), second(dispatcher);
@@ -287,6 +304,46 @@ extern "C" int main(int argc, char **argv) {
     return 0;
   }
   check(error == 0 && dispatcher.timer_tid() == 42);
+  if (mode == 23) {
+    for (unsigned n = 0; n < 20000 && !maintained.load(); ++n) host_pause();
+    check(maintained.load() && !received.load());
+    bool parked = false;
+    for (unsigned n = 0; n < 20000 && !parked; ++n) {
+      parked = dispatcher.try_park();
+      if (!parked) host_pause();
+    }
+    check(parked);
+    int before = maintained.load();
+    for (unsigned n = 0; n < 20; ++n) host_pause();
+    check(maintained.load() == before);
+    dispatcher.resume();
+    check(dispatcher.stop() == 0 && dispatcher.drained());
+    return 0;
+  }
+  if (mode == 21 || mode == 22) {
+    bool parked = false;
+    for (unsigned n = 0; n < 20000 && !parked; ++n) {
+      parked = dispatcher.try_park();
+      if (!parked) host_pause();
+    }
+    check(parked);
+    if (mode == 21) {
+      check(dispatcher.stop_parked() == 0 && dispatcher.drained());
+      check(reclaims == 1 && closes == 2);
+    } else {
+      check(host_child([](void *p) {
+        auto &copied = *static_cast<NotificationDispatcher *>(p);
+        copied.quarantine_parked_child();
+        check(!reclaims && closes == 2 && copied.mq_fd() == -1);
+        check(!copied.drained());
+      }, &dispatcher) == 0);
+      check(!reclaims && !closes && !dispatcher.drained());
+    }
+    dispatcher.resume();
+    check(dispatcher.stop() == 0 && dispatcher.drained());
+    check(reclaims == 1 && closes == 2);
+    return 0;
+  }
   check(dispatcher.start({}, 8192, handlers) == EBUSY);
   check(dispatcher.enable_mq() == (mode == 13 ? EMFILE : mode == 11 ? EIO : 0));
   if (mode != 13) {

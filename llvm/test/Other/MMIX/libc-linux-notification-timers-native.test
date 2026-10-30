@@ -1,0 +1,6 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-host
+# RUN: split-file %S/libc-linux-notification-timers.test %t
+# RUN: split-file %S/libc-linux-notification-dispatcher.test %t/dispatch
+# RUN: split-file %S/libc-linux-thread-create.test %t/base
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: %python %t/run.py %S/../../../../libc %t %mmix_host_cxx

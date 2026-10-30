@@ -18,6 +18,7 @@ class ForkOperation {
   bool serial = false, masked = false, suppressed = false;
   bool priority = false, streams = false, allocator = false, registry = false;
   bool helper_drained = false;
+  bool notifications = false;
   bool minimal = false;
   bool credentials = false;
   bool exit_callbacks = false;
