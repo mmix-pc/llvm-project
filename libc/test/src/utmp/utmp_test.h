@@ -57,6 +57,12 @@ protected:
     return record;
   }
 
+  static void clear(Record &record) {
+    auto *bytes = reinterpret_cast<unsigned char *>(&record);
+    for (size_t i = 0; i < sizeof(record); ++i)
+      bytes[i] = 0;
+  }
+
   void seed(const void *data, size_t size) {
     ASSERT_EQ(LIBC_NAMESPACE::lseek(fd, 0, SEEK_SET), off_t(0));
     ASSERT_EQ(LIBC_NAMESPACE::ftruncate(fd, 0), 0);
@@ -168,6 +174,90 @@ public:
     auto *found = Api::line(&key);
     ASSERT_NE(found, nullptr);
     EXPECT_EQ(found->ut_pid, 33);
+  }
+
+  void cleared_line_progress() {
+    Record records[] = {entry(LOGIN_PROCESS, 'a', 10),
+                        entry(DEAD_PROCESS, 'a', 20),
+                        entry(USER_PROCESS, 'b', 30),
+                        entry(USER_PROCESS, 'a', 40)};
+    records[3].ut_id[0] = 'c'; // Same line, distinct process ID key.
+    seed(records, sizeof(records));
+    const Record key = entry(EMPTY, 'a', 99);
+    // Clearing works after enumeration as well as after a matching query.
+    const bool starts[] = {false, true};
+    for (bool enumerate_first : starts) {
+      Api::set();
+      auto *found = enumerate_first ? Api::get() : Api::line(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_pid, 10);
+      if (!enumerate_first) {
+        found = Api::line(&key);
+        ASSERT_NE(found, nullptr);
+        EXPECT_EQ(found->ut_pid, 10);
+      }
+      clear(*found);
+      found = Api::line(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_pid, 40);
+      EXPECT_EQ(found->ut_id[0], 'c');
+      found = Api::line(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_pid, 40);
+      clear(*found);
+      for (int i = 0; i < 2; ++i) {
+        libc_errno = EDOM;
+        EXPECT_EQ(Api::line(&key), static_cast<Record *>(nullptr));
+        EXPECT_EQ(int(libc_errno), ESRCH);
+      }
+    }
+    Api::set();
+    auto *found = Api::line(&key);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->ut_pid, 10);
+  }
+
+  void cleared_id_progress() {
+    const short types[] = {USER_PROCESS, BOOT_TIME, OLD_TIME, NEW_TIME};
+    for (short type : types) {
+      Record records[] = {entry(type, 'a', 10), entry(USER_PROCESS, 'b', 20),
+                          entry(type, 'a', 30)};
+      if (type == USER_PROCESS) {
+        records[0].ut_type = INIT_PROCESS;
+        records[2].ut_type = DEAD_PROCESS;
+      }
+      // Time-event identity is the type, not the ID bytes.
+      if (type != USER_PROCESS)
+        records[2].ut_id[0] = 'c';
+      records[0].ut_tv.tv_sec = 100;
+      records[2].ut_tv.tv_sec = 300;
+      seed(records, sizeof(records));
+      const Record key = entry(type, 'a', 99);
+      auto *found = Api::id(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_tv.tv_sec, decltype(found->ut_tv.tv_sec)(100));
+      found = Api::id(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_tv.tv_sec, decltype(found->ut_tv.tv_sec)(100));
+      clear(*found);
+      found = Api::id(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_type, records[2].ut_type);
+      EXPECT_EQ(found->ut_tv.tv_sec, decltype(found->ut_tv.tv_sec)(300));
+      found = Api::id(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_tv.tv_sec, decltype(found->ut_tv.tv_sec)(300));
+      clear(*found);
+      for (int i = 0; i < 2; ++i) {
+        libc_errno = EDOM;
+        EXPECT_EQ(Api::id(&key), static_cast<Record *>(nullptr));
+        EXPECT_EQ(int(libc_errno), ESRCH);
+      }
+      Api::set();
+      found = Api::id(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_tv.tv_sec, decltype(found->ut_tv.tv_sec)(100));
+    }
   }
 
   void login_preserves_cursor_and_record() {
@@ -370,6 +460,81 @@ public:
     EXPECT_EQ(records[0].ut_pid, 11);
     EXPECT_EQ(records[0].ut_type, short(LOGIN_PROCESS));
     EXPECT_EQ(records[1].ut_pid, 20);
+  }
+
+  void aliased_input_forward_search() {
+    const bool modes[] = {false, true};
+    for (bool writable_cursor : modes) {
+      Api::end();
+      Record records[] = {entry(USER_PROCESS, 'a', 10),
+                          entry(USER_PROCESS, 'b', 20),
+                          entry(USER_PROCESS, 'c', 30)};
+      seed(records, sizeof(records));
+      auto *record = writable_cursor ? Api::put(&records[0]) : Api::get();
+      ASSERT_NE(record, nullptr);
+      *record = login_entry(LOGIN_PROCESS, 'c', 31, "edited");
+      // The modified cache matches the input, but its disk slot does not.
+      // The implicit search must pass two records without clobbering input.
+      record = Api::put(record);
+      ASSERT_NE(record, nullptr);
+      EXPECT_EQ(record->ut_pid, 31);
+      EXPECT_EQ(record->ut_type, short(LOGIN_PROCESS));
+      EXPECT_STREQ(record->ut_user, "edited");
+      expect_size(sizeof(records));
+      ASSERT_EQ(LIBC_NAMESPACE::lseek(fd, 0, SEEK_SET), off_t(0));
+      ASSERT_EQ(LIBC_NAMESPACE::read(fd, records, sizeof(records)),
+                ssize_t(sizeof(records)));
+      EXPECT_EQ(records[0].ut_pid, 10);
+      EXPECT_EQ(records[0].ut_id[0], 'a');
+      EXPECT_EQ(records[1].ut_pid, 20);
+      EXPECT_EQ(records[1].ut_id[0], 'b');
+      EXPECT_EQ(records[2].ut_pid, 31);
+      EXPECT_EQ(records[2].ut_id[0], 'c');
+      EXPECT_EQ(records[2].ut_type, short(LOGIN_PROCESS));
+      EXPECT_STREQ(records[2].ut_user, "edited");
+      EXPECT_EQ(Api::get(), static_cast<Record *>(nullptr));
+
+      Api::set();
+      record = Api::get();
+      ASSERT_NE(record, nullptr);
+      *record = login_entry(USER_PROCESS, 'd', 41, "appended");
+      record = Api::put(record);
+      ASSERT_NE(record, nullptr);
+      EXPECT_EQ(record->ut_pid, 41);
+      EXPECT_STREQ(record->ut_user, "appended");
+      expect_size(4 * sizeof(Record));
+      ASSERT_EQ(LIBC_NAMESPACE::lseek(fd, sizeof(records), SEEK_SET),
+                off_t(sizeof(records)));
+      Record actual{};
+      ASSERT_EQ(LIBC_NAMESPACE::read(fd, &actual, sizeof(actual)),
+                ssize_t(sizeof(actual)));
+      EXPECT_EQ(actual.ut_pid, 41);
+      EXPECT_EQ(actual.ut_id[0], 'd');
+      EXPECT_STREQ(actual.ut_user, "appended");
+    }
+  }
+
+  void cleared_put_result_progress() {
+    Record records[] = {entry(USER_PROCESS, 'a', 10),
+                        entry(USER_PROCESS, 'a', 20)};
+    seed(records, sizeof(records));
+    auto *record = Api::put(&records[0]);
+    ASSERT_NE(record, nullptr);
+    clear(*record);
+    const Record update = entry(USER_PROCESS, 'a', 30);
+    record = Api::put(&update);
+    ASSERT_NE(record, nullptr);
+    EXPECT_EQ(record->ut_pid, 30);
+    expect_size(sizeof(records));
+    clear(*record);
+    libc_errno = EDOM;
+    EXPECT_EQ(Api::id(&update), static_cast<Record *>(nullptr));
+    EXPECT_EQ(int(libc_errno), ESRCH);
+    ASSERT_EQ(LIBC_NAMESPACE::lseek(fd, 0, SEEK_SET), off_t(0));
+    ASSERT_EQ(LIBC_NAMESPACE::read(fd, records, sizeof(records)),
+              ssize_t(sizeof(records)));
+    EXPECT_EQ(records[0].ut_pid, 10);
+    EXPECT_EQ(records[1].ut_pid, 30);
   }
 
   void read_only_then_upgrade() {
@@ -575,6 +740,43 @@ public:
     ASSERT_EQ(LIBC_NAMESPACE::fcntl(fd, F_OFD_SETLK, &lock), 0);
     Api::append(path, &record);
     expect_size(2 * sizeof(record));
+  }
+
+  void cached_search_file_locks() {
+    Record records[] = {entry(USER_PROCESS, 'a', 10),
+                        entry(USER_PROCESS, 'a', 20)};
+    seed(records, sizeof(records));
+    const Record key = records[0];
+    auto *found = Api::line(&key);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->ut_pid, 10);
+    struct flock lock{};
+    lock.l_whence = SEEK_SET;
+    const bool states[] = {false, true};
+    for (bool cleared : states) {
+      if (cleared)
+        clear(*found);
+      lock.l_type = F_WRLCK;
+      ASSERT_EQ(LIBC_NAMESPACE::fcntl(fd, F_OFD_SETLK, &lock), 0);
+      EXPECT_EQ(Api::line(&key), static_cast<Record *>(nullptr));
+      EXPECT_TRUE(int(libc_errno) == EAGAIN || int(libc_errno) == EACCES);
+      EXPECT_EQ(Api::id(&key), static_cast<Record *>(nullptr));
+      EXPECT_TRUE(int(libc_errno) == EAGAIN || int(libc_errno) == EACCES);
+      lock.l_type = F_UNLCK;
+      ASSERT_EQ(LIBC_NAMESPACE::fcntl(fd, F_OFD_SETLK, &lock), 0);
+      found = Api::line(&key);
+      ASSERT_NE(found, nullptr);
+      EXPECT_EQ(found->ut_pid, cleared ? 20 : 10);
+    }
+    // Non-cleared repeats still revalidate the current on-disk record.
+    records[1].ut_pid = 21;
+    ASSERT_EQ(LIBC_NAMESPACE::lseek(fd, sizeof(Record), SEEK_SET),
+              off_t(sizeof(Record)));
+    ASSERT_EQ(LIBC_NAMESPACE::write(fd, &records[1], sizeof(Record)),
+              ssize_t(sizeof(Record)));
+    found = Api::id(&key);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->ut_pid, 21);
   }
 
   void raw_record() {

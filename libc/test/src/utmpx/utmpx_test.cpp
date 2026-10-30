@@ -40,6 +40,8 @@ using LlvmLibcUtmpxTest = UtmpTest<UtmpxApi>;
 TEST_F(LlvmLibcUtmpxTest, IterationRewindEndAndEof) { sequence(); }
 TEST_F(LlvmLibcUtmpxTest, IdAndBoundedLineLookup) { lookup(); }
 TEST_F(LlvmLibcUtmpxTest, LinePadding) { line_padding(); }
+TEST_F(LlvmLibcUtmpxTest, ClearedLineProgress) { cleared_line_progress(); }
+TEST_F(LlvmLibcUtmpxTest, ClearedIdProgress) { cleared_id_progress(); }
 TEST_F(LlvmLibcUtmpxTest, LoginPreservesCursorAndRecord) {
   login_preserves_cursor_and_record();
 }
@@ -54,6 +56,12 @@ TEST_F(LlvmLibcUtmpxTest, LoginMissingPathPreservesDescriptor) {
 TEST_F(LlvmLibcUtmpxTest, ReplaceAppendAndAliasedInput) {
   replacement_and_append();
 }
+TEST_F(LlvmLibcUtmpxTest, AliasedInputForwardSearch) {
+  aliased_input_forward_search();
+}
+TEST_F(LlvmLibcUtmpxTest, ClearedPutResultProgress) {
+  cleared_put_result_progress();
+}
 TEST_F(LlvmLibcUtmpxTest, ReadOnlyOpenAndWriteUpgrade) {
   read_only_then_upgrade();
 }
@@ -67,6 +75,7 @@ TEST_F(LlvmLibcUtmpxTest, MissingFilesAndInvalidArguments) {
 }
 TEST_F(LlvmLibcUtmpxTest, PathIsCopied) { copied_path(); }
 TEST_F(LlvmLibcUtmpxTest, RealFileLocks) { file_locks(); }
+TEST_F(LlvmLibcUtmpxTest, CachedSearchFileLocks) { cached_search_file_locks(); }
 TEST_F(LlvmLibcUtmpxTest, NativeRawRecord) { raw_record(); }
 
 TEST_F(LlvmLibcUtmpxTest, SharedCursorAndPath) {
@@ -105,6 +114,59 @@ TEST_F(LlvmLibcUtmpxTest, SharedCursorAndPath) {
   extended = LIBC_NAMESPACE::getutxent();
   ASSERT_NE(extended, nullptr);
   EXPECT_EQ(extended->ut_pid, 11);
+}
+
+TEST_F(LlvmLibcUtmpxTest, ClearingTracksPublishingFamily) {
+  Record records[] = {entry(USER_PROCESS, 'a', 10),
+                      entry(USER_PROCESS, 'a', 20),
+                      entry(USER_PROCESS, 'a', 30)};
+  seed(records, sizeof(records));
+  const Record key = records[0];
+  const bool searches[] = {false, true};
+  for (bool by_id : searches) {
+    auto search = by_id ? UtmpxApi::id : UtmpxApi::line;
+    UtmpxApi::set();
+    auto *plain = LIBC_NAMESPACE::getutent();
+    ASSERT_NE(plain, nullptr);
+    EXPECT_EQ(plain->ut_pid, 10);
+    *plain = {};
+    auto *extended = search(&key);
+    ASSERT_NE(extended, nullptr);
+    EXPECT_EQ(extended->ut_pid, 20);
+    // The cleared plain result is now older than the current x result.
+    extended = search(&key);
+    ASSERT_NE(extended, nullptr);
+    EXPECT_EQ(extended->ut_pid, 20);
+    clear(*extended);
+    extended = search(&key);
+    ASSERT_NE(extended, nullptr);
+    EXPECT_EQ(extended->ut_pid, 30);
+    clear(*extended);
+    EXPECT_EQ(search(&key), static_cast<Record *>(nullptr));
+    EXPECT_EQ(int(libc_errno), ESRCH);
+
+    UtmpxApi::set();
+    extended = search(&key);
+    ASSERT_NE(extended, nullptr);
+    EXPECT_EQ(extended->ut_pid, 10);
+    clear(*extended);
+    plain = LIBC_NAMESPACE::getutent();
+    ASSERT_NE(plain, nullptr);
+    EXPECT_EQ(plain->ut_pid, 20);
+    // The next x query must consult the newer plain record, not its own
+    // cleared buffer, and must then become the publishing family again.
+    extended = search(&key);
+    ASSERT_NE(extended, nullptr);
+    EXPECT_EQ(extended->ut_pid, 20);
+    *plain = {};
+    extended = search(&key);
+    ASSERT_NE(extended, nullptr);
+    EXPECT_EQ(extended->ut_pid, 20);
+    clear(*extended);
+    extended = search(&key);
+    ASSERT_NE(extended, nullptr);
+    EXPECT_EQ(extended->ut_pid, 30);
+  }
 }
 
 TEST_F(LlvmLibcUtmpxTest, ConcurrentHistoryWriters) {

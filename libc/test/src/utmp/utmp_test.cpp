@@ -33,6 +33,8 @@ using LlvmLibcUtmpTest = UtmpTest<UtmpApi>;
 TEST_F(LlvmLibcUtmpTest, IterationRewindEndAndEof) { sequence(); }
 TEST_F(LlvmLibcUtmpTest, IdAndBoundedLineLookup) { lookup(); }
 TEST_F(LlvmLibcUtmpTest, LinePadding) { line_padding(); }
+TEST_F(LlvmLibcUtmpTest, ClearedLineProgress) { cleared_line_progress(); }
+TEST_F(LlvmLibcUtmpTest, ClearedIdProgress) { cleared_id_progress(); }
 TEST_F(LlvmLibcUtmpTest, LoginPreservesCursorAndRecord) {
   login_preserves_cursor_and_record();
 }
@@ -47,6 +49,12 @@ TEST_F(LlvmLibcUtmpTest, LoginMissingPathPreservesDescriptor) {
 TEST_F(LlvmLibcUtmpTest, ReplaceAppendAndAliasedInput) {
   replacement_and_append();
 }
+TEST_F(LlvmLibcUtmpTest, AliasedInputForwardSearch) {
+  aliased_input_forward_search();
+}
+TEST_F(LlvmLibcUtmpTest, ClearedPutResultProgress) {
+  cleared_put_result_progress();
+}
 TEST_F(LlvmLibcUtmpTest, ReadOnlyOpenAndWriteUpgrade) {
   read_only_then_upgrade();
 }
@@ -60,4 +68,5 @@ TEST_F(LlvmLibcUtmpTest, MissingFilesAndInvalidArguments) {
 }
 TEST_F(LlvmLibcUtmpTest, PathIsCopied) { copied_path(); }
 TEST_F(LlvmLibcUtmpTest, RealFileLocks) { file_locks(); }
+TEST_F(LlvmLibcUtmpTest, CachedSearchFileLocks) { cached_search_file_locks(); }
 TEST_F(LlvmLibcUtmpTest, NativeRawRecord) { raw_record(); }

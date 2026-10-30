@@ -73,6 +73,7 @@ bool writable = false;
 off_t next_offset = 0;
 off_t current_offset = 0;
 bool current_valid = false;
+Family current_family = Family::UTMP;
 utmp utmp_result;
 utmpx utmpx_result;
 
@@ -264,6 +265,7 @@ bool matches(const utmp &record, const utmp &key, Search search) {
 }
 
 void *publish(Family family, const utmp &record) {
+  current_family = family;
   if (family == Family::UTMP) {
     inline_memcpy(&utmp_result, &record, sizeof(record));
     return &utmp_result;
@@ -272,10 +274,15 @@ void *publish(Family family, const utmp &record) {
   return &utmpx_result;
 }
 
-// Search includes the last returned record, then proceeds forward. Re-read
-// that record under the file lock instead of trusting a stale cached value.
+// Clearing the last published record makes a search start at the next slot.
+// Consult its publishing family, not the other family's older result. EMPTY
+// cannot match either search, so its type suffices to recognize clearing.
+// Otherwise re-read the current slot under the file lock, including for put's
+// implicit search; caller-modified cached data is not an on-disk match.
 int find(const utmp &key, Search search, utmp &record, off_t &offset) {
-  offset = current_valid ? current_offset : next_offset;
+  short current_type = current_family == Family::UTMP ? utmp_result.ut_type
+                                                     : utmpx_result.ut_type;
+  offset = current_valid && current_type != EMPTY ? current_offset : next_offset;
   for (;;) {
     int status = read_record(cursor_fd, offset, record);
     if (status != 1) {
