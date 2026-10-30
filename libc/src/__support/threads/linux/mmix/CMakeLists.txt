@@ -195,6 +195,16 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     HDRS thread_entry.h
     DEPENDS .tls_h libc.include.sys_syscall
   )
+  add_object_library(
+    notification_callback
+    SRCS notification_callback.cpp
+    HDRS notification_callback.h
+    DEPENDS .resources ${mmix_scheduling_dependency}
+      libc.hdr.types.struct_sigevent libc.hdr.errno_macros
+      libc.hdr.pthread_macros libc.hdr.signal_macros
+      libc.src.__support.CPP.new libc.src.stdlib.malloc libc.src.stdlib.free
+    COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
+  )
   # Native child entry is selected only by explicit thread compositions.
   add_object_library(
     thread_start
