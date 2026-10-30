@@ -67,6 +67,28 @@ endif()
 if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.futex_utils)
   if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
     add_libc_test(
+      aio_service_registry_test
+      SUITE libc-support-threads-tests
+      SRCS aio_service_registry_test.cpp
+      DEPENDS libc.src.__support.OSUtil.linux.aio_engine
+        libc.src.__support.OSUtil.linux.aio_wait_event
+        libc.src.__support.threads.aio_suspend_observers
+        libc.src.__support.threads.aio_storage
+        libc.src.__support.threads.raw_mutex
+        libc.src.__support.OSUtil.osutil libc.hdr.signal_macros
+        libc.hdr.func.aligned_alloc libc.hdr.func.free
+    )
+    add_libc_test(
+      aio_suspend_registration_test
+      SUITE libc-support-threads-tests
+      SRCS aio_suspend_registration_test.cpp
+      DEPENDS libc.src.__support.OSUtil.linux.aio_wait_event
+        libc.src.__support.threads.aio_suspend_observers
+        libc.src.__support.threads.raw_mutex
+        libc.src.__support.OSUtil.osutil libc.hdr.signal_macros
+        libc.src.__support.CPP.new
+    )
+    add_libc_test(
       aio_gate_test
       SUITE libc-support-threads-tests
       SRCS aio_gate_test.cpp

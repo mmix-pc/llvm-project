@@ -221,6 +221,21 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     DEPENDS libc.hdr.signal_macros libc.src.__support.OSUtil.osutil
       libc.src.__support.threads.raw_mutex
   )
+  add_header_library(
+    aio_suspend_registration
+    HDRS aio_suspend_registration.h
+      ${LIBC_SOURCE_DIR}/src/setjmp/mmix/linux/jump_cleanup_stack.h
+    DEPENDS .aio_gate libc.src.__support.CPP.new
+      libc.src.__support.OSUtil.linux.aio_wait_event
+      libc.src.__support.threads.aio_suspend_observers
+  )
+  add_header_library(
+    aio_service_registry
+    HDRS aio_service_registry.h
+    DEPENDS .aio_gate .aio_notification .aio_suspend_registration
+      libc.src.__support.OSUtil.linux.aio_engine
+      libc.src.__support.threads.aio_storage
+  )
   add_object_library(
     notification_mq
     SRCS notification_mq.cpp
