@@ -54,6 +54,22 @@ struct ThreadMapping {
   size_t size = 0;
 };
 
+// Internal resource ownership, never an application callback. Preparation
+// acquires a separate reference; reclamation releases it after all mappings.
+// Both hooks return positive errno on failure without consuming ownership.
+// Context storage must outlive the thread's control, stack and TLS; hooks must
+// be resident runtime code, synchronize shared ownership, and never unwind,
+// cancel or invoke user code. A copied resource descriptor is not a new owner.
+struct ThreadResourceOwner {
+  void *context = nullptr;
+  long (*retain)(void *) = nullptr;
+  long (*release)(void *) = nullptr;
+
+  bool valid() const {
+    return context ? retain && release : !retain && !release;
+  }
+};
+
 class ThreadRegistry;
 class ThreadRegistryLock;
 struct CancellationPoint;
@@ -71,6 +87,7 @@ struct ThreadControl {
   void *argument = nullptr;
   uint64_t saved_signal_mask = 0;
   ThreadMapping control_mapping, stack_mapping;
+  ThreadResourceOwner resource_owner;
   TLSDescriptor tls{};
 #ifdef LIBC_MMIX_SHARED_STARTUP
   loader::ThreadTLSAllocation shared_tls{};

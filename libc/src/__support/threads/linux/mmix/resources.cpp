@@ -65,7 +65,7 @@ ThreadResources thread_resources(const ThreadControl &control) {
   if (control.retains_resources_until_process_exit())
     return {};
   ThreadResources result{control.control_mapping, control.stack_mapping,
-                         control.tls};
+                         control.tls, control.resource_owner};
 #ifdef LIBC_MMIX_SHARED_STARTUP
   result.shared_tls = control.shared_tls;
 #endif
@@ -84,7 +84,16 @@ long release_thread_resources(ThreadResources &resources) {
 #endif
   long stack = release_mapping(resources.stack);
   long control = release_mapping(resources.control);
-  return tls_error ? tls_error : stack ? stack : control;
+  long error = tls_error ? tls_error : stack ? stack : control;
+  // Keep callback code and its envelope alive through TLS/resource teardown.
+  // On partial failure the owner travels with the retained descriptors, even
+  // if the control mapping itself has already been released.
+  if (!error && resources.owner.context) {
+    error = resources.owner.release(resources.owner.context);
+    if (!error)
+      resources.owner = {};
+  }
+  return error;
 }
 
 static ThreadPreparationResult rollback(ThreadPrepareError error, long syscall,
@@ -97,7 +106,8 @@ static ThreadPreparationResult rollback(ThreadPrepareError error, long syscall,
 ThreadPreparationResult prepare_thread(const ThreadPreparation &request,
                                        ThreadControl *&output) {
   const ThreadPreparation input = request;
-  if (input.page_size != PAGE_SIZE || input.stack_size < PTHREAD_STACK_MIN ||
+  if (!input.resource_owner.valid() || input.page_size != PAGE_SIZE ||
+      input.stack_size < PTHREAD_STACK_MIN ||
       (input.style != ThreadStyle::POSIX && input.style != ThreadStyle::STDC) ||
       (input.style == ThreadStyle::POSIX ? !input.runner.posix_runner
                                          : !input.runner.stdc_runner))
@@ -184,6 +194,15 @@ ThreadPreparationResult prepare_thread(const ThreadPreparation &request,
     return result;
   }
 #endif
+
+  if (input.resource_owner.context) {
+    long retain_error = input.resource_owner.retain(input.resource_owner.context);
+    if (retain_error)
+      return rollback(ThreadPrepareError::OwnerRetainFailed, retain_error,
+                      resources);
+    resources.owner = input.resource_owner;
+    control->resource_owner = input.resource_owner;
+  }
 
   control->runner = input.runner;
   control->argument = input.argument;

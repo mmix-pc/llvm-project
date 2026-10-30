@@ -193,7 +193,7 @@ static void no_mappings() {
   for (auto m : mappings) require(!m.live);
 }
 static bool empty(const ThreadResources &r) {
-  return !r.control.size && !r.stack.size && !r.tls.size;
+  return !r.owns_mappings();
 }
 static ThreadPreparationResult failure(ThreadPreparation &input, ThreadPrepareError error) {
   ThreadControl sentinel;
@@ -367,6 +367,101 @@ static void faults(bool supplied) {
     no_mappings(); untouched();
   }
 }
+struct Owner {
+  unsigned references = 1, retains = 0, releases = 0;
+  long retain_error = 0, release_error = 0;
+};
+static long retain_owner(void *p) {
+  auto &owner = *static_cast<Owner *>(p);
+  ++owner.retains;
+  if (owner.retain_error) return owner.retain_error;
+  ++owner.references;
+  return 0;
+}
+static long release_owner(void *p) {
+  auto &owner = *static_cast<Owner *>(p);
+  no_mappings();
+  require(owner.references == 2);
+  ++owner.releases;
+  if (owner.release_error) return owner.release_error;
+  --owner.references;
+  return 0;
+}
+static void resource_owner() {
+  // Caller storage is borrowed; invalid attributes and early failures never
+  // acquire it. A failure of retain rolls back the already prepared mappings.
+  for (unsigned mode = 0; mode != 4; ++mode) {
+    reset();
+    Owner owner;
+    auto input = request();
+    input.resource_owner = {&owner, retain_owner, release_owner};
+    if (mode == 0) input.resource_owner.release = nullptr;
+    if (mode == 1) input.stack_size = 0;
+    if (mode == 2) fail_map = 1;
+    if (mode == 3) owner.retain_error = 12;
+    auto expected = mode < 2 ? ThreadPrepareError::InvalidAttributes :
+        mode == 2 ? ThreadPrepareError::ControlMapFailed : ThreadPrepareError::OwnerRetainFailed;
+    auto result = failure(input, expected);
+    require(owner.references == 1 && owner.releases == 0);
+    require(owner.retains == (mode == 3 ? 1u : 0u));
+    require(empty(result.retained));
+    no_mappings();
+  }
+  // Keep the owner through any failed unmap, including when the control is
+  // gone. Only the exclusive local descriptor is used on the retry path.
+  for (unsigned mask = 0; mask != 8; ++mask) {
+    reset();
+    Owner owner;
+    auto input = request();
+    input.resource_owner = {&owner, retain_owner, release_owner};
+    ThreadControl *control = nullptr;
+    require(prepare_thread(input, control).error == ThreadPrepareError::None);
+    require(owner.references == 2 && owner.retains == 1);
+    auto resources = thread_resources(*control);
+    input = {};
+    fail_unmap_mask = mask;
+    require(release_thread_resources(resources) == (mask ? 5 : 0));
+    if (mask) {
+      require(owner.references == 2 && owner.releases == 0);
+      require(resources.owner.context == &owner && resources.owns_mappings());
+      fail_unmap_mask = 0;
+      require(!release_thread_resources(resources));
+    }
+    require(empty(resources) && owner.references == 1 && owner.releases == 1);
+    require(!release_thread_resources(resources) && owner.releases == 1);
+  }
+  // A failed retain never creates ownership, including when its independent
+  // mapping rollback fails and must be retained by the caller.
+  reset();
+  {
+    Owner owner;
+    owner.retain_error = 12;
+    fail_unmap_mask = 7;
+    auto input = request();
+    input.resource_owner = {&owner, retain_owner, release_owner};
+    auto result = failure(input, ThreadPrepareError::OwnerRetainFailed);
+    require(result.syscall_error == 12 && result.rollback_error == 5);
+    require(result.retained.owns_mappings() && !result.retained.owner.context);
+    require(owner.references == 1 && owner.retains == 1 && !owner.releases);
+    fail_unmap_mask = 0;
+    require(!release_thread_resources(result.retained));
+    require(owner.references == 1 && !owner.releases);
+  }
+  reset();
+  Owner owner;
+  auto input = request();
+  input.resource_owner = {&owner, retain_owner, release_owner};
+  ThreadControl *control = nullptr;
+  require(prepare_thread(input, control).error == ThreadPrepareError::None);
+  auto resources = thread_resources(*control);
+  owner.release_error = 5;
+  require(release_thread_resources(resources) == 5);
+  require(!resources.control.size && !resources.stack.size && !resources.tls.size);
+  require(resources.owns_mappings() && owner.references == 2 && owner.releases == 1);
+  owner.release_error = 0;
+  require(!release_thread_resources(resources) && empty(resources));
+  require(owner.references == 1 && owner.releases == 2);
+}
 extern "C" int main() {
   {
     ThreadRegistry registry;
@@ -386,5 +481,6 @@ extern "C" int main() {
   for (unsigned tls = 0; tls != 4; ++tls) success(true, 0, tls);
   faults(false);
   faults(true);
+  resource_owner();
   return 0;
 }

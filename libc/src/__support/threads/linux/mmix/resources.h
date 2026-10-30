@@ -30,6 +30,9 @@ struct ThreadPreparation {
   uint64_t saved_signal_mask = 0;
   TLSImage image{};
   uintptr_t page_size = 8192;
+  // Borrowed through prepare_thread; successful preparation retains its own
+  // reference. Caller ownership is unchanged on every return path.
+  ThreadResourceOwner resource_owner;
 };
 
 // A standalone owner survives control unmapping, including partial rollback.
@@ -37,11 +40,12 @@ struct ThreadPreparation {
 struct ThreadResources {
   ThreadMapping control, stack;
   TLSDescriptor tls;
+  ThreadResourceOwner owner;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   loader::ThreadTLSAllocation shared_tls{};
 #endif
   bool owns_mappings() const {
-    bool owned = control.size || stack.size || tls.size;
+    bool owned = control.size || stack.size || tls.size || owner.context;
 #ifdef LIBC_MMIX_SHARED_STARTUP
     owned |= shared_tls.tls_mapping_size || shared_tls.dtv_mapping_size ||
              shared_tls.runtime_owner;
@@ -59,7 +63,8 @@ enum class ThreadPrepareError {
   StackMapFailed,
   InvalidMapping,
   ProtectFailed,
-  TLSFailed
+  TLSFailed,
+  OwnerRetainFailed
 };
 
 struct ThreadPreparationResult {

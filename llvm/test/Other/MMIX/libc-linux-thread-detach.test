@@ -81,6 +81,23 @@ static unsigned mode,maps,unmaps,shared_waits,event_waits;
 static ThreadControl main_control,*records[2];
 static cpp::Atomic<unsigned> actors{0},finished{0},winners{0};
 static bool join_won;
+struct Owner { unsigned references = 1, releases = 0, first = 0, count = 0; } owners[2];
+static long retain_owner(void *p) {
+  auto &owner = *static_cast<Owner *>(p);
+  require(owner.references == 1);
+  ++owner.references;
+  return 0;
+}
+static long release_owner(void *p) {
+  auto &owner = *static_cast<Owner *>(p);
+  require(owner.references == 1 && !owner.releases);
+  for (unsigned i = owner.first; i != owner.first + owner.count; ++i)
+    require(freed[i]);
+  { ThreadRegistryLock lock(thread_registry); }
+  --owner.references;
+  ++owner.releases;
+  return 0;
+}
 struct Done {};
 static void *runner(void *p) { return p; }
 static void complete(ThreadControl &c) {
@@ -159,8 +176,13 @@ extern "C" int main(int argc,char **argv) {
   internal::self.attrib=&main_control.attributes;
   for(unsigned i=0;i<(two?2:1);++i) {
     ThreadPreparation r; r.runner.posix_runner=runner;
+    owners[i].first = maps;
+    r.resource_owner = {&owners[i], retain_owner, release_owner};
     if(mode==14) { r.stack=supplied; r.guard_size=0; }
     require(prepare_thread(r,records[i]).error==ThreadPrepareError::None);
+    owners[i].count = maps - owners[i].first;
+    require(owners[i].references == 2);
+    --owners[i].references; // Thread now owns the final callback record reference.
     ThreadRegistryLock lock(thread_registry);
     require(lock.reserve() && lock.insert(*records[i],mode==2) && lock.start(*records[i]));
     if(!(mode==7 && i==0)) require(lock.drop_creator(*records[i]));
@@ -200,6 +222,8 @@ extern "C" int main(int argc,char **argv) {
     bool progress=reap_detached_pass();
     if(delayed || mode==7) {
       require(progress==two && unmaps==(two?3:0));
+      require(owners[0].references == 1 && owners[0].releases == 0);
+      if (two) require(owners[1].references == 0 && owners[1].releases == 1);
       { ThreadRegistryLock lock(thread_registry);
         require(lock.queued_reclaims()==1);
         if(mode==17) require(before==lock.sequence());
@@ -209,6 +233,8 @@ extern "C" int main(int argc,char **argv) {
     } else require(progress);
   }
   require(!fatal && unmaps==maps);
+  for (unsigned i = 0; i != (two ? 2u : 1u); ++i)
+    require(owners[i].references == 0 && owners[i].releases == 1);
   require(!reap_detached_pass());
   { ThreadRegistryLock lock(thread_registry); require(!lock.queued_reclaims()); }
   if (mode == 0) {

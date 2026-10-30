@@ -98,9 +98,23 @@ static ThreadControl *control;
 static ThreadControl main_control;
 static unsigned mode, maps, unmaps, shared_waits, private_waits, wakes;
 static bool reclaiming;
+static unsigned owner_references = 1, owner_releases;
 static uintptr_t bases[3];
 static size_t sizes[3];
 static void *runner(void *p) { return p; }
+static long retain_owner(void *p) {
+  require(p == &owner_references && owner_references == 1);
+  ++owner_references;
+  return 0;
+}
+static long release_owner(void *p) {
+  require(p == &owner_references && owner_references == 2);
+  require(reclaiming && unmaps == maps);
+  { ThreadRegistryLock lock(thread_registry); }
+  --owner_references;
+  ++owner_releases;
+  return 0;
+}
 extern "C" long __llvm_libc_mmix_clone_thread(unsigned long, uintptr_t,
     uint32_t *parent, uint32_t *clear, uintptr_t) {
   require(mode == 15 || mode == 16);
@@ -137,6 +151,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
       ++wakes; return 0;
     }
     require(!unmaps && e == 0 && f == FUTEX_BITSET_MATCH_ANY);
+    require(owner_references == 2 && owner_releases == 0);
     auto *ts = reinterpret_cast<timespec *>(d);
     require(ts && ts->tv_sec == 11 && ts->tv_nsec == 0);
     if (b == FUTEX_WAIT_BITSET) {
@@ -166,6 +181,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
   }
   if (n == SYS_munmap) {
     require(reclaiming && unmaps < maps);
+    require(owner_references == 2 && owner_releases == 0);
     // Actual resource implementation must release TLS, owned stack, then control.
     unsigned i = maps - 1 - unmaps++;
     require(uintptr_t(a) == bases[i] && size_t(b) == sizes[i]);
@@ -187,6 +203,7 @@ extern "C" int main(int argc, char **argv) {
   for (const char *p = argv[1]; *p; ++p) mode = mode*10 + *p-'0';
   ThreadPreparation request;
   request.runner.posix_runner = runner;
+  request.resource_owner = {&owner_references, retain_owner, release_owner};
   if (mode >= 15) {
     { ThreadRegistryLock lock(thread_registry);
       main_control.attributes.tid = 1;
@@ -196,6 +213,7 @@ extern "C" int main(int argc, char **argv) {
     auto result = create_thread(request, out);
     require(result.error == (mode == 15 ? -ENOMEM : -EAGAIN));
     require(out == &main_control.attributes && unmaps == maps && maps == 3);
+    require(owner_references == 1 && owner_releases == 1);
     ThreadRegistryLock lock(thread_registry);
     require(!lock.pending_creations() && lock.live_threads() == 1);
     return 0;
@@ -241,6 +259,9 @@ extern "C" int main(int argc, char **argv) {
     long error = reclaim_thread(*control, owner, retained);
     require(!fatal);
     require(error == ((mode >= 5 && mode <= 8) ? EINVAL : 0));
+    require(owner_references == (error ? 2u : 1u));
+    require(owner_releases == (error ? 0u : 1u));
+    require(bool(retained.owner.context) == bool(error));
     require(bool(retained.tls.size) == (mode == 5 || mode == 8));
     require(bool(retained.stack.size) == (mode == 6 || mode == 8));
     require(bool(retained.control.size) == (mode == 7 || mode == 8));
