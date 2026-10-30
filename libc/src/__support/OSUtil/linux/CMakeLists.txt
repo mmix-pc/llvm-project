@@ -10,6 +10,23 @@ endif()
 add_subdirectory(syscall_wrappers)
 add_subdirectory(stat)
 
+add_header_library(
+  io_uring
+  HDRS io_uring.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fcntl_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.sys_mman_macros
+    libc.hdr.types.off_t
+    libc.include.sys_syscall
+    libc.src.__support.CPP.atomic
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.OSUtil.linux.syscall_wrappers.mmap
+    libc.src.__support.error_or
+    libc.src.__support.macros.config
+)
+
 set(secure_execution_source secure_execution.cpp)
 set(secure_execution_deps .auxv)
 if(LIBC_TARGET_ARCHITECTURE_IS_MMIX)

@@ -3,6 +3,15 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_ARCHITECTURE})
 endif()
 
 add_libc_test(
+  io_uring_test
+  SUITE libc-osutil-tests
+  SRCS io_uring_test.cpp
+  DEPENDS
+    libc.src.__support.OSUtil.linux.io_uring
+    libc.src.errno.errno
+)
+
+add_libc_test(
   stat_via_statx_test
   SUITE libc-osutil-tests
   SRCS stat_via_statx_test.cpp
