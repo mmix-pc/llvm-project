@@ -92,3 +92,31 @@ add_libc_test(
     libc.src.stdio.remove
     libc.src.string.string_utils
 )
+
+add_libc_test(
+  getpwent_failure_test
+  SUITE libc_pwd_unittests
+  SRCS
+    getpwent_failure_test.cpp
+    ${LIBC_SOURCE_DIR}/src/pwd/getpwent.cpp
+    ${LIBC_SOURCE_DIR}/src/pwd/setpwent.cpp
+    ${LIBC_SOURCE_DIR}/src/pwd/endpwent.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.func.free
+    libc.hdr.func.malloc
+    libc.hdr.func.realloc
+    libc.hdr.stdio_macros
+    libc.hdr.types.struct_passwd
+    libc.src.__support.CPP.functional
+    libc.src.__support.File.account_database
+    libc.src.__support.File.file
+    libc.src.__support.char_vector
+    libc.src.__support.common
+    libc.src.__support.ctype_utils
+    libc.src.__support.libc_errno
+    libc.src.__support.str_to_integer
+    libc.src.pwd.field_tokenizer
+    libc.src.string.memory_utils.inline_memcpy
+    libc.src.string.string_utils
+)

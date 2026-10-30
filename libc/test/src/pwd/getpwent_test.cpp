@@ -35,24 +35,70 @@ class HermeticFile {
   char path[256];
 
 public:
-  HermeticFile(const char *file_path, const char *content) {
+  HermeticFile(const char *file_path, const char *content, size_t length)
+      : path{} {
     LIBC_NAMESPACE::internal::strlcpy(path, file_path, sizeof(path));
 
     auto file_or = LIBC_NAMESPACE::openfile(path, "w");
     if (file_or.has_value()) {
       auto *f = file_or.value();
-      size_t len = LIBC_NAMESPACE::internal::string_length(content);
-      f->write(content, len);
+      f->write(content, length);
       f->close();
     }
   }
 
-  ~HermeticFile() { LIBC_NAMESPACE::remove(path); }
+  HermeticFile(const char *file_path, const char *content)
+      : HermeticFile(file_path, content,
+                     LIBC_NAMESPACE::internal::string_length(content)) {}
+
+  ~HermeticFile() {
+    LIBC_NAMESPACE::endpwent();
+    LIBC_NAMESPACE::remove(path);
+  }
 
   const char *get_path() const { return path; }
 };
 
-class LlvmLibcPwdTest : public LIBC_NAMESPACE::testing::ErrnoCheckingTest {};
+class LlvmLibcPwdTest : public LIBC_NAMESPACE::testing::ErrnoCheckingTest {
+protected:
+  void checkLongRecord(size_t length, bool newline) {
+    constexpr char prefix[] = "long:x:42:43:";
+    constexpr char suffix[] = ":/home/long:/bin/sh";
+    char content[8192];
+    ASSERT_LT(length + 1, sizeof(content));
+    size_t pos = 0;
+    for (size_t i = 0; i < sizeof(prefix) - 1; ++i)
+      content[pos++] = prefix[i];
+    size_t gecos_length = length - (sizeof(prefix) - 1) - (sizeof(suffix) - 1);
+    for (size_t i = 0; i < gecos_length; ++i)
+      content[pos++] = 'g';
+    for (size_t i = 0; i < sizeof(suffix) - 1; ++i)
+      content[pos++] = suffix[i];
+    ASSERT_EQ(pos, length);
+    if (newline)
+      content[pos++] = '\n';
+    HermeticFile test_file(libc_make_test_file_path("getpwent_long.test"),
+                           content, pos);
+    LIBC_NAMESPACE::passwd::TESTONLY_set_passwd_path(test_file.get_path());
+    libc_errno = EDOM;
+    auto *entry = LIBC_NAMESPACE::getpwent();
+    ASSERT_NE(entry, static_cast<struct passwd *>(nullptr));
+    EXPECT_STREQ(entry->pw_name, "long");
+    EXPECT_STREQ(entry->pw_passwd, "x");
+    EXPECT_EQ(entry->pw_uid, uid_t(42));
+    EXPECT_EQ(entry->pw_gid, gid_t(43));
+    EXPECT_EQ(LIBC_NAMESPACE::internal::string_length(entry->pw_gecos),
+              gecos_length);
+    for (size_t i = 0; i < gecos_length; ++i)
+      ASSERT_EQ(entry->pw_gecos[i], 'g');
+    EXPECT_STREQ(entry->pw_dir, "/home/long");
+    EXPECT_STREQ(entry->pw_shell, "/bin/sh");
+    ASSERT_ERRNO_EQ(EDOM);
+    EXPECT_EQ(LIBC_NAMESPACE::getpwent(),
+              static_cast<struct passwd *>(nullptr));
+    ASSERT_ERRNO_SUCCESS();
+  }
+};
 
 } // namespace
 
@@ -81,7 +127,7 @@ TEST_F(LlvmLibcPwdTest, GetPwentTestSuccess) {
   LIBC_NAMESPACE::endpwent();
 }
 
-TEST_F(LlvmLibcPwdTest, GetPwentTestFailure) {
+TEST_F(LlvmLibcPwdTest, MalformedOnlyReachesEof) {
   const char *content = "invalid_line_without_enough_fields\n";
   HermeticFile test_file(libc_make_test_file_path("getpwent_fail.test"),
                          content);
@@ -89,11 +135,98 @@ TEST_F(LlvmLibcPwdTest, GetPwentTestFailure) {
   LIBC_NAMESPACE::passwd::TESTONLY_set_passwd_path(test_file.get_path());
   LIBC_NAMESPACE::setpwent();
 
+  libc_errno = EDOM;
   struct passwd *pwd = LIBC_NAMESPACE::getpwent();
   ASSERT_TRUE(pwd == nullptr);
-  ASSERT_ERRNO_EQ(EINVAL);
+  ASSERT_ERRNO_EQ(EDOM);
 
   LIBC_NAMESPACE::endpwent();
+}
+
+TEST_F(LlvmLibcPwdTest, BlankPrefixDoesNotMeanEof) {
+  HermeticFile test_file(libc_make_test_file_path("getpwent_blank.test"),
+                         "\n\nroot:x:0:0:root:/root:/bin/sh\n");
+  LIBC_NAMESPACE::passwd::TESTONLY_set_passwd_path(test_file.get_path());
+  libc_errno = EDOM;
+  auto *entry = LIBC_NAMESPACE::getpwent();
+  ASSERT_NE(entry, static_cast<struct passwd *>(nullptr));
+  EXPECT_STREQ(entry->pw_name, "root");
+  ASSERT_ERRNO_EQ(EDOM);
+  EXPECT_EQ(LIBC_NAMESPACE::getpwent(), static_cast<struct passwd *>(nullptr));
+  ASSERT_ERRNO_SUCCESS();
+}
+
+TEST_F(LlvmLibcPwdTest, SkipsInvalidRecordsBeforeValidFinalLine) {
+  constexpr char content[] = "#comment:x:1:1:comment:/:/bin/sh\n"
+                             "malformed\n"
+                             "baduid:x:-1:2:bad:/:/bin/sh\n"
+                             "badgid:x:1:2z:bad:/:/bin/sh\n"
+                             "extra:x:1:2:bad:/:/bin/sh:extra\n"
+                             "nul:x:1:2:bad:/:/bin/sh\0hidden\n"
+                             "\nvalid:x:123:456:Valid:/home/valid:/bin/sh";
+  HermeticFile test_file(libc_make_test_file_path("getpwent_skip.test"),
+                         content, sizeof(content) - 1);
+  LIBC_NAMESPACE::passwd::TESTONLY_set_passwd_path(test_file.get_path());
+  libc_errno = EDOM;
+  auto *entry = LIBC_NAMESPACE::getpwent();
+  ASSERT_NE(entry, static_cast<struct passwd *>(nullptr));
+  EXPECT_STREQ(entry->pw_name, "valid");
+  EXPECT_EQ(entry->pw_uid, uid_t(123));
+  EXPECT_EQ(entry->pw_gid, gid_t(456));
+  EXPECT_STREQ(entry->pw_shell, "/bin/sh");
+  EXPECT_EQ(LIBC_NAMESPACE::getpwent(), static_cast<struct passwd *>(nullptr));
+  EXPECT_EQ(LIBC_NAMESPACE::getpwent(), static_cast<struct passwd *>(nullptr));
+  ASSERT_ERRNO_EQ(EDOM);
+}
+
+TEST_F(LlvmLibcPwdTest, BlankAndInvalidTailReachesEof) {
+  HermeticFile test_file(libc_make_test_file_path("getpwent_tail.test"),
+                         "root:x:0:0:root:/root:/bin/sh\n\n#comment\ninvalid");
+  LIBC_NAMESPACE::passwd::TESTONLY_set_passwd_path(test_file.get_path());
+  ASSERT_NE(LIBC_NAMESPACE::getpwent(), static_cast<struct passwd *>(nullptr));
+  libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::getpwent(), static_cast<struct passwd *>(nullptr));
+  ASSERT_ERRNO_EQ(EDOM);
+}
+
+TEST_F(LlvmLibcPwdTest, EmptyFileReachesEof) {
+  HermeticFile test_file(libc_make_test_file_path("getpwent_empty.test"), "");
+  LIBC_NAMESPACE::passwd::TESTONLY_set_passwd_path(test_file.get_path());
+  libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::getpwent(), static_cast<struct passwd *>(nullptr));
+  EXPECT_EQ(LIBC_NAMESPACE::getpwent(), static_cast<struct passwd *>(nullptr));
+  ASSERT_ERRNO_EQ(EDOM);
+}
+
+TEST_F(LlvmLibcPwdTest, LongRecordsAndOldBufferBoundary) {
+  constexpr size_t lengths[] = {1022, 1023, 1024, 4096};
+  for (size_t length : lengths) {
+    checkLongRecord(length, true);
+    checkLongRecord(length, false);
+  }
+}
+
+TEST_F(LlvmLibcPwdTest, ResetAndCloseRetainBorrowedResult) {
+  HermeticFile test_file(libc_make_test_file_path("getpwent_lifetime.test"),
+                         "root:x:0:0:root:/root:/bin/sh\n");
+  LIBC_NAMESPACE::passwd::TESTONLY_set_passwd_path(test_file.get_path());
+  auto *entry = LIBC_NAMESPACE::getpwent();
+  ASSERT_NE(entry, static_cast<struct passwd *>(nullptr));
+  char *name = entry->pw_name;
+  char *shell = entry->pw_shell;
+  libc_errno = EDOM;
+  LIBC_NAMESPACE::setpwent();
+  EXPECT_EQ(entry->pw_name, name);
+  EXPECT_STREQ(name, "root");
+  EXPECT_STREQ(shell, "/bin/sh");
+  LIBC_NAMESPACE::endpwent();
+  LIBC_NAMESPACE::endpwent();
+  EXPECT_EQ(entry->pw_shell, shell);
+  EXPECT_STREQ(name, "root");
+  EXPECT_STREQ(shell, "/bin/sh");
+  ASSERT_ERRNO_EQ(EDOM);
+  ASSERT_EQ(LIBC_NAMESPACE::getpwent(), entry);
+  EXPECT_STREQ(entry->pw_name, "root");
 }
 
 TEST_F(LlvmLibcPwdTest, SetPwentTestHermetic) {

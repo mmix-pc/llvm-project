@@ -98,13 +98,16 @@ namespace passwd {
 // Overrides the default password file path for testing purposes.
 void TESTONLY_set_passwd_path(const char *path);
 
-// Opens or rewinds the password file.
+// Opens or rewinds the password file without invalidating borrowed results.
 ErrorOr<void> open();
 
-// Closes the password file.
+// Detaches and closes the password file, retaining borrowed result storage.
 ErrorOr<void> close();
 
-// Reads the next entry from the password database.
+// Reads the next valid local record, skipping blank, comment, malformed and
+// embedded-NUL lines. Storage grows as needed; EOF is a successful null result.
+// Errors rewind the record when possible. Otherwise an incomplete record is
+// discarded before the next read, rather than returning its suffix as an entry.
 ErrorOr<struct passwd *> read_next();
 
 } // namespace passwd
