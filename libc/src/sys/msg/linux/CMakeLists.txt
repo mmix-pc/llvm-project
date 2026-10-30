@@ -1,3 +1,11 @@
+foreach(name msgsnd msgrcv)
+  set(${name}_source ${name}.cpp)
+endforeach()
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
+  mmix_select_cancellation_points(msgsnd msgrcv)
+endif()
+
 add_entrypoint_object(
   msgget
   SRCS
@@ -15,7 +23,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   msgsnd
   SRCS
-    msgsnd.cpp
+    ${msgsnd_source}
   HDRS
     ../msgsnd.h
   DEPENDS
@@ -24,12 +32,14 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.__support.common
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   msgrcv
   SRCS
-    msgrcv.cpp
+    ${msgrcv_source}
   HDRS
     ../msgrcv.h
   DEPENDS
@@ -40,6 +50,8 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.__support.common
     libc.src.errno.errno
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
