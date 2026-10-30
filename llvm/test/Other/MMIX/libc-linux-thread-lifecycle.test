@@ -244,11 +244,37 @@ static void main_registration() {
   require(lock.acquire_lease(main) && lock.release_lease(main));
   require(lock.claim_join(main) && lock.begin_cleanup(main));
   require(lock.close_leases(main) && lock.exit_ready(main, 0));
+  require(!lock.begin_reaping(main));
   main.clear_tid.value.store(0);
-  // Even a terminal proof must not transfer static main storage to a worker
-  // reclaimer. Main pthread_exit integration is a separate lifecycle boundary.
-  require(!lock.begin_reaping(main) && !lock.finish_reaping(main));
+  require(lock.begin_reaping(main) && !lock.finish_reaping(main));
+  require(!lock.pin(&main.attributes));
   require(lock.unpin(main) && !lock.live_threads());
+  require(lock.finish_reaping(main) && !lock.finish_reaping(main));
+  require(main.retains_resources_until_process_exit());
+}
+
+static void detached_main() {
+  for (unsigned detach_late = 0; detach_late != 2; ++detach_late) {
+    ThreadRegistry registry;
+    ThreadControl main;
+    main.attributes.tid = 321;
+    event_address = 0;
+    ThreadRegistryLock lock(registry);
+    require(lock.register_main(main) && lock.pin(&main.attributes) == &main);
+    if (!detach_late) require(lock.detach(main));
+    require(lock.begin_cleanup(main) && lock.close_leases(main));
+    require(lock.exit_ready(main, 17));
+    if (detach_late) require(lock.detach(main));
+    require(lock.queued_reclaims() == 1 && !lock.begin_reaping(main));
+    require(!lock.claim_join(main) && !lock.detach(main));
+    require(lock.take_reap_candidate() == &main);
+    require(lock.requeue_candidate(main));
+    main.clear_tid.value.store(0);
+    require(lock.begin_reaping(main) && !lock.queued_reclaims());
+    require(!lock.pin(&main.attributes) && !lock.finish_reaping(main));
+    require(lock.unpin(main) && lock.finish_reaping(main));
+    require(main.retains_resources_until_process_exit());
+  }
 }
 
 // Enumerate the model's independent creator/reader drops around terminal clear
@@ -382,6 +408,7 @@ extern "C" int main() {
   layout_and_publication();
   ownership();
   main_registration();
+  detached_main();
   // History alone neither proves nor disproves a recoverable snapshot. The
   // bootstrap must drain the helper, and registry ownership must agree.
   for (unsigned detached = 0; detached != 2; ++detached) {

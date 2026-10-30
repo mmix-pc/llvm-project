@@ -16,8 +16,7 @@ int detach_thread(ThreadAttributes *handle) {
   ThreadControl *control = lock.pin(handle);
   if (!control)
     return ESRCH;
-  int error = control->retains_resources_until_process_exit() ? ENOTSUP
-              : lock.detach(*control) ? 0 : EINVAL;
+  int error = lock.detach(*control) ? 0 : EINVAL;
   if (!lock.unpin(*control))
     __builtin_trap();
   return error;

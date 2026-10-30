@@ -350,7 +350,7 @@ bool ThreadRegistryLock::close_leases(ThreadControl &c) {
 }
 
 bool ThreadRegistryLock::begin_reaping(ThreadControl &c) {
-  if (!belongs(c) || c.process_lifetime || c.leases_open || c.leases ||
+  if (!belongs(c) || c.leases_open || c.leases ||
       c.clear_tid.value.load(cpp::MemoryOrder::ACQUIRE) != 0)
     return false;
   if (c.owner != ThreadOwner::AbortOwner &&
@@ -400,7 +400,7 @@ bool ThreadRegistryLock::finish_reaping(ThreadControl &c) {
 void ThreadRegistryLock::enqueue_completed(ThreadControl &c) {
   if (c.owner != ThreadOwner::Detached ||
       c.execution != ThreadExecution::ExitReady || c.queued ||
-      c.process_lifetime || c.internal_helper)
+      c.internal_helper)
     return;
   if (!requeue_candidate(c))
     __builtin_trap();
@@ -408,7 +408,7 @@ void ThreadRegistryLock::enqueue_completed(ThreadControl &c) {
 }
 
 bool ThreadRegistryLock::requeue_candidate(ThreadControl &c) {
-  if (!belongs(c) || c.queued || c.process_lifetime || c.internal_helper ||
+  if (!belongs(c) || c.queued || c.internal_helper ||
       c.execution != ThreadExecution::ExitReady ||
       (c.owner != ThreadOwner::Detached && c.owner != ThreadOwner::Reaping))
     return false;

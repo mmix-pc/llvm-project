@@ -174,7 +174,22 @@ extern "C" int main(int argc, char **argv) {
   if (mode == 5) { main_control.attributes.joiner.store(handle); expected = EDEADLK; }
   if (mode == 6) { handle = reinterpret_cast<ThreadAttributes *>(1); expected = ESRCH; }
   if (mode == 7) expected = EINVAL;
-  if (mode == 12) { internal::self.attrib = handle; handle = &main_control.attributes; expected = ENOTSUP; }
+  if (mode == 12) {
+    internal::self.attrib = handle;
+    handle = &main_control.attributes;
+    main_control.attributes.style = ThreadStyle::POSIX;
+    ThreadJoinClaim abandoned;
+    require(claim_thread_join(handle, abandoned) == 0);
+    abandon_thread_join(abandoned);
+    {
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.begin_cleanup(main_control));
+      require(lock.close_leases(main_control));
+      require(lock.exit_ready(main_control,
+          ThreadReturnValue(reinterpret_cast<void *>(0xfedcba9876543210UL))));
+    }
+    main_control.clear_tid.value.store(0);
+  }
   if (mode == 13) { internal::self.attrib = nullptr; expected = EINVAL; }
   ThreadJoinClaim claim;
   if (mode == 8 || mode == 9) {
@@ -207,7 +222,12 @@ extern "C" int main(int argc, char **argv) {
       return 0;
     }
   }
-  require(!fatal && unmaps == maps);
+  require(!fatal && unmaps == (mode == 12 ? 0 : maps));
+  if (mode == 12) {
+    ThreadRegistryLock lock(thread_registry);
+    require(!lock.pin(handle) && lock.owner(main_control) == ThreadOwner::Reaped);
+    require(main_control.retains_resources_until_process_exit());
+  }
   if (mode == 1) require(output.stdc_retval == -73);
   else require(output.posix_retval == reinterpret_cast<void *>(0xfedcba9876543210UL));
   require(shared_waits == (mode == 2 ? 5 : 0));

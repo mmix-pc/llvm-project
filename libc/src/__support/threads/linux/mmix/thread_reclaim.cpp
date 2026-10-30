@@ -56,8 +56,7 @@ long reclaim_thread(ThreadControl &control, ThreadOwner owner,
     __builtin_trap();
   {
     ThreadRegistryLock lock(thread_registry);
-    if (lock.owner(control) != owner ||
-        control.retains_resources_until_process_exit())
+    if (lock.owner(control) != owner)
       __builtin_trap();
   }
   await_thread_clear(control);
@@ -68,6 +67,8 @@ long reclaim_thread(ThreadControl &control, ThreadOwner owner,
     if ((owner == ThreadOwner::AbortOwner && !lock.drop_creator(control)) ||
         (owner == ThreadOwner::JoinOwner && !lock.unpin(control)))
       __builtin_trap();
+    // Initial-thread identity is retired normally, but its borrowed storage
+    // is retained until process teardown rather than transferred for unmapping.
     retained = thread_resources(control);
   }
   for (;;) {

@@ -167,7 +167,7 @@ extern "C" int main(int argc,char **argv) {
   }
   auto *c=records[0];
   require(detach_thread(reinterpret_cast<ThreadAttributes*>(1))==ESRCH);
-  require(detach_thread(&main_control.attributes)==ENOTSUP);
+  require(detach_thread(&main_control.attributes)==0);
   if(mode==13) { concurrent(race); require(winners.load()==1);
     if(join_won) require(detach_thread(&c->attributes)==0); }
   else if(mode==16) {
@@ -211,6 +211,20 @@ extern "C" int main(int argc,char **argv) {
   require(!fatal && unmaps==maps);
   require(!reap_detached_pass());
   { ThreadRegistryLock lock(thread_registry); require(!lock.queued_reclaims()); }
+  if (mode == 0) {
+    { ThreadRegistryLock lock(thread_registry);
+      require(lock.pin(&main_control.attributes) == &main_control); }
+    complete(main_control);
+    main_control.clear_tid.value.store(0);
+    require(!reap_detached_pass()); // Outstanding API pin defers retirement.
+    { ThreadRegistryLock lock(thread_registry);
+      require(!lock.pin(&main_control.attributes));
+      require(lock.unpin(main_control)); }
+    require(reap_detached_pass() && !reap_detached_pass());
+    require(unmaps == maps && main_control.retains_resources_until_process_exit());
+    { ThreadRegistryLock lock(thread_registry);
+      require(lock.owner(main_control) == ThreadOwner::Reaped); }
+  }
   for(auto b:supplied) require(b==0);
   return 0;
 }

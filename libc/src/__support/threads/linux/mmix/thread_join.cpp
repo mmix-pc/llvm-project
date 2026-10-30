@@ -32,11 +32,7 @@ int claim_thread_join(ThreadAttributes *handle, ThreadJoinClaim &claim) {
   if (!control)
     return ESRCH;
   int error = 0;
-  // Main's static storage needs a distinct join policy; worker reclamation
-  // must not acquire it merely because main has a registry entry.
-  if (control->retains_resources_until_process_exit())
-    error = ENOTSUP;
-  else if (lock.owner(*control) != ThreadOwner::Joinable)
+  if (lock.owner(*control) != ThreadOwner::Joinable)
     error = EINVAL;
   else if (self->joiner.load(cpp::MemoryOrder::ACQUIRE) == handle)
     error = EDEADLK;
