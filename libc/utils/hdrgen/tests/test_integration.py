@@ -367,6 +367,21 @@ class TestHeaderGenIntegration(unittest.TestCase):
                         output_file, ["getpid"])
         self.assertIn("int getpid(void) __NOEXCEPT;", output_file.read_text())
 
+    def test_aio_wait_exception_specifications(self):
+        output = self.output_dir / "aio.h"
+        self.run_script(self.source_dir.parents[2] / "include/aio.yaml",
+                        output, ["aio_suspend", "lio_listio", "aio_error",
+                                 "aio_return"])
+        content = output.read_text()
+        for declaration in (
+            "int aio_suspend(const struct aiocb *const *, int, const struct timespec *);",
+            "int lio_listio(int, struct aiocb *__restrict const *__restrict, int, struct sigevent *__restrict);",
+            "int aio_error(const struct aiocb *) __NOEXCEPT;",
+            "ssize_t aio_return(struct aiocb *) __NOEXCEPT;",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, content)
+
     def test_poll_exception_specifications(self):
         output = self.output_dir / "poll.h"
         self.run_script(self.source_dir.parents[2] / "include/poll.yaml",

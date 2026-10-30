@@ -61,6 +61,7 @@ functions:
     arguments:
       - type: struct aiocb *
   - name: lio_listio
+    noexcept: false
     return_type: int
     arguments:
       - type: int
