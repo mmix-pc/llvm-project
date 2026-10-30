@@ -12,6 +12,12 @@
 #ifdef LIBC_COPT_SUPPORT_ENVIRON
 #include "src/unistd/environ.h"
 #endif
+#ifdef LIBC_TEST_ENVIRON_MODIFIERS
+#include "src/__support/libc_errno.h"
+#include "src/stdlib/putenv.h"
+#include "src/stdlib/setenv.h"
+#include "src/stdlib/unsetenv.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 #ifndef LIBC_FULL_BUILD
@@ -408,3 +414,60 @@ TEST_F(LlvmLibcEnvironmentTest, ReadsNoOpsAndClearDoNotAllocate) {
   EXPECT_EQ(current_array(), nullptr);
   EXPECT_STREQ(entry, "A=one");
 }
+
+#ifdef LIBC_TEST_ENVIRON_MODIFIERS
+TEST_F(LlvmLibcEnvironmentTest, PublicModifierAllocationErrors) {
+  for (unsigned operation = 0; operation < 3; ++operation) {
+    unsigned count = operation == 0 ? 3 : 2;
+    for (unsigned failure = 1; failure <= count; ++failure) {
+      char name[] = "A", value[] = "new", entry[] = "A=old";
+      char added[] = "B=borrowed";
+      char *replacement[] = {entry, nullptr};
+      replace_array(replacement);
+      fail_on(failure);
+      libc_errno = EDOM;
+      int result;
+      {
+        TrackAllocations track;
+        result = operation == 0 ? LIBC_NAMESPACE::setenv(name, value, 1)
+                 : operation == 1 ? LIBC_NAMESPACE::putenv(added)
+                                  : LIBC_NAMESPACE::unsetenv(name);
+      }
+      EXPECT_NE(result, 0);
+      if (operation != 1)
+        EXPECT_EQ(result, -1);
+      EXPECT_EQ(int(libc_errno), ENOMEM);
+      EXPECT_EQ(attempts, failure);
+      EXPECT_EQ(live, 0U);
+      EXPECT_EQ(current_array(), replacement);
+      EXPECT_EQ(replacement[0], entry);
+      EXPECT_EQ(replacement[1], nullptr);
+      EXPECT_STREQ(env.get("A"), "old");
+      EXPECT_EQ(env.get("B"), nullptr);
+      EXPECT_STREQ(name, "A");
+      EXPECT_STREQ(value, "new");
+      EXPECT_STREQ(added, "B=borrowed");
+      fail_on(0);
+      clear();
+    }
+  }
+}
+
+TEST_F(LlvmLibcEnvironmentTest, PublicModifierInvalidNamesPreserveState) {
+  char entry[] = "KEEP=value";
+  char *replacement[] = {entry, nullptr};
+  replace_array(replacement);
+  const char *names[] = {"", "BAD=NAME"};
+  for (const char *name : names) {
+    libc_errno = EDOM;
+    EXPECT_EQ(LIBC_NAMESPACE::setenv(name, "ignored", 1), -1);
+    EXPECT_EQ(int(libc_errno), EINVAL);
+    libc_errno = EDOM;
+    EXPECT_EQ(LIBC_NAMESPACE::unsetenv(name), -1);
+    EXPECT_EQ(int(libc_errno), EINVAL);
+    EXPECT_EQ(current_array(), replacement);
+    EXPECT_EQ(replacement[0], entry);
+    EXPECT_STREQ(env.get("KEEP"), "value");
+  }
+}
+#endif

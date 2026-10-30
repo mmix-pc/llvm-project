@@ -129,6 +129,27 @@ if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
       "-DLIBC_COPT_SUPPORT_ENVIRON" "-DLIBC_TEST_ENVIRON_STUB"
     LINK_LIBRARIES pthread
   )
+  add_libc_test(
+    environ_mutation_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS
+      environ_test.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/linux/setenv.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/linux/putenv.cpp
+      ${LIBC_SOURCE_DIR}/src/stdlib/linux/unsetenv.cpp
+    DEPENDS
+      libc.config.app_h
+      libc.src.__support.common
+      libc.src.__support.CPP.string_view
+      libc.src.__support.libc_errno
+      libc.src.__support.macros.null_check
+      .environ_public_test_support
+    COMPILE_OPTIONS
+      "-DLIBC_COPT_SUPPORT_ENVIRON" "-DLIBC_TEST_ENVIRON_STUB"
+      "-DLIBC_TEST_ENVIRON_MODIFIERS"
+    LINK_LIBRARIES "-Wl,--wrap=malloc" "-Wl,--wrap=free"
+  )
 endif()
 
 add_libc_test(
