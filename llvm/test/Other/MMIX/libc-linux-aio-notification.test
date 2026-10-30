@@ -1,0 +1,421 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: split-file %S/libc-linux-thread-create.test %t/base
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: %python %t/run.py %S/../../../../libc %t %mmix_host_cxx
+
+# Native syscall/lifecycle fault injection around the production helper and
+# callback envelope. These are model closure proofs, not actual thread execution
+# or kernel signal-delivery tests. The creator/lifecycle regressions separately
+# cover clone, registry accounting and reaping.
+# Signal queue exhaustion retains the copied event until success or teardown.
+
+#--- run.py
+import pathlib
+import shlex
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+host = shlex.split(sys.argv[3])
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+flags = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+         "-DEPROTO=71", "-DEALREADY=114", "-DFUTEX_WAIT_PRIVATE=128", "-DLIBC_NAMESPACE=aio_test",
+         "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+         "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
+         "-I", str(root / "headers"), "-I", str(root / "base/headers"),
+         "-I", str(root / "sync"), "-I", str(libc), "-I", str(libc / "include")]
+sources = [libc / "src/__support/threads/linux/mmix" / (name + ".cpp")
+           for name in ("aio_notification", "notification_callback")]
+scenarios = ("none", "signal-int", "signal-pointer", "pid-mismatch",
+             "negative-signal", "zero-signal", "out-of-range-signal",
+             "private-credentials-signal", "private-notification-signal",
+             "thread", "copy-attributes", "discard", "prepare-failure",
+             "retained-prepare-failure", "cleanup-retry", "activation-retry",
+             "allocation-failure", "null-callback", "bad-attributes",
+             "bad-page-size", "bad-notify-mode", "signal-retry",
+             "signal-retry-discard")
+for opt in ("0", "2"):
+    for source in sources:
+        obj = root / (source.stem + "-O" + opt + ".o")
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+            "-internal-isystem", resource + "/include", *flags, "-O" + opt,
+            "-emit-obj", str(source), "-o", str(obj)], check=True)
+        symbols = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+        assert all(s not in symbols for s in ("pthread_", "__emutls", "__atomic_"))
+    bridge = root / "bridge.o"
+    subprocess.run([*host, "-std=c++17", "-c", str(root / "bridge.cpp"),
+                    "-o", str(bridge)], check=True)
+    exe = root / ("host-O" + opt)
+    subprocess.run([*host, *flags, "-D__mmix__", "-O" + opt,
+        "-include", str(root / "base/transport.h"), *map(str, sources),
+        str(root / "test.cpp"), str(bridge), "-o", str(exe)], check=True)
+    for mode, name in enumerate(scenarios):
+        print(f"AIO notification model O{opt}: {name}", flush=True)
+        subprocess.run([str(exe), str(mode)], check=True, timeout=10)
+    print(f"AIO notification model: {len(scenarios)} scenarios passed at O{opt}",
+          flush=True)
+
+# Test transport constants, not an installed MMIX UAPI package.
+#--- headers/sys/syscall.h
+#define SYS_getpid 172
+#define SYS_getuid 174
+#define SYS_rt_sigqueueinfo 138
+#define SYS_futex 98
+#define SYS_write 64
+#define SYS_rt_sigprocmask 135
+#define SYS_clock_gettime 113
+
+#--- bridge.cpp
+#include <cstdlib>
+extern "C" void *host_allocate(__SIZE_TYPE__ size) { return std::malloc(size); }
+extern "C" void host_free(void *p) { std::free(p); }
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/aio_notification.h"
+#include "src/__support/threads/linux/mmix/thread_create.h"
+#include "hdr/errno_macros.h"
+#include "hdr/pthread_macros.h"
+#include "hdr/signal_macros.h"
+#include <sys/syscall.h>
+using namespace aio_test;
+using namespace aio_test::mmix;
+extern "C" void *host_allocate(__SIZE_TYPE__);
+extern "C" void host_free(void *);
+static void check(bool b) { if (!b) __builtin_trap(); }
+enum Scenario {
+  None, SignalInt, SignalPointer, PidMismatch, NegativeSignal, ZeroSignal,
+  OutOfRangeSignal, PrivateCredentialsSignal, PrivateNotificationSignal,
+  Thread, CopyAttributes, Discard, PrepareFailure, RetainedPrepareFailure,
+  CleanupRetry, ActivationRetry, AllocationFailure, NullCallback,
+  BadAttributes, BadPageSize, BadNotifyMode, SignalRetry, SignalRetryDiscard,
+  ScenarioCount
+};
+static int mode, allocations, frees, allocation_attempts, attempts;
+static int activations, activation_attempts, discards, drops, wakes, callbacks;
+static int lock_depth, locks, releases, retains, owner_releases;
+static int pid_calls, uid_calls, sends;
+static bool cleanup_failure, activation_failure, creator, deciding;
+static CallbackPhase phase = CallbackPhase::None;
+static ThreadControl control;
+static ThreadPreparation pending;
+static AioNotification *owner;
+static int payload;
+alignas(8) static unsigned char supplied_stack[131072];
+
+namespace aio_test {
+void *malloc(size_t size) {
+  check(!lock_depth && !deciding);
+  ++allocation_attempts;
+  if (mode == AllocationFailure) return nullptr;
+  ++allocations;
+  return host_allocate(size);
+}
+void free(void *p) {
+  check(p && !lock_depth && !deciding);
+  ++frees;
+  host_free(p);
+}
+namespace mmix {
+ThreadRegistry thread_registry;
+// Only the lifecycle API contract is modeled. Unlock records a wake but never
+// starts a thread; the test explicitly invokes the saved runner before modeled
+// terminal reclamation. The helper must remain alive until that reclamation.
+ThreadRegistryLock::ThreadRegistryLock(ThreadRegistry &r) : registry(r) {
+  check(&r == &thread_registry && !lock_depth++);
+  ++locks;
+}
+ThreadRegistryLock::~ThreadRegistryLock() {
+  check(lock_depth-- == 1);
+  if (changed) ++wakes;
+}
+bool ThreadRegistryLock::activate_callback(ThreadControl &c) {
+  check(lock_depth && deciding && creator && &c == &control);
+  check(phase == CallbackPhase::Waiting && !callbacks);
+  ++activation_attempts;
+  if (activation_failure) return false;
+  phase = CallbackPhase::Active;
+  changed = true;
+  ++activations;
+  return true;
+}
+bool ThreadRegistryLock::discard_callback(ThreadControl &c) {
+  check(lock_depth && deciding && creator && &c == &control);
+  check(phase == CallbackPhase::Waiting && !callbacks);
+  phase = CallbackPhase::Discarded;
+  changed = true;
+  ++discards;
+  return true;
+}
+bool ThreadRegistryLock::drop_creator(ThreadControl &c) {
+  check(lock_depth && deciding && creator && &c == &control);
+  check(phase == CallbackPhase::Active || phase == CallbackPhase::Discarded);
+  creator = false;
+  changed = true;
+  ++drops;
+  return true;
+}
+ThreadCreationResult create_callback_waiter(const ThreadPreparation &request,
+                                            ThreadControl *&output) {
+  check(!lock_depth && !deciding && !callbacks && !output && !attempts++);
+  check(request.detached && request.page_size == 8192);
+  check(request.style == ThreadStyle::POSIX && request.runner.posix_runner);
+  check(request.argument && request.argument != request.resource_owner.context);
+  check(request.resource_owner.context == owner);
+  check(request.resource_owner.context && request.resource_owner.retain &&
+        request.resource_owner.release);
+  if (mode == PrepareFailure) return {-EAGAIN};
+  check(request.resource_owner.retain(request.resource_owner.context) == 0);
+  ++retains;
+  if (mode == RetainedPrepareFailure || mode == CleanupRetry) {
+    ThreadCreationResult result;
+    result.error = -EAGAIN;
+    result.preparation.rollback_error = EIO;
+    result.preparation.retained.owner = request.resource_owner;
+    return result;
+  }
+  pending = request;
+  creator = true;
+  phase = CallbackPhase::Waiting;
+  output = &control;
+  return {};
+}
+long release_thread_resources(ThreadResources &resources) {
+  check(!lock_depth && !deciding && resources.owner.context);
+  check(resources.owner.context == owner);
+  ++releases;
+  if (cleanup_failure) return EIO;
+  check(resources.owner.release(resources.owner.context) == 0);
+  ++owner_releases;
+  resources.owner = {};
+  check(!resources.owns_mappings());
+  return 0;
+}
+}}
+
+extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
+                                        long c, long d, long e, long f) {
+  check(!lock_depth && !d && !e && !f);
+  bool retry = mode == SignalRetry || mode == SignalRetryDiscard;
+  check(mode == SignalInt || mode == SignalPointer || mode == PidMismatch || retry);
+  if (number == SYS_getpid) {
+    check(!a && !b && !c && pid_calls < (retry ? 4 : 2));
+    check(deciding == (pid_calls != 0));
+    ++pid_calls;
+    return mode == PidMismatch && pid_calls == 2 ? 102 : 101;
+  }
+  if (number == SYS_getuid) {
+    check(!a && !b && !c && !deciding && pid_calls == 1 && !uid_calls++);
+    return 202;
+  }
+  check(number == SYS_rt_sigqueueinfo && deciding && pid_calls == sends + 2);
+  check(mode != PidMismatch && uid_calls == 1 && sends < (retry ? 3 : 1));
+  ++sends;
+  check(a == 101 && b == 10);
+  const auto &info = *reinterpret_cast<const siginfo_t *>(c);
+  check(info.si_signo == 10 && info.si_errno == 0 && info.si_code == SI_ASYNCIO);
+  check(info.si_pid == 101 && info.si_uid == 202);
+  if (mode == SignalPointer) check(info.si_value.sival_ptr == &payload);
+  else check(info.si_value.sival_int == 73);
+  return retry && sends <= 2 ? -EAGAIN : 0;
+}
+static void callback(sigval value) {
+  check(!lock_depth && !deciding && phase == CallbackPhase::Active);
+  check(!creator && drops == 1 && wakes == 1 && !frees);
+  check(value.sival_int == 73 && !callbacks++);
+}
+static void wrong_callback(sigval) { check(false); }
+static long activate(AioNotification &notification) {
+  deciding = true;
+  long result = notification.activate();
+  deciding = false;
+  return result;
+}
+static void discard(AioNotification &notification) {
+  deciding = true;
+  notification.discard();
+  deciding = false;
+}
+static void check_closed() {
+  check(!lock_depth && !creator && allocations == frees);
+  check(retains == owner_releases);
+}
+static void check_snapshot(const ThreadPreparation &request) {
+  check(request.detached && !request.apply_scheduling);
+  check(request.stack == supplied_stack && request.stack_size == 131072);
+  check(request.guard_size == 16384 && request.page_size == 8192);
+}
+extern "C" int main(int argc, char **argv) {
+  check(argc == 2);
+  for (const char *p = argv[1]; *p; ++p) mode = mode * 10 + *p - '0';
+  check(mode >= 0 && mode < ScenarioCount);
+  AioNotification notification;
+  owner = &notification;
+  check(notification.drained() && notification.cleanup() == 0);
+  check(activate(notification) == EINVAL);
+  sigevent event{};
+  event.sigev_notify = SIGEV_THREAD;
+  event.sigev_notify_function = callback;
+  event.sigev_value.sival_int = 73;
+  pthread_attr_t attr{};
+  if (mode == None) {
+    event.sigev_notify = SIGEV_NONE;
+    event.sigev_signo = -1;
+    event.sigev_notify_function = wrong_callback;
+    event.sigev_notify_attributes = reinterpret_cast<pthread_attr_t *>(1);
+  } else if ((mode >= SignalInt && mode <= PrivateNotificationSignal) ||
+             mode == SignalRetry || mode == SignalRetryDiscard) {
+    event.sigev_notify = SIGEV_SIGNAL;
+    event.sigev_signo = mode == NegativeSignal ? -1 : mode == ZeroSignal ? 0 :
+        mode == OutOfRangeSignal ? NSIG : mode == PrivateCredentialsSignal ? 33 :
+        mode == PrivateNotificationSignal ? 34 : 10;
+    event.sigev_notify_function = wrong_callback;
+    event.sigev_notify_attributes = reinterpret_cast<pthread_attr_t *>(1);
+    if (mode == SignalPointer) event.sigev_value.sival_ptr = &payload;
+  } else if (mode == CopyAttributes || mode == BadAttributes) {
+    attr.__detachstate = PTHREAD_CREATE_JOINABLE;
+    attr.__stack = supplied_stack;
+    attr.__stacksize = sizeof(supplied_stack);
+    attr.__guardsize = mode == BadAttributes ? 1 : 16384;
+    attr.__inheritsched = PTHREAD_INHERIT_SCHED;
+    attr.__scope = PTHREAD_SCOPE_SYSTEM;
+    event.sigev_notify_attributes = &attr;
+  } else if (mode == NullCallback) {
+    event.sigev_notify_function = nullptr;
+  } else if (mode == BadNotifyMode) {
+    event.sigev_notify = -1;
+  }
+  bool invalid = (mode >= NegativeSignal && mode <= PrivateNotificationSignal) ||
+      mode == NullCallback || mode == BadAttributes || mode == BadPageSize ||
+      mode == BadNotifyMode;
+  bool failed_create = mode == PrepareFailure || mode == RetainedPrepareFailure ||
+      mode == CleanupRetry;
+  long expected = invalid ? EINVAL : failed_create ? EAGAIN :
+      mode == AllocationFailure ? ENOMEM : 0;
+  // NONE must ignore invalid callback fields and even an irrelevant page size.
+  check(notification.prepare(event, {}, mode == None || mode == BadPageSize ?
+                             4096 : 8192) == expected);
+  check(!callbacks && !activations && !discards && !drops && !locks);
+  check(notification.prepare(event, {}, 8192) == EALREADY);
+  if (expected) {
+    check(activate(notification) == EALREADY);
+    check(!pid_calls && !uid_calls && !sends);
+    check(attempts == int(failed_create));
+    check(allocation_attempts == int(failed_create || mode == AllocationFailure));
+    check(allocations == int(failed_create));
+    check(notification.drained() == !failed_create);
+    cleanup_failure = mode == CleanupRetry;
+    if (cleanup_failure) {
+      // Cleanup's EIO must not replace prepare's primary EAGAIN. Retained
+      // rollback keeps the helper and its callback envelope owned for retry.
+      check(notification.cleanup() == EIO && !notification.drained());
+      check(notification.cleanup() == EIO && !notification.drained());
+      check(!frees && !owner_releases && releases == 2);
+      cleanup_failure = false;
+    }
+    check(notification.cleanup() == 0 && notification.drained());
+    check(notification.cleanup() == 0);
+    check(releases == (mode == CleanupRetry ? 3 :
+                       mode == RetainedPrepareFailure ? 1 : 0));
+    discard(notification);
+    discard(notification);
+    check(!locks && !callbacks && !drops && !wakes);
+    check_closed();
+    return 0;
+  }
+  check(!notification.drained() && notification.cleanup() == EBUSY);
+  // Overwrite the caller's event and attributes before any activation.
+  event.sigev_notify = SIGEV_NONE;
+  event.sigev_signo = 12;
+  event.sigev_value.sival_int = 99;
+  event.sigev_notify_function = wrong_callback;
+  attr = {};
+  if (mode == SignalRetry || mode == SignalRetryDiscard) {
+    check(activate(notification) == EAGAIN);
+    check(!notification.drained() && notification.cleanup() == EBUSY);
+    check(sends == 1 && !allocations && !attempts);
+    if (mode == SignalRetry) {
+      check(activate(notification) == EAGAIN);
+      check(!notification.drained() && notification.cleanup() == EBUSY);
+      check(activate(notification) == 0);
+      check(sends == 3 && pid_calls == 4 && uid_calls == 1);
+    } else {
+      discard(notification);
+      check(sends == 1 && pid_calls == 2 && uid_calls == 1);
+    }
+    check(activate(notification) == EALREADY);
+    check(notification.cleanup() == 0 && notification.drained());
+    check(!locks && !callbacks && !releases);
+    check_closed();
+    return 0;
+  }
+  if (mode <= PidMismatch) {
+    check(!attempts && !allocations && !allocation_attempts);
+    check(activate(notification) == (mode == PidMismatch ? ESRCH : 0));
+    if (mode != PidMismatch) check(activate(notification) == EALREADY);
+    // Do not constrain post-error retry semantics, including PID mismatch.
+    discard(notification);
+    check(notification.cleanup() == 0 && notification.drained());
+    check(notification.cleanup() == 0);
+    check(pid_calls == (mode == None ? 0 : 2));
+    check(uid_calls == (mode == None ? 0 : 1));
+    check(sends == int(mode == SignalInt || mode == SignalPointer));
+    check(!locks && !callbacks && !releases);
+    check_closed();
+    return 0;
+  }
+  check(attempts == 1 && allocations == 1 && allocation_attempts == 1);
+  check(creator && phase == CallbackPhase::Waiting && retains == 1);
+  check(!pid_calls && !uid_calls && !sends && !frees);
+  if (mode == CopyAttributes) {
+    check_snapshot(pending);
+    auto *envelope = static_cast<NotificationCallback *>(pending.argument);
+    check_snapshot(envelope->thread_preparation());
+  } else {
+    check(pending.detached && !pending.stack && pending.stack_size == 65536);
+    check(pending.guard_size == 8192 && !pending.apply_scheduling);
+  }
+  if (mode == ActivationRetry) {
+    activation_failure = true;
+    for (int i = 0; i < 2; ++i) {
+      check(activate(notification) == EBUSY);
+      check(creator && phase == CallbackPhase::Waiting);
+      check(!activations && !discards && !drops && !wakes && !callbacks);
+      check(!notification.drained() && notification.cleanup() == EBUSY);
+    }
+    activation_failure = false;
+  }
+  if (mode == Discard) discard(notification);
+  else check(activate(notification) == 0);
+  check(activate(notification) == EALREADY);
+  discard(notification);
+  discard(notification);
+  check(!creator && drops == 1 && wakes == 1 && !callbacks);
+  check(activations == int(mode != Discard) && discards == int(mode == Discard));
+  check(activation_attempts == (mode == Discard ? 0 :
+                                mode == ActivationRetry ? 3 : 1));
+  check(locks == (mode == ActivationRetry ? 3 : 1));
+  check(attempts == 1 && allocation_attempts == 1 && !releases && !frees);
+  check(!notification.drained());
+  check(notification.cleanup() == EBUSY && !notification.drained());
+  check(notification.cleanup() == EBUSY && !frees);
+  // Activation/discard and callback return do not release the thread-resource
+  // claim. The stable helper owns the envelope until modeled terminal resource
+  // reclamation, including the discarded (never invoked) runner case.
+  if (mode != Discard) {
+    check(pending.runner.posix_runner(pending.argument) == nullptr);
+    check(callbacks == 1 && !frees);
+  } else {
+    check(phase == CallbackPhase::Discarded && !callbacks);
+  }
+  check(notification.cleanup() == EBUSY && !notification.drained() && !frees);
+  check(pending.resource_owner.context == &notification);
+  check(pending.resource_owner.release(pending.resource_owner.context) == 0);
+  ++owner_releases;
+  pending = {};
+  check(!notification.drained() && !frees);
+  check(notification.cleanup() == 0 && notification.drained());
+  check(notification.cleanup() == 0 && frees == 1);
+  check_closed();
+  return 0;
+}

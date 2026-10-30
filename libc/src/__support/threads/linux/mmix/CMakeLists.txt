@@ -206,6 +206,16 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
   )
   add_object_library(
+    aio_notification
+    SRCS aio_notification.cpp
+    HDRS aio_notification.h
+    DEPENDS .notification_callback .thread_create .resources .lifecycle
+      libc.hdr.types.siginfo_t libc.hdr.errno_macros libc.hdr.signal_macros
+      libc.src.signal.linux.mmix.private_signals
+      libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
+    COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
+  )
+  add_object_library(
     notification_mq
     SRCS notification_mq.cpp
     HDRS notification_mq.h
