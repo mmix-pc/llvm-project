@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/grp/stream.h"
-#include "hdr/func/free.h"
 #include "hdr/func/realloc.h"
 #include "hdr/stdio_macros.h"
 #include "src/__support/char_vector.h"
@@ -40,8 +39,7 @@ int rewind_enumeration() {
 void close_enumeration() {
   File *old = database;
   database = nullptr;
-  ::free(stream_buffer.buffer);
-  stream_buffer = {};
+  // endgrent is not an invalidator for keyed or enumerated borrowed records.
   if (old)
     old->close();
 }

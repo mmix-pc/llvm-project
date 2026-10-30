@@ -56,3 +56,24 @@ add_libc_test(
     libc.src.__support.char_vector
     libc.src.stdio.remove
 )
+
+add_libc_test(
+  endgrent_lifetime_test
+  SUITE libc_grp_unittests
+  SRCS
+    endgrent_lifetime_test.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/endgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/setgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrnam.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrnam_r.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrgid.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrgid_r.cpp
+  DEPENDS
+    libc.src.grp.stream
+    libc.src.__support.common
+    libc.hdr.fcntl_macros
+    libc.src.fcntl.fcntl
+    libc.src.stdio.remove
+    libc.src.string.string_utils
+)

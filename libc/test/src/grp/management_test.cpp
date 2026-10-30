@@ -93,14 +93,18 @@ TEST(LlvmLibcGroupManagementTest, MembershipAndLifetime) {
   ASSERT_EQ(installed_count, size_t(1));
   EXPECT_EQ(installed_groups[0], gid_t(42));
 
-  ASSERT_TRUE(LIBC_NAMESPACE::getgrnam("staff") != nullptr);
-  ASSERT_TRUE(LIBC_NAMESPACE::group_db::lookup_buffer.buffer != nullptr);
+  auto *borrowed = LIBC_NAMESPACE::getgrnam("staff");
+  ASSERT_TRUE(borrowed != nullptr);
   libc_errno = ENOSYS;
   LIBC_NAMESPACE::endgrent();
   EXPECT_EQ(int(libc_errno), ENOSYS);
-  EXPECT_EQ(LIBC_NAMESPACE::group_db::lookup_buffer.buffer,
-            static_cast<char *>(nullptr));
-  EXPECT_EQ(LIBC_NAMESPACE::group_db::lookup_buffer.size, size_t(0));
+  EXPECT_STREQ(borrowed->gr_name, "staff");
+  EXPECT_STREQ(borrowed->gr_passwd, "x");
+  EXPECT_EQ(borrowed->gr_gid, gid_t(8));
+  ASSERT_NE(borrowed->gr_mem, static_cast<char **>(nullptr));
+  EXPECT_STREQ(borrowed->gr_mem[0], "alice");
+  EXPECT_STREQ(borrowed->gr_mem[1], "bob");
+  EXPECT_EQ(borrowed->gr_mem[2], static_cast<char *>(nullptr));
   LIBC_NAMESPACE::endgrent();
   EXPECT_EQ(int(libc_errno), ENOSYS);
   ASSERT_TRUE(LIBC_NAMESPACE::getgrnam("staff") != nullptr);
