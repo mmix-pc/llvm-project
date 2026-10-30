@@ -1,0 +1,30 @@
+add_custom_target(libc_mqueue_unittests)
+
+add_libc_test(
+  mqueue_test
+  SUITE
+    libc_mqueue_unittests
+  SRCS
+    mqueue_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fcntl_macros
+    libc.hdr.types.mode_t
+    libc.src.errno.errno
+    libc.src.fcntl.fcntl
+    libc.src.mqueue.types
+    libc.src.mqueue.mq_open
+    libc.src.mqueue.mq_close
+    libc.src.mqueue.mq_unlink
+    libc.src.mqueue.mq_getattr
+    libc.src.mqueue.mq_setattr
+    libc.src.mqueue.mq_send
+    libc.src.mqueue.mq_receive
+    libc.src.mqueue.mq_timedsend
+    libc.src.mqueue.mq_timedreceive
+    libc.src.stdio.snprintf
+    libc.src.unistd.dup
+    libc.src.unistd.getpid
+    libc.test.UnitTest.ErrnoCheckingTest
+    libc.test.UnitTest.ErrnoSetterMatcher
+)
