@@ -43,9 +43,9 @@ for opt in ('0', '2'):
         subprocess.run([sys.argv[3], *common, '-D__mmix__', '-O'+opt,
             '-D__cxa_finalize=test_finalize', '-include', str(root/'finish/transport.h'),
             *map(str,sources), str(root/'test.cpp'), '-o', str(exe)], check=True)
-        for mode in range(12):
+        for mode in range(17):
             subprocess.run([str(exe), str(mode)], check=True, timeout=15)
-        print('Native process completion: 12 scenarios passed at O'+opt, flush=True)
+        print('Native process completion: 17 scenarios passed at O'+opt, flush=True)
 
 #--- headers/sys/syscall.h
 #define SYS_futex 98
@@ -57,8 +57,10 @@ for opt in ('0', '2'):
 #--- test.cpp
 #include "src/__support/threads/linux/mmix/thread_finish.h"
 #include "src/__support/threads/linux/mmix/main_thread.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include "src/__support/threads/thread.h"
 #include "src/stdlib/exit.h"
+#include "src/stdlib/linux/mmix/process_exit.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include <linux/futex.h>
@@ -70,6 +72,19 @@ static unsigned mode, clean_main, clean_worker, finalizers, groups, terminals, w
 static uint64_t mask = 0x1234;
 static ThreadControl main_control, worker, helper, pending;
 struct Done { bool group; };
+namespace process_test { namespace mmix {
+// Credential coordination has its own execution tests. This delegate checks
+// process ownership and retains the production terminal notification mask.
+CredentialGate::CredentialGate() { owned = true; }
+CredentialGate::~CredentialGate() {}
+bool initialize_credentials(ThreadControl &control) {
+  require(&control == &main_control);
+  return true;
+}
+void unregister_credentials(ThreadControl &) {
+  require(mask == (UINT64_MAX & ~CREDENTIAL_MASK));
+}
+} }
 namespace process_test { namespace internal {
 ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
   return reinterpret_cast<ThreadAtExitCallbackMgr *>(0x1000);
@@ -84,6 +99,10 @@ void call_atexit_callbacks(ThreadAttributes *a) {
   }
 }
 [[noreturn]] void exit(int status) {
+  if (mode >= 12) {
+    require(mode == 15 && status == 42 && !finalizers && !groups++);
+    throw Done{true};
+  }
   require(status == (mode >= 10 ? 23 : 0) && finalizers == 1 && !groups++);
   throw Done{true};
 }
@@ -108,7 +127,7 @@ extern "C" void test_finalize(void *dso) {
   require(!lock.claim_process_exit());
 }
 extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
-  require(mask == UINT64_MAX && !groups);
+  require(mask == (UINT64_MAX & ~CREDENTIAL_MASK) && !groups);
   ++terminals;
   throw Done{false};
 }
@@ -130,6 +149,13 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
   }
   require(n == SYS_futex);
   if (b == FUTEX_WAKE_PRIVATE) return 0;
+  if (mode >= 12) {
+    // Any registry-lock attempt while directly owned is a deterministic
+    // failure, not a host timeout. Only the losing-owner wait is permitted.
+    require(mode == 16 && b == FUTEX_WAIT_BITSET_PRIVATE && !c && !d && !waits++);
+    require(!finalizers && !groups && !clean_main && !clean_worker);
+    throw Done{false};
+  }
   require(b == FUTEX_WAIT_BITSET_PRIVATE && !groups && !finalizers);
   ++waits;
   if (waits == 1) return -EINTR;
@@ -157,13 +183,45 @@ extern "C" int main(int argc, char **argv) {
   mode = unsigned(argv[1][0]-'0');
   if (argv[1][1]) mode = mode * 10 + unsigned(argv[1][1]-'0');
   main_control.attributes.tid = 10;
+  worker.attributes.tid = 20;
   require(internal::activate_main_thread(main_control));
   {
     ThreadRegistryLock lock(thread_registry);
     if (mode == 1) require(lock.insert(helper, true, true) && lock.start(helper));
-    if (mode >= 2 && mode != 7)
+    if (mode >= 2 && mode < 12 && mode != 7)
       require(lock.reserve() && lock.insert(worker, mode == 3) && lock.start(worker));
     if (mode == 4 || mode == 5 || mode == 7) require(lock.reserve());
+  }
+  if (mode >= 12) {
+    // Model signal-side entry and both forms of inherited fork ownership.
+    // The real quick-list drain is covered independently by its native test.
+    if (mode == 13) {
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.claim_process_cleanup()); // Parent peer owned cleanup.
+      main_control.fork_recovery = internal::ForkRecovery::child();
+    }
+    if (mode >= 14) {
+      internal::begin_process_exit(0);
+      if (mode == 14) {
+        main_control.attributes.tid = 11; // Fork transport's child identity.
+        main_control.fork_recovery = internal::ForkRecovery::child();
+      } else if (mode == 16) {
+        current_control = &worker; // A different task must wait, not recurse.
+      }
+    }
+    ThreadRegistryLock lock(thread_registry);
+    try {
+      internal::begin_process_exit(42, true);
+      require(mode < 15 && mask == 0x1234 && lock.process_exiting());
+      require(!lock.claim_process_cleanup() && !lock.reserve());
+      require(!main_control.cancellation.enabled());
+      require(main_control.cancellation_suppression.load() == 1);
+    } catch (Done d) {
+      require((mode == 15 && d.group) || (mode == 16 && !d.group));
+    }
+    require(!finalizers && !clean_main && !clean_worker);
+    require(groups == (mode == 15) && waits == (mode == 16));
+    return 0;
   }
   if (mode >= 10) {
     ThreadControl &caller = mode == 10 ? worker : main_control;

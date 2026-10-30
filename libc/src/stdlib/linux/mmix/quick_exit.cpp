@@ -8,13 +8,9 @@
 
 #include "src/stdlib/quick_exit.h"
 #include "process_exit.h"
-#include "src/__support/CPP/mutex.h"
+#include "src/__support/CPP/atomic.h"
 #include "src/__support/CPP/new.h"
 #include "src/__support/OSUtil/exit.h"
-#include "src/__support/threads/mutex.h"
-#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-#include "src/__support/threads/linux/mmix/main_thread.h"
-#endif
 #include "src/stdlib/at_quick_exit.h"
 #include "src/stdlib/free.h"
 #include "src/stdlib/malloc.h"
@@ -26,27 +22,22 @@
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
-namespace mmix {
-// Shared with the coordinated fork snapshot, never held across user code.
-Mutex quick_exit_mutex(false, false, false, false);
-}
 namespace {
 class RegistrationScope {
-  [[maybe_unused]] bool active;
 #ifdef LIBC_MMIX_QUICK_EXIT_CANCELLATION
   loader::LoaderCancellation hooks = mmix::loader_cancellation_hooks();
   uint64_t saved = 0;
 #endif
 public:
-  explicit RegistrationScope(bool active = true) : active(active) {
+  RegistrationScope() {
 #ifdef LIBC_MMIX_QUICK_EXIT_CANCELLATION
-    if (active && hooks.enter(&saved))
+    if (hooks.enter(&saved))
       __builtin_trap();
 #endif
   }
   ~RegistrationScope() noexcept(false) {
 #ifdef LIBC_MMIX_QUICK_EXIT_CANCELLATION
-    if (active && hooks.leave(saved))
+    if (hooks.leave(saved))
       __builtin_trap();
 #endif
   }
@@ -58,8 +49,11 @@ struct QuickCallback {
   uint64_t pin = 0;
 #endif
 };
-QuickCallback *quick_head;
-bool quick_done;
+// Published nodes are immutable and never reclaimed or republished. In
+// particular, a producer interrupted before its CAS owns no shared list state.
+alignas(8) cpp::Atomic<QuickCallback *> quick_head{nullptr};
+QuickCallback quick_closed{};
+static_assert(__atomic_always_lock_free(sizeof(QuickCallback *), nullptr));
 
 // A callback must not unwind through process termination.
 void invoke(__atexithandler_t function) noexcept { function(); }
@@ -88,13 +82,11 @@ LLVM_LIBC_FUNCTION(int, at_quick_exit, (__atexithandler_t function)) {
 #ifdef LIBC_MMIX_SHARED_STARTUP
   node->pin = pin;
 #endif
-  {
-    cpp::lock_guard lock(mmix::quick_exit_mutex);
-    if (!quick_done) {
-      node->next = quick_head;
-      quick_head = node;
+  auto *head = quick_head.load(cpp::MemoryOrder::ACQUIRE);
+  while (head != &quick_closed) {
+    node->next = head;
+    if (quick_head.compare_exchange_weak(head, node, cpp::MemoryOrder::ACQ_REL))
       return 0;
-    }
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (mmix::release_shared_tls_destructor(pin))
@@ -105,37 +97,27 @@ LLVM_LIBC_FUNCTION(int, at_quick_exit, (__atexithandler_t function)) {
 }
 
 [[noreturn]] LLVM_LIBC_FUNCTION(void, quick_exit, (int status)) {
-  bool restricted_child = false;
-#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-  restricted_child = mmix::current_control &&
-                     !mmix::current_control->fork_recovery.allows_loader();
-#endif
-  // Suppress cancellation through ownership election, callbacks and exit_group.
-  // Restricted children already have an inactive root. No scope is restored
-  // on this non-returning path.
-  RegistrationScope scope(!restricted_child);
-  internal::begin_process_exit(status);
+  internal::begin_process_exit(status, true);
+  auto *head = quick_head.load(cpp::MemoryOrder::ACQUIRE);
   for (;;) {
-    QuickCallback *node;
-    {
-      cpp::lock_guard lock(mmix::quick_exit_mutex);
-      node = quick_head;
-      if (!node) {
-        quick_done = true;
+    if (!head) {
+      // Close only an empty stack. A racing publication either precedes this
+      // CAS and is drained, or observes the sentinel and fails registration.
+      if (quick_head.compare_exchange_weak(head, &quick_closed,
+                                          cpp::MemoryOrder::ACQ_REL))
         break;
-      }
-      quick_head = node->next;
-    }
-    invoke(node->function);
-    // The coordinated snapshot released the list lock, but an exec-only child
-    // must not enter its frozen loader. exit_group reclaims copied nodes/pins.
-    if (restricted_child)
       continue;
-#ifdef LIBC_MMIX_SHARED_STARTUP
-    if (mmix::release_shared_tls_destructor(node->pin))
-      __builtin_trap();
-#endif
-    LIBC_NAMESPACE::free(node);
+    }
+    if (head == &quick_closed)
+      break;
+    QuickCallback *node = head;
+    if (!quick_head.compare_exchange_weak(head, node->next,
+                                         cpp::MemoryOrder::ACQ_REL))
+      continue;
+    invoke(node->function);
+    // No allocator or loader entry, even outside a handler or fork child.
+    // exit_group reclaims accepted nodes/pins; retaining them also avoids ABA.
+    head = quick_head.load(cpp::MemoryOrder::ACQUIRE);
   }
   // No ordinary callbacks, TLS/TSS destructors or stdio flushing.
   internal::exit(status);

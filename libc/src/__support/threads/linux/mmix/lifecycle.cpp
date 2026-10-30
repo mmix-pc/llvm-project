@@ -20,7 +20,7 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
   if (single_thread)
     *single_thread = false;
   mutex.value.lock();
-  if (exiting || reservations || process_operation ||
+  if (process_exiting() || reservations || process_operation ||
       caller.registry != this || !caller.listed ||
       caller.execution != ThreadExecution::Running || caller.callbacks_started ||
       !caller.fork_recovery.allows_fork() || caller.cancellation_transfer.load() ||
@@ -48,7 +48,8 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   reap_head = reap_tail = nullptr;
   reap_count = reservations = 0;
   live = 1;
-  exiting = process_cleanup_claimed = process_operation = false;
+  process_exit_state.store(RUNNING, cpp::MemoryOrder::RELAXED);
+  process_operation = false;
   main_registered = true;
   // Only a proven quiescent snapshot starts a fresh creation history.
   // reserve/begin_helper_creation set it even if later preparation fails.
@@ -92,7 +93,7 @@ uint32_t ThreadRegistryLock::sequence() {
 }
 
 bool ThreadRegistryLock::reserve() {
-  if (registry.exiting || registry.process_operation ||
+  if (registry.process_exiting() || registry.process_operation ||
       !registry.fork_recovery.allows_thread_creation() ||
       registry.reservations == SIZE_MAX)
     return false;
@@ -103,7 +104,7 @@ bool ThreadRegistryLock::reserve() {
 }
 
 bool ThreadRegistryLock::begin_helper_creation() {
-  if (registry.exiting || registry.process_operation ||
+  if (registry.process_exiting() || registry.process_operation ||
       !registry.fork_recovery.allows_thread_creation())
     return false;
   registry.creation_started = true;
@@ -111,7 +112,7 @@ bool ThreadRegistryLock::begin_helper_creation() {
 }
 
 bool ThreadRegistryLock::sole_fork_caller(const ThreadControl &caller) const {
-  return registry.main_registered && !registry.exiting &&
+  return registry.main_registered && !registry.process_exiting() &&
          !registry.process_operation && !registry.reservations &&
          registry.live == 1 && registry.head == &caller && !caller.next &&
          !registry.reap_head && !registry.reap_count &&
@@ -124,8 +125,8 @@ bool ThreadRegistryLock::begin_process_operation(const ThreadControl &caller) {
   // other runtime state may survive even when application accounting is one.
   if (!registry.main_registered || registry.creation_started ||
       registry.fork_recovery.is_child() ||
-      registry.process_operation || registry.exiting || registry.live != 1 ||
-      registry.reservations || registry.head != &caller ||
+      registry.process_operation || registry.process_exiting() ||
+      registry.live != 1 || registry.reservations || registry.head != &caller ||
       caller.execution != ThreadExecution::Running || caller.callbacks_started)
     return false;
   registry.process_operation = true;
@@ -159,7 +160,8 @@ bool ThreadRegistryLock::cancel_reservation() {
 
 bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
   if (c.registry || c.owner != ThreadOwner::Unpublished || !c.creator_pin ||
-      !c.lifecycle_pin || registry.exiting || registry.process_operation ||
+      !c.lifecycle_pin || registry.process_exiting() ||
+      registry.process_operation ||
       (!helper && (!registry.reservations || registry.live == SIZE_MAX)))
     return false;
   c.registry = &registry;
@@ -184,7 +186,7 @@ bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
 }
 
 bool ThreadRegistryLock::register_main(ThreadControl &c) {
-  if (registry.main_registered || registry.exiting || registry.head ||
+  if (registry.main_registered || registry.process_exiting() || registry.head ||
       registry.live || registry.reservations || c.registry ||
       c.owner != ThreadOwner::Unpublished || !c.creator_pin ||
       !c.lifecycle_pin || c.attributes.tid <= 0 || c.owns_stack ||
@@ -451,18 +453,27 @@ void ThreadRegistryLock::remove_queued(ThreadControl &c) {
 }
 
 bool ThreadRegistryLock::claim_process_exit() {
-  if (registry.exiting || registry.live || registry.reservations)
+  if (registry.live || registry.reservations)
     return false;
-  registry.exiting = true;
+  uint64_t expected = ThreadRegistry::RUNNING;
+  if (!registry.process_exit_state.compare_exchange_strong(
+          expected, ThreadRegistry::EXITING, cpp::MemoryOrder::ACQ_REL))
+    return false;
   change();
   return true;
 }
 
+bool ThreadRegistry::claim_process_cleanup(bool sole_fork_child) {
+  // Closing creation and electing cleanup are one atomic transition. An
+  // admission already past its acquire check may finish, but new checks fail.
+  auto previous =
+      process_exit_state.exchange(CLEANUP_CLAIMED, cpp::MemoryOrder::ACQ_REL);
+  return sole_fork_child || previous != CLEANUP_CLAIMED;
+}
+
 bool ThreadRegistryLock::claim_process_cleanup() {
-  if (registry.process_cleanup_claimed)
+  if (!registry.claim_process_cleanup())
     return false;
-  registry.process_cleanup_claimed = true;
-  registry.exiting = true;
   change();
   return true;
 }
@@ -474,15 +485,16 @@ ThreadRegistryLock::termination_action(const ThreadControl &c) {
     __builtin_trap();
   if (c.internal_helper)
     return ThreadTermination::ThreadOnly;
-  if (registry.exiting || registry.live)
+  if (registry.process_exiting() || registry.live)
     return ThreadTermination::ThreadOnly;
   // Keep this application context alive until a pending creation either
   // contributes a live peer or rolls back its reservation.
   if (registry.reservations)
     return ThreadTermination::WaitForCreation;
-  if (!claim_process_exit())
-    __builtin_trap();
-  return ThreadTermination::Process;
+  // Explicit exit can close creation without this lock between the check and
+  // the last-thread CAS. Its owner will perform process cleanup in that case.
+  return claim_process_exit() ? ThreadTermination::Process
+                             : ThreadTermination::ThreadOnly;
 }
 
 } // namespace mmix

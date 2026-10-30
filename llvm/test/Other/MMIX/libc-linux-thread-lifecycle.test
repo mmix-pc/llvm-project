@@ -464,6 +464,49 @@ extern "C" int main() {
     require(lock.process_exiting() && !lock.reserve());
     require(!lock.claim_process_cleanup() && !lock.claim_process_exit());
   }
+  // Signal-side cleanup cannot acquire an interrupted registry lock. Both
+  // entry paths share ownership, while the locked wrapper retains its event.
+  for (unsigned locked_first = 0; locked_first != 2; ++locked_first) {
+    ThreadRegistry process;
+    ThreadControl main, pending, helper;
+    main.attributes.tid = 321;
+    event_address = 0;
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(main) && lock.reserve());
+    }
+    unsigned before = wakes;
+    {
+      ThreadRegistryLock lock(process);
+      auto sequence = lock.sequence();
+      if (locked_first) {
+        require(lock.claim_process_cleanup());
+        require(!process.claim_process_cleanup());
+      } else {
+        require(process.claim_process_cleanup());
+        require(!lock.claim_process_cleanup());
+      }
+      require(lock.sequence() == sequence && lock.process_exiting());
+      require(!lock.reserve() && !lock.begin_helper_creation());
+      require(!lock.insert(pending, false) && !lock.insert(helper, true, true));
+      require(!lock.claim_process_exit() && !process.claim_process_cleanup());
+    }
+    require(wakes == before + locked_first);
+    // A restricted single-task child can inherit a claimed atomic and a held
+    // mutex. Reclaim only process cleanup, never unlock copied runtime locks.
+    {
+      ThreadRegistryLock lock(process);
+      require(process.claim_process_cleanup(true));
+      require(!process.claim_process_cleanup() && !lock.claim_process_cleanup());
+      require(lock.process_exiting() && !lock.reserve());
+    }
+    process.restore_fork_child(main, internal::ForkRecovery::child(true, true));
+    {
+      ThreadRegistryLock lock(process);
+      require(!lock.process_exiting() && lock.reserve());
+      require(lock.cancel_reservation() && lock.claim_process_cleanup());
+    }
+  }
   for (unsigned owner = 0; owner != 3; ++owner)
     for (unsigned creator = 0; creator != 4; ++creator)
       for (unsigned reader = 0; reader != 4; ++reader)

@@ -28,11 +28,11 @@ extern "C" void __cxa_finalize(void *);
 
 namespace internal {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-static LIBC_CONSTINIT LIBC_THREAD_LOCAL bool owns_process_cleanup = false;
+static LIBC_CONSTINIT LIBC_THREAD_LOCAL uint64_t process_cleanup_tid = 0;
 static mmix::LifecycleWord process_exit_wait;
 #endif
 
-void begin_process_exit(int status) {
+void begin_process_exit(int status, [[maybe_unused]] bool quick) {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   // Losing exit callers remain kernel tasks until exit_group. Keep them
   // responsive if the cleanup owner changes credentials from a callback.
@@ -43,13 +43,23 @@ void begin_process_exit(int status) {
     __builtin_trap();
   // Recursive exit from a destructor or process callback must not replay it
   // or deadlock on the callback list. Immediate termination skips the rest.
-  if (owns_process_cleanup)
+  auto *control = mmix::current_control;
+  // The fork transport publishes the new TID before child handlers run. Do not
+  // mistake the parent's inherited TLS ownership marker for child recursion.
+  uint64_t tid = control ? uint64_t(control->attributes.tid) : UINT64_MAX;
+  if (process_cleanup_tid == tid)
     internal::exit(status);
-  bool owner;
-  {
-    mmix::ThreadRegistryLock lock(mmix::thread_registry);
-    owner = lock.claim_process_cleanup();
+  if (quick && control) {
+    control->cancellation.set_enabled(false);
+    if (control->cancellation_suppression.fetch_add(1) == UINT64_MAX)
+      __builtin_trap();
   }
+  // _Fork intentionally preserves interrupted locks and may copy a peer's
+  // cleanup claim. Only its exec-only, single-task child can override that
+  // claim. Recoverable fork children reset it during registry restoration.
+  bool sole_fork_child =
+      control && !control->fork_recovery.allows_thread_creation();
+  bool owner = mmix::thread_registry.claim_process_cleanup(sole_fork_child);
   if (!owner) {
     // The winner never releases ownership: exit_group terminates every peer.
     // Wait without registry/stream locks and without busy-spinning.
@@ -59,7 +69,7 @@ void begin_process_exit(int status) {
         __builtin_trap();
     }
   }
-  owns_process_cleanup = true;
+  process_cleanup_tid = tid;
   if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
                    reinterpret_cast<long>(&previous), 0, sizeof(previous)) != 0)
     __builtin_trap();

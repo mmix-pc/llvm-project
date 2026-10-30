@@ -43,7 +43,6 @@ bool try_lock_random_for_fork() __attribute__((weak));
 void unlock_random_after_fork() __attribute__((weak));
 } // namespace internal
 namespace mmix {
-extern Mutex quick_exit_mutex __attribute__((weak));
 namespace {
 struct alignas(8) Serializer {
   RawMutex mutex;
@@ -112,10 +111,8 @@ int ForkOperation::prepare_runtime() {
     handler_list_mtx.lock();
     exit_callbacks = true;
   }
-  if (&quick_exit_mutex) {
-    quick_exit_mutex.lock();
-    quick_callbacks = true;
-  }
+  // Quick callbacks are immutable once atomically published and their nodes
+  // and image pins survive until process exit; they need no snapshot lock.
   // A caller may already own a stream while another thread holds the list
   // lock waiting for that stream. Never wait in this inverse ownership order.
   if (File::list_lock.try_lock() != MutexError::NONE)
@@ -241,10 +238,6 @@ void ForkOperation::restore_runtime(bool child) {
         standard[i - 1]->unlock();
     File::unlock_list();
     streams = false;
-  }
-  if (quick_callbacks) {
-    quick_exit_mutex.unlock();
-    quick_callbacks = false;
   }
   if (exit_callbacks) {
     handler_list_mtx.unlock();

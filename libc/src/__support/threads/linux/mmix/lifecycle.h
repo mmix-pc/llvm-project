@@ -158,8 +158,11 @@ class ThreadRegistry {
   ThreadControl *reap_head = nullptr, *reap_tail = nullptr;
   size_t reap_count = 0;
   size_t live = 0, reservations = 0;
-  bool exiting = false;
-  bool process_cleanup_claimed = false;
+  static constexpr uint64_t RUNNING = 0, EXITING = 1, CLEANUP_CLAIMED = 2;
+  alignas(8) cpp::Atomic<uint64_t> process_exit_state{RUNNING};
+  bool process_exiting() {
+    return process_exit_state.load(cpp::MemoryOrder::ACQUIRE) != RUNNING;
+  }
   bool main_registered = false;
   bool creation_started = false;
   bool process_operation = false;
@@ -167,6 +170,10 @@ class ThreadRegistry {
 
 public:
   constexpr ThreadRegistry() = default;
+  // Lock-free explicit-exit election, including from an interrupted registry
+  // owner. A restricted fork child has no peers and may replace a copied claim;
+  // its caller must reject recursion before requesting that override.
+  bool claim_process_cleanup(bool sole_fork_child = false);
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
   bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0,
                        bool *single_thread = nullptr,
@@ -247,7 +254,7 @@ public:
   }
   size_t live_threads() const { return registry.live; }
   size_t pending_creations() const { return registry.reservations; }
-  bool process_exiting() const { return registry.exiting; }
+  bool process_exiting() const { return registry.process_exiting(); }
   bool claim_process_exit();
   // Explicit exit may win while peers remain. Last-thread election only closes
   // creation; both paths must claim this ownership before running callbacks.

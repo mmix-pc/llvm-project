@@ -12,8 +12,9 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
-// PLATFORM elects one normal/quick exit owner; recursive exit is immediate.
-void begin_process_exit(int status);
+// PLATFORM elects one normal/quick exit owner without runtime locks; recursive
+// exit is immediate. Quick exit also suppresses cancellation without the loader.
+void begin_process_exit(int status, bool quick = false);
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 #endif

@@ -19,7 +19,7 @@ class ForkOperation {
   bool priority = false, streams = false, allocator = false, registry = false;
   bool helper_drained = false;
   bool credentials = false;
-  bool exit_callbacks = false, quick_callbacks = false;
+  bool exit_callbacks = false;
   bool message_bindings = false, message_results = false;
   bool random48_locked = false;
   bool random_locked = false;
