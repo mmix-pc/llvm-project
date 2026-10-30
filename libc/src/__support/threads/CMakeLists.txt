@@ -1,4 +1,28 @@
 add_header_library(
+  aio_file_dependencies
+  HDRS aio_file_dependencies.h
+  DEPENDS libc.hdr.errno_macros libc.hdr.stdint_proxy
+    libc.src.__support.error_or libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
+  aio_completion_budget
+  HDRS aio_completion_budget.h
+  DEPENDS libc.hdr.errno_macros libc.hdr.stdint_proxy
+    libc.src.__support.error_or libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
+  aio_request
+  HDRS aio_request.h
+  DEPENDS libc.hdr.errno_macros libc.hdr.stdint_proxy libc.hdr.types.ssize_t
+    libc.src.__support.error_or libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   notification_registry
   HDRS
     notification_registry.h

@@ -1,6 +1,27 @@
 add_custom_target(libc-support-threads-tests)
 
 add_libc_test(
+  aio_file_dependencies_test
+  SUITE libc-support-threads-tests
+  SRCS aio_file_dependencies_test.cpp
+  DEPENDS libc.src.__support.threads.aio_file_dependencies
+)
+
+add_libc_test(
+  aio_completion_budget_test
+  SUITE libc-support-threads-tests
+  SRCS aio_completion_budget_test.cpp
+  DEPENDS libc.src.__support.threads.aio_completion_budget
+)
+
+add_libc_test(
+  aio_request_test
+  SUITE libc-support-threads-tests
+  SRCS aio_request_test.cpp
+  DEPENDS libc.src.__support.threads.aio_request
+)
+
+add_libc_test(
   notification_registry_test
   SUITE
     libc-support-threads-tests
