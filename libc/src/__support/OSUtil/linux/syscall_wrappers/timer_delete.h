@@ -26,7 +26,8 @@ namespace linux_syscalls {
 
 LIBC_INLINE ErrorOr<int> timer_delete(timer_t timerid) {
 #ifdef SYS_timer_delete
-  return syscall_checked<int>(SYS_timer_delete, timerid);
+  int kernel_timerid = static_cast<int>(reinterpret_cast<long>(timerid));
+  return syscall_checked<int>(SYS_timer_delete, kernel_timerid);
 #else
 #error "SYS_timer_delete syscall not available."
 #endif

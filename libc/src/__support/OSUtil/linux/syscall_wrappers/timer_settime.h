@@ -26,19 +26,21 @@ namespace LIBC_NAMESPACE_DECL {
 namespace linux_syscalls {
 
 LIBC_INLINE ErrorOr<int> timer_settime(timer_t timerid, int flags,
-                                       const itimerspec *val, itimerspec *old) {
+                                     const itimerspec *val, itimerspec *old) {
+  int kernel_timerid = static_cast<int>(reinterpret_cast<long>(timerid));
 #if defined(SYS_timer_settime64)
   static_assert(
       sizeof(time_t) == sizeof(int64_t),
       "SYS_timer_settime64 requires struct timespec with 64-bit members.");
-  return syscall_checked<int>(SYS_timer_settime64, timerid, flags, val, old);
+  return syscall_checked<int>(SYS_timer_settime64, kernel_timerid, flags, val,
+                             old);
 #elif defined(SYS_timer_settime)
   static_assert(
       sizeof(timespec::tv_nsec) == sizeof(long),
       "This legacy syscall fallback is only safe on platforms where tv_nsec "
       "matches the register size (long). It is unsafe on 32-bit platforms "
       "with 64-bit tv_nsec.");
-  return syscall_checked<int>(SYS_timer_settime, timerid, flags, val, old);
+  return syscall_checked<int>(SYS_timer_settime, kernel_timerid, flags, val, old);
 #else
 #error "SYS_timer_settime and SYS_timer_settime64 syscalls not available."
 #endif

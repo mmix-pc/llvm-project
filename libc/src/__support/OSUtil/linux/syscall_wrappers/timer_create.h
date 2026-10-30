@@ -28,19 +28,17 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace linux_syscalls {
 
-#define __SIGEV_MAX_SIZE 64
-#define __SIGEV_PAD_SIZE                                                       \
-  ((__SIGEV_MAX_SIZE - sizeof(int) * 2 - sizeof(sigval)) / sizeof(int))
-
 // Linux kernel ABI layout for struct sigevent (64 bytes total):
 // https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/siginfo.h
 // https://man7.org/linux/man-pages/man2/timer_create.2.html
 struct KernelSigevent {
+  static constexpr unsigned PAD_SIZE =
+      (64 - sizeof(int) * 2 - sizeof(sigval)) / sizeof(int);
   sigval sigev_value;
   int sigev_signo;
   int sigev_notify;
   union {
-    int _pad[__SIGEV_PAD_SIZE];
+    int _pad[PAD_SIZE];
     pid_t _tid;
     struct {
       void (*_function)(sigval);
@@ -54,14 +52,18 @@ struct KernelSigevent {
     sigev_value = sev.sigev_value;
     sigev_signo = sev.sigev_signo;
     sigev_notify = sev.sigev_notify;
-    for (unsigned i = 0; i < __SIGEV_PAD_SIZE; ++i)
+    for (unsigned i = 0; i < PAD_SIZE; ++i)
       _sigev_un._pad[i] = 0;
     // Linux kernel treats SIGEV_THREAD_ID as a bitwise mask, while the
     // remaining POSIX values as distinct enums:
     // https://github.com/torvalds/linux/blob/master/kernel/time/posix-timers.c#L405
     // https://github.com/torvalds/linux/blob/master/kernel/time/posix-timers.c#L525
     if ((sev.sigev_notify & SIGEV_THREAD_ID) != 0) {
+#if !defined(LIBC_FULL_BUILD) && defined(__GLIBC__)
+      _sigev_un._tid = sev._sigev_un._tid;
+#else
       _sigev_un._tid = sev.sigev_notify_thread_id;
+#endif
     } else if (sev.sigev_notify == SIGEV_THREAD) {
       _sigev_un._sigev_thread._function = sev.sigev_notify_function;
       _sigev_un._sigev_thread._attribute = sev.sigev_notify_attributes;
@@ -69,17 +71,23 @@ struct KernelSigevent {
   }
 };
 
-#undef __SIGEV_MAX_SIZE
-#undef __SIGEV_PAD_SIZE
+static_assert(sizeof(KernelSigevent) == 64);
 
 LIBC_INLINE ErrorOr<int> timer_create(clockid_t clockid, const sigevent *sevp,
-                                      timer_t *timerid) {
+                                    timer_t *timerid) {
 #ifdef SYS_timer_create
-  if (!sevp)
-    return syscall_checked<int>(SYS_timer_create, clockid, nullptr, timerid);
-
-  KernelSigevent ksev(*sevp);
-  return syscall_checked<int>(SYS_timer_create, clockid, &ksev, timerid);
+  // The kernel writes an int, not the pointer-sized public timer_t.
+  int kernel_timerid;
+  KernelSigevent ksev;
+  if (sevp)
+    ksev = KernelSigevent(*sevp);
+  // Keep the kernel's default notification and null-output error behavior.
+  auto result =
+      syscall_checked<int>(SYS_timer_create, clockid, sevp ? &ksev : nullptr,
+                           timerid ? &kernel_timerid : nullptr);
+  if (result)
+    *timerid = reinterpret_cast<timer_t>(static_cast<long>(kernel_timerid));
+  return result;
 #else
 #error "SYS_timer_create syscall not available."
 #endif
