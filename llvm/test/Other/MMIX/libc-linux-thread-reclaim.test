@@ -36,6 +36,7 @@ for opt in ('0', '2'):
         '_ZN12reclaim_test4mmix14CredentialGateD1Ev',
         '_ZN12reclaim_test4mmix14CredentialGate7releaseEv',
         '_ZN12reclaim_test4mmix20register_credentialsERNS0_13ThreadControlE',
+        '_ZN12reclaim_test4mmix22unregister_credentialsERNS0_13ThreadControlE',
         '__llvm_libc_mmix_syscall', '__llvm_libc_mmix_clone_thread', 'memcpy', 'memset'}, undefined
     report = subprocess.check_output(['llvm-readobj', '--sections', str(combined)], text=True)
     for forbidden in ('.init_array', 'SHF_TLS', '.MMIX.reg_contents'):
@@ -83,6 +84,7 @@ CredentialGate::CredentialGate() { owned = true; }
 CredentialGate::~CredentialGate() { release(); }
 void CredentialGate::release() { owned = false; }
 void register_credentials(ThreadControl &) {}
+void unregister_credentials(ThreadControl &) {}
 } }
 extern "C" int fork();
 extern "C" int waitpid(int, int *, int);
