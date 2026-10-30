@@ -44,13 +44,16 @@ for opt in ("0", "2"):
     if len(sys.argv) == 4:
         import resource as limits
         limits.setrlimit(limits.RLIMIT_CORE, (0, 0))
-        exe = root / ('host-O' + opt)
-        subprocess.run([sys.argv[3], *common, '-D__mmix__', '-O'+opt,
-            '-include', str(root/'transport.h'), *map(str,sources),
-            str(root/'test.cpp'), '-o', str(exe)], check=True)
-        for mode in range(15):
-            subprocess.run([str(exe), str(mode)], check=True, timeout=10)
-        print('Native thread completion: 15 scenarios passed at O'+opt, flush=True)
+        for windows in (False, True):
+            exe = root / ('host-O' + opt + ('-windows' if windows else ''))
+            flags = ['-DLIBC_MMIX_CANCELLATION_WINDOWS'] if windows else []
+            subprocess.run([sys.argv[3], *common, *flags, '-D__mmix__', '-O'+opt,
+                '-include', str(root/'transport.h'), *map(str,sources),
+                str(root/'test.cpp'), '-o', str(exe)], check=True)
+            for mode in range(19):
+                subprocess.run([str(exe), str(mode)], check=True, timeout=10)
+            print('Native thread completion: 19 scenarios passed at O'+opt+
+                  ' windows='+str(windows), flush=True)
 
 #--- headers/sys/syscall.h
 #define SYS_futex 98
@@ -70,6 +73,7 @@ for opt in ("0", "2"):
 #--- test.cpp
 #include "src/__support/threads/linux/mmix/thread_finish.h"
 #include "src/__support/threads/linux/mmix/thread_start.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include "src/__support/threads/thread.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
@@ -81,11 +85,51 @@ extern "C" int fork();
 extern "C" int waitpid(int, int *, int);
 static void require(bool b) { if (!b) __builtin_abort(); }
 static unsigned mode, masks, runners, callbacks, waits, terminals;
+static unsigned cleanups, tls_callbacks, tss_callbacks, waiter_masks, gates;
+static bool credential_gate;
+static constexpr uint64_t waiting_mask = UINT64_MAX & ~CREDENTIAL_MASK;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+static constexpr uint64_t cancel_mask = uint64_t(1) << 31;
+#else
+static constexpr uint64_t cancel_mask = 0;
+#endif
 static uint64_t mask = UINT64_MAX;
 static ThreadControl control, main_control;
+static bool waiter() { return mode >= 15; }
+static bool discarded() { return mode == 15 || mode == 17; }
+struct Owner { unsigned references = 1, retains = 0, releases = 0; } owner;
+static long retain_owner(void *p) {
+  require(p == &owner);
+  ++owner.retains;
+  ++owner.references;
+  return 0;
+}
+static long release_owner(void *p) {
+  require(p == &owner);
+  ++owner.releases;
+  --owner.references;
+  return 0;
+}
+static void owner_alive() {
+  require(owner.references == 2 && owner.retains == 1 && !owner.releases);
+  require(control.resource_owner.context == &owner &&
+          control.resource_owner.retain == retain_owner &&
+          control.resource_owner.release == release_owner);
+  require(control.tls.addr == 0x200000 && control.control_mapping.base == 0x300000);
+}
 struct Done {};
 static void *run(void *p) {
-  require(p == &control && mask == 0x1234 && masks == 1 && !runners++);
+  owner_alive();
+  require(p == &control && !discarded() && !runners++);
+  require(mask == (waiter() ? waiting_mask & ~cancel_mask : 0x1234));
+  require(masks == 1 + waiter_masks && control.cancellation.enabled());
+  if (waiter()) {
+    ThreadRegistryLock lock(thread_registry);
+    require(lock.callback_phase(control) == CallbackPhase::Active);
+    require(lock.live_threads() == 2 && !control.cancellation.asynchronous());
+    // Activation must preserve a request posted while still disabled.
+    require(control.cancellation.ready());
+  }
   mask = 0x5678; // User changed its mask before returning.
   return reinterpret_cast<void *>(0xabcdef00);
 }
@@ -93,14 +137,48 @@ static int run_int(void *p) { run(p); return -37; }
 namespace finish_test { namespace internal {
 void cleanup_main_thread() { __builtin_trap(); }
 void call_atexit_callbacks(ThreadAttributes *a) {
+  owner_alive();
   require(a == &control.attributes && self.attrib == a);
-  require(mask == 0x5678 && runners == 1 && !callbacks++ && masks == 3);
+  require(cleanups == 1 && !callbacks++);
+  uint64_t expected = discarded() ? (mode == 17 ? UINT64_MAX : waiting_mask) : 0x5678;
+  require(mask == (expected | cancel_mask));
+  require(runners == (discarded() ? 0u : 1u));
+  require(masks == waiter_masks + (discarded() ? 2u : 3u));
+  // Model both manager callback boundaries without replacing finish_thread.
+  // A discarded waiter has never registered any user destructors.
+  if (!discarded()) {
+    owner_alive();
+    require(!tls_callbacks++);
+    owner_alive();
+    require(tls_callbacks == 1 && !tss_callbacks++);
+  }
   mask = 0x9abc; // Final blocking must not restore a stale callback mask.
 }
-void cleanup_current_thread() { call_atexit_callbacks(self.attrib); }
+void cleanup_current_thread() {
+  owner_alive();
+  require(!cleanups++);
+  call_atexit_callbacks(self.attrib);
+  owner_alive();
+}
 } }
 namespace finish_test { namespace mmix {
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
+CredentialGate::CredentialGate() {
+  require(!credential_gate && mask == waiting_mask);
+  credential_gate = true;
+  ++gates;
+  mask = UINT64_MAX;
+}
+CredentialGate::~CredentialGate() {
+  require(credential_gate);
+  credential_gate = false;
+  mask = waiting_mask;
+}
+void unregister_credentials(ThreadControl &c) {
+  require(&c == &control && credential_gate && c.credential_registered);
+  owner_alive();
+  c.credential_registered = false;
+}
 } }
 extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
     long c, long d, long e, long f) {
@@ -110,21 +188,54 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
     if ((mode == 5 && masks == 1) || (mode == 6 && masks == 4)) return -EINVAL;
     if (c) *reinterpret_cast<uint64_t *>(c) = mask;
     mask = *reinterpret_cast<uint64_t *>(b);
+    if (waiter() && !callbacks && !runners) {
+      ThreadRegistryLock lock(thread_registry);
+      if (lock.callback_phase(control) == CallbackPhase::Waiting ||
+          (lock.callback_phase(control) == CallbackPhase::Active &&
+           !control.cancellation.enabled())) {
+        require(mask == waiting_mask && !control.cancellation.enabled());
+        ++waiter_masks;
+      }
+    }
     return 0;
   }
   if (n == SYS_clock_gettime) {
-    require(a == CLOCK_MONOTONIC && mask == UINT64_MAX && callbacks == 1);
+    require(a == CLOCK_MONOTONIC && mask == waiting_mask);
+    require(callbacks == (waiter() ? 0u : 1u));
+    owner_alive();
     if (mode == 14) return -ENOSYS;
     *reinterpret_cast<timespec *>(b) = {42, 1234};
     return 0;
   }
   require(n == SYS_futex);
   if (b == FUTEX_WAKE_PRIVATE) return 0;
-  require(b == FUTEX_WAIT_BITSET_PRIVATE && mask == UINT64_MAX);
+  require(b == FUTEX_WAIT_BITSET_PRIVATE && mask == waiting_mask);
   auto *ts = reinterpret_cast<timespec *>(d);
   require(ts && ts->tv_sec == 43 && ts->tv_nsec == 1234 && !e && f == 0xffffffffu);
   ++waits;
   require(!terminals);
+  if (waiter()) {
+    require((mode == 15 || mode == 16) && !runners && !callbacks);
+    owner_alive();
+    ThreadRegistryLock lock(thread_registry); // Wait must not hold this lock.
+    require(uint32_t(c) == lock.sequence());
+    require(lock.callback_phase(control) == CallbackPhase::Waiting);
+    require(lock.live_threads() == 1 && !lock.pin(&control.attributes));
+    require(!control.cancellation.enabled());
+    if (waits == 1) return -EINTR;
+    if (waits == 2) return -EAGAIN;
+    if (waits == 3) return -ETIMEDOUT;
+    if (waits == 4) return 0; // Spurious wake must not call the runner.
+    require(waits == 5);
+    if (discarded()) require(lock.discard_callback(control));
+    else {
+      require(lock.activate_callback(control));
+      require(!lock.request_cancellation(control, true));
+    }
+    require(!control.cancellation.enabled());
+    require(lock.live_threads() == (discarded() ? 1u : 2u));
+    return 0;
+  }
   if (mode == 7) return -EFAULT;
   require(mode == 2);
   if (waits == 1) return -EINTR;
@@ -138,20 +249,37 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
   return 0;
 }
 extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
-  require(mask == UINT64_MAX && !terminals++);
+  owner_alive();
+  bool aborted = mode == 3 || mode == 4;
+  require(mask == (aborted ? UINT64_MAX : waiting_mask) && !terminals++);
+  require(!credential_gate && gates == (aborted ? 0u : 1u));
+  require(!control.credential_registered);
   ThreadRegistryLock lock(thread_registry); // Unlocked before terminal call.
   require(lock.leases_drained(control) && !lock.begin_reaping(control));
   require(control.clear_tid.value.load() == UINT32_MAX);
   require(control.tls.addr == 0x200000 && control.control_mapping.base == 0x300000);
   require(lock.live_threads() == 1);
   if (mode == 3 || mode == 4) {
-    require(!callbacks && !runners && masks == 1);
+    require(!cleanups && !callbacks && !tls_callbacks && !tss_callbacks && !runners && masks == 1);
     require(!lock.abort_ready(control));
   } else {
-    require(callbacks == 1 && runners == 1 && masks == 4);
+    require(cleanups == 1 && callbacks == 1);
+    require(tls_callbacks == (discarded() ? 0u : 1u) && tss_callbacks == tls_callbacks);
+    require(runners == (discarded() ? 0u : 1u));
+    require(masks == waiter_masks + (discarded() ? 3u : 4u));
     if (mode == 1) require(control.attributes.retval.stdc_retval == -37);
+    else if (discarded()) require(control.attributes.retval.posix_retval == nullptr);
     else require(control.attributes.retval.posix_retval == reinterpret_cast<void *>(0xabcdef00));
     require(!lock.begin_cleanup(control) && !lock.exit_ready(control, 0));
+    if (waiter()) {
+      require(lock.callback_phase(control) ==
+              (discarded() ? CallbackPhase::Discarded : CallbackPhase::Active));
+      require(control.cancellation.enabled() == !discarded());
+      // Even after simulated kernel completion, the registration owner still
+      // holds its creator pin. The worker must not have consumed it.
+      control.clear_tid.value.store(0);
+      require(lock.begin_reaping(control) && !lock.finish_reaping(control));
+    }
   }
   throw Done{};
 }
@@ -160,7 +288,9 @@ extern "C" int main(int argc, char **argv) {
   mode = unsigned(argv[1][0]-'0');
   if (argv[1][1]) mode = 10*mode + unsigned(argv[1][1]-'0');
   main_control.attributes.tid = 123;
-  control.saved_signal_mask = 0x1234;
+  control.saved_signal_mask = waiter() ? UINT64_MAX : 0x1234;
+  control.resource_owner = {&owner, retain_owner, release_owner};
+  require(!control.resource_owner.retain(&owner));
   control.tls = {8192, 0x200000, 0x200000};
   control.control_mapping = {0x300000, 8192};
   control.attributes.style = mode == 1 ? ThreadStyle::STDC : ThreadStyle::POSIX;
@@ -168,10 +298,19 @@ extern "C" int main(int argc, char **argv) {
   else control.runner.posix_runner = mode == 9 ? nullptr : run;
   control.argument = &control;
   bool aborted = mode == 3 || mode == 4 || mode == 12 || mode == 13;
+  control.credential_registered = !aborted;
   {
     ThreadRegistryLock lock(thread_registry);
     require(lock.register_main(main_control));
-    if (aborted && mode != 12) require(lock.adopt_abort(control));
+    if (waiter()) {
+      require(lock.reserve() && lock.insert_callback_waiter(control) && lock.start(control));
+      require(lock.live_threads() == 1 && !control.cancellation.enabled());
+      if (mode == 17) require(lock.discard_callback(control));
+      if (mode == 18) {
+        require(lock.activate_callback(control));
+        require(!lock.request_cancellation(control, true));
+      }
+    } else if (aborted && mode != 12) require(lock.adopt_abort(control));
     else require(lock.reserve() && lock.insert(control, false) && lock.start(control));
     if (mode == 10) require(lock.begin_cleanup(control));
     if (mode == 2 || mode == 7 || mode == 14) {
@@ -183,7 +322,7 @@ extern "C" int main(int argc, char **argv) {
   if (mode == 8) control.publish_decision(CreatorDecision::Hold);
   if (mode == 13) control.publish_decision(CreatorDecision::Go);
   if (mode != 3) internal::self.attrib = &control.attributes;
-  bool fatal = mode >= 5;
+  bool fatal = mode >= 5 && mode <= 14;
   int child = fatal ? fork() : 0;
   require(child >= 0);
   if (child) {
@@ -197,8 +336,9 @@ extern "C" int main(int argc, char **argv) {
     else __llvm_libc_mmix_thread_run(&control);
     __builtin_abort();
   } catch (Done) {
+    owner_alive();
     require(!fatal && terminals == 1);
-    require(mode == 2 ? waits == 5 : waits == 0);
+    require(mode == 2 || mode == 15 || mode == 16 ? waits == 5 : waits == 0);
   }
   return 0;
 }

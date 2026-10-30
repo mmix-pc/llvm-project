@@ -48,6 +48,7 @@ enum class ThreadExecution { Starting, Running, Cleaning, ExitReady };
 enum class ThreadTermination { ThreadOnly, WaitForCreation, Process };
 enum class ChildStatus : uint32_t { Starting, Ready, Failed };
 enum class CreatorDecision : uint32_t { Hold, Go, Abort };
+enum class CallbackPhase { None, Waiting, Active, Discarded };
 
 struct ThreadMapping {
   uintptr_t base = 0;
@@ -156,6 +157,7 @@ private:
   bool listed = false, leases_open = false, counted = false;
   bool process_lifetime = false;
   bool internal_helper = false;
+  CallbackPhase callback_phase = CallbackPhase::None;
   bool callbacks_started = false;
   size_t api_pins = 0, leases = 0;
 };
@@ -175,6 +177,9 @@ class ThreadRegistry {
   ThreadControl *reap_head = nullptr, *reap_tail = nullptr;
   size_t reap_count = 0;
   size_t live = 0, reservations = 0;
+  // Precreated callbacks remain counted through activation until final reap.
+  // Zero alone does not prove quiescence: reaper/owner release must drain too.
+  size_t unreaped_callbacks = 0;
   static constexpr uint64_t RUNNING = 0, EXITING = 1, CLEANUP_CLAIMED = 2;
   alignas(8) cpp::Atomic<uint64_t> process_exit_state{RUNNING};
   bool process_exiting() {
@@ -242,6 +247,15 @@ public:
   // Register a successful creation, consuming one reservation. The helper is
   // explicitly excluded from application accounting and needs no reservation.
   bool insert(ThreadControl &control, bool detached, bool helper = false);
+  // A reserved managed thread waits without a public handle or application
+  // lifetime contribution. Its creator pin protects registration until a
+  // one-shot activation/discard decision has been published and acknowledged.
+  bool insert_callback_waiter(ThreadControl &control);
+  bool activate_callback(ThreadControl &control);
+  bool discard_callback(ThreadControl &control);
+  CallbackPhase callback_phase(const ThreadControl &control) const {
+    return control.callback_phase;
+  }
   bool adopt_abort(ThreadControl &control);
   ThreadControl *pin(ThreadAttributes *handle);
   bool unpin(ThreadControl &control);

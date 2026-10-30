@@ -102,6 +102,36 @@ static Futex::Timeout lease_deadline() {
 
 static void run_worker(void *argument) {
   auto *control = static_cast<ThreadControl *>(argument);
+  // Startup still blocks application signals here. Query the registry before
+  // restoring their mask so a handler cannot reenter it while we hold the lock.
+  for (;;) {
+    CallbackPhase phase;
+    uint32_t sequence;
+    {
+      ThreadRegistryLock lock(thread_registry);
+      phase = lock.callback_phase(*control);
+      sequence = lock.sequence();
+    }
+    if (phase == CallbackPhase::None)
+      break;
+    if (phase == CallbackPhase::Discarded)
+      exit_thread(*control, control->attributes.style == ThreadStyle::STDC
+                                ? ThreadReturnValue(0)
+                                : ThreadReturnValue(nullptr));
+    if (phase == CallbackPhase::Active) {
+      // A fresh waiter is deferred and disabled. Enable it on its own ordinary
+      // chain, outside the registry lock, without consuming the creator pin.
+      set_mask(UINT64_MAX & ~CREDENTIAL_MASK);
+      control->cancellation.set_enabled(true);
+      break;
+    }
+    // Waiting is not an application activation, but remains a participant in
+    // process-wide credential changes. Do not open cancellation delivery yet.
+    set_mask(UINT64_MAX & ~CREDENTIAL_MASK);
+    auto waited = thread_registry.wait(sequence, lease_deadline());
+    if (!waited && waited.error() != ETIMEDOUT)
+      __builtin_trap();
+  }
   uint64_t mask = control->saved_signal_mask;
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   if (control->cancellation.enabled())

@@ -21,6 +21,7 @@ bool ThreadRegistry::pristine_fork_caller(ThreadControl &caller) {
   bool pristine = main_registered && !creation_started && !process_operation &&
                   !process_exiting() && !fork_recovery.is_child() &&
                   !caller.fork_recovery.is_child() && !reservations &&
+                  !unreaped_callbacks &&
                   live == 1 && head == &caller && !caller.next &&
                   !reap_head && !reap_tail && !reap_count &&
                   caller.registry == this && caller.listed &&
@@ -46,7 +47,7 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
   }
   if (single_thread)
     *single_thread = (!creation_started || helper_drained) &&
-                     live == 1 && head == &caller &&
+                     !unreaped_callbacks && live == 1 && head == &caller &&
                      !caller.next && !reap_head && !reap_count;
   return true;
 }
@@ -61,7 +62,7 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   // reclaim vanished stacks, copied pins, leases or reaper queue entries.
   head = &survivor;
   reap_head = reap_tail = nullptr;
-  reap_count = reservations = 0;
+  reap_count = reservations = unreaped_callbacks = 0;
   live = 1;
   process_exit_state.store(RUNNING, cpp::MemoryOrder::RELAXED);
   process_operation = false;
@@ -77,6 +78,7 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   survivor.listed = survivor.counted = survivor.lifecycle_pin = true;
   survivor.process_lifetime = true;
   survivor.internal_helper = survivor.callbacks_started = false;
+  survivor.callback_phase = CallbackPhase::None;
   survivor.api_pins = survivor.leases = 0;
   survivor.owner = ThreadOwner::Joinable;
   survivor.execution = ThreadExecution::Running;
@@ -129,6 +131,7 @@ bool ThreadRegistryLock::begin_helper_creation() {
 bool ThreadRegistryLock::sole_fork_caller(const ThreadControl &caller) const {
   return registry.main_registered && !registry.process_exiting() &&
          !registry.process_operation && !registry.reservations &&
+         !registry.unreaped_callbacks &&
          registry.live == 1 && registry.head == &caller && !caller.next &&
          !registry.reap_head && !registry.reap_count &&
          caller.execution == ThreadExecution::Running &&
@@ -200,9 +203,52 @@ bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
   return true;
 }
 
+bool ThreadRegistryLock::insert_callback_waiter(ThreadControl &c) {
+  if (registry.unreaped_callbacks == SIZE_MAX ||
+      c.callback_phase != CallbackPhase::None || !insert(c, true))
+    return false;
+  // insert's ordinary reservation transfer is not externally visible until
+  // this lock is released. Only activation may publish the callback handle.
+  registry.head = c.next;
+  c.next = nullptr;
+  c.listed = c.leases_open = c.counted = false;
+  --registry.live;
+  ++registry.unreaped_callbacks;
+  c.callback_phase = CallbackPhase::Waiting;
+  c.cancellation.set_enabled(false);
+  return true;
+}
+
+bool ThreadRegistryLock::activate_callback(ThreadControl &c) {
+  if (!belongs(c) || c.callback_phase != CallbackPhase::Waiting ||
+      c.execution != ThreadExecution::Running || registry.process_exiting() ||
+      registry.process_operation || registry.live == SIZE_MAX ||
+      !registry.fork_recovery.allows_thread_creation())
+    return false;
+  c.callback_phase = CallbackPhase::Active;
+  ++registry.live;
+  c.listed = c.leases_open = c.counted = true;
+  c.next = registry.head;
+  registry.head = &c;
+  // The callback thread restores cancellation on its own ordinary chain after
+  // observing activation. Requests may accumulate while it is still disabled.
+  change();
+  return true;
+}
+
+bool ThreadRegistryLock::discard_callback(ThreadControl &c) {
+  if (!belongs(c) || c.callback_phase != CallbackPhase::Waiting ||
+      c.execution != ThreadExecution::Running)
+    return false;
+  c.callback_phase = CallbackPhase::Discarded;
+  change();
+  return true;
+}
+
 bool ThreadRegistryLock::register_main(ThreadControl &c) {
   if (registry.main_registered || registry.process_exiting() || registry.head ||
-      registry.live || registry.reservations || c.registry ||
+      registry.live || registry.reservations || registry.unreaped_callbacks ||
+      c.registry ||
       c.owner != ThreadOwner::Unpublished || !c.creator_pin ||
       !c.lifecycle_pin || c.attributes.tid <= 0 || c.owns_stack ||
       c.attributes.owned_stack || c.control_mapping.size || c.stack_mapping.size)
@@ -298,7 +344,8 @@ bool ThreadRegistryLock::detach(ThreadControl &c) {
 }
 
 bool ThreadRegistryLock::start(ThreadControl &c) {
-  if (!belongs(c) || (!c.listed && !c.internal_helper) ||
+  if (!belongs(c) || (!c.listed && !c.internal_helper &&
+                     c.callback_phase != CallbackPhase::Waiting) ||
       c.execution != ThreadExecution::Starting)
     return false;
   c.execution = ThreadExecution::Running;
@@ -307,6 +354,7 @@ bool ThreadRegistryLock::start(ThreadControl &c) {
 
 bool ThreadRegistryLock::begin_cleanup(ThreadControl &c, bool cancellation) {
   if (!belongs(c) || c.execution != ThreadExecution::Running ||
+      c.callback_phase == CallbackPhase::Waiting ||
       !c.cancellation.claim(cancellation))
     return false;
   c.execution = ThreadExecution::Cleaning;
@@ -315,7 +363,8 @@ bool ThreadRegistryLock::begin_cleanup(ThreadControl &c, bool cancellation) {
 
 int ThreadRegistryLock::request_cancellation(ThreadControl &c, bool owner) {
   if (!belongs(c) || (!owner && (!c.api_pins || !c.leases)) ||
-      c.internal_helper ||
+      c.internal_helper || c.callback_phase == CallbackPhase::Waiting ||
+      c.callback_phase == CallbackPhase::Discarded ||
       (c.execution != ThreadExecution::Starting &&
        c.execution != ThreadExecution::Running) || c.cancellation.terminal())
     return ESRCH;
@@ -405,6 +454,9 @@ bool ThreadRegistryLock::finish_reaping(ThreadControl &c) {
       c.api_pins || c.leases)
     return false;
   c.owner = ThreadOwner::Reaped;
+  if (c.callback_phase == CallbackPhase::Discarded ||
+      c.callback_phase == CallbackPhase::Active)
+    --registry.unreaped_callbacks;
   c.lifecycle_pin = false;
   change();
   // The exclusive reclaimer copies descriptors before this transfer. It may
@@ -498,7 +550,7 @@ ThreadRegistryLock::termination_action(const ThreadControl &c) {
   if (!belongs(c) || c.counted ||
       c.execution != ThreadExecution::ExitReady)
     __builtin_trap();
-  if (c.internal_helper)
+  if (c.internal_helper || c.callback_phase == CallbackPhase::Discarded)
     return ThreadTermination::ThreadOnly;
   if (registry.process_exiting() || registry.live)
     return ThreadTermination::ThreadOnly;

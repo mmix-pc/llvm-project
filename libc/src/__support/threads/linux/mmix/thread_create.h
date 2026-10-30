@@ -25,6 +25,15 @@ struct ThreadCreationResult {
 __attribute__((visibility("hidden"))) ThreadCreationResult
 create_thread(const ThreadPreparation &request, ThreadAttributes *&output);
 
+// Precreate a detached notification thread with signals blocked and
+// cancellation disabled. Managed entry awaits activation or discard before
+// entering application code or cleanup. Success transfers the creator
+// pin to the registration owner, which must drop it after its final control
+// access. Waiting callbacks are neither public handles nor live application
+// threads. Failure leaves output unchanged, with create_thread's rollback rule.
+__attribute__((visibility("hidden"))) ThreadCreationResult
+create_callback_waiter(const ThreadPreparation &request, ThreadControl *&output);
+
 // Runtime bootstrap only: bypasses reaper initialization, creates no public
 // registry handle or application reservation, and inherits blocked signals.
 // The internal runner may return only during coordinated helper retirement;

@@ -92,7 +92,8 @@ static long await_startup(ThreadControl &control) {
 static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
                                                ThreadAttributes *&output,
                                                bool helper,
-                                               ThreadControl **helper_control = nullptr) {
+                                               ThreadControl **helper_control = nullptr,
+                                               bool callback_waiter = false) {
   ThreadPreparation input = request;
   // Preparation may wait for a helper that is entering the credential gate.
   uint64_t blocked = UINT64_MAX & ~CREDENTIAL_MASK, saved_mask = 0;
@@ -141,6 +142,8 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
   } else {
     input.saved_signal_mask = UINT64_MAX;
   }
+  if (callback_waiter)
+    input.saved_signal_mask = UINT64_MAX;
   ThreadControl *control = nullptr;
   ThreadPreparationResult prepared = prepare_thread(input, control);
   if (prepared.error != ThreadPrepareError::None) {
@@ -173,6 +176,26 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
     __builtin_trap();
 
   long error = await_startup(*control);
+  if (!error) {
+    if (control->attributes.tid != ret)
+      __builtin_trap();
+    register_credentials(*control);
+    bool inserted;
+    {
+      ThreadRegistryLock lock(thread_registry);
+      inserted = callback_waiter
+                     ? lock.insert_callback_waiter(*control)
+                     : lock.insert(*control, input.detached, helper);
+      if (inserted && !lock.start(*control))
+        __builtin_trap();
+    }
+    if (!inserted) {
+      // Exit may close admission while the child completes startup. The child
+      // still awaits GO, so withdraw its credentials and use normal rollback.
+      unregister_credentials(*control);
+      error = -EAGAIN;
+    }
+  }
   if (error) {
     {
       ThreadRegistryLock lock(thread_registry);
@@ -189,20 +212,12 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
     restore_mask(saved_mask);
     return {error};
   }
-  if (control->attributes.tid != ret)
-    __builtin_trap();
-  register_credentials(*control);
-  {
-    ThreadRegistryLock lock(thread_registry);
-    if (!lock.insert(*control, input.detached, helper) || !lock.start(*control))
-      __builtin_trap();
-    output = &control->attributes;
-    if (helper_control)
-      *helper_control = control;
-  }
+  output = &control->attributes;
+  if (helper_control)
+    *helper_control = control;
   control->publish_decision(CreatorDecision::Go);
   wake_decision(*control);
-  {
+  if (!callback_waiter) {
     ThreadRegistryLock lock(thread_registry);
     if (!lock.drop_creator(*control))
       __builtin_trap();
@@ -223,6 +238,14 @@ ThreadCreationResult create_thread_helper(const ThreadPreparation &request,
   if (!request.detached || request.stack)
     __builtin_trap();
   return create_thread_impl(request, output, true, helper_control);
+}
+
+ThreadCreationResult create_callback_waiter(const ThreadPreparation &request,
+                                            ThreadControl *&output) {
+  ThreadPreparation input = request;
+  input.detached = true;
+  ThreadAttributes *attributes = nullptr;
+  return create_thread_impl(input, attributes, false, &output, true);
 }
 
 } // namespace mmix

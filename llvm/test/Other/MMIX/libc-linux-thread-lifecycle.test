@@ -220,6 +220,97 @@ static void ownership() {
   require(registry.wait(sequence - 1, *deadline).has_value());
 }
 
+static void callback_waiters() {
+  for (unsigned activate = 0; activate != 2; ++activate) {
+    event_address = 0;
+    ThreadRegistry registry;
+    ThreadControl main, callback, foreign;
+    main.attributes.tid = 1;
+    {
+      ThreadRegistryLock lock(registry);
+      require(lock.register_main(main));
+      require(!lock.insert_callback_waiter(callback));
+      require(lock.reserve() && lock.insert_callback_waiter(callback));
+      require(!lock.insert_callback_waiter(callback));
+      require(lock.live_threads() == 1 && !lock.pending_creations());
+      require(!lock.pin(&callback.attributes));
+      require(!lock.activate_callback(callback)); // Not started yet.
+      require(lock.start(callback));
+      require(lock.callback_phase(callback) == CallbackPhase::Waiting);
+      require(!callback.cancellation.enabled());
+      require(!lock.begin_cleanup(callback));
+      require(lock.request_cancellation(callback, true) != 0);
+      require(!lock.activate_callback(foreign) && !lock.discard_callback(foreign));
+      require(!lock.sole_fork_caller(main) && !lock.begin_vfork(main));
+    }
+    bool single = true;
+    require(registry.freeze_for_fork(main, 0, &single, true) && !single);
+    registry.release_after_fork();
+    {
+      ThreadRegistryLock lock(registry);
+      if (activate) {
+        require(lock.activate_callback(callback));
+        require(!lock.activate_callback(callback) && !lock.discard_callback(callback));
+        require(lock.live_threads() == 2);
+        require(lock.pin(&callback.attributes) == &callback);
+        require(lock.request_cancellation(callback, true) == 0);
+        require(!callback.cancellation.enabled());
+        require(lock.unpin(callback));
+      } else {
+        require(lock.discard_callback(callback));
+        require(!lock.discard_callback(callback) && !lock.activate_callback(callback));
+        require(lock.live_threads() == 1 && !lock.pin(&callback.attributes));
+      }
+      require(lock.begin_cleanup(callback) && lock.close_leases(callback));
+      require(lock.exit_ready(callback, 0));
+      require(lock.queued_reclaims() == 1 && !lock.sole_fork_caller(main));
+      require(!lock.begin_reaping(callback));
+      callback.clear_tid.value.store(0);
+      require(lock.begin_reaping(callback) && !lock.finish_reaping(callback));
+      require(lock.drop_creator(callback) && lock.finish_reaping(callback));
+      require(!lock.finish_reaping(callback));
+      require(lock.sole_fork_caller(main));
+    }
+    require(registry.freeze_for_fork(main, 0, &single, true) && single);
+    registry.release_after_fork();
+  }
+  // Last application exit and callback activation have one serialized winner.
+  for (unsigned activate_first = 0; activate_first != 2; ++activate_first) {
+    event_address = 0;
+    ThreadRegistry registry;
+    ThreadControl main, callback;
+    main.attributes.tid = 1;
+    ThreadRegistryLock lock(registry);
+    require(lock.register_main(main) && lock.reserve());
+    require(lock.insert_callback_waiter(callback) && lock.start(callback));
+    if (activate_first) require(lock.activate_callback(callback));
+    require(lock.begin_cleanup(main) && lock.close_leases(main));
+    require(lock.exit_ready(main, 0));
+    require(lock.termination_action(main) == (activate_first ?
+        ThreadTermination::ThreadOnly : ThreadTermination::Process));
+    if (!activate_first) {
+      require(!lock.activate_callback(callback));
+      require(lock.discard_callback(callback));
+    }
+    require(lock.begin_cleanup(callback) && lock.close_leases(callback));
+    require(lock.exit_ready(callback, 0));
+    require(lock.termination_action(callback) == (activate_first ?
+        ThreadTermination::Process : ThreadTermination::ThreadOnly));
+  }
+  // Explicit signal-side process exit also wins over later activation.
+  {
+    event_address = 0;
+    ThreadRegistry registry;
+    ThreadControl main, callback;
+    main.attributes.tid = 1;
+    ThreadRegistryLock lock(registry);
+    require(lock.register_main(main) && lock.reserve());
+    require(lock.insert_callback_waiter(callback) && lock.start(callback));
+    require(registry.claim_process_cleanup());
+    require(!lock.activate_callback(callback) && lock.discard_callback(callback));
+  }
+}
+
 static void main_registration() {
   ThreadRegistry registry;
   ThreadControl main, other;
@@ -407,6 +498,7 @@ static void admission_concurrency() {
 extern "C" int main() {
   layout_and_publication();
   ownership();
+  callback_waiters();
   main_registration();
   detached_main();
   {

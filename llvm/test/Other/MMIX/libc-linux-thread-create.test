@@ -41,9 +41,9 @@ for opt in ("0", "2"):
         subprocess.run([options[0], *common, "-D__mmix__", "-O" + opt,
             "-include", str(root / "transport.h"), *map(str, sources),
             str(root / "test.cpp"), "-o", str(exe)], check=True)
-        for mode in range(19):
+        for mode in range(23):
             subprocess.run([str(exe), str(mode)], check=True, timeout=10)
-        print('Native creator handshake: 19 scenarios passed at O' + opt, flush=True)
+        print('Native creator handshake: 23 scenarios passed at O' + opt, flush=True)
 
 # Test transport constants, not an installed MMIX UAPI package.
 #--- headers/sys/syscall.h
@@ -73,6 +73,7 @@ for opt in ("0", "2"):
 #--- test.cpp
 #include "src/__support/threads/linux/mmix/thread_create.h"
 #include "src/__support/threads/linux/mmix/thread_entry.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include "hdr/time_macros.h"
@@ -88,13 +89,30 @@ static unsigned mode, masks, preparations, clones, waits, clocks, wakes, release
 static bool blocked;
 static ThreadControl control, main_control;
 static ThreadAttributes *output = reinterpret_cast<ThreadAttributes *>(1);
+static ThreadControl *callback_output = reinterpret_cast<ThreadControl *>(1);
 static constexpr uint64_t original_mask = 0x123456789abcdef0;
+static bool callback_mode() { return mode >= 20; }
+static bool credential_gate, credential_member;
 
 namespace create_test { namespace mmix {
+// Membership must be withdrawn before abort reclamation on late rejection.
+CredentialGate::CredentialGate() { require(!credential_gate); credential_gate = true; }
+CredentialGate::~CredentialGate() { release(); }
+void CredentialGate::release() { credential_gate = false; }
+void register_credentials(ThreadControl &c) {
+  require(credential_gate && &c == &control && !credential_member);
+  credential_member = true;
+}
+void unregister_credentials(ThreadControl &c) {
+  require(credential_gate && &c == &control && credential_member);
+  credential_member = false;
+}
 // Isolate creator handshake; the dedicated reaper test executes bootstrap.
 ThreadCreationResult ensure_thread_reaper(const TLSImage &, uintptr_t) { return {}; }
 ThreadPreparationResult prepare_thread(const ThreadPreparation &r, ThreadControl *&out) {
-  require(blocked && masks == 1 && r.saved_signal_mask == original_mask);
+  require(blocked && masks == 1 &&
+          r.saved_signal_mask == (callback_mode() ? UINT64_MAX : original_mask));
+  require(!callback_mode() || r.detached);
   ++preparations;
   if (mode == 2) return {ThreadPrepareError::ControlMapFailed, ENOMEM};
   if (mode == 10) return {ThreadPrepareError::Overflow};
@@ -136,24 +154,30 @@ extern "C" long __llvm_libc_mmix_clone_thread(unsigned long flags, uintptr_t sta
   require(blocked && masks == 1 && preparations == 1 && control.is_prepared());
   require(flags == 0x3d0f00 && stack == control.stack_top && tp == control.tls.tp);
   require(parent_tid == &control.parent_tid.value.val && clear_tid == &control.clear_tid.value.val);
-  require(*clear_tid == UINT32_MAX && control.saved_signal_mask == original_mask);
+  require(*clear_tid == UINT32_MAX && control.saved_signal_mask ==
+          (callback_mode() ? UINT64_MAX : original_mask));
   { ThreadRegistryLock lock(thread_registry); require(lock.pending_creations() == 1); }
   ++clones;
   if (mode == 3 || mode == 4) return -EAGAIN;
   *parent_tid = mode == 12 ? 322 : 321;
   control.attributes.tid = mode == 13 ? 322 : 321;
-  if (mode == 5 || mode == 18) {
+  if (mode == 5 || mode == 18 || mode == 21) {
     control.publish_child(ChildStatus::Failed, ENOMEM);
     if (mode == 18) control.clear_tid.value.store(0);
   }
   else if (mode == 7) control.clear_tid.value.store(0); // No user entry at all.
   else if (mode != 6 && mode != 8 && mode != 15 && mode != 16)
     control.publish_child(ChildStatus::Ready); // Child before parent return.
+  if (mode == 19 || mode == 22) {
+    require(thread_registry.claim_process_cleanup());
+  }
   return 321;
 }
 
 extern "C" void __llvm_libc_mmix_reclaim_failed_thread(ThreadControl *c) {
   require(c == &control && blocked && !releases && !reclaims++);
+  require(!credential_member && !credential_gate);
+  require(callback_output == reinterpret_cast<ThreadControl *>(1));
   require(output == reinterpret_cast<ThreadAttributes *>(1));
   require(c->acquire_decision() == CreatorDecision::Abort && wakes == 1);
   // Test-only terminal observer. The production delegate must await real
@@ -170,7 +194,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
   if (n == SYS_rt_sigprocmask) {
     require(a == SIG_SETMASK && d == 8 && !e && !f);
     if (!masks++) {
-      require(*reinterpret_cast<uint64_t *>(b) == UINT64_MAX && c);
+      require(*reinterpret_cast<uint64_t *>(b) == (UINT64_MAX & ~CREDENTIAL_MASK) && c);
       if (mode == 1) return -EPERM;
       *reinterpret_cast<uint64_t *>(c) = original_mask;
       blocked = true;
@@ -194,10 +218,18 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
     require(!wakes++);
     if (mode == 11) return -EFAULT;
     if (control.acquire_decision() == CreatorDecision::Go) {
-      require(output == &control.attributes);
+      require(credential_member && credential_gate);
       ThreadRegistryLock lock(thread_registry);
-      require(lock.live_threads() == 2 && !lock.pending_creations());
-      require(lock.pin(output) == &control && lock.unpin(control));
+      require(!lock.pending_creations());
+      if (callback_mode()) {
+        require(callback_output == &control && lock.live_threads() == 1);
+        require(output == reinterpret_cast<ThreadAttributes *>(1));
+        require(!lock.pin(&control.attributes));
+        require(lock.callback_phase(control) == CallbackPhase::Waiting);
+      } else {
+        require(output == &control.attributes && lock.live_threads() == 2);
+        require(lock.pin(output) == &control && lock.unpin(control));
+      }
       require(!lock.start(control)); // Already running before GO.
       if (mode == 17) {
         require(lock.begin_cleanup(control) && lock.close_leases(control));
@@ -249,13 +281,27 @@ extern "C" int main(int argc, char **argv) {
   }
   ThreadPreparation request;
   request.detached = mode == 9 || mode == 17;
-  auto result = create_thread(request, output);
+  auto result = callback_mode() ? create_callback_waiter(request, callback_output)
+                                : create_thread(request, output);
   require(!fatal && !blocked);
   if (mode == 1) require(result.error == -EPERM && masks == 1 && !preparations);
   else require(masks == 2 && preparations == 1);
-  bool success = mode == 0 || mode == 6 || mode == 9 || mode == 17;
+  bool success = mode == 0 || mode == 6 || mode == 9 || mode == 17 || mode == 20;
   ThreadRegistryLock lock(thread_registry);
   require(!lock.pending_creations());
+  require(!credential_gate && credential_member == success);
+  if (mode == 20) {
+    require(!result.error && callback_output == &control);
+    require(output == reinterpret_cast<ThreadAttributes *>(1));
+    require(lock.live_threads() == 1 && !lock.pin(&control.attributes));
+    require(lock.discard_callback(control));
+    require(lock.begin_cleanup(control) && lock.close_leases(control));
+    require(lock.exit_ready(control, 0));
+    control.clear_tid.value.store(0);
+    require(lock.begin_reaping(control) && !lock.finish_reaping(control));
+    require(lock.drop_creator(control) && lock.finish_reaping(control));
+    return 0;
+  }
   if (success) {
     require(!result.error && output == &control.attributes && clones == 1 && wakes == 1);
     require(lock.live_threads() == (mode == 17 ? 1u : 2u) && !lock.drop_creator(control));
@@ -265,11 +311,12 @@ extern "C" int main(int argc, char **argv) {
   } else {
     require(result.error < 0 && output == reinterpret_cast<ThreadAttributes *>(1));
     require(lock.live_threads() == 1);
-    if (mode == 2 || mode == 5 || mode == 18) require(result.error == -ENOMEM);
+    if (mode == 2 || mode == 5 || mode == 18 || mode == 21) require(result.error == -ENOMEM);
+    if (mode == 19 || mode == 22) require(result.error == -EAGAIN);
     if (mode == 10) require(result.error == -EOVERFLOW && !clones);
     if (mode == 3 || mode == 4) require(releases == 1 && !reclaims);
     if (mode == 4) require(result.preparation.rollback_error == EBUSY && result.preparation.retained.control.size == 8192);
-    if (mode == 5 || mode == 7 || mode == 8 || mode == 18) require(reclaims == 1 && !releases);
+    if (mode == 5 || mode == 7 || mode == 8 || mode >= 18) require(reclaims == 1 && !releases);
   }
   return 0;
 }
