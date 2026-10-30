@@ -122,7 +122,8 @@ public:
   //
   // Publication, not io_uring_enter's submitted count, is the boundary: short
   // submit, zero progress, EINTR and other submit errors NEVER permit rollback
-  // or republishing an already enqueued operation.
+  // or republishing an already enqueued operation. Proven transport withdrawal
+  // is a separate explicit transition below.
   LIBC_INLINE bool mark_published(Credit &credit) {
     if (credit.owner != this || credit.published)
       return false;
@@ -146,6 +147,18 @@ public:
   // This releases CQ capacity only; it neither completes nor reclaims a
   // request.
   LIBC_INLINE bool consume(Credit &credit, uint64_t token) {
+    if (credit.owner != this || !credit.published ||
+        token != credit.token_value)
+      return false;
+    release(credit);
+    return true;
+  }
+
+  // Only after the exclusive transport owner has removed this exact token
+  // from the unconsumed SQ tail. This is NOT a completion or a cancellation
+  // result. Enter errors alone never authorize this transition. Tokens remain
+  // burned and no CQE may subsequently be accepted for the withdrawn entry.
+  LIBC_INLINE bool withdraw(Credit &credit, uint64_t token) {
     if (credit.owner != this || !credit.published ||
         token != credit.token_value)
       return false;

@@ -420,6 +420,33 @@ public:
     return {};
   }
 
+  // Requires exclusive access to ALL ring operations, after every enter has
+  // returned, with no external submitter or registered BPF loop. Setup rejects
+  // SQPOLL and all other flags. In this mode Linux commits SQ head before
+  // returning from submission; asynchronous workers only own consumed SQEs.
+  // Remove only the last unconsumed entry, identified by its trusted token.
+  // No syscall, CQE, or request completion is synthesized. The owner separately
+  // retires its completion credit and reports the submission failure. An enter
+  // errno alone is never evidence that an entry can be withdrawn.
+  // EAGAIN means no unconsumed entry; EINVAL means a different token is last.
+  // Every error leaves the queue unchanged, including on corrupt/lost state.
+  LIBC_INLINE ErrorOr<void> withdraw_last(uint64_t token) {
+    auto status = check_integrity();
+    if (!status)
+      return status;
+    __u32 tail = acquire(sq_word(params.sq_off.tail));
+    __u32 head = acquire(sq_word(params.sq_off.head));
+    if (tail == head)
+      return Error(EAGAIN);
+    __u32 slot = (tail - 1) & (params.sq_entries - 1);
+    if (at<__u32>(sq, params.sq_off.array)[slot] != slot)
+      return Error(EPROTO);
+    if (at<io_uring_sqe>(sqes, 0)[slot].user_data != token)
+      return Error(EINVAL);
+    release(sq_word(params.sq_off.tail), tail - 1);
+    return {};
+  }
+
   // Submits the currently published SQ entries with one enter syscall (or
   // returns zero if empty). Returns the exact submitted count, including short
   // success. EINTR/errors are not retried; consult the kernel head on next

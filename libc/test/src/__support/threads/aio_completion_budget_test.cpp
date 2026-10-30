@@ -336,3 +336,28 @@ TEST(LlvmLibcAioCompletionBudgetTest, TokenExhaustionNeverWrapsOrReuses) {
     expect_counts(restored, 0, 1);
   }
 }
+
+TEST(LlvmLibcAioCompletionBudgetTest, ProvenWithdrawalBurnsPublishedToken) {
+  Budget budget, foreign;
+  Credit entry;
+  ASSERT_TRUE(budget.initialize(1).has_value());
+  ASSERT_TRUE(foreign.initialize(1).has_value());
+  auto token = budget.reserve(entry);
+  ASSERT_TRUE(token.has_value());
+  EXPECT_FALSE(budget.withdraw(entry, *token));
+  ASSERT_TRUE(budget.mark_published(entry));
+  EXPECT_FALSE(foreign.withdraw(entry, *token));
+  EXPECT_FALSE(budget.withdraw(entry, *token + 1));
+  expect_counts(budget, 1, 0);
+  ASSERT_TRUE(budget.withdraw(entry, *token));
+  EXPECT_TRUE(entry.reclaimable());
+  EXPECT_FALSE(budget.consume(entry, *token));
+  EXPECT_FALSE(budget.withdraw(entry, *token));
+  auto next = budget.reserve(entry);
+  ASSERT_TRUE(next.has_value());
+  EXPECT_GT(*next, *token);
+  ASSERT_TRUE(budget.mark_published(entry));
+  EXPECT_FALSE(budget.withdraw(entry, *token));
+  ASSERT_TRUE(budget.consume(entry, *next));
+  expect_counts(budget, 0, 1);
+}

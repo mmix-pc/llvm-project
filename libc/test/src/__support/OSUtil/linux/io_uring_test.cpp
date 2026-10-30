@@ -938,3 +938,99 @@ TEST(LlvmLibcIoUringTest, IntegrityChecksBothQueuesAndLossCounters) {
     EXPECT_EQ(state.enter_calls, 0);
   }
 }
+
+TEST(LlvmLibcIoUringTest, WithdrawOnlyUnconsumedTailAfterPartialEnterError) {
+  State state;
+  Ring ring(FakeOperations{&state});
+  expect_error(ring.withdraw_last(COOKIE), EBADF);
+  ASSERT_TRUE(ring.initialize(4).has_value());
+  for (unsigned i = 0; i != 3; ++i) {
+    auto entry = request();
+    entry.user_data += i;
+    ASSERT_TRUE(ring.enqueue(entry).has_value());
+  }
+  state.consume = 1;
+  state.enter_error = EINTR;
+  expect_error(ring.submit(), EINTR);
+  expect_error(ring.withdraw_last(COOKIE), EINVAL);
+  EXPECT_EQ(state.sq_word(state.params.sq_off.tail), 3U);
+  ASSERT_TRUE(ring.withdraw_last(COOKIE + 2).has_value());
+  ASSERT_TRUE(ring.withdraw_last(COOKIE + 1).has_value());
+  expect_error(ring.withdraw_last(COOKIE), EAGAIN);
+  EXPECT_EQ(state.sq_word(state.params.sq_off.head), 1U);
+  EXPECT_EQ(state.sq_word(state.params.sq_off.tail), 1U);
+  EXPECT_EQ(state.enter_calls, 1);
+  // The consumed prefix still completes normally, without synthetic CQEs.
+  expect_error(poll(ring), EAGAIN);
+  state.post({COOKIE, 123, 0});
+  io_uring_cqe completion{};
+  ASSERT_TRUE(ring.poll(completion).has_value());
+  EXPECT_EQ(completion.user_data, __u64(COOKIE));
+  EXPECT_EQ(completion.res, 123);
+}
+
+TEST(LlvmLibcIoUringTest, WithdrawAcrossWrapAndReuseSlot) {
+  State state;
+  Ring ring(FakeOperations{&state});
+  ASSERT_TRUE(ring.initialize(4).has_value());
+  state.sq_word(state.params.sq_off.head) = UINT32_MAX;
+  state.sq_word(state.params.sq_off.tail) = UINT32_MAX;
+  ASSERT_TRUE(ring.enqueue(request()).has_value());
+  ASSERT_TRUE(ring.withdraw_last(COOKIE).has_value());
+  EXPECT_EQ(state.sq_word(state.params.sq_off.tail), UINT32_MAX);
+  auto entry = request();
+  entry.user_data = COOKIE + 1;
+  ASSERT_TRUE(ring.enqueue(entry).has_value());
+  state.consume = state.enter_result = 1;
+  ASSERT_TRUE(ring.submit().has_value());
+  expect_error(ring.withdraw_last(COOKIE + 1), EAGAIN);
+  EXPECT_EQ(state.sq_word(state.params.sq_off.head), 0U);
+  EXPECT_EQ(state.sqes[SQ_COUNT - 1].user_data, __u64(COOKIE + 1));
+}
+
+TEST(LlvmLibcIoUringTest, WithdrawalRejectsDamageWithoutMutation) {
+  for (unsigned fault = 0; fault != 6; ++fault) {
+    State state;
+    Ring ring(FakeOperations{&state});
+    ASSERT_TRUE(ring.initialize(4).has_value());
+    ASSERT_TRUE(ring.enqueue(request()).has_value());
+    if (fault == 0)
+      state.sq_word(state.params.sq_off.array) = SQ_COUNT;
+    if (fault == 1)
+      state.sq_word(state.params.sq_off.tail) = SQ_COUNT + 1;
+    if (fault == 2)
+      state.cq_word(state.params.cq_off.tail) = CQ_COUNT + 1;
+    if (fault == 3)
+      state.sq_word(state.params.sq_off.dropped) = 1;
+    if (fault == 4)
+      state.cq_word(state.params.cq_off.overflow) = 1;
+    if (fault == 5)
+      state.sq_word(state.params.sq_off.ring_mask) = 0;
+    __u32 old_tail = state.sq_word(state.params.sq_off.tail);
+    expect_error(ring.withdraw_last(COOKIE),
+                 fault == 3 ? EIO : fault == 4 ? EOVERFLOW : EPROTO);
+    EXPECT_EQ(state.sq_word(state.params.sq_off.tail), old_tail);
+    EXPECT_EQ(state.sq_word(state.params.sq_off.head), 0U);
+    EXPECT_EQ(state.enter_calls, 0);
+  }
+}
+
+TEST(LlvmLibcIoUringTest, WithdrawalPreservesErrnoAndConsumedErrorOwnership) {
+  State state;
+  Ring ring(FakeOperations{&state});
+  ASSERT_TRUE(ring.initialize(4).has_value());
+  ASSERT_TRUE(ring.enqueue(request()).has_value());
+  int saved_errno = libc_errno;
+  libc_errno = EDOM;
+  auto withdrawn = ring.withdraw_last(COOKIE);
+  int observed_errno = libc_errno;
+  libc_errno = saved_errno;
+  EXPECT_TRUE(withdrawn.has_value());
+  EXPECT_EQ(observed_errno, EDOM);
+  ASSERT_TRUE(ring.enqueue(request()).has_value());
+  state.consume = 1;
+  state.enter_error = EIO;
+  expect_error(ring.submit(), EIO);
+  expect_error(ring.withdraw_last(COOKIE), EAGAIN);
+  EXPECT_TRUE(ring.check_integrity().has_value());
+}

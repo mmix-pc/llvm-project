@@ -155,6 +155,35 @@ public:
     return true;
   }
 
+  // Recovery after an enter failure, never a substitute for polling consumed
+  // requests. RingLike must implement Ring::withdraw_last under exclusive
+  // access to ALL ring operations. Removal and credit retirement form one
+  // transaction with cancellation/application handlers suppressed. The caller
+  // still owns the request and must publish its explicit failure separately.
+  LIBC_INLINE ErrorOr<void> withdraw(Entry &entry) {
+    if (entry.owner != this || !entry.published)
+      return Error(EINVAL);
+    auto health = ring.check_integrity();
+    if (!health)
+      fatal();
+    auto result = ring.withdraw_last(entry.token());
+    if (!result) {
+      // EAGAIN: already consumed/empty. EINVAL: not the last pending token.
+      // Neither releases ownership. Other errors violate the trusted ring
+      // contract after the successful integrity check.
+      if (result.error() != EAGAIN && result.error() != EINVAL)
+        fatal();
+      return Error(result.error());
+    }
+    Entry **link = &head;
+    while (*link && *link != &entry)
+      link = &(*link)->next;
+    if (!*link || !budget.withdraw(entry.credit, entry.token()))
+      fatal();
+    detach(link);
+    return {};
+  }
+
   // No callbacks or request-state transitions. Even after detachment the caller
   // must retain the referenced request, buffers and other storage through
   // processing of Completion. An error CQE is a normal terminal completion.

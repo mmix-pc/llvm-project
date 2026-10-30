@@ -19,6 +19,7 @@ struct FakeRing {
   int integrity_error = 0;
   int integrity_after_poll = 0;
   int enqueue_error = 0;
+  int withdrawal_error = 0;
   unsigned polls = 0;
   unsigned checks = 0;
   uint64_t enqueued_token = 0;
@@ -37,6 +38,16 @@ struct FakeRing {
       return Error(poll_error);
     cqe = completion;
     poll_error = EAGAIN;
+    return {};
+  }
+  ErrorOr<void> withdraw_last(uint64_t token) {
+    if (withdrawal_error)
+      return Error(withdrawal_error);
+    if (!enqueued_token)
+      return Error(EAGAIN);
+    if (enqueued_token != token)
+      return Error(EINVAL);
+    enqueued_token = 0;
     return {};
   }
   ErrorOr<void> check_integrity() {
@@ -175,6 +186,61 @@ TEST(LlvmLibcAioCompletionQueueTest, FullBudgetAndIndependentCancel) {
   }
 }
 
+TEST(LlvmLibcAioCompletionQueueTest, WithdrawnTailRetiresOnlyItsOwnCredit) {
+  FakeRing ring;
+  uint64_t watermark = 0;
+  Queue queue(ring, watermark);
+  Queue::Entry consumed, tail, fresh;
+  ASSERT_TRUE(queue.initialize(3).has_value());
+  auto first = queue.prepare(consumed, Kind::Transfer, &consumed, 1);
+  ASSERT_TRUE(first.has_value());
+  queue.publish(consumed);
+  auto second = queue.prepare(tail, Kind::Metadata, &tail, 0);
+  ASSERT_TRUE(second.has_value());
+  io_uring_sqe sqe{};
+  sqe.user_data = *second;
+  ASSERT_TRUE(ring.enqueue(sqe).has_value());
+  queue.publish(tail);
+  EXPECT_EQ(queue.withdraw(fresh).error(), EINVAL);
+  EXPECT_EQ(queue.withdraw(consumed).error(), EINVAL);
+  EXPECT_EQ(queue.outstanding(), 2U);
+  ASSERT_TRUE(queue.withdraw(tail).has_value());
+  EXPECT_TRUE(tail.reclaimable());
+  EXPECT_FALSE(consumed.reclaimable());
+  EXPECT_EQ(queue.outstanding(), 1U);
+  EXPECT_EQ(queue.withdraw(consumed).error(), EAGAIN);
+  EXPECT_EQ(queue.withdraw(tail).error(), EINVAL);
+  EXPECT_EQ(ring.polls, 0U);
+  auto third = queue.prepare(tail, Kind::Cancel, nullptr, 0);
+  ASSERT_TRUE(third.has_value());
+  EXPECT_GT(*third, *second);
+  EXPECT_TRUE(queue.rollback(tail));
+  ring.complete(*first, 1);
+  ASSERT_TRUE(queue.poll().has_value());
+  EXPECT_EQ(queue.outstanding(), 0U);
+}
+
+TEST(LlvmLibcAioCompletionQueueTest, WithdrawalRefusalPreservesEntry) {
+  FakeRing ring;
+  uint64_t watermark = 0;
+  Queue queue(ring, watermark);
+  Queue::Entry entry;
+  ASSERT_TRUE(queue.initialize(1).has_value());
+  auto token = queue.prepare(entry, Kind::Sync, &entry, 0);
+  ASSERT_TRUE(token.has_value());
+  queue.publish(entry);
+  const int errors[] = {EAGAIN, EINVAL};
+  for (int error : errors) {
+    ring.withdrawal_error = error;
+    EXPECT_EQ(queue.withdraw(entry).error(), error);
+    EXPECT_FALSE(entry.reclaimable());
+    EXPECT_EQ(entry.token(), *token);
+    EXPECT_EQ(queue.available(), 0U);
+  }
+  ring.complete(*token);
+  EXPECT_TRUE(queue.poll().has_value());
+}
+
 TEST(LlvmLibcAioCompletionQueueTest, TransportErrorsPreserveOwnership) {
   FakeRing ring;
   uint64_t watermark = 0;
@@ -300,6 +366,32 @@ TEST(LlvmLibcAioCompletionQueueTest, InvalidTokensExit127) {
           unexpected_success();
         }),
         127);
+  }
+}
+
+TEST(LlvmLibcAioCompletionQueueTest, WithdrawalIntegrityAndStaleCqeExit127) {
+  for (unsigned scenario = 0; scenario != 3; ++scenario) {
+    EXPECT_EXITS(([scenario] {
+                   FakeRing ring;
+                   uint64_t watermark = 0;
+                   Queue queue(ring, watermark);
+                   Queue::Entry entry;
+                   (void)queue.initialize(1);
+                   auto token = queue.prepare(entry, Kind::Sync, nullptr, 0);
+                   ring.enqueued_token = *token;
+                   queue.publish(entry);
+                   if (scenario == 0)
+                     ring.integrity_error = EOVERFLOW;
+                   if (scenario == 1)
+                     ring.withdrawal_error = EPROTO;
+                   (void)queue.withdraw(entry);
+                   if (scenario == 2) {
+                     ring.complete(*token);
+                     (void)queue.poll();
+                   }
+                   unexpected_success();
+                 }),
+                 127);
   }
 }
 
