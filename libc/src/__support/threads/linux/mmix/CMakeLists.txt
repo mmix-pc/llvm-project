@@ -215,6 +215,12 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
     COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
   )
+  add_header_library(
+    aio_gate
+    HDRS aio_gate.h credentials.h
+    DEPENDS libc.hdr.signal_macros libc.src.__support.OSUtil.osutil
+      libc.src.__support.threads.raw_mutex
+  )
   add_object_library(
     notification_mq
     SRCS notification_mq.cpp

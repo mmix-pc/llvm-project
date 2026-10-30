@@ -43,6 +43,15 @@ if(TARGET libc.src.__support.threads.unix_mutex)
 endif()
 
 if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.futex_utils)
+  if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+    add_libc_test(
+      aio_gate_test
+      SUITE libc-support-threads-tests
+      SRCS aio_gate_test.cpp
+      DEPENDS libc.src.__support.threads.raw_mutex
+        libc.src.__support.OSUtil.osutil libc.hdr.signal_macros
+    )
+  endif()
   add_libc_test(
     futex_utils_test
     SUITE
