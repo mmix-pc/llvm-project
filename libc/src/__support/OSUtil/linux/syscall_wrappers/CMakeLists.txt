@@ -1186,6 +1186,18 @@ add_header_library(
 )
 
 add_header_library(
+  timer_getoverrun
+  HDRS timer_getoverrun.h
+  DEPENDS
+    libc.hdr.types.timer_t
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.common
+    libc.src.__support.error_or
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   timer_settime
   HDRS
     timer_settime.h

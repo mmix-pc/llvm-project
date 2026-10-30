@@ -286,6 +286,28 @@ add_libc_test(
 )
 
 add_libc_test(
+  timer_getoverrun_test
+  SUITE libc_time_unittests
+  SRCS timer_getoverrun_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.signal_macros
+    libc.hdr.time_macros
+    libc.hdr.types.struct_itimerspec
+    libc.hdr.types.struct_sigevent
+    libc.hdr.types.timer_t
+    libc.src.__support.libc_errno
+    libc.src.time.clock_gettime
+    libc.src.time.timer_create
+    libc.src.time.timer_delete
+    libc.src.time.timer_getoverrun
+    libc.src.time.timer_gettime
+    libc.src.time.timer_settime
+    libc.test.UnitTest.ErrnoCheckingTest
+    libc.test.UnitTest.ErrnoSetterMatcher
+)
+
+add_libc_test(
   difftime_test
   SUITE
     libc_time_unittests

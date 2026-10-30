@@ -384,6 +384,13 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  timer_getoverrun
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.timer_getoverrun
+)
+
+add_entrypoint_object(
   timer_settime
   ALIAS
   DEPENDS
