@@ -1,4 +1,14 @@
 add_header_library(
+  notification_registry
+  HDRS
+    notification_registry.h
+  DEPENDS
+    libc.hdr.stdint_proxy
+    libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   mutex_common
   HDRS
     mutex_common.h

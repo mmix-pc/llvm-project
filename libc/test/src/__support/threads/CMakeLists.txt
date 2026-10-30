@@ -1,5 +1,15 @@
 add_custom_target(libc-support-threads-tests)
 
+add_libc_test(
+  notification_registry_test
+  SUITE
+    libc-support-threads-tests
+  SRCS
+    notification_registry_test.cpp
+  DEPENDS
+    libc.src.__support.threads.notification_registry
+)
+
 if(TARGET libc.src.__support.threads.unix_mutex)
   add_libc_test(
     fork_owner_test
