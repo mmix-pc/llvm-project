@@ -14,6 +14,9 @@
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/linux/mmix/fork_transport.h"
 #include "src/__support/threads/linux/mmix/main_thread.h"
+#ifdef LIBC_MMIX_RECOVERABLE_MINIMAL_FORK
+#include "src/__support/threads/linux/mmix/fork_runtime.h"
+#endif
 #include <stdint.h>
 #include <sys/syscall.h>
 
@@ -27,9 +30,25 @@ LLVM_LIBC_FUNCTION(pid_t, _Fork, (void)) {
     libc_errno = int(-result);
     return -1;
   }
-  result = mmix::fork_process().value;
-  if (!result && !internal::restore_minimal_fork_child())
-    internal::exit(127);
+  bool attempted = false;
+#ifdef LIBC_MMIX_RECOVERABLE_MINIMAL_FORK
+  {
+    mmix::ForkOperation operation(/*minimal=*/true);
+    if (!operation.error() && !operation.prepare_runtime() &&
+        !operation.freeze_registry()) {
+      attempted = true;
+      result = operation.create_child();
+      operation.restore_runtime(result == 0);
+    }
+  }
+#endif
+  // A rejected optional snapshot has been fully released. Never retry a clone
+  // that was actually attempted, including a failed coordinated clone.
+  if (!attempted) {
+    result = mmix::fork_process().value;
+    if (!result && !internal::restore_minimal_fork_child())
+      internal::exit(127);
+  }
   // Publish the child identity before inherited handlers can run. A child
   // already created must never be reported as a failed clone to its parent.
   if (syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &saved, 0,

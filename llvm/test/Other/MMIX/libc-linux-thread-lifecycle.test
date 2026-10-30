@@ -409,6 +409,37 @@ extern "C" int main() {
   ownership();
   main_registration();
   detached_main();
+  {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl caller;
+    caller.attributes.tid = 1;
+    require(!process.pristine_fork_caller(caller));
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(caller));
+      require(!process.pristine_fork_caller(caller)); // Never wait on an owner.
+    }
+    require(process.pristine_fork_caller(caller));
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.reserve() && lock.cancel_reservation());
+    }
+    require(!process.pristine_fork_caller(caller)); // History survives failure.
+  }
+  {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl caller;
+    caller.attributes.tid = 1;
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(caller));
+    }
+    require(process.freeze_for_fork(caller));
+    process.restore_fork_child(caller, internal::ForkRecovery::child(true, true));
+    require(!process.pristine_fork_caller(caller)); // Reset history is not fresh.
+  }
   // History alone neither proves nor disproves a recoverable snapshot. The
   // bootstrap must drain the helper, and registry ownership must agree.
   for (unsigned detached = 0; detached != 2; ++detached) {

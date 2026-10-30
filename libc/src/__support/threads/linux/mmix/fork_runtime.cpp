@@ -51,7 +51,7 @@ LIBC_CONSTINIT Serializer serializer;
 LIBC_CONSTINIT LIBC_THREAD_LOCAL bool active_fork = false;
 } // namespace
 
-ForkOperation::ForkOperation() {
+ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
   if (active_fork) {
     error_code = EDEADLK;
     return;
@@ -61,8 +61,39 @@ ForkOperation::ForkOperation() {
     error_code = ENOTSUP;
     return;
   }
+  if (minimal) {
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+    // Reject interrupted execution before acquiring runtime locks. The locked
+    // history check then proves there is no peer that can change this snapshot.
+    if (!ordinary_fork_context(*caller) ||
+        !thread_registry.pristine_fork_caller(*caller) ||
+        caller->cancellation.terminal() || once_initializer_active() ||
+        !robust_list_empty()) {
+      error_code = EAGAIN;
+      return;
+    }
+#else
+    error_code = ENOTSUP;
+    return;
+#endif
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    if (caller->loader_scopes.load() || caller->loader_callbacks.load()) {
+      error_code = EAGAIN;
+      return;
+    }
+#endif
+    if (caller->priority_protection.restore_pending) {
+      error_code = EAGAIN;
+      return;
+    }
+    for (unsigned count : caller->priority_protection.contributions)
+      if (count) {
+        error_code = EAGAIN;
+        return;
+      }
+  }
   // Do not leave the serializer owned if async delivery interrupts admission.
-  uint64_t full = UINT64_MAX & ~CREDENTIAL_MASK;
+  uint64_t full = minimal ? UINT64_MAX : UINT64_MAX & ~CREDENTIAL_MASK;
   long result = syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &full,
                                    &saved_mask, sizeof(saved_mask));
   if (result < 0) {
@@ -93,7 +124,8 @@ ForkOperation::ForkOperation() {
 int ForkOperation::prepare_runtime() {
   // Helper TLS retirement can enter the loader and allocator. Complete it
   // before either subsystem is locked for the clone snapshot.
-  helper_drained = retire_reaper_for_fork(*caller);
+  if (!minimal)
+    helper_drained = retire_reaper_for_fork(*caller);
   if (!prepare_credentials_fork())
     return EAGAIN;
   credentials = true;
@@ -101,6 +133,8 @@ int ForkOperation::prepare_runtime() {
   if (int error = prepare_loader_fork(&resume_loader))
     return error;
   loader_locked = true;
+  if (minimal && !resume_loader)
+    return EAGAIN;
 #endif
   if (caller->priority_protection.guard.lock() != MutexError::NONE)
     __builtin_trap();
@@ -176,7 +210,7 @@ int ForkOperation::freeze_registry() {
 #else
   child_recovery = internal::ForkRecovery::child(single_thread, true);
 #endif
-  return registry ? 0 : EAGAIN;
+  return registry && (!minimal || child_recovery.allows_fork()) ? 0 : EAGAIN;
 }
 
 long ForkOperation::create_child(bool wait_for_exec) {

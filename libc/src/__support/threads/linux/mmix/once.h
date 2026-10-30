@@ -34,6 +34,7 @@ void abandon_once_initializers();
 
 uint32_t once_fork_generation();
 bool once_can_fork();
+bool once_initializer_active();
 void once_after_fork();
 
 // Keep completion compatible; tag only in-progress words in the fork profile.

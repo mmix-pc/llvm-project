@@ -79,6 +79,11 @@ void remove(RobustMutex &mutex) {
 }
 } // namespace
 
+bool robust_list_empty() {
+  return !registered ||
+         (!head.list_op_pending && head.list.next == &head.list);
+}
+
 int register_robust_list(bool force) {
   if (registered && !force)
     return 0;

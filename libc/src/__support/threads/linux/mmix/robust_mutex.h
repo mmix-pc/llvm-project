@@ -20,6 +20,7 @@ namespace mmix {
 
 int register_robust_list(bool force = false);
 int reset_robust_list_after_fork();
+bool robust_list_empty();
 
 // The stalled owner slot and its padding become a robust link. The kernel TID
 // is in the futex word; no process-local pointer is needed to find its owner.

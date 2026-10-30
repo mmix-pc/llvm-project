@@ -20,6 +20,7 @@ static LIBC_CONSTINIT Generation generation;
 
 uint32_t once_fork_generation() { return generation.value.load(); }
 bool once_can_fork() { return once_fork_generation() != 0xffffff00U; }
+bool once_initializer_active() { return active != nullptr; }
 void once_after_fork() {
   uint32_t next = once_fork_generation() + 0x100;
   if (!next)

@@ -116,6 +116,16 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
 void disposed(_Unwind_Reason_Code, _Unwind_Exception *) { __builtin_trap(); }
 } // namespace
 
+bool ordinary_fork_context(ThreadControl &control) {
+  const auto &root = control.unwind_root;
+  if (forced.active || current_control != &control || !root.active ||
+      root.owner != &control || !root.generation || !root.chain)
+    return false;
+  mmix_rstack_query query{};
+  return !syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) &&
+         query.chain_id == root.chain;
+}
+
 bool restore_fork_unwind(ThreadControl &control) {
   const auto &root = control.unwind_root;
   // Fork copies the ordinary register-stack chain and stack addresses. Keep

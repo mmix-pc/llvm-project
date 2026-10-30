@@ -77,6 +77,27 @@ for missing in [None, *variables]:
         assert selected == ({"libc.src.unistd.fork", "libc.src.unistd._Fork"}
                             if missing is None else set())
 
+# The optional _Fork snapshot must be unwindable even when the global
+# cancellation-runtime-locks profile does not add tables to every entrypoint.
+minimal = root / "minimal-selection.cmake"
+minimal.write_text('function(add_entrypoint_object name)\n'
+                   '  if(NOT name STREQUAL "_Fork")\n'
+                   '    message(FATAL_ERROR "unexpected entrypoint")\n'
+                   '  endif()\n'
+                   '  file(WRITE "' + str(root.resolve() / "minimal.txt") + '" "${ARGN}")\n'
+                   'endfunction()\n'
+                   'include("' + str(libc.resolve() / "src/unistd/linux/mmix/MinimalFork.cmake") + '")\n')
+for coordinated, roots in ((False, False), (True, False), (False, True), (True, True)):
+    subprocess.run(["cmake", "-DLIBC_MMIX_BUILD_COORDINATED_FORK=" + str(int(coordinated)),
+                    "-DLIBC_MMIX_BUILD_UNWIND_ROOTS=" + str(int(roots)),
+                    "-DLIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS=OFF", "-P", str(minimal)],
+                   check=True)
+    args = (root / "minimal.txt").read_text().split(";")
+    enabled = coordinated and roots
+    assert ("-funwind-tables" in args) == enabled
+    assert ("-DLIBC_MMIX_RECOVERABLE_MINIMAL_FORK" in args) == enabled
+    assert ("libc.src.__support.threads.linux.mmix.fork_runtime" in args) == enabled
+
 #--- semantics.cpp
 #include "src/unistd/linux/mmix/fork.cpp"
 #include "src/__support/threads/thread.cpp"

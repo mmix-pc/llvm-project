@@ -18,6 +18,7 @@ class ForkOperation {
   bool serial = false, masked = false, suppressed = false;
   bool priority = false, streams = false, allocator = false, registry = false;
   bool helper_drained = false;
+  bool minimal = false;
   bool credentials = false;
   bool exit_callbacks = false;
   bool message_bindings = false, message_results = false;
@@ -35,7 +36,7 @@ class ForkOperation {
   bool standard_locked[3]{};
 
 public:
-  ForkOperation();
+  explicit ForkOperation(bool minimal = false);
   ~ForkOperation();
   ForkOperation(const ForkOperation &) = delete;
   ForkOperation &operator=(const ForkOperation &) = delete;

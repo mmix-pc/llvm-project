@@ -174,6 +174,9 @@ public:
   // owner. A restricted fork child has no peers and may replace a copied claim;
   // its caller must reject recursion before requesting that override.
   bool claim_process_cleanup(bool sole_fork_child = false);
+  // Nonblocking precheck; the caller has blocked signals and proved that it
+  // is on its ordinary chain before inspecting the registry.
+  bool pristine_fork_caller(ThreadControl &caller);
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
   bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0,
                        bool *single_thread = nullptr,

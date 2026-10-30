@@ -15,6 +15,21 @@ namespace mmix {
 
 LIBC_CONSTINIT ThreadRegistry thread_registry;
 
+bool ThreadRegistry::pristine_fork_caller(ThreadControl &caller) {
+  if (!mutex.value.try_lock())
+    return false;
+  bool pristine = main_registered && !creation_started && !process_operation &&
+                  !process_exiting() && !fork_recovery.is_child() &&
+                  !caller.fork_recovery.is_child() && !reservations &&
+                  live == 1 && head == &caller && !caller.next &&
+                  !reap_head && !reap_tail && !reap_count &&
+                  caller.registry == this && caller.listed &&
+                  caller.execution == ThreadExecution::Running &&
+                  !caller.callbacks_started;
+  mutex.value.unlock();
+  return pristine;
+}
+
 bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression,
                                     bool *single_thread, bool helper_drained) {
   if (single_thread)
