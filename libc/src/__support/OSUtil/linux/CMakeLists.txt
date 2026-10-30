@@ -11,6 +11,17 @@ add_subdirectory(syscall_wrappers)
 add_subdirectory(stat)
 
 add_header_library(
+  kernel_sigevent
+  HDRS
+    kernel_sigevent.h
+  DEPENDS
+    libc.hdr.signal_macros
+    libc.hdr.types.pid_t
+    libc.hdr.types.struct_sigevent
+    libc.src.__support.common
+)
+
+add_header_library(
   io_uring
   HDRS io_uring.h
   DEPENDS

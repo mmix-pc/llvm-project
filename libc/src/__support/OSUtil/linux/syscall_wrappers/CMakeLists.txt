@@ -1146,6 +1146,7 @@ add_header_library(
   HDRS
     timer_create.h
   DEPENDS
+    libc.src.__support.OSUtil.linux.kernel_sigevent
     libc.hdr.signal_macros
     libc.hdr.types.clockid_t
     libc.hdr.types.pid_t
