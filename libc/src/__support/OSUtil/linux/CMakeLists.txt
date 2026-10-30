@@ -55,6 +55,16 @@ add_header_library(
 )
 
 add_header_library(
+  aio_wait_event
+  HDRS aio_wait_event.h
+  DEPENDS libc.hdr.errno_macros libc.hdr.stdint_proxy
+    libc.hdr.types.struct_timespec libc.src.__support.CPP.atomic
+    libc.src.__support.CPP.type_traits
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.threads.linux.futex_utils
+)
+
+add_header_library(
   aio_completion_queue
   HDRS aio_completion_queue.h
   DEPENDS

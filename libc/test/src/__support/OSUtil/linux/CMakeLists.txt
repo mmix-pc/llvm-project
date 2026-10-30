@@ -28,6 +28,13 @@ add_libc_test(
 )
 
 add_libc_test(
+  aio_wait_event_test
+  SUITE libc-osutil-tests
+  SRCS aio_wait_event_test.cpp
+  DEPENDS libc.src.__support.OSUtil.linux.aio_wait_event
+)
+
+add_libc_test(
   aio_completion_queue_test
   SUITE libc-osutil-tests
   SRCS aio_completion_queue_test.cpp
