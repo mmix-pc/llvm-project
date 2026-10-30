@@ -17,6 +17,7 @@
 #include "src/__support/threads/thread.h"
 #include "src/setjmp/setjmp_impl.h"
 #include "src/signal/linux/mmix/kernel_sigaction.h"
+#include "src/signal/linux/mmix/private_signals.h"
 #include "src/signal/linux/mmix/signal_trampoline.h"
 #include "thread_finish.h"
 #include "thread_join.h"
@@ -213,8 +214,7 @@ void initialize_cancellation_process() {
     __builtin_trap();
   // Normalize inherited caught actions before any enabled user code runs.
   for (int signal = 1; signal < NSIG; ++signal) {
-    if (signal == SIGKILL || signal == SIGSTOP || signal == CANCEL_SIGNAL ||
-        signal == CREDENTIAL_SIGNAL)
+    if (signal == SIGKILL || signal == SIGSTOP || private_signal(signal))
       continue;
     KernelSigaction action{};
     if (syscall_impl(SYS_rt_sigaction, signal, 0,
@@ -287,18 +287,18 @@ int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old) {
     return EINVAL;
   uint64_t previous = mask_all(), next = previous;
   if (set) {
-    uint64_t requested = *set & ~(CANCEL_MASK | CREDENTIAL_MASK);
+    uint64_t requested = *set & ~private_signal_mask;
     if (how == SIG_BLOCK)
       next |= requested;
     else if (how == SIG_UNBLOCK)
       next &= ~requested;
     else
-      next = requested;
+      next = public_replacement_mask(requested, previous);
     next =
         cancellation_private_block() ? next | CANCEL_MASK : next & ~CANCEL_MASK;
   }
   if (old)
-    *old = previous & ~(CANCEL_MASK | CREDENTIAL_MASK);
+    *old = previous & ~private_signal_mask;
   restore_mask(next & ~CREDENTIAL_MASK);
   return 0;
 }

@@ -5,7 +5,11 @@ if(NOT TARGET libc.src.__support.OSUtil.osutil)
 endif()
 
 set(nanosleep_source nanosleep.cpp)
+set(timer_create_source timer_create.cpp)
+set(timer_create_target_dependencies)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(timer_create_source mmix/timer_create.cpp)
+  set(timer_create_target_dependencies libc.src.signal.linux.mmix.private_signals)
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
   mmix_select_cancellation_points(nanosleep)
 endif()
@@ -84,13 +88,16 @@ add_entrypoint_object(
 add_entrypoint_object(
   timer_create
   SRCS
-    timer_create.cpp
+    ${timer_create_source}
   HDRS
     ../timer_create.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.signal_macros
     libc.hdr.types.clockid_t
     libc.hdr.types.struct_sigevent
     libc.hdr.types.timer_t
+    ${timer_create_target_dependencies}
     libc.src.__support.OSUtil.linux.syscall_wrappers.timer_create
     libc.src.__support.common
     libc.src.__support.libc_errno

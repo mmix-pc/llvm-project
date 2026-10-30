@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/signal/sigaddset.h"
+#include "private_signals.h"
 
 #include "hdr/signal_macros.h"
 #include "src/__support/common.h"
@@ -22,14 +23,7 @@ static_assert(sizeof(unsigned long) == 8 && sizeof(sigset_t) == 128);
 static_assert(NSIG == 65);
 
 LLVM_LIBC_FUNCTION(int, sigaddset, (sigset_t * set, int signum)) {
-  if (!set || signum <= 0 || signum >= NSIG
-#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
-      || signum == 32
-#endif
-#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-      || signum == 33
-#endif
-  ) {
+  if (!set || signum <= 0 || signum >= NSIG || mmix::private_signal(signum)) {
     libc_errno = EINVAL;
     return -1;
   }

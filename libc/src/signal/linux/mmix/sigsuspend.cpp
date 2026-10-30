@@ -19,7 +19,17 @@ LLVM_LIBC_FUNCTION(int, sigsuspend, (const sigset_t *mask)) {
   sigset_t filtered{};
   if (mask) {
     filtered = *mask;
-    filtered.__signals[0] &= ~mmix::private_signal_mask;
+    uint64_t previous = 0;
+    if constexpr (mmix::notification_signal_mask != 0) {
+      long result = syscall_impl<long>(SYS_rt_sigprocmask, SIG_BLOCK, nullptr,
+                                       &previous, sizeof(previous));
+      if (result < 0) {
+        libc_errno = static_cast<int>(-result);
+        return -1;
+      }
+    }
+    filtered.__signals[0] =
+        mmix::public_replacement_mask(filtered.__signals[0], previous);
   }
   long result =
       syscall_impl<long>(SYS_rt_sigsuspend, mask ? &filtered : nullptr, 8);

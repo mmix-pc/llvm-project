@@ -99,7 +99,7 @@ for language in ("c", "c++"):
                              'sizeof(struct sigaction) == 152 && sizeof(sigjmp_buf) == 304, "signal ABI");\n' +
                              check + '(__builtin_offsetof(ucontext_t, uc_mcontext) == 168 && '
                              'sizeof(mcontext_t) == 10456 && sizeof(ucontext_t) == 10624, "context ABI");\n' +
-                             check + '(SIGRTMIN == 34 && SIGRTMAX == 64, "reserved signals");\n'
+                             check + '(SIGRTMIN == 35 && SIGRTMAX == 64, "reserved signals");\n'
                              'int (*waitfn)(const sigset_t *, int *) = &sigwait;\n'
                              'int (*queuefn)(pid_t, int, union sigval) = &sigqueue;\n'
                              'void (*infofn)(const siginfo_t *, const char *) = &psiginfo;\n'

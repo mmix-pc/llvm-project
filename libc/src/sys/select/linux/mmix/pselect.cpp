@@ -8,6 +8,7 @@
 
 #include "src/sys/select/pselect.h"
 
+#include "hdr/signal_macros.h"
 #include "hdr/sys_select_macros.h"
 #include "src/__support/OSUtil/syscall.h"
 #include "src/__support/common.h"
@@ -38,7 +39,19 @@ LLVM_LIBC_FUNCTION(int, pselect,
     }
     copy = *timeout;
   }
-  uint64_t filtered = mask ? mask->__signals[0] & ~mmix::private_signal_mask : 0;
+  uint64_t filtered = 0;
+  if (mask) {
+    uint64_t previous = 0;
+    if constexpr (mmix::notification_signal_mask != 0) {
+      long result = syscall_impl<long>(SYS_rt_sigprocmask, SIG_BLOCK, nullptr,
+                                       &previous, sizeof(previous));
+      if (result < 0) {
+        libc_errno = static_cast<int>(-result);
+        return -1;
+      }
+    }
+    filtered = mmix::public_replacement_mask(mask->__signals[0], previous);
+  }
   struct {
     const uint64_t *mask;
     unsigned long size;

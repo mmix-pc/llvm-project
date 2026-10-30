@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/signal/sigaction.h"
+#include "private_signals.h"
 #include "rt_sigaction.h"
 #include "signal_trampoline.h"
 #include "hdr/errno_macros.h"
@@ -25,23 +26,14 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, sigaction,
                    (int signal, const struct sigaction *__restrict action,
                     struct sigaction *__restrict old_action)) {
-  if (signal <= 0 || signal >= NSIG
-#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-      || signal == 33
-#endif
-#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
-      || signal == 32
-#endif
-  ) {
+  if (signal <= 0 || signal >= NSIG || mmix::private_signal(signal)) {
     libc_errno = EINVAL;
     return -1;
   }
   struct sigaction prepared{};
   if (action) {
     prepared = *action;
-#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-    prepared.sa_mask.__signals[0] &= ~(uint64_t(1) << 32);
-#endif
+    prepared.sa_mask.__signals[0] &= ~mmix::private_signal_mask;
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
     prepared.sa_mask.__signals[0] |= uint64_t(1) << 31;
 #endif
@@ -95,10 +87,8 @@ LLVM_LIBC_FUNCTION(int, sigaction,
     libc_errno = result.error();
     return -1;
   }
-#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   if (old_action)
-    old_action->sa_mask.__signals[0] &= ~(uint64_t(1) << 31);
-#endif
+    old_action->sa_mask.__signals[0] &= ~mmix::private_signal_mask;
   return result.value();
 }
 

@@ -31,6 +31,17 @@ LLVM_LIBC_FUNCTION(int, sigprocmask,
     if (set) {
       filtered = *set;
       filtered.__signals[0] &= ~mmix::private_signal_mask;
+      if (how == SIG_SETMASK && mmix::notification_signal_mask != 0) {
+        sigset_t previous{};
+        auto result = linux_syscalls::rt_sigprocmask(SIG_BLOCK, nullptr,
+                                                    &previous);
+        if (!result) {
+          libc_errno = result.error();
+          return -1;
+        }
+        filtered.__signals[0] = mmix::public_replacement_mask(
+            filtered.__signals[0], previous.__signals[0]);
+      }
       set = &filtered;
     }
   }

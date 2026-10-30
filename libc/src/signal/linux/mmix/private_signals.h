@@ -12,9 +12,16 @@
 #include <stdint.h>
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
+inline constexpr int NOTIFICATION_SIGNAL = 34;
+inline constexpr uint64_t notification_signal_mask =
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+    uint64_t(1) << (NOTIFICATION_SIGNAL - 1);
+#else
+    0;
+#endif
 inline constexpr uint64_t private_signal_mask =
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
-    (uint64_t(1) << 32) |
+    notification_signal_mask | (uint64_t(1) << 32) |
 #endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
     (uint64_t(1) << 31) |
@@ -23,6 +30,13 @@ inline constexpr uint64_t private_signal_mask =
 inline bool private_signal(int number) {
   return number > 0 && number <= 64 &&
          (private_signal_mask & (uint64_t(1) << (number - 1)));
+}
+// Unlike credentials, the notification signal may be privately blocked for a
+// synchronous dispatcher. Public replacement masks must retain that state.
+// This reservation does not install a handler or provide timer dispatch.
+inline uint64_t public_replacement_mask(uint64_t requested, uint64_t previous) {
+  return (requested & ~private_signal_mask) |
+         (previous & notification_signal_mask);
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

@@ -22,11 +22,11 @@
 #undef __NSIGSET_WORDS
 #define __NSIGSET_WORDS (128 / sizeof(unsigned long))
 
-// Keep cancellation and process-credential notifications outside the public
-// range, including configurations that do not currently install either handler.
+// Keep cancellation, process-credential and timer-thread notifications outside
+// the public range, including configurations without their private handlers.
 #if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX)
 #undef SIGRTMIN
-#define SIGRTMIN 34
+#define SIGRTMIN 35
 #endif
 
 #endif // LLVM_LIBC_MACROS_MMIX_LINUX_SIGNAL_MACROS_H

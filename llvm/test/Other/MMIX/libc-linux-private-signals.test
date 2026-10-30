@@ -1,0 +1,329 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+# Compile the actual leaf providers for MMIX. An optional native compiler runs
+# the same syscall-boundary checks; neither mode installs a private handler or
+# qualifies timer dispatch, fork recovery, or guest signal delivery.
+
+#--- run.py
+from pathlib import Path
+import subprocess
+import sys
+
+libc, root = map(Path, sys.argv[1:3])
+# Exercise the actual cancellation mask policy without pulling in the unrelated
+# register-stack transfer/unwind implementation. Only its three state helpers
+# are supplied by the harness.
+source = (libc / "src/__support/threads/linux/mmix/cancellation_point.cpp").read_text()
+start = source.index("int cancellation_public_mask(")
+end = source.index("\n}\n", start) + 2
+(root / "cancellation-mask.inc").write_text(source[start:end] + "\n")
+resource = subprocess.check_output(
+    ["clang", "--no-default-config", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=private_test",
+          "-I", str(root), "-I", str(libc)]
+profiles = {
+    "single": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE"],
+    "platform": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM"],
+    "cancel": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+               "-DLIBC_MMIX_CANCELLATION_WINDOWS"],
+}
+for profile, defines in profiles.items():
+    for opt in ("0", "2"):
+        name = profile + "-O" + opt
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+                        "-mrelocation-model", "static", "-internal-isystem",
+                        resource + "/include", *common, *defines, "-O" + opt,
+                        "-emit-obj", str(root / "semantics.cpp"),
+                        "-o", str(root / (name + ".o"))], check=True)
+        if len(sys.argv) == 4:
+            exe = root / ("native-" + name)
+            subprocess.run([sys.argv[3], *common, *defines, "-O" + opt,
+                            "-include", str(root / "native-boundary.h"),
+                            str(root / "semantics.cpp"), "-o", str(exe)],
+                           check=True)
+            subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- native-boundary.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+#include "include/llvm-libc-macros/linux/signal-macros.h"
+#undef MINSIGSTKSZ
+#undef SIGSTKSZ
+#include "include/llvm-libc-macros/mmix/linux-signal-macros.h"
+
+#--- sys/syscall.h
+#define SYS_kill 129
+#define SYS_tgkill 131
+#define SYS_rt_sigsuspend 133
+#define SYS_rt_sigaction 134
+#define SYS_rt_sigprocmask 135
+#define SYS_rt_sigtimedwait 137
+#define SYS_getpid 172
+#define SYS_gettid 178
+#define SYS_pselect6 72
+#define SYS_ppoll 73
+
+#--- linux/errno.h
+#define EINTR 4
+#define EAGAIN 11
+#define ENOMEM 12
+#define EFAULT 14
+#define EINVAL 22
+#define ENOSYS 38
+
+#--- semantics.cpp
+#include "src/signal/linux/mmix/sigaction.cpp"
+#include "src/signal/linux/mmix/sigaddset.cpp"
+#include "src/signal/linux/mmix/sigfillset.cpp"
+#include "src/signal/linux/mmix/sigprocmask.cpp"
+#include "src/signal/linux/mmix/kill.cpp"
+#include "src/signal/linux/mmix/raise.cpp"
+#include "src/signal/linux/mmix/sigtimedwait.cpp"
+#include "src/signal/linux/mmix/sigsuspend.cpp"
+#include "src/poll/linux/mmix/ppoll.cpp"
+#include "src/sys/select/linux/mmix/pselect.cpp"
+#include "src/errno/libc_errno.cpp"
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "src/signal/linux/mmix/cancellation_pthread_sigmask.cpp"
+#include "src/__support/threads/linux/mmix/credentials.h"
+#else
+#include "src/signal/linux/mmix/pthread_sigmask.cpp"
+#endif
+
+using namespace private_test;
+static void require(bool value) { if (!value) __builtin_trap(); }
+static constexpr uint64_t cancel = uint64_t(1) << 31;
+static constexpr uint64_t credential = uint64_t(1) << 32;
+static constexpr uint64_t notification = uint64_t(1) << 33;
+static constexpr uint64_t public_bit = uint64_t(1) << 34;
+static uint64_t kernel_mask, seen_mask;
+static unsigned calls;
+static int query_error, update_error;
+static bool private_block;
+
+extern "C" void __llvm_libc_mmix_signal_trampoline() {}
+extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
+                                        long c, long d, long e, long f) {
+  ++calls;
+  if (number == SYS_rt_sigprocmask) {
+    require(d == 8 && e == 0 && f == 0);
+    if (!b && query_error) return -query_error;
+    if (b && update_error) return -update_error;
+    if (b && a != SIG_BLOCK && a != SIG_UNBLOCK && a != SIG_SETMASK)
+      return -EINVAL;
+    uint64_t previous = kernel_mask;
+    if (b) {
+      uint64_t value = *reinterpret_cast<const uint64_t *>(b);
+      if (a == SIG_BLOCK) kernel_mask |= value;
+      else if (a == SIG_UNBLOCK) kernel_mask &= ~value;
+      else kernel_mask = value;
+    }
+    if (c) *reinterpret_cast<uint64_t *>(c) = previous;
+    return 0;
+  }
+  if (number == SYS_rt_sigaction) {
+    require(d == 8);
+    if (b) seen_mask = reinterpret_cast<const mmix::KernelSigaction *>(b)->sa_mask;
+    if (c) {
+      auto &old = *reinterpret_cast<mmix::KernelSigaction *>(c);
+      old = {};
+      old.sa_mask = UINT64_MAX;
+    }
+    return 0;
+  }
+  if (number == SYS_rt_sigtimedwait) {
+    require(d == 8);
+    seen_mask = *reinterpret_cast<const uint64_t *>(a);
+    return -EAGAIN;
+  }
+  if (number == SYS_rt_sigsuspend) {
+    require(b == 8);
+    if (a) seen_mask = *reinterpret_cast<const uint64_t *>(a);
+    return a ? -EINTR : -EFAULT;
+  }
+  if (number == SYS_ppoll) {
+    require(e == 8);
+    if (d) seen_mask = *reinterpret_cast<const uint64_t *>(d);
+    return 0;
+  }
+  if (number == SYS_pselect6) {
+    struct Mask { const uint64_t *set; unsigned long size; };
+    auto &mask = *reinterpret_cast<const Mask *>(f);
+    require(mask.size == 8);
+    if (mask.set) seen_mask = *mask.set;
+    return 0;
+  }
+  if (number == SYS_getpid || number == SYS_gettid) return 123;
+  require(number == SYS_kill || number == SYS_tgkill);
+  return 0;
+}
+
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+namespace private_test::mmix {
+static uint64_t mask_all() {
+  uint64_t old = kernel_mask;
+  kernel_mask = UINT64_MAX;
+  return old;
+}
+static void restore_mask(uint64_t mask) { kernel_mask = mask; }
+bool cancellation_private_block() { return private_block; }
+#include "cancellation-mask.inc"
+long cancellation_syscall(unsigned long n, long a, long b, long c, long d,
+                          long e, long f) {
+  return __llvm_libc_mmix_syscall(n, a, b, c, d, e, f);
+}
+}
+#endif
+
+static void check_old(const sigset_t &old, uint64_t previous) {
+  require(old.__signals[0] == (previous & ~mmix::private_signal_mask));
+  for (unsigned i = 1; i < __NSIGSET_WORDS; ++i)
+    require(old.__signals[i] == 0);
+}
+
+extern "C" int main() {
+  static_assert(SIGRTMIN == 35 && SIGRTMAX == 64);
+  static_assert(sizeof(sigset_t) == 128);
+  uint64_t reserved = 0;
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  reserved = credential | notification;
+#endif
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  reserved |= cancel;
+#endif
+  require(mmix::private_signal_mask == reserved);
+  require(!mmix::private_signal(0) && !mmix::private_signal(-1) &&
+          !mmix::private_signal(65) && !mmix::private_signal(35));
+  sigset_t input{}, old{};
+  require(private_test::sigfillset(&input) == 0);
+  require(input.__signals[0] == ~reserved);
+  for (unsigned i = 1; i < __NSIGSET_WORDS; ++i)
+    require(input.__signals[i] == 0);
+  const int numbers[] = {32, 33, 34, 35};
+  for (int number : numbers) {
+    uint64_t bit = uint64_t(1) << (number - 1);
+    bool hidden = reserved & bit;
+    input = {};
+    unsigned before = calls;
+    require(private_test::sigaddset(&input, number) == (hidden ? -1 : 0));
+    require(input.__signals[0] == (hidden ? 0 : bit));
+    struct sigaction action{};
+    action.sa_mask.__signals[0] = UINT64_MAX;
+    require(private_test::sigaction(number, &action, nullptr) == (hidden ? -1 : 0));
+    require(private_test::sigaction(number, nullptr, nullptr) == (hidden ? -1 : 0));
+    require(private_test::kill(123, number) == (hidden ? -1 : 0));
+    kernel_mask = notification;
+    require(private_test::raise(number) == (hidden ? -1 : 0));
+    require(kernel_mask == notification);
+    if (hidden) require(calls == before && int(libc_errno) == EINVAL);
+    // Raw bits cannot bypass the synchronous-wait exclusion.
+    input.__signals[0] = bit;
+    require(private_test::sigtimedwait(&input, nullptr, nullptr) == -1);
+    require(int(libc_errno) == EAGAIN && seen_mask == (bit & ~reserved));
+  }
+  struct sigaction action{}, old_action{};
+  action.sa_mask.__signals[0] = UINT64_MAX;
+  require(private_test::sigaction(SIGUSR1, &action, &old_action) == 0);
+  uint64_t action_mask = ~reserved;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  action_mask |= cancel;
+#endif
+  require(seen_mask == action_mask);
+  check_old(old_action.sa_mask, UINT64_MAX);
+  require(action.sa_mask.__signals[0] == UINT64_MAX);
+
+  const uint64_t requests[] = {0, cancel, credential, notification,
+                               cancel | credential | notification,
+                               public_bit, UINT64_MAX};
+  const int modes[] = {SIG_BLOCK, SIG_UNBLOCK, SIG_SETMASK};
+  const bool states[] = {false, true};
+  for (bool blocked : states) {
+    for (uint64_t request : requests) {
+      input = {};
+      input.__signals[0] = request;
+      uint64_t previous = public_bit | (blocked ? notification : 0);
+      for (int how : modes) {
+        uint64_t filtered = request & ~reserved;
+        uint64_t expected = how == SIG_BLOCK ? previous | filtered :
+                            how == SIG_UNBLOCK ? previous & ~filtered :
+                            filtered | (previous & mmix::notification_signal_mask);
+        kernel_mask = previous;
+        for (auto &word : old.__signals) word = UINT64_MAX;
+        require(private_test::sigprocmask(how, &input, &old) == 0);
+        require(kernel_mask == expected);
+        check_old(old, previous);
+        require(input.__signals[0] == request);
+        for (bool cancel_blocked : states) {
+          private_block = cancel_blocked;
+          kernel_mask = previous;
+          uint64_t thread_expected = expected;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+          thread_expected = cancel_blocked ? thread_expected | cancel :
+                                            thread_expected & ~cancel;
+          thread_expected &= ~credential;
+#endif
+          libc_errno = 77;
+          require(private_test::pthread_sigmask(how, &input, &old) == 0);
+          require(int(libc_errno) == 77 && kernel_mask == thread_expected);
+          check_old(old, previous);
+        }
+      }
+      uint64_t temporary = (request & ~reserved) |
+                           (previous & mmix::notification_signal_mask);
+      kernel_mask = previous;
+      timespec timeout{};
+      require(private_test::ppoll(nullptr, 0, &timeout, &input) == 0);
+      require(seen_mask == temporary && kernel_mask == previous);
+      require(private_test::pselect(0, nullptr, nullptr, nullptr,
+                                    &timeout, &input) == 0);
+      require(seen_mask == temporary && kernel_mask == previous);
+      require(private_test::sigsuspend(&input) == -1);
+      require(int(libc_errno) == EINTR && seen_mask == temporary);
+      require(kernel_mask == previous);
+    }
+  }
+  kernel_mask = cancel | credential | notification | public_bit;
+  uint64_t previous = kernel_mask;
+  require(private_test::sigprocmask(-1, nullptr, &old) == 0);
+  check_old(old, previous);
+  require(kernel_mask == previous);
+  require(private_test::pthread_sigmask(-1, nullptr, &old) == 0);
+  check_old(old, previous);
+  require((kernel_mask & notification) == notification);
+  require(private_test::sigprocmask(-1, &input, nullptr) == -1);
+  require(int(libc_errno) == EINVAL);
+  require(private_test::pthread_sigmask(-1, &input, nullptr) == EINVAL);
+
+  // Query failures must not publish oldset, alter state, or enter a wait.
+  if (mmix::notification_signal_mask) {
+    query_error = ENOSYS;
+    kernel_mask = notification;
+    for (auto &word : old.__signals) word = UINT64_MAX;
+    require(private_test::sigprocmask(SIG_SETMASK, &input, &old) == -1);
+    require(int(libc_errno) == ENOSYS && kernel_mask == notification);
+    for (auto word : old.__signals) require(word == UINT64_MAX);
+    unsigned before = calls;
+    require(private_test::ppoll(nullptr, 0, nullptr, &input) == -1);
+    require(private_test::pselect(0, nullptr, nullptr, nullptr, nullptr, &input) == -1);
+    require(private_test::sigsuspend(&input) == -1);
+    require(calls == before + 3 && kernel_mask == notification);
+    // Null masks do not need to query or replace the private state.
+    require(private_test::ppoll(nullptr, 0, nullptr, nullptr) == 0);
+    require(private_test::pselect(0, nullptr, nullptr, nullptr, nullptr, nullptr) == 0);
+    query_error = 0;
+  }
+  update_error = EFAULT;
+  for (auto &word : old.__signals) word = UINT64_MAX;
+  previous = kernel_mask;
+  require(private_test::sigprocmask(SIG_SETMASK, &input, &old) == -1);
+  require(int(libc_errno) == EFAULT && kernel_mask == previous);
+  for (auto word : old.__signals) require(word == UINT64_MAX);
+  return 0;
+}

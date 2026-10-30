@@ -11,6 +11,7 @@
 #include "hdr/signal_macros.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/threads/thread.h"
+#include "src/signal/linux/mmix/private_signals.h"
 #include <sys/syscall.h>
 
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_PLATFORM
@@ -29,12 +30,7 @@ static int send_signal(int tid, int signal) {
 }
 
 int signal_thread(ThreadAttributes *handle, int signal) {
-  if (signal < 0 || signal >= NSIG
-      || signal == 33
-#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
-      || signal == 32
-#endif
-  )
+  if (signal < 0 || signal >= NSIG || private_signal(signal))
     return EINVAL;
   if (!handle)
     return ESRCH;
