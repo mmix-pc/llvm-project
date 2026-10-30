@@ -1,7 +1,11 @@
 foreach(name mq_timedsend mq_timedreceive)
   set(${name}_source ${name}.cpp)
 endforeach()
+set(mq_notify_source mq_notify.cpp)
+set(mq_notify_target_dependencies)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(mq_notify_source mmix/mq_notify.cpp)
+  set(mq_notify_target_dependencies libc.src.signal.linux.mmix.private_signals)
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
   mmix_select_cancellation_points(mq_timedsend mq_timedreceive)
 endif()
@@ -22,7 +26,7 @@ add_header_library(
 add_entrypoint_object(
   mq_notify
   SRCS
-    mq_notify.cpp
+    ${mq_notify_source}
   HDRS
     ../mq_notify.h
   DEPENDS
@@ -30,6 +34,7 @@ add_entrypoint_object(
     libc.hdr.types.struct_sigevent
     libc.src.__support.common
     libc.src.mqueue.types
+    ${mq_notify_target_dependencies}
 )
 
 add_header_library(

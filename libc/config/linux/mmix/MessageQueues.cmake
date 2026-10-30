@@ -5,6 +5,7 @@ endif()
 
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.mqueue.mq_open
+  libc.src.mqueue.mq_notify
   libc.src.mqueue.mq_close
   libc.src.mqueue.mq_unlink
   libc.src.mqueue.mq_getattr
