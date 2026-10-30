@@ -34,6 +34,8 @@ struct State {
   int map_failure = 0, unmap_failure = 0, close_error = 0;
   int invalid_mapping = 0;
   int enter_error = 0;
+  int register_calls = 0, register_error = 0, register_result = 7;
+  unsigned register_opcode = 0, register_count = 0;
   unsigned enter_result = 0, consume = 0;
   const io_uring_cqe *completion = nullptr;
   size_t sizes[3] = {};
@@ -87,6 +89,18 @@ struct State {
 
 struct FakeOperations {
   State *state;
+
+  ErrorOr<int> register_operation(int fd, unsigned opcode, const void *argument,
+                                  unsigned count) {
+    EXPECT_EQ(fd, FD);
+    EXPECT_EQ(argument, static_cast<const void *>(nullptr));
+    ++state->register_calls;
+    state->register_opcode = opcode;
+    state->register_count = count;
+    if (state->register_error)
+      return Error(state->register_error);
+    return state->register_result;
+  }
 
   ErrorOr<int> setup(unsigned entries, io_uring_params &params) {
     ++state->setup_calls;
@@ -229,6 +243,78 @@ void expect_cleanup(const State &state, int mappings) {
 }
 
 } // namespace
+
+TEST(LlvmLibcIoUringTest, PersonalityCaptureAndReleaseUseRegisterAbi) {
+  State state;
+  Ring ring{FakeOperations{&state}};
+  EXPECT_EQ(ring.descriptor(), -1);
+  expect_error(ring.register_personality(), EBADF);
+  expect_error(ring.unregister_personality(1), EBADF);
+  EXPECT_EQ(state.register_calls, 0);
+  ASSERT_TRUE(ring.initialize(SQ_COUNT).has_value());
+  EXPECT_EQ(ring.descriptor(), FD);
+  auto id = ring.register_personality();
+  ASSERT_TRUE(id.has_value());
+  EXPECT_EQ(*id, 7U);
+  EXPECT_EQ(state.register_opcode, unsigned(IORING_REGISTER_PERSONALITY));
+  EXPECT_EQ(state.register_count, 0U);
+  state.register_result = 0;
+  ASSERT_TRUE(ring.unregister_personality(*id).has_value());
+  EXPECT_EQ(state.register_opcode, unsigned(IORING_UNREGISTER_PERSONALITY));
+  EXPECT_EQ(state.register_count, 7U);
+  EXPECT_EQ(state.enter_calls, 0);
+  ASSERT_TRUE(ring.reset().has_value());
+  EXPECT_EQ(ring.descriptor(), -1);
+  expect_error(ring.register_personality(), EBADF);
+  expect_error(ring.unregister_personality(*id), EBADF);
+  EXPECT_EQ(state.register_calls, 2);
+}
+
+TEST(LlvmLibcIoUringTest, PersonalityErrorsDoNotChangeErrnoOrConsumeTheRing) {
+  State state;
+  Ring ring{FakeOperations{&state}};
+  ASSERT_TRUE(ring.initialize(SQ_COUNT).has_value());
+  LIBC_NAMESPACE::libc_errno = E2BIG;
+  state.register_error = ENOMEM;
+  expect_error(ring.register_personality(), ENOMEM);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), E2BIG);
+  state.register_error = 0;
+  auto id = ring.register_personality();
+  ASSERT_TRUE(id.has_value());
+  state.register_error = EINTR;
+  expect_error(ring.unregister_personality(*id), EINTR);
+  EXPECT_EQ(state.register_calls, 3);
+  EXPECT_EQ(ring.descriptor(), FD);
+  EXPECT_EQ(state.close_calls, 0);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), E2BIG);
+  state.register_error = 0;
+  state.register_result = 0;
+  ASSERT_TRUE(ring.unregister_personality(*id).has_value());
+  EXPECT_EQ(state.register_calls, 4);
+}
+
+TEST(LlvmLibcIoUringTest, PersonalityBoundsAndMalformedKernelResults) {
+  State state;
+  Ring ring{FakeOperations{&state}};
+  ASSERT_TRUE(ring.initialize(SQ_COUNT).has_value());
+  expect_error(ring.unregister_personality(0), EINVAL);
+  expect_error(ring.unregister_personality(unsigned(UINT16_MAX) + 1), EINVAL);
+  EXPECT_EQ(state.register_calls, 0);
+  const int malformed[] = {0, -1, int(UINT16_MAX) + 1};
+  for (int value : malformed) {
+    state.register_result = value;
+    expect_error(ring.register_personality(), EPROTO);
+  }
+  state.register_result = UINT16_MAX;
+  auto id = ring.register_personality();
+  ASSERT_TRUE(id.has_value());
+  EXPECT_EQ(*id, unsigned(UINT16_MAX));
+  state.register_result = 1;
+  expect_error(ring.unregister_personality(*id), EPROTO);
+  state.register_result = 0;
+  ASSERT_TRUE(ring.unregister_personality(*id).has_value());
+  EXPECT_EQ(state.register_count, unsigned(UINT16_MAX));
+}
 
 TEST(LlvmLibcIoUringTest, ClosedAndZeroEntries) {
   State state;
@@ -795,4 +881,60 @@ TEST(LlvmLibcIoUringTest, DroppedSubmissionsAndErrnoPreservation) {
   expect_error(closed, EINTR);
   EXPECT_EQ(observed_errno, EDOM);
   EXPECT_EQ(state.enter_calls, 0);
+}
+
+TEST(LlvmLibcIoUringTest, IntegrityCheckDoesNotConsumeOrEnter) {
+  State state;
+  Ring ring(FakeOperations{&state});
+  expect_error(ring.check_integrity(), EBADF);
+  ASSERT_TRUE(ring.initialize(4).has_value());
+  state.sq_word(state.params.sq_off.head) = UINT32_MAX - 1;
+  state.sq_word(state.params.sq_off.tail) = 2;
+  state.cq_word(state.params.cq_off.head) = UINT32_MAX - 1;
+  state.cq_word(state.params.cq_off.tail) = 6;
+  int saved_errno = libc_errno;
+  libc_errno = EDOM;
+  auto result = ring.check_integrity();
+  int observed_errno = libc_errno;
+  libc_errno = saved_errno;
+  EXPECT_TRUE(result.has_value());
+  EXPECT_EQ(observed_errno, EDOM);
+  EXPECT_EQ(state.sq_word(state.params.sq_off.head), UINT32_MAX - 1);
+  EXPECT_EQ(state.cq_word(state.params.cq_off.head), UINT32_MAX - 1);
+  EXPECT_EQ(state.enter_calls, 0);
+}
+
+TEST(LlvmLibcIoUringTest, IntegritySeparatesSyscallErrorFromOwnershipLoss) {
+  State state;
+  Ring ring(FakeOperations{&state});
+  ASSERT_TRUE(ring.initialize(4).has_value());
+  ASSERT_TRUE(ring.enqueue(request()).has_value());
+  state.enter_error = EIO;
+  expect_error(ring.submit(), EIO);
+  EXPECT_TRUE(ring.check_integrity().has_value());
+  EXPECT_EQ(state.enter_calls, 1);
+  state.sq_word(state.params.sq_off.dropped) = 1;
+  expect_error(ring.check_integrity(), EIO);
+  EXPECT_EQ(state.enter_calls, 1);
+}
+
+TEST(LlvmLibcIoUringTest, IntegrityChecksBothQueuesAndLossCounters) {
+  for (unsigned fault = 0; fault != 5; ++fault) {
+    State state;
+    Ring ring(FakeOperations{&state});
+    ASSERT_TRUE(ring.initialize(4).has_value());
+    if (fault == 0)
+      state.sq_word(state.params.sq_off.tail) = SQ_COUNT + 1;
+    if (fault == 1)
+      state.cq_word(state.params.cq_off.tail) = CQ_COUNT + 1;
+    if (fault == 2)
+      state.sq_word(state.params.sq_off.ring_mask) = 0;
+    if (fault == 3)
+      state.sq_word(state.params.sq_off.dropped) = 1;
+    if (fault == 4)
+      state.cq_word(state.params.cq_off.overflow) = 1;
+    expect_error(ring.check_integrity(),
+                 fault == 3 ? EIO : fault == 4 ? EOVERFLOW : EPROTO);
+    EXPECT_EQ(state.enter_calls, 0);
+  }
 }

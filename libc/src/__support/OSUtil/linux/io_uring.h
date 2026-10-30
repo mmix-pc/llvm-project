@@ -63,6 +63,12 @@ struct LinuxOperations {
     return linux_syscalls::syscall_checked<unsigned>(
         SYS_io_uring_enter, fd, submit, wait, flags, nullptr, 0);
   }
+  LIBC_INLINE ErrorOr<int> register_operation(int fd, unsigned opcode,
+                                             const void *argument,
+                                             unsigned count) {
+    return linux_syscalls::syscall_checked<int>(SYS_io_uring_register, fd,
+                                                opcode, argument, count);
+  }
 };
 
 // Owns only the ring fd and mappings, not request buffers or request policy.
@@ -337,6 +343,44 @@ public:
     return {};
   }
 
+  // Borrowed for completion polling alongside a service control descriptor.
+  // Never close it or retain it across reset. Readiness is not CQ consumption.
+  LIBC_INLINE int descriptor() const { return ready ? fd : -1; }
+
+  // Capture the CALLING thread's current credentials, not the ring creator's
+  // or a later submitter's. Registration is not a request/CQ operation. The
+  // service owns the returned ring-local ID, keeps it until all SQEs using it
+  // have completed, and serializes release against reuse. Zero selects default
+  // credentials in an SQE and must never be returned as a successful capture.
+  // Kernel policy can reject later credential override independently.
+  LIBC_INLINE ErrorOr<unsigned> register_personality() {
+    if (!ready)
+      return Error(EBADF);
+    auto result = operations.register_operation(
+        fd, IORING_REGISTER_PERSONALITY, nullptr, 0);
+    if (!result)
+      return Error(result.error());
+    if (*result <= 0 || *result > UINT16_MAX)
+      return Error(EPROTO);
+    return static_cast<unsigned>(*result);
+  }
+
+  // A failed unregister leaves the service's ownership outstanding for retry
+  // or ring teardown. Neither this call nor reset proves I/O has completed.
+  LIBC_INLINE ErrorOr<void> unregister_personality(unsigned personality) {
+    if (!ready)
+      return Error(EBADF);
+    if (!personality || personality > UINT16_MAX)
+      return Error(EINVAL);
+    auto result = operations.register_operation(
+        fd, IORING_UNREGISTER_PERSONALITY, nullptr, personality);
+    if (!result)
+      return Error(result.error());
+    if (*result != 0)
+      return Error(EPROTO);
+    return {};
+  }
+
   // Copies and publishes one standard UAPI SQE, including all 64 user_data
   // bits. Caller initializes reserved fields and owns opcode/resource validity.
   // EAGAIN means full; every error leaves the SQE array and tail unchanged. No
@@ -355,6 +399,24 @@ public:
     at<io_uring_sqe>(sqes, 0)[slot] = entry;
     at<__u32>(sq, params.sq_off.array)[slot] = slot;
     release(sq_word(params.sq_off.tail), tail + 1);
+    return {};
+  }
+
+  // Read-only ownership check, separate from syscall failure reporting. An
+  // active service can distinguish a normal enter error from lost SQEs/CQEs
+  // or corrupted indices without guessing from errno alone. Serialize users
+  // of both queues; the kernel may still advance its own head/tail fields.
+  LIBC_INLINE ErrorOr<void> check_integrity() const {
+    auto status = health();
+    if (!status)
+      return Error(status.error());
+    __u32 sq_tail = acquire(sq_word(params.sq_off.tail));
+    __u32 sq_head = acquire(sq_word(params.sq_off.head));
+    __u32 cq_head = acquire(cq_word(params.cq_off.head));
+    __u32 cq_tail = acquire(cq_word(params.cq_off.tail));
+    if (sq_tail - sq_head > params.sq_entries ||
+        cq_tail - cq_head > params.cq_entries)
+      return Error(EPROTO);
     return {};
   }
 
