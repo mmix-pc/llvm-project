@@ -616,7 +616,30 @@ extern "C" int main() {
     }
     require(process.freeze_for_fork(caller));
     process.restore_fork_child(caller, internal::ForkRecovery::child(true, true));
-    require(!process.pristine_fork_caller(caller)); // Reset history is not fresh.
+    require(process.pristine_fork_caller(caller)); // Coordinated child is quiescent.
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.begin_helper_creation());
+    }
+    require(!process.pristine_fork_caller(caller));
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.cancel_helper_reservation());
+    }
+    require(!process.pristine_fork_caller(caller)); // New creation history persists.
+  }
+  {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl caller;
+    caller.attributes.tid = 1;
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(caller));
+    }
+    require(process.freeze_for_fork(caller));
+    process.restore_fork_child(caller, internal::ForkRecovery::child());
+    require(!process.pristine_fork_caller(caller)); // Exec-only is never recovered.
   }
   // History alone neither proves nor disproves a recoverable snapshot. The
   // bootstrap must drain the helper, and registry ownership must agree.

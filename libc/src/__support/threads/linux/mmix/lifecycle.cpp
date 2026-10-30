@@ -19,8 +19,8 @@ bool ThreadRegistry::pristine_fork_caller(ThreadControl &caller) {
   if (!mutex.value.try_lock())
     return false;
   bool pristine = main_registered && !creation_started && !process_operation &&
-                  !process_exiting() && !fork_recovery.is_child() &&
-                  !caller.fork_recovery.is_child() && !reservations &&
+                  !process_exiting() && fork_recovery.allows_fork() &&
+                  caller.fork_recovery.allows_fork() && !reservations &&
                   !helper_reservations && !unreaped_helpers &&
                   !unreaped_callbacks &&
                   live == 1 && head == &caller && !caller.next &&
