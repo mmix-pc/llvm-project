@@ -1,3 +1,11 @@
+foreach(name mq_timedsend mq_timedreceive)
+  set(${name}_source ${name}.cpp)
+endforeach()
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
+  mmix_select_cancellation_points(mq_timedsend mq_timedreceive)
+endif()
+
 add_header_library(
   mqueue_utils
   HDRS
@@ -92,7 +100,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   mq_timedsend
   SRCS
-    mq_timedsend.cpp
+    ${mq_timedsend_source}
   HDRS
     ../mq_timedsend.h
   DEPENDS
@@ -104,12 +112,14 @@ add_entrypoint_object(
     libc.hdr.types.struct_timespec
     libc.src.__support.common
     libc.src.mqueue.types
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
   mq_timedreceive
   SRCS
-    mq_timedreceive.cpp
+    ${mq_timedreceive_source}
   HDRS
     ../mq_timedreceive.h
   DEPENDS
@@ -123,8 +133,12 @@ add_entrypoint_object(
     libc.hdr.types.struct_timespec
     libc.src.__support.common
     libc.src.mqueue.types
+    ${mmix_cancellation_dependency}
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
+# The untimed wrappers inherit the cancellation provider through their timed
+# entrypoints, but their own frames also need to support forced unwinding.
 add_entrypoint_object(
   mq_send
   SRCS
@@ -136,6 +150,7 @@ add_entrypoint_object(
     libc.hdr.types.size_t
     libc.src.__support.common
     libc.src.mqueue.types
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
 
 add_entrypoint_object(
@@ -150,4 +165,5 @@ add_entrypoint_object(
     libc.hdr.types.ssize_t
     libc.src.__support.common
     libc.src.mqueue.types
+  COMPILE_OPTIONS ${mmix_cancellation_options}
 )
