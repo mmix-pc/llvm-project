@@ -205,6 +205,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       libc.src.__support.CPP.new libc.src.stdlib.malloc libc.src.stdlib.free
     COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
   )
+  add_object_library(
+    notification_dispatcher
+    SRCS notification_dispatcher.cpp
+    HDRS notification_dispatcher.h
+    DEPENDS .thread_create .thread_reclaim .credentials
+      libc.src.__support.OSUtil.linux.notification_channels
+      libc.include.llvm-libc-macros.poll-macros libc.hdr.types.struct_pollfd
+      libc.hdr.types.struct_timespec
+      libc.src.signal.linux.mmix.private_signals
+    COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
+  )
   # Native child entry is selected only by explicit thread compositions.
   add_object_library(
     thread_start
