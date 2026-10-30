@@ -22,6 +22,13 @@ add_libc_test(
 )
 
 add_libc_test(
+  aio_wait_set_test
+  SUITE libc-support-threads-tests
+  SRCS aio_wait_set_test.cpp
+  DEPENDS libc.src.__support.threads.aio_wait_set
+)
+
+add_libc_test(
   notification_registry_test
   SUITE
     libc-support-threads-tests

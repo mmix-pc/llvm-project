@@ -23,6 +23,14 @@ add_header_library(
 )
 
 add_header_library(
+  aio_wait_set
+  HDRS aio_wait_set.h
+  DEPENDS .aio_request libc.hdr.errno_macros libc.hdr.types.size_t
+    libc.src.__support.error_or libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   notification_registry
   HDRS
     notification_registry.h
