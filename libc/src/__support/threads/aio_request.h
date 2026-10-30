@@ -76,11 +76,12 @@ public:
 
   class CancelControl {
     friend class AioRequest;
-    enum class State { Fresh, Prepared, Published, Complete, Retired };
+    enum class State { Fresh, Prepared, Published, Complete, Withdrawn, Retired };
     const uint64_t token_value;
     AioRequest *owner = nullptr;
     State state = State::Fresh;
     int cqe_result = 0;
+    int submission_error = 0;
 
   public:
     LIBC_INLINE explicit constexpr CancelControl(uint64_t token)
@@ -300,8 +301,9 @@ public:
     return {};
   }
 
-  // Call before making the SQE kernel-visible. After publication, even a submit
-  // error/interruption is not permission to abort or release this control.
+  // Call immediately after successful SQ enqueue under the SAME service lock,
+  // before any concurrent submit/poll. Failed enqueue leaves it Prepared.
+  // After publication, a submit error alone cannot abort/release this control.
   // Prepared controls may still publish after an original CQE, but must abort
   // after local queued completion or withdrawal. Published controls always drain.
   LIBC_INLINE bool publish_cancel(CancelControl &control) {
@@ -337,9 +339,25 @@ public:
     return true;
   }
 
+  // Requires the same independent transport proof as complete_withdrawn().
+  // No cancel CQE will arrive. Keep the observer reference until explicit
+  // release, and report a local submission error separately from a real CQE.
+  LIBC_INLINE bool withdraw_cancel(CancelControl &control, uint64_t token,
+                                   int error) {
+    if (control.owner != this ||
+        control.state != CancelControl::State::Published ||
+        token != control.token() || error <= 0 || error == EINPROGRESS)
+      return false;
+    control.submission_error = error;
+    control.state = CancelControl::State::Withdrawn;
+    return true;
+  }
+
   LIBC_INLINE ErrorOr<int> cancel_result(const CancelControl &control) const {
     if (control.owner != this)
       return Error(EINVAL);
+    if (control.state == CancelControl::State::Withdrawn)
+      return Error(control.submission_error);
     if (control.state != CancelControl::State::Complete)
       return Error(EINPROGRESS);
     return control.cqe_result;
@@ -354,7 +372,8 @@ public:
 
   LIBC_INLINE bool release_cancel(CancelControl &control) {
     if (control.owner != this ||
-        control.state != CancelControl::State::Complete)
+        (control.state != CancelControl::State::Complete &&
+         control.state != CancelControl::State::Withdrawn))
       return false;
     control.state = CancelControl::State::Retired;
     control.owner = nullptr;
