@@ -14,6 +14,7 @@ add_libc_test(
     libc.src.fcntl.fcntl
     libc.src.mqueue.types
     libc.src.mqueue.mq_open
+    libc.src.mqueue.mq_notify
     libc.src.mqueue.mq_close
     libc.src.mqueue.mq_unlink
     libc.src.mqueue.mq_getattr

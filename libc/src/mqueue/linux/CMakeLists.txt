@@ -7,6 +7,32 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
 endif()
 
 add_header_library(
+  mq_notify_utils
+  HDRS
+    mq_notify_utils.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.linux.kernel_sigevent
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+    libc.src.mqueue.types
+)
+
+add_entrypoint_object(
+  mq_notify
+  SRCS
+    mq_notify.cpp
+  HDRS
+    ../mq_notify.h
+  DEPENDS
+    .mq_notify_utils
+    libc.hdr.types.struct_sigevent
+    libc.src.__support.common
+    libc.src.mqueue.types
+)
+
+add_header_library(
   mqueue_utils
   HDRS
     mqueue_utils.h

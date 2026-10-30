@@ -19,6 +19,13 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  mq_notify
+  ALIAS
+  DEPENDS
+    .${LIBC_TARGET_OS}.mq_notify
+)
+
+add_entrypoint_object(
   mq_close
   ALIAS
   DEPENDS

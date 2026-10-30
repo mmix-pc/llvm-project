@@ -8,10 +8,12 @@
 
 #include "hdr/errno_macros.h"
 #include "hdr/fcntl_macros.h"
+#include "hdr/signal_macros.h"
 #include "hdr/types/mode_t.h"
 #include "src/fcntl/fcntl.h"
 #include "src/mqueue/mq_close.h"
 #include "src/mqueue/mq_getattr.h"
+#include "src/mqueue/mq_notify.h"
 #include "src/mqueue/mq_open.h"
 #include "src/mqueue/mq_receive.h"
 #include "src/mqueue/mq_send.h"
@@ -403,4 +405,42 @@ TEST_F(LlvmLibcMqueueTest, InvalidCreationAttributes) {
   ASSERT_THAT(create(1, 0), Fails(EINVAL));
   ASSERT_THAT(create(-1), Fails(EINVAL));
   ASSERT_THAT(create(1, -1), Fails(EINVAL));
+}
+
+TEST_F(LlvmLibcMqueueTest, NotificationOwnershipAndOneShot) {
+  ASSERT_GE(create(), 0);
+  ASSERT_ERRNO_SUCCESS();
+  struct sigevent event;
+  event.sigev_notify = SIGEV_NONE;
+  // No other fields are initialized or required for SIGEV_NONE.
+  libc_errno = EDOM;
+  ASSERT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Succeeds(0, EDOM));
+  EXPECT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Fails(EBUSY));
+  ASSERT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, nullptr), Succeeds());
+  ASSERT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Succeeds());
+  ASSERT_THAT(LIBC_NAMESPACE::mq_send(mqdes, "n", 1, 0), Succeeds());
+  // The empty-to-nonempty transition consumes even a no-signal registration.
+  ASSERT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Succeeds());
+  EXPECT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Fails(EBUSY));
+  ASSERT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, nullptr), Succeeds());
+}
+
+TEST_F(LlvmLibcMqueueTest, InvalidNotificationsPreserveRegistration) {
+  ASSERT_GE(create(), 0);
+  ASSERT_ERRNO_SUCCESS();
+  struct sigevent event = {};
+  event.sigev_notify = SIGEV_NONE;
+  ASSERT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Succeeds());
+  event.sigev_notify = SIGEV_SIGNAL;
+  event.sigev_signo = 0;
+  EXPECT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Fails(EINVAL));
+  event.sigev_notify = -1;
+  EXPECT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Fails(EINVAL));
+  event.sigev_notify = SIGEV_THREAD;
+  EXPECT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Fails(ENOTSUP));
+  event.sigev_notify = SIGEV_NONE;
+  EXPECT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, &event), Fails(EBUSY));
+  ASSERT_THAT(LIBC_NAMESPACE::mq_notify(mqdes, nullptr), Succeeds());
+  EXPECT_THAT(LIBC_NAMESPACE::mq_notify(-1, nullptr), Fails(EBADF));
+  EXPECT_THAT(LIBC_NAMESPACE::mq_notify(-1, &event), Fails(EBADF));
 }
