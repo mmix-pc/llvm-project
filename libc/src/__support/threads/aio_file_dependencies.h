@@ -260,6 +260,17 @@ public:
     return Decision::Ready;
   }
 
+  // End a queued sync without issuing it (for example, local cancellation).
+  // This releases its predecessor snapshot, not its metadata/SQE ownership.
+  // The caller proves that no original sync has been published.
+  LIBC_INLINE bool abandon_sync(Record &sync, uint64_t order, int error) {
+    if (!matches(sync, order) || sync.kind != Kind::Sync || sync.terminal ||
+        error <= 0 || error == EINPROGRESS)
+      return false;
+    sync.decided = true;
+    return complete(sync, order, error);
+  }
+
   // Snapshot ownership outlives original completion. Even known-different
   // records are retained until every later undecided sync has decided. A
   // pending identity lookup separately prevents reclamation after I/O ends.

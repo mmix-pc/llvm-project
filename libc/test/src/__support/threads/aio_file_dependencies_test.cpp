@@ -483,3 +483,26 @@ TEST(LlvmLibcAioFileDependenciesTest, InvalidCompletionDoesNotEndDependency) {
   EXPECT_FALSE(dependencies.complete(prior, prior.order(), ENOSPC));
   expect_error(dependencies.decide(sync, sync.order()), EIO);
 }
+
+TEST(LlvmLibcAioFileDependenciesTest, AbandonQueuedSyncReleasesOnlyItsSnapshot) {
+  Dependencies dependencies(3);
+  Record prior, sync, later;
+  admit_known(dependencies, prior, Kind::Operation);
+  admit_known(dependencies, sync, Kind::Sync);
+  admit_known(dependencies, later, Kind::Sync);
+  expect_decision(dependencies, sync, Decision::Wait);
+  EXPECT_FALSE(dependencies.abandon_sync(prior, prior.order(), ECANCELED));
+  EXPECT_FALSE(dependencies.abandon_sync(sync, sync.order() + 1, ECANCELED));
+  EXPECT_FALSE(dependencies.abandon_sync(sync, sync.order(), 0));
+  EXPECT_FALSE(dependencies.abandon_sync(sync, sync.order(), EINPROGRESS));
+  ASSERT_TRUE(dependencies.abandon_sync(sync, sync.order(), ECANCELED));
+  EXPECT_FALSE(dependencies.abandon_sync(sync, sync.order(), ECANCELED));
+  EXPECT_FALSE(dependencies.release(sync, sync.order()));
+  expect_decision(dependencies, later, Decision::Wait);
+  ASSERT_TRUE(dependencies.complete(prior, prior.order()));
+  expect_error(dependencies.decide(later, later.order()), ECANCELED);
+  ASSERT_TRUE(dependencies.complete(later, later.order(), ECANCELED));
+  ASSERT_TRUE(dependencies.release(prior, prior.order()));
+  ASSERT_TRUE(dependencies.release(sync, sync.order()));
+  ASSERT_TRUE(dependencies.release(later, later.order()));
+}
