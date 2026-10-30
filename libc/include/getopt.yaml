@@ -22,12 +22,14 @@ objects:
     object_type: int
 functions:
   - name: getopt
+    noexcept: false
     return_type: int
     arguments:
       - type: int
       - type: __getoptargv_t
       - type: const char *
   - name: getopt_long
+    noexcept: false
     return_type: int
     arguments:
       - type: int

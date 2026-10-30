@@ -227,6 +227,23 @@ class TestHeaderGenIntegration(unittest.TestCase):
                         output_file, ["system"])
         self.assertIn("int system(const char *);", output_file.read_text())
 
+    def test_getopt_exception_specifications(self):
+        for header, functions in (("unistd", ["getopt", "getpid"]),
+                                  ("getopt", ["getopt", "getopt_long"])):
+            with self.subTest(header=header):
+                output = self.output_dir / (header + "-diagnostics.h")
+                self.run_script(self.source_dir.parents[2] / "include" /
+                                (header + ".yaml"), output, functions)
+                lines = output.read_text().splitlines()
+                for function in functions:
+                    with self.subTest(function=function):
+                        declaration = next(line for line in lines
+                                           if function + "(" in line)
+                        if function == "getpid":
+                            self.assertIn("__NOEXCEPT", declaration)
+                        else:
+                            self.assertNotIn("__NOEXCEPT", declaration)
+
     def test_writev_exception_specification(self):
         output_file = self.output_dir / "writev.h"
         self.run_script(self.source_dir.parents[2] / "include/sys/uio.yaml",
