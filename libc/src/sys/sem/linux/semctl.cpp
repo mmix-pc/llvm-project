@@ -21,20 +21,23 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
+namespace {
+
+// Applications supply this union by value, not the selected scalar member.
+union semun {
+  int val;
+  struct semid_ds *buf;
+  unsigned short *array;
+  struct seminfo *__buf;
+};
+
+} // namespace
+
 LLVM_LIBC_FUNCTION(int, semctl, (int semid, int semnum, int cmd, ...)) {
-  // used to parse the fourth varargs argument
-  // its expected to be explicitly declared by application as an union type:
-  // union semun {
-  //  int val;
-  //  struct semid_ds *buf;
-  //  unsigned short  *array;
-  //  struct seminfo  *__buf; (* linux specific *)
-  // } arg;
   unsigned long cmd_arg = 0;
 
-  // parse cmd_arg based on the flags
   switch (cmd) {
-    // does not use the vargs
+    // These commands do not require a fourth argument.
   case IPC_RMID:
   case GETVAL:
   case GETPID:
@@ -42,55 +45,55 @@ LLVM_LIBC_FUNCTION(int, semctl, (int semid, int semnum, int cmd, ...)) {
   case GETZCNT:
     break;
 
-    // use vargs as int, semun->val
   case SETVAL: {
     va_list vargs;
     va_start(vargs, cmd);
-    cmd_arg = static_cast<unsigned long>(va_arg(vargs, int));
+    int value = va_arg(vargs, union semun).val;
     va_end(vargs);
+    // Linux expects the int at the start of a native union-sized word:
+    // high 32 bits on big-endian LP64, low 32 bits otherwise. Copy only the
+    // initialized member into a zeroed word, never the union's padding.
+    static_assert(sizeof(cmd_arg) >= sizeof(value));
+    __builtin_memcpy(&cmd_arg, &value, sizeof(value));
     break;
   }
 
-    // use vargs as semid_ds*, semun->buf
   case IPC_SET:
   case IPC_STAT:
   case SEM_STAT:
   case SEM_STAT_ANY: {
     va_list vargs;
     va_start(vargs, cmd);
-    cmd_arg = reinterpret_cast<unsigned long>(va_arg(vargs, struct semid_ds *));
+    cmd_arg = reinterpret_cast<unsigned long>(va_arg(vargs, union semun).buf);
     va_end(vargs);
     break;
   }
 
-    // use vargs as short*, semun->array
   case GETALL:
   case SETALL: {
     va_list vargs;
     va_start(vargs, cmd);
-    cmd_arg = reinterpret_cast<unsigned long>(va_arg(vargs, unsigned short *));
+    cmd_arg = reinterpret_cast<unsigned long>(va_arg(vargs, union semun).array);
     va_end(vargs);
     break;
   }
 
-    // linux specific, use vargs as seminfo*, semun->__buf
   case IPC_INFO:
   case SEM_INFO: {
     va_list vargs;
     va_start(vargs, cmd);
-    cmd_arg = reinterpret_cast<unsigned long>(va_arg(vargs, struct seminfo *));
+    cmd_arg = reinterpret_cast<unsigned long>(va_arg(vargs, union semun).__buf);
     va_end(vargs);
     break;
   }
 
-    // unrecognized flags
   default:
     libc_errno = EINVAL;
     return -1;
   }
 
-  int ret = LIBC_NAMESPACE::syscall_impl<int>(SYS_semctl, semid, semnum, cmd,
-                                              cmd_arg);
+  int ret =
+      LIBC_NAMESPACE::syscall_impl<int>(SYS_semctl, semid, semnum, cmd, cmd_arg);
   if (ret < 0) {
     libc_errno = -ret;
     return -1;
