@@ -38,8 +38,9 @@ namespace LIBC_NAMESPACE_DECL {
 // drain. In particular, original completion does not finish a pending lookup.
 //
 // Records completed and released BEFORE a sync's admission need not be in its
-// snapshot: they have no remaining ordering dependency. This component says
-// nothing about persistence, prior I/O errors or eventual sync success.
+// snapshot: they have no remaining ordering dependency. Errors of operations
+// pending at sync admission are retained until its decision. This component
+// says nothing about persistence or eventual kernel sync success.
 class AioFileDependencies {
 public:
   enum class Kind { Operation, Sync };
@@ -75,6 +76,8 @@ public:
     IdentityState identity_state = IdentityState::Pending;
     Identity identity = {};
     int identity_error = 0;
+    int terminal_error = 0;
+    uint64_t terminal_order = 0;
     bool terminal = false;
     bool decided = false;
 
@@ -153,6 +156,8 @@ public:
     record.kind = kind;
     record.identity_state = IdentityState::Pending;
     record.identity_error = 0;
+    record.terminal_error = 0;
+    record.terminal_order = 0;
     record.terminal = false;
     record.decided = false;
     if (tail != nullptr)
@@ -199,10 +204,13 @@ public:
   // confirmed nonpublication, removes the ordering dependency. Syncs must first
   // have a final decision; after a decision error the caller fails that sync
   // explicitly and calls complete(), without publishing a successful sync.
-  LIBC_INLINE bool complete(Record &record, uint64_t order) {
-    if (!matches(record, order) || record.terminal ||
+  LIBC_INLINE bool complete(Record &record, uint64_t order, int error = 0) {
+    if (!matches(record, order) || record.terminal || error < 0 ||
+        error == EINPROGRESS ||
         (record.kind == Kind::Sync && !record.decided))
       return false;
+    record.terminal_error = error;
+    record.terminal_order = last_order;
     record.terminal = true;
     return true;
   }
@@ -221,24 +229,34 @@ public:
       sync.decided = true;
       return Error(sync.identity_error);
     }
-    // Unknown identities fail immediately, even when other metadata is still
-    // pending. Terminal predecessors are irrelevant regardless of identity.
+    // Unknown identities fail immediately. Successful terminal predecessors,
+    // and failures already terminal before this sync was admitted, need no
+    // classification. Other failures must still be associated with this file.
     bool waiting = sync.identity_state == IdentityState::Pending;
+    int prior_error = 0;
     for (Record *record = head; record != &sync; record = record->next) {
-      if (record->terminal)
+      if (record->terminal &&
+          (!record->terminal_error || record->terminal_order < sync.order_value))
         continue;
       if (record->identity_state == IdentityState::Unknown) {
         sync.decided = true;
         return Error(record->identity_error);
       }
-      if (record->identity_state == IdentityState::Pending ||
-          (sync.identity_state == IdentityState::Known &&
-           same_file(record->identity, sync.identity)))
+      if (record->identity_state == IdentityState::Pending) {
         waiting = true;
+      } else if (sync.identity_state == IdentityState::Known &&
+                 same_file(record->identity, sync.identity)) {
+        if (!record->terminal)
+          waiting = true;
+        else if (!prior_error)
+          prior_error = record->terminal_error;
+      }
     }
     if (waiting)
       return Decision::Wait;
     sync.decided = true;
+    if (prior_error)
+      return Error(prior_error);
     return Decision::Ready;
   }
 

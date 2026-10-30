@@ -407,3 +407,79 @@ TEST(LlvmLibcAioFileDependenciesTest, OrderExhaustionNeverWraps) {
   expect_error(restored.admit(blocked, Kind::Sync), EOVERFLOW);
   EXPECT_TRUE(blocked.reclaimable());
 }
+
+TEST(LlvmLibcAioFileDependenciesTest, SameFileFailureSurvivesResultRetirement) {
+  for (bool first_completes_first : BOTH_ORDERS) {
+    Dependencies dependencies(3);
+    Record first, second, sync;
+    admit_known(dependencies, first, Kind::Operation);
+    admit_known(dependencies, second, Kind::Operation);
+    admit_known(dependencies, sync, Kind::Sync);
+    Record &early = first_completes_first ? first : second;
+    Record &late = first_completes_first ? second : first;
+    ASSERT_TRUE(dependencies.complete(early, early.order(),
+                                      first_completes_first ? ENOSPC : EIO));
+    // aio_return may retire its own reference, but not this snapshot's state.
+    EXPECT_FALSE(dependencies.release(early, early.order()));
+    expect_decision(dependencies, sync, Decision::Wait);
+    ASSERT_TRUE(dependencies.complete(late, late.order(),
+                                      first_completes_first ? EIO : ENOSPC));
+    expect_error(dependencies.decide(sync, sync.order()), ENOSPC);
+    EXPECT_TRUE(sync.decision_final());
+    ASSERT_TRUE(dependencies.complete(sync, sync.order(), ENOSPC));
+    ASSERT_TRUE(dependencies.release(first, first.order()));
+    ASSERT_TRUE(dependencies.release(second, second.order()));
+    ASSERT_TRUE(dependencies.release(sync, sync.order()));
+  }
+}
+
+TEST(LlvmLibcAioFileDependenciesTest, EarlierTerminalFailureIsNotNewSyncWork) {
+  Dependencies dependencies(2);
+  Record prior, sync;
+  admit_known(dependencies, prior, Kind::Operation);
+  ASSERT_TRUE(dependencies.complete(prior, prior.order(), EIO));
+  admit_known(dependencies, sync, Kind::Sync);
+  // The application may still own prior's result; retaining a completed
+  // result cannot turn it into newly queued work for a later sync.
+  expect_decision(dependencies, sync, Decision::Ready);
+}
+
+TEST(LlvmLibcAioFileDependenciesTest, FailedTransferStillNeedsClassification) {
+  for (bool same : BOTH_ORDERS) {
+    Dependencies dependencies(2);
+    Record prior, sync;
+    ASSERT_TRUE(dependencies.admit(prior, Kind::Operation).has_value());
+    admit_known(dependencies, sync, Kind::Sync);
+    ASSERT_TRUE(dependencies.complete(prior, prior.order(), EIO));
+    expect_decision(dependencies, sync, Decision::Wait);
+    ASSERT_TRUE(dependencies.set_known(prior, prior.order(), same ? REGULAR : OTHER));
+    if (same)
+      expect_error(dependencies.decide(sync, sync.order()), EIO);
+    else
+      expect_decision(dependencies, sync, Decision::Ready);
+  }
+}
+
+TEST(LlvmLibcAioFileDependenciesTest, UnknownFailedIdentityCannotSucceed) {
+  Dependencies dependencies(2);
+  Record prior, sync;
+  ASSERT_TRUE(dependencies.admit(prior, Kind::Operation).has_value());
+  admit_known(dependencies, sync, Kind::Sync);
+  ASSERT_TRUE(dependencies.complete(prior, prior.order(), EIO));
+  ASSERT_TRUE(dependencies.set_unknown(prior, prior.order(), ENOTSUP));
+  expect_error(dependencies.decide(sync, sync.order()), ENOTSUP);
+}
+
+TEST(LlvmLibcAioFileDependenciesTest, InvalidCompletionDoesNotEndDependency) {
+  Dependencies dependencies(2);
+  Record prior, sync;
+  admit_known(dependencies, prior, Kind::Operation);
+  admit_known(dependencies, sync, Kind::Sync);
+  EXPECT_FALSE(dependencies.complete(prior, prior.order(), -EIO));
+  EXPECT_FALSE(dependencies.complete(prior, prior.order(), EINPROGRESS));
+  EXPECT_FALSE(dependencies.complete(prior, prior.order() + 1, EIO));
+  expect_decision(dependencies, sync, Decision::Wait);
+  ASSERT_TRUE(dependencies.complete(prior, prior.order(), EIO));
+  EXPECT_FALSE(dependencies.complete(prior, prior.order(), ENOSPC));
+  expect_error(dependencies.decide(sync, sync.order()), EIO);
+}
