@@ -10,18 +10,21 @@ enums: []
 objects: []
 functions:
   - name: getpwnam
+    noexcept: false
     standards:
       - posix
     return_type: struct passwd *
     arguments:
       - type: const char *
   - name: getpwuid
+    noexcept: false
     standards:
       - posix
     return_type: struct passwd *
     arguments:
       - type: uid_t
   - name: getpwnam_r
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -32,6 +35,7 @@ functions:
       - type: size_t
       - type: struct passwd **__restrict
   - name: getpwuid_r
+    noexcept: false
     standards:
       - posix
     return_type: int
@@ -42,16 +46,19 @@ functions:
       - type: size_t
       - type: struct passwd **__restrict
   - name: getpwent
+    noexcept: false
     standards:
       - posix
     return_type: struct passwd *
     arguments: []
   - name: setpwent
+    noexcept: false
     standards:
       - posix
     return_type: void
     arguments: []
   - name: endpwent
+    noexcept: false
     standards:
       - posix
     return_type: void

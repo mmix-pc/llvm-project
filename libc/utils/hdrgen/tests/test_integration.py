@@ -406,6 +406,8 @@ class TestHeaderGenIntegration(unittest.TestCase):
         for header, functions in (
             ("unistd", ["read", "write", "close", "getlogin", "getlogin_r"]),
             ("fmtmsg", ["fmtmsg"]),
+            ("pwd", ["getpwnam", "getpwuid", "getpwnam_r", "getpwuid_r",
+                     "getpwent", "setpwent", "endpwent"]),
             ("fcntl", ["open", "openat"]),
             ("time", ["nanosleep"]),
             ("signal", ["sigsuspend", "sigtimedwait", "sigwait", "sigwaitinfo", "psignal"]),
