@@ -33,8 +33,10 @@ namespace LIBC_NAMESPACE_DECL {
 //   reject() is only for admission failure before kernel publication; the
 //   caller must dispose of any suspended callback without running it.
 // - accept() reserves original-operation ownership before kernel publication.
-//   Only its terminal completion, never a cancel CQE, ends that ownership.
-//   Wake waiters after complete() succeeds. No multishot/skip-success CQEs.
+//   Serialize mark_published() and transport publication against local queued
+//   completion. Only an original CQE or proven local completion, never a cancel
+//   CQE, ends that ownership. Wake waiters after any completion path succeeds.
+//   No multishot/skip-success CQEs.
 // - Keep this object and its associated storage alive until reclaimable().
 //   Keep attached Reference and CancelControl objects alive until explicit
 //   release/abort; destroying a holder does not release it. Each cancel token
@@ -91,11 +93,13 @@ public:
 
 private:
   enum class State { Preparing, Rejected, Pending, Complete };
+  enum class Original { Unpublished, Published, Completed, Withdrawn };
   enum class Notification { None, Waiting, Claimed, Released };
   const Identity identity_value;
   const uint32_t holder_limit;
   const bool wants_notification;
   State state = State::Preparing;
+  Original original = Original::Unpublished;
   Notification notification = Notification::None;
   bool result_owned = false;
   uint32_t holders = 0;
@@ -148,6 +152,24 @@ public:
     return true;
   }
 
+  // A partially admitted lio_listio must leave a queryable status for members
+  // it could not queue. Unlike reject(), this retains result ownership, but
+  // creates neither an original-operation owner nor a completion notification.
+  // The service disposes of any precreated callback before using this path.
+  // Never use it to synthesize completion of accepted/kernel-visible work.
+  LIBC_INLINE ErrorOr<void> reject_with_result(int error) {
+    if (state != State::Preparing)
+      return Error(EBUSY);
+    if (error <= 0 || error == EINPROGRESS ||
+        identity_value.control_block == nullptr ||
+        identity_value.process == 0 || identity_value.token == 0)
+      return Error(EINVAL);
+    state = State::Complete;
+    result_owned = true;
+    completion = {-1, error};
+    return {};
+  }
+
   LIBC_INLINE int aio_error() const {
     if (!accepted() || !result_owned)
       return EINVAL;
@@ -163,15 +185,53 @@ public:
     return completion;
   }
 
-  // Only the original operation's terminal event may call this. A malformed,
+  // Call immediately after successful SQ enqueue, under the SAME service lock,
+  // before CQ processing or cancellation. Failure here is a service invariant
+  // violation, not permission to free published storage. Failed enqueue leaves
+  // this request unpublished. Submission failure alone cannot undo publication.
+  LIBC_INLINE bool mark_published(uint64_t token) {
+    if (state != State::Pending || original != Original::Unpublished ||
+        token != identity_value.token)
+      return false;
+    original = Original::Published;
+    return true;
+  }
+
+  // Complete accepted queued work without a CQE. The caller must remove it
+  // from all submission/dependency queues before releasing the service lock.
+  LIBC_INLINE bool complete_unpublished(int error) {
+    if (state != State::Pending || original != Original::Unpublished ||
+        error <= 0 || error == EINPROGRESS)
+      return false;
+    completion = {-1, error};
+    state = State::Complete;
+    return true;
+  }
+
+  // Requires transport proof that the published original was withdrawn: no
+  // kernel access or original CQE can still occur. A cancel CQE or submit error
+  // is not proof. This class validates phase/token, not the transport proof.
+  LIBC_INLINE bool complete_withdrawn(uint64_t token, int error) {
+    if (state != State::Pending || original != Original::Published ||
+        token != identity_value.token || error <= 0 || error == EINPROGRESS)
+      return false;
+    completion = {-1, error};
+    original = Original::Withdrawn;
+    state = State::Complete;
+    return true;
+  }
+
+  // Only the original operation's terminal CQE may call this. A malformed,
   // stale or duplicate completion changes neither the result nor ownership.
   LIBC_INLINE bool complete(uint64_t token, Result result) {
-    if (state != State::Pending || token != identity_value.token ||
+    if (state != State::Pending || original != Original::Published ||
+        token != identity_value.token ||
         !((result.error == 0 && result.value >= 0) ||
           (result.error > 0 && result.error != EINPROGRESS &&
            result.value == -1)))
       return false;
     completion = result;
+    original = Original::Completed;
     state = State::Complete;
     return true;
   }
@@ -225,6 +285,7 @@ public:
     return true;
   }
 
+  // Preparation may precede original publication; it only retains a holder.
   LIBC_INLINE ErrorOr<void> prepare_cancel(CancelControl &control) {
     if (state != State::Pending ||
         control.state != CancelControl::State::Fresh ||
@@ -241,9 +302,12 @@ public:
 
   // Call before making the SQE kernel-visible. After publication, even a submit
   // error/interruption is not permission to abort or release this control.
+  // Prepared controls may still publish after an original CQE, but must abort
+  // after local queued completion or withdrawal. Published controls always drain.
   LIBC_INLINE bool publish_cancel(CancelControl &control) {
     if (control.owner != this ||
-        control.state != CancelControl::State::Prepared)
+        control.state != CancelControl::State::Prepared ||
+        (original != Original::Published && original != Original::Completed))
       return false;
     control.state = CancelControl::State::Published;
     return true;

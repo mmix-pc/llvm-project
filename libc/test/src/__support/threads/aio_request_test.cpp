@@ -93,6 +93,7 @@ TEST(LlvmLibcAioRequestTest, IdentityAndSingleResultRetrieval) {
   EXPECT_EQ(request.aio_error(), EINPROGRESS);
   expect_error(request.aio_return(), EINPROGRESS);
   EXPECT_FALSE(request.reclaimable());
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   ASSERT_TRUE(request.complete(ORIGINAL, {7, 0}));
   EXPECT_EQ(request.aio_error(), 0);
   EXPECT_EQ(request.aio_error(), 0);
@@ -105,6 +106,62 @@ TEST(LlvmLibcAioRequestTest, IdentityAndSingleResultRetrieval) {
   expect_error(request.accept(), EBUSY);
   Reference late;
   expect_error(request.retain(late), EINVAL);
+}
+
+TEST(LlvmLibcAioRequestTest, ListAdmissionFailureRemainsQueryable) {
+  const int errors[] = {EAGAIN, EINVAL, EBADF};
+  for (bool notify : BOTH_ORDERS) {
+    for (int error : errors) {
+      Fixture fixture(notify);
+      auto &request = fixture.request;
+      ASSERT_TRUE(request.reject_with_result(error).has_value());
+      EXPECT_EQ(request.aio_error(), error);
+      EXPECT_FALSE(request.reclaimable());
+      EXPECT_FALSE(request.reject());
+      expect_error(request.accept(), EBUSY);
+      expect_error(request.reject_with_result(EIO), EBUSY);
+      EXPECT_FALSE(request.mark_published(ORIGINAL));
+      EXPECT_FALSE(request.complete_unpublished(ECANCELED));
+      EXPECT_FALSE(request.complete_withdrawn(ORIGINAL, EIO));
+      EXPECT_FALSE(request.complete(ORIGINAL, {0, 0}));
+      expect_error(request.take_notification(), EINVAL);
+      expect_error(request.take_notification(true), EINVAL);
+      Reference group;
+      ASSERT_TRUE(request.retain(group).has_value());
+      expect_result(request.aio_return(), -1, error);
+      expect_error(request.aio_return(), EINVAL);
+      EXPECT_FALSE(request.reclaimable());
+      expect_result(request.result(group), -1, error);
+      ASSERT_TRUE(request.release(group));
+      EXPECT_TRUE(request.reclaimable());
+    }
+  }
+}
+
+TEST(LlvmLibcAioRequestTest, ListAdmissionFailureCannotReplaceAcceptedWork) {
+  Fixture fixture;
+  auto &request = fixture.request;
+  expect_error(request.reject_with_result(0), EINVAL);
+  expect_error(request.reject_with_result(-EIO), EINVAL);
+  expect_error(request.reject_with_result(EINPROGRESS), EINVAL);
+  ASSERT_TRUE(request.accept().has_value());
+  expect_error(request.reject_with_result(EAGAIN), EBUSY);
+  EXPECT_EQ(request.aio_error(), EINPROGRESS);
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
+  ASSERT_TRUE(request.complete(ORIGINAL, {3, 0}));
+  expect_result(request.aio_return(), 3, 0);
+}
+
+TEST(LlvmLibcAioRequestTest, ListAdmissionFailureRequiresTrustedIdentity) {
+  int address;
+  const Request::Identity identities[] = {
+      {nullptr, 1, 1}, {&address, 0, 1}, {&address, 1, 0}};
+  for (auto identity : identities) {
+    Request request(identity, false, 0);
+    expect_error(request.reject_with_result(EAGAIN), EINVAL);
+    EXPECT_TRUE(request.reject());
+    EXPECT_TRUE(request.reclaimable());
+  }
 }
 
 TEST(LlvmLibcAioRequestTest, FailedAdmissionHasNoCompletionOrNotification) {
@@ -122,6 +179,9 @@ TEST(LlvmLibcAioRequestTest, FailedAdmissionHasNoCompletionOrNotification) {
     expect_error(request.accept(), EBUSY);
     EXPECT_EQ(request.aio_error(), EINVAL);
     expect_error(request.aio_return(), EINVAL);
+    EXPECT_FALSE(request.mark_published(ORIGINAL));
+    EXPECT_FALSE(request.complete_unpublished(ECANCELED));
+    EXPECT_FALSE(request.complete_withdrawn(ORIGINAL, EIO));
     EXPECT_FALSE(request.complete(ORIGINAL, {0, 0}));
     expect_error(request.take_notification(), EINVAL);
     expect_error(request.take_notification(true), EINVAL);
@@ -162,6 +222,7 @@ TEST(LlvmLibcAioRequestTest, MalformedAndDuplicateCompletionsDoNotPublish) {
   Request &request = fixture.request;
   EXPECT_FALSE(request.complete(ORIGINAL, {0, 0}));
   ASSERT_TRUE(request.accept().has_value());
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   EXPECT_FALSE(request.complete(0, {0, 0}));
   EXPECT_FALSE(request.complete(CANCEL, {0, 0}));
   const Request::Result invalid[] = {
@@ -180,6 +241,258 @@ TEST(LlvmLibcAioRequestTest, MalformedAndDuplicateCompletionsDoNotPublish) {
   EXPECT_TRUE(request.reclaimable());
 }
 
+TEST(LlvmLibcAioRequestTest, QueuedCompletionRetainsDependencyAndNotification) {
+  const int errors[] = {ECANCELED, EIO, EAGAIN};
+  for (int error : errors) {
+    for (bool notification_first : BOTH_ORDERS) {
+      Fixture fixture(true, 2);
+      Request &request = fixture.request;
+      OneShot callback;
+      Reference dependency_wait, observer;
+      Cancel cancel(CANCEL), late(CANCEL + 1);
+      ASSERT_TRUE(admit(request, callback, 0).has_value());
+      ASSERT_TRUE(request.retain(dependency_wait).has_value());
+      ASSERT_TRUE(request.prepare_cancel(cancel).has_value());
+      expect_error(request.retain(observer), EAGAIN);
+      EXPECT_FALSE(request.publish_cancel(cancel));
+      EXPECT_FALSE(request.complete_cancel(cancel, CANCEL, 0));
+      expect_error(request.result(dependency_wait), EINPROGRESS);
+      expect_error(request.take_notification(), EINPROGRESS);
+
+      // No original is submitted while waiting for the dependency.
+      ASSERT_TRUE(request.complete_unpublished(error));
+      EXPECT_EQ(request.aio_error(), error);
+      EXPECT_FALSE(request.mark_published(ORIGINAL));
+      EXPECT_FALSE(request.complete_unpublished(EINVAL));
+      EXPECT_FALSE(request.complete_withdrawn(ORIGINAL, EINVAL));
+      EXPECT_FALSE(request.complete(ORIGINAL, {8, 0}));
+      EXPECT_FALSE(request.publish_cancel(cancel));
+      EXPECT_FALSE(request.complete_cancel(cancel, CANCEL, 0));
+      EXPECT_FALSE(request.release_cancel(cancel));
+      expect_error(request.prepare_cancel(late), EINVAL);
+      expect_result(request.original_result(cancel), -1, error);
+      expect_error(request.cancel_result(cancel), EINPROGRESS);
+      EXPECT_FALSE(request.reclaimable());
+      ASSERT_TRUE(request.abort_cancel(cancel));
+      EXPECT_TRUE(cancel.reclaimable());
+      expect_result(request.aio_return(), -1, error);
+      expect_error(request.aio_return(), EINVAL);
+      EXPECT_FALSE(request.reclaimable());
+      expect_result(request.result(dependency_wait), -1, error);
+      ASSERT_TRUE(request.retain(observer).has_value());
+      ASSERT_TRUE(request.release(dependency_wait));
+
+      auto decision = request.take_notification();
+      ASSERT_TRUE(decision.has_value());
+      EXPECT_TRUE(*decision == Decision::Activate);
+      expect_error(request.take_notification(), EINVAL);
+      expect_error(request.take_notification(true), EINVAL);
+      if (notification_first) {
+        callback.finish(*decision);
+        ASSERT_TRUE(request.release_notification());
+        EXPECT_FALSE(request.reclaimable());
+      }
+      expect_result(request.result(observer), -1, error);
+      ASSERT_TRUE(request.release(observer));
+      if (!notification_first) {
+        EXPECT_FALSE(request.reclaimable());
+        callback.finish(*decision);
+        ASSERT_TRUE(request.release_notification());
+      }
+      EXPECT_FALSE(request.release_notification());
+      EXPECT_EQ(callback.activations, 1U);
+      EXPECT_EQ(callback.disposals, 0U);
+      EXPECT_TRUE(request.reclaimable());
+    }
+  }
+}
+
+TEST(LlvmLibcAioRequestTest, InvalidPublicationAndLocalCompletionPreserveState) {
+  const int invalid_errors[] = {0, -EIO, EINPROGRESS};
+  Fixture fixture(true);
+  Request &request = fixture.request;
+  OneShot callback;
+  Reference observer;
+  EXPECT_FALSE(request.mark_published(ORIGINAL));
+  EXPECT_FALSE(request.complete_unpublished(ECANCELED));
+  EXPECT_FALSE(request.complete_withdrawn(ORIGINAL, EIO));
+  ASSERT_TRUE(admit(request, callback, 0).has_value());
+  ASSERT_TRUE(request.retain(observer).has_value());
+  EXPECT_FALSE(request.mark_published(0));
+  EXPECT_FALSE(request.mark_published(CANCEL));
+  EXPECT_FALSE(request.complete(ORIGINAL, {0, 0}));
+  EXPECT_FALSE(request.complete(ORIGINAL, {-1, ECANCELED}));
+  EXPECT_FALSE(request.complete_withdrawn(ORIGINAL, EIO));
+  for (int error : invalid_errors)
+    EXPECT_FALSE(request.complete_unpublished(error));
+  EXPECT_EQ(request.aio_error(), EINPROGRESS);
+  expect_error(request.result(observer), EINPROGRESS);
+  expect_error(request.take_notification(), EINPROGRESS);
+
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
+  EXPECT_FALSE(request.mark_published(ORIGINAL));
+  EXPECT_FALSE(request.mark_published(CANCEL));
+  EXPECT_FALSE(request.complete_unpublished(ECANCELED));
+  EXPECT_FALSE(request.complete_unpublished(EIO));
+  EXPECT_FALSE(request.complete_withdrawn(0, EIO));
+  EXPECT_FALSE(request.complete_withdrawn(CANCEL, EIO));
+  for (int error : invalid_errors)
+    EXPECT_FALSE(request.complete_withdrawn(ORIGINAL, error));
+  EXPECT_EQ(request.aio_error(), EINPROGRESS);
+  expect_error(request.aio_return(), EINPROGRESS);
+  expect_error(request.result(observer), EINPROGRESS);
+  expect_error(request.take_notification(), EINPROGRESS);
+  EXPECT_FALSE(request.release_notification());
+  EXPECT_TRUE(callback.suspended);
+  EXPECT_FALSE(request.reclaimable());
+  ASSERT_TRUE(request.complete(ORIGINAL, {6, 0}));
+  EXPECT_FALSE(request.mark_published(ORIGINAL));
+  EXPECT_FALSE(request.complete_withdrawn(ORIGINAL, EIO));
+  EXPECT_FALSE(request.complete_unpublished(EIO));
+  expect_result(request.aio_return(), 6, 0);
+  expect_result(request.result(observer), 6, 0);
+  ASSERT_TRUE(request.release(observer));
+  auto decision = request.take_notification();
+  ASSERT_TRUE(decision.has_value());
+  EXPECT_TRUE(*decision == Decision::Activate);
+  callback.finish(*decision);
+  ASSERT_TRUE(request.release_notification());
+  EXPECT_EQ(callback.activations, 1U);
+  EXPECT_TRUE(request.reclaimable());
+}
+
+TEST(LlvmLibcAioRequestTest, PublicationAndQueuedCancellationAreSerialized) {
+  for (bool publication_first : BOTH_ORDERS) {
+    Fixture fixture(false, 1);
+    Request &request = fixture.request;
+    Cancel cancel(CANCEL);
+    ASSERT_TRUE(request.accept().has_value());
+    ASSERT_TRUE(request.prepare_cancel(cancel).has_value());
+    EXPECT_FALSE(request.publish_cancel(cancel));
+    if (publication_first) {
+      ASSERT_TRUE(request.mark_published(ORIGINAL));
+      EXPECT_FALSE(request.complete_unpublished(ECANCELED));
+      ASSERT_TRUE(request.publish_cancel(cancel));
+      ASSERT_TRUE(request.complete_cancel(cancel, CANCEL, 0));
+      EXPECT_EQ(request.aio_error(), EINPROGRESS);
+      expect_error(request.aio_return(), EINPROGRESS);
+      EXPECT_FALSE(request.complete_unpublished(ECANCELED));
+      ASSERT_TRUE(request.release_cancel(cancel));
+      EXPECT_FALSE(request.reclaimable());
+      // A successful cancel CQE does not determine the original's result.
+      ASSERT_TRUE(request.complete(ORIGINAL, {4, 0}));
+      expect_result(request.aio_return(), 4, 0);
+    } else {
+      ASSERT_TRUE(request.complete_unpublished(ECANCELED));
+      EXPECT_FALSE(request.mark_published(ORIGINAL));
+      EXPECT_FALSE(request.publish_cancel(cancel));
+      EXPECT_FALSE(request.complete(ORIGINAL, {4, 0}));
+      expect_result(request.aio_return(), -1, ECANCELED);
+      EXPECT_FALSE(request.reclaimable());
+      expect_result(request.original_result(cancel), -1, ECANCELED);
+      ASSERT_TRUE(request.abort_cancel(cancel));
+    }
+    EXPECT_TRUE(request.reclaimable());
+  }
+}
+
+TEST(LlvmLibcAioRequestTest, WithdrawalRetainsNotificationAndCancelOwners) {
+  const int errors[] = {ECANCELED, EIO};
+  for (int error : errors) {
+    for (bool cancel_first : BOTH_ORDERS) {
+      Fixture fixture(true, 3);
+      Request &request = fixture.request;
+      OneShot callback;
+      Reference observer;
+      Cancel published(CANCEL), prepared(CANCEL + 1), late(CANCEL + 2);
+      ASSERT_TRUE(admit(request, callback, 0).has_value());
+      ASSERT_TRUE(request.retain(observer).has_value());
+      ASSERT_TRUE(request.prepare_cancel(published).has_value());
+      ASSERT_TRUE(request.prepare_cancel(prepared).has_value());
+      ASSERT_TRUE(request.mark_published(ORIGINAL));
+      ASSERT_TRUE(request.publish_cancel(published));
+      if (cancel_first) {
+        ASSERT_TRUE(request.complete_cancel(published, CANCEL, -ENOENT));
+        EXPECT_EQ(request.aio_error(), EINPROGRESS);
+        expect_error(request.take_notification(), EINPROGRESS);
+      }
+      // Model independent transport withdrawal proof, not a cancel CQE.
+      ASSERT_TRUE(request.complete_withdrawn(ORIGINAL, error));
+      EXPECT_EQ(request.aio_error(), error);
+      EXPECT_FALSE(request.complete_withdrawn(ORIGINAL, EINVAL));
+      EXPECT_FALSE(request.complete_unpublished(EINVAL));
+      EXPECT_FALSE(request.mark_published(ORIGINAL));
+      EXPECT_FALSE(request.complete(ORIGINAL, {1, 0}));
+      EXPECT_FALSE(request.publish_cancel(prepared));
+      EXPECT_FALSE(request.complete_cancel(prepared, prepared.token(), 0));
+      expect_error(request.prepare_cancel(late), EINVAL);
+      expect_result(request.aio_return(), -1, error);
+      expect_result(request.result(observer), -1, error);
+      expect_result(request.original_result(prepared), -1, error);
+      ASSERT_TRUE(request.release(observer));
+      ASSERT_TRUE(request.abort_cancel(prepared));
+      EXPECT_FALSE(request.abort_cancel(published));
+      if (!cancel_first) {
+        EXPECT_FALSE(request.release_cancel(published));
+        ASSERT_TRUE(request.complete_cancel(published, CANCEL, -ENOENT));
+      }
+      auto cancel_result = request.cancel_result(published);
+      ASSERT_TRUE(cancel_result.has_value());
+      EXPECT_EQ(*cancel_result, -ENOENT);
+      expect_result(request.original_result(published), -1, error);
+      ASSERT_TRUE(request.release_cancel(published));
+      EXPECT_FALSE(request.reclaimable());
+      auto decision = request.take_notification();
+      ASSERT_TRUE(decision.has_value());
+      EXPECT_TRUE(*decision == Decision::Activate);
+      expect_error(request.take_notification(), EINVAL);
+      expect_error(request.take_notification(true), EINVAL);
+      EXPECT_FALSE(request.reclaimable());
+      callback.finish(*decision);
+      ASSERT_TRUE(request.release_notification());
+      EXPECT_FALSE(request.release_notification());
+      EXPECT_EQ(callback.activations, 1U);
+      EXPECT_EQ(callback.disposals, 0U);
+      EXPECT_TRUE(request.reclaimable());
+    }
+  }
+}
+
+TEST(LlvmLibcAioRequestTest, LocalCompletionPreservesTeardownSuppression) {
+  for (bool withdrawn : BOTH_ORDERS) {
+    for (bool completion_first : BOTH_ORDERS) {
+      Fixture fixture(true, 0);
+      Request &request = fixture.request;
+      OneShot callback;
+      ASSERT_TRUE(admit(request, callback, 0).has_value());
+      if (withdrawn)
+        ASSERT_TRUE(request.mark_published(ORIGINAL));
+      if (completion_first) {
+        ASSERT_TRUE(withdrawn ? request.complete_withdrawn(ORIGINAL, ECANCELED)
+                              : request.complete_unpublished(ECANCELED));
+      }
+      auto decision = request.take_notification(true);
+      ASSERT_TRUE(decision.has_value());
+      EXPECT_TRUE(*decision == Decision::Suppress);
+      callback.finish(*decision);
+      ASSERT_TRUE(request.release_notification());
+      EXPECT_FALSE(request.reclaimable());
+      if (!completion_first) {
+        EXPECT_EQ(request.aio_error(), EINPROGRESS);
+        ASSERT_TRUE(withdrawn ? request.complete_withdrawn(ORIGINAL, ECANCELED)
+                              : request.complete_unpublished(ECANCELED));
+      }
+      expect_error(request.take_notification(), EINVAL);
+      expect_error(request.take_notification(true), EINVAL);
+      EXPECT_FALSE(request.release_notification());
+      expect_result(request.aio_return(), -1, ECANCELED);
+      EXPECT_EQ(callback.activations, 0U);
+      EXPECT_EQ(callback.disposals, 1U);
+      EXPECT_TRUE(request.reclaimable());
+    }
+  }
+}
+
 TEST(LlvmLibcAioRequestTest, OriginalBeforeCancelCompletionRetainsControl) {
   Fixture fixture(true);
   Request &request = fixture.request;
@@ -187,6 +500,7 @@ TEST(LlvmLibcAioRequestTest, OriginalBeforeCancelCompletionRetainsControl) {
   Cancel cancel(CANCEL);
   ASSERT_TRUE(admit(request, callback, 0).has_value());
   ASSERT_TRUE(request.prepare_cancel(cancel).has_value());
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   ASSERT_TRUE(request.publish_cancel(cancel));
   ASSERT_TRUE(request.complete(ORIGINAL, {-1, ECANCELED}));
   EXPECT_EQ(request.aio_error(), ECANCELED);
@@ -225,6 +539,7 @@ TEST(LlvmLibcAioRequestTest, CancelCompletionBeforeOriginalRetainsBuffers) {
   Cancel cancel(CANCEL);
   ASSERT_TRUE(admit(request, callback, 0).has_value());
   ASSERT_TRUE(request.prepare_cancel(cancel).has_value());
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   ASSERT_TRUE(request.publish_cancel(cancel));
   ASSERT_TRUE(request.complete_cancel(cancel, CANCEL, 0));
   EXPECT_EQ(request.aio_error(), EINPROGRESS);
@@ -262,6 +577,7 @@ TEST(LlvmLibcAioRequestTest, CancelMissDoesNotClassifyOriginalInEitherOrder) {
       Cancel cancel(CANCEL);
       ASSERT_TRUE(request.accept().has_value());
       ASSERT_TRUE(request.prepare_cancel(cancel).has_value());
+      ASSERT_TRUE(request.mark_published(ORIGINAL));
       ASSERT_TRUE(request.publish_cancel(cancel));
       if (original_first) {
         ASSERT_TRUE(request.complete(ORIGINAL, {9, 0}));
@@ -301,6 +617,7 @@ TEST(LlvmLibcAioRequestTest, CancelRollbackIsOnlyBeforePublication) {
   expect_error(request.prepare_cancel(aborted), EINVAL);
   EXPECT_TRUE(aborted.reclaimable());
   ASSERT_TRUE(request.prepare_cancel(published).has_value());
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   ASSERT_TRUE(request.publish_cancel(published));
   EXPECT_FALSE(request.publish_cancel(published));
   EXPECT_FALSE(request.abort_cancel(published));
@@ -325,6 +642,7 @@ TEST(LlvmLibcAioRequestTest, PreparedCancelCanDrainAfterOriginalRetrieval) {
     Cancel cancel(CANCEL), late(CANCEL + 1);
     ASSERT_TRUE(request.accept().has_value());
     ASSERT_TRUE(request.prepare_cancel(cancel).has_value());
+    ASSERT_TRUE(request.mark_published(ORIGINAL));
     ASSERT_TRUE(request.complete(ORIGINAL, {0, 0}));
     expect_result(request.aio_return(), 0, 0);
     expect_error(request.prepare_cancel(late), EINVAL);
@@ -365,6 +683,7 @@ TEST(LlvmLibcAioRequestTest, BoundedIndependentHoldersOutliveAioReturn) {
   expect_error(foreign.request.original_result(cancel), EINVAL);
   expect_error(foreign.request.cancel_result(cancel), EINVAL);
   expect_error(request.result(waiter), EINPROGRESS);
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   ASSERT_TRUE(request.publish_cancel(cancel));
   ASSERT_TRUE(request.complete(ORIGINAL, {11, 0}));
   expect_result(request.aio_return(), 11, 0);
@@ -384,6 +703,7 @@ TEST(LlvmLibcAioRequestTest, BoundedIndependentHoldersOutliveAioReturn) {
   ASSERT_TRUE(request.release(observer));
   EXPECT_TRUE(request.reclaimable());
   expect_error(request.retain(observer), EINVAL);
+  ASSERT_TRUE(foreign.request.mark_published(CANCEL + 2));
   ASSERT_TRUE(foreign.request.complete(CANCEL + 2, {0, 0}));
   expect_result(foreign.request.aio_return(), 0, 0);
   EXPECT_TRUE(foreign.request.reclaimable());
@@ -396,6 +716,7 @@ TEST(LlvmLibcAioRequestTest, MultipleCancelControlsHaveIndependentOwnership) {
   ASSERT_TRUE(request.accept().has_value());
   ASSERT_TRUE(request.prepare_cancel(first).has_value());
   ASSERT_TRUE(request.prepare_cancel(second).has_value());
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   ASSERT_TRUE(request.publish_cancel(first));
   ASSERT_TRUE(request.publish_cancel(second));
   EXPECT_FALSE(request.complete_cancel(first, second.token(), 0));
@@ -422,6 +743,7 @@ TEST(LlvmLibcAioRequestTest, ZeroHolderBudgetStillOwnsOriginalAndResult) {
   expect_error(request.take_notification(true), EINVAL);
   EXPECT_FALSE(request.release_notification());
   EXPECT_FALSE(request.reclaimable());
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   ASSERT_TRUE(request.complete(ORIGINAL, {0, 0}));
   EXPECT_FALSE(request.reclaimable());
   expect_result(request.aio_return(), 0, 0);
@@ -434,6 +756,7 @@ TEST(LlvmLibcAioRequestTest, SuppressionDoesNotAbandonKernelOwnership) {
     Request &request = fixture.request;
     OneShot callback;
     ASSERT_TRUE(admit(request, callback, 0).has_value());
+    ASSERT_TRUE(request.mark_published(ORIGINAL));
     if (original_first)
       ASSERT_TRUE(request.complete(ORIGINAL, {0, 0}));
     EXPECT_FALSE(request.release_notification());
@@ -464,6 +787,7 @@ TEST(LlvmLibcAioRequestTest, SuccessfulCompletionRetainsOneShotAfterAioReturn) {
   OneShot callback;
   ASSERT_TRUE(admit(request, callback, 0).has_value());
   expect_error(request.take_notification(), EINPROGRESS);
+  ASSERT_TRUE(request.mark_published(ORIGINAL));
   ASSERT_TRUE(request.complete(ORIGINAL, {5, 0}));
   expect_result(request.aio_return(), 5, 0);
   EXPECT_FALSE(request.complete(ORIGINAL, {-1, ECANCELED}));
