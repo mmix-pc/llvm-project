@@ -11,6 +11,29 @@ add_subdirectory(syscall_wrappers)
 add_subdirectory(stat)
 
 add_header_library(
+  notification_channels
+  HDRS notification_channels.h
+  DEPENDS
+    .notification_transport libc.src.__support.OSUtil.osutil
+    libc.hdr.errno_macros libc.hdr.signal_macros libc.hdr.stdint_proxy
+    libc.hdr.sys_socket_macros libc.hdr.types.struct_iovec
+    libc.hdr.types.struct_msghdr libc.src.__support.error_or
+    libc.src.__support.macros.config libc.include.sys_syscall
+)
+
+add_header_library(
+  notification_transport
+  HDRS
+    notification_transport.h
+  DEPENDS
+    libc.hdr.signal_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.sys_socket_macros
+    libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   kernel_sigevent
   HDRS
     kernel_sigevent.h

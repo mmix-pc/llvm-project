@@ -3,6 +3,22 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_ARCHITECTURE})
 endif()
 
 add_libc_test(
+  notification_channels_test
+  SUITE libc-osutil-tests
+  SRCS notification_channels_test.cpp
+  DEPENDS libc.src.__support.OSUtil.linux.notification_channels
+    libc.src.errno.errno
+)
+
+add_libc_test(
+  notification_transport_test
+  SUITE libc-osutil-tests
+  SRCS notification_transport_test.cpp
+  DEPENDS
+    libc.src.__support.OSUtil.linux.notification_transport
+)
+
+add_libc_test(
   io_uring_test
   SUITE libc-osutil-tests
   SRCS io_uring_test.cpp
