@@ -190,3 +190,24 @@ for opt in ("0", "2"):
     assert sorted(undefined.split()) == sorted(
         ["U", "__llvm_libc_mmix_linux_setjmp",
          "U", "__llvm_libc_mmix_linux_sigsetjmp"])
+
+# TLS-enabled saves need an IE head load, not a resolver or a C++ initializer.
+# Real signal-chain cleanup is exercised separately by the target runner.
+for opt in ("0", "2"):
+    flags = [*base, "-O" + opt, "-DLIBC_MMIX_JUMP_CLEANUP"]
+    for name in ("setjmp", "sigsetjmp"):
+        obj = root / (name + opt + "-cleanup.o")
+        subprocess.run([*flags, "-emit-obj",
+                        str(libc / "src/setjmp/mmix/linux" / (name + ".cpp")),
+                        "-o", str(obj)], check=True)
+        undefined = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+        assert sorted(undefined.split()) == sorted([
+            "U", "__llvm_libc_mmix_jump_fail",
+            "U", "__llvm_libc_mmix_jump_cleanup_head"])
+        relocs = subprocess.check_output(["llvm-readobj", "-r", str(obj)], text=True)
+        assert "R_MMIX_GOTTPREL_PC64 __llvm_libc_mmix_jump_cleanup_head" in relocs
+    obj = root / ("cleanup-state" + opt + ".o")
+    subprocess.run([*flags, "-emit-obj",
+                    str(libc / "src/setjmp/mmix/linux/jump_cleanup.cpp"),
+                    "-o", str(obj)], check=True)
+    assert not subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True).strip()

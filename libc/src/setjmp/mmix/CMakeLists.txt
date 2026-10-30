@@ -1,4 +1,18 @@
 if(LIBC_TARGET_OS STREQUAL "linux")
+  set(jump_cleanup_dependency)
+  set(jump_cleanup_options)
+  if(LIBC_MMIX_ENABLE_STATIC_TLS)
+    add_object_library(
+      jump_cleanup
+      SRCS linux/jump_cleanup.cpp
+      HDRS linux/jump_cleanup.h linux/jump_cleanup_stack.h
+      DEPENDS libc.src.__support.macros.attributes
+        libc.src.__support.macros.config
+      COMPILE_OPTIONS -fno-lto
+    )
+    set(jump_cleanup_dependency .jump_cleanup)
+    set(jump_cleanup_options -DLIBC_MMIX_JUMP_CLEANUP)
+  endif()
   add_object_library(
     jump_fail
     SRCS linux/jump_fail.S
@@ -15,6 +29,8 @@ if(LIBC_TARGET_OS STREQUAL "linux")
         libc.include.sys_syscall
         libc.src.__support.common
         libc.src.__support.macros.macro_utils
+        ${jump_cleanup_dependency}
+      COMPILE_OPTIONS ${jump_cleanup_options}
     )
   endforeach()
   add_object_library(
@@ -24,8 +40,11 @@ if(LIBC_TARGET_OS STREQUAL "linux")
     DEPENDS
       .jump_fail
       libc.hdr.types.jmp_buf
+      libc.hdr.signal_macros
       libc.include.sys_syscall
       libc.src.__support.OSUtil.linux.linux_util
+      ${jump_cleanup_dependency}
+    COMPILE_OPTIONS ${jump_cleanup_options}
   )
   foreach(entry longjmp siglongjmp)
     add_entrypoint_object(

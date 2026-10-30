@@ -1,5 +1,13 @@
 add_custom_target(libc_setjmp_unittests)
 
+add_libc_test(
+  mmix_jump_cleanup_stack_test
+  SUITE libc_setjmp_unittests
+  SRCS mmix_jump_cleanup_stack_test.cpp
+  DEPENDS libc.src.__support.threads.aio_suspend_observers
+    libc.src.__support.macros.attributes libc.src.__support.macros.config
+)
+
 # Skip setjmp tests under sanitizers
 if(LLVM_USE_SANITIZER)
   return()

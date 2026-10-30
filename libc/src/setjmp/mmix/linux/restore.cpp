@@ -7,6 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "restore.h"
+#ifdef LIBC_MMIX_JUMP_CLEANUP
+#include "hdr/signal_macros.h"
+#include "jump_cleanup.h"
+#endif
 #include "src/__support/OSUtil/linux/syscall.h"
 #include <asm/rstack.h>
 #include <asm/unistd.h>
@@ -33,15 +37,37 @@ static_assert(__builtin_offsetof(__jmp_buf, save_mask) == 296);
 
 namespace LIBC_NAMESPACE_DECL {
 
-[[noreturn]] void restore_jump(const __jmp_buf *env, int value, bool restore_mask) {
-  const bool set_mask = restore_mask && env->save_mask != 0;
+[[noreturn]] void restore_jump(const __jmp_buf *env, int value,
+                               bool restore_mask) {
+  bool set_mask = restore_mask && (env->save_mask & 1) != 0;
+  unsigned long mask = set_mask ? env->signal_mask : 0;
+#ifdef LIBC_MMIX_JUMP_CLEANUP
+  // A handler must not reenter a wait between its detach and the transfer.
+  // Keep this outer mask after individual cleanup hooks release their gates;
+  // the kernel commits the selected mask together with the ancestor jump.
+  const unsigned long blocked = ~0UL;
+  unsigned long previous_mask = 0;
+  if (syscall_impl(__NR_rt_sigprocmask, SIG_SETMASK,
+                   reinterpret_cast<long>(&blocked),
+                   reinterpret_cast<long>(&previous_mask), 8) != 0)
+    __llvm_libc_mmix_jump_fail();
+  if ((env->save_mask & 6) ||
+      !mmix::JumpCleanupStack::unwind(
+          mmix::jump_cleanup_head,
+          reinterpret_cast<mmix::JumpCleanupStack::Node *>(env->save_mask &
+                                                           ~7UL)))
+    __llvm_libc_mmix_jump_fail();
+  if (!set_mask)
+    mask = previous_mask;
+  set_mask = true;
+#endif
   const mmix_rstack_jump request = {
       env->chain_id,
       reinterpret_cast<unsigned long>(&__llvm_libc_mmix_jump_landing),
       reinterpret_cast<unsigned long>(env),
       static_cast<unsigned long>(static_cast<long>(value ? value : 1)),
       set_mask ? MMIX_RSTACK_JUMP_SETMASK : 0UL,
-      set_mask ? env->signal_mask : 0};
+      mask};
 
   // Even same-chain jumps require preparation. Success consumes the copied
   // request and enters the landing pad, never returning through this stack.

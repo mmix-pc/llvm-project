@@ -32,6 +32,27 @@ static_assert(sizeof(mmix_rstack_query) == 16);
 static_assert(__builtin_offsetof(mmix_rstack_query, chain_id) == 0);
 static_assert(__builtin_offsetof(mmix_rstack_query, sigmask) == 8);
 
+#ifdef LIBC_MMIX_JUMP_CLEANUP
+// Keep all caller locals and the POP trampoline intact. The IE slot and head
+// are loaded using scratch globals, without an extra register-stack window.
+#define MMIX_SAVE_CLEANUP                                                      \
+  "GETA r255, 8f\n"                                                            \
+  "LDOU r249, r255, 0\n"                                                       \
+  "ADDU r255, r255, r249\n"                                                    \
+  "LDOU r255, r255, 0\n"                                                       \
+  "LDOU r255, r230, r255\n"                                                    \
+  "OR r255, r255, r248\n"                                                      \
+  "STOU r255, r250, 16\n"
+#define MMIX_CLEANUP_LITERAL                                                   \
+  ".p2align 3\n"                                                               \
+  "8:\n"                                                                       \
+  ".hidden __llvm_libc_mmix_jump_cleanup_head\n"                               \
+  ".mmix_gottprel_pc64 __llvm_libc_mmix_jump_cleanup_head\n"
+#else
+#define MMIX_SAVE_CLEANUP "STOU r248, r250, 16\n"
+#define MMIX_CLEANUP_LITERAL ""
+#endif
+
 // Direct query preserves r248/r250/r251/r252, rJ and the current window.
 // Do not call the C syscall adapter: its extra window would save the wrong O.
 // A partially written environment is not valid until this bridge returns.
@@ -58,8 +79,7 @@ static_assert(__builtin_offsetof(mmix_rstack_query, sigmask) == 8);
                               "TRAP 1, 0, 0\n"                                 \
                               "BNZ r231, 9f\n"                                 \
                               "LDOU r255, r250, 0\n"                           \
-                              "BZ r255, 9f\n"                                  \
-                              "STOU r248, r250, 16\n"                          \
+                              "BZ r255, 9f\n" MMIX_SAVE_CLEANUP                \
                               "BNZ r248, 1f\n"                                 \
                               "STOU r248, r250, 8\n"                           \
                               "1:\n"                                           \
@@ -105,6 +125,8 @@ static_assert(__builtin_offsetof(mmix_rstack_query, sigmask) == 8);
                               "GO r255, r252, 0\n"                             \
                               "9:\n"                                           \
                               ".hidden __llvm_libc_mmix_jump_fail\n"           \
-                              "JMP __llvm_libc_mmix_jump_fail\n"
+                              "JMP "                                           \
+                              "__llvm_libc_mmix_jump_"                         \
+                              "fail\n" MMIX_CLEANUP_LITERAL
 
 #endif
