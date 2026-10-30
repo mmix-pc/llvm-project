@@ -8,6 +8,11 @@ set(MMIX_TIME_ENTRYPOINTS
   libc.src.time.clock_gettime
   libc.src.time.time
   libc.src.time.timespec_get
+  libc.src.time.timer_create
+  libc.src.time.timer_delete
+  libc.src.time.timer_gettime
+  libc.src.time.timer_settime
+  libc.src.time.timer_getoverrun
   libc.src.time.gmtime
   libc.src.time.gmtime_r
   libc.src.time.localtime
