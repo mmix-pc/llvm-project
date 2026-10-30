@@ -984,6 +984,24 @@ add_proxy_header_library(
 )
 
 add_proxy_header_library(
+  struct_msqid_ds
+  HDRS
+    struct_msqid_ds.h
+  FULL_BUILD_DEPENDS
+    libc.include.llvm-libc-types.struct_msqid_ds
+    libc.include.sys_msg
+)
+
+add_proxy_header_library(
+  struct_shmid_ds
+  HDRS
+    struct_shmid_ds.h
+  FULL_BUILD_DEPENDS
+    libc.include.llvm-libc-types.struct_shmid_ds
+    libc.include.sys_shm
+)
+
+add_proxy_header_library(
   struct_sembuf
   HDRS
     struct_sembuf.h
