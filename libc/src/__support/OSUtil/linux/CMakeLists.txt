@@ -45,6 +45,16 @@ add_header_library(
 )
 
 add_header_library(
+  aio_engine
+  HDRS aio_engine.h
+  DEPENDS
+    .aio_completion_queue .aio_submission_resources .stat.kernel_statx_types
+    libc.src.__support.CPP.new
+    libc.src.__support.threads.aio_request
+    libc.src.__support.threads.aio_file_dependencies
+)
+
+add_header_library(
   aio_completion_queue
   HDRS aio_completion_queue.h
   DEPENDS
