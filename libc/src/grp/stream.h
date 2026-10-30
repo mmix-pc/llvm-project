@@ -16,7 +16,7 @@ namespace LIBC_NAMESPACE_DECL {
 namespace group_db {
 ErrorOr<File *> enumeration_stream();
 int rewind_enumeration();
-void close_enumeration();
+int close_enumeration();
 int read_entry(File *file, struct group *entry, char *buffer, size_t size,
                struct group **result,
                internal::AccountBuffer<struct group> *storage = nullptr);

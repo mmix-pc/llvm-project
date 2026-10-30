@@ -36,12 +36,12 @@ int rewind_enumeration() {
   return sought ? 0 : sought.error();
 }
 
-void close_enumeration() {
+int close_enumeration() {
   File *old = database;
+  // Close consumes the stream even on error; never retry its descriptor.
   database = nullptr;
   // endgrent is not an invalidator for keyed or enumerated borrowed records.
-  if (old)
-    old->close();
+  return old ? old->close() : 0;
 }
 
 int read_entry(File *file, struct group *entry, char *buffer, size_t size,

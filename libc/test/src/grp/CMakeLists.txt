@@ -77,3 +77,19 @@ add_libc_test(
     libc.src.stdio.remove
     libc.src.string.string_utils
 )
+
+add_libc_test(
+  endgrent_failure_test
+  SUITE libc_grp_unittests
+  SRCS
+    endgrent_failure_test.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/endgrent.cpp
+    ${LIBC_SOURCE_DIR}/src/grp/getgrent.cpp
+  DEPENDS
+    libc.src.grp.lookup
+    libc.src.__support.common
+    libc.hdr.func.realloc
+    libc.hdr.stdio_macros
+    libc.src.__support.char_vector
+    libc.src.string.memory_utils.inline_memcpy
+)

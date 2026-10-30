@@ -12,7 +12,7 @@
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(void, endgrent, ()) {
   int saved_errno = libc_errno;
-  group_db::close_enumeration();
-  libc_errno = saved_errno;
+  int error = group_db::close_enumeration();
+  libc_errno = error ? error : saved_errno;
 }
 } // namespace LIBC_NAMESPACE_DECL
