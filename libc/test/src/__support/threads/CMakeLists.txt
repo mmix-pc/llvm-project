@@ -29,6 +29,21 @@ add_libc_test(
 )
 
 add_libc_test(
+  aio_suspend_observers_test
+  SUITE libc-support-threads-tests
+  SRCS aio_suspend_observers_test.cpp
+  DEPENDS libc.src.__support.threads.aio_suspend_observers
+)
+
+add_libc_test(
+  aio_storage_test
+  SUITE libc-support-threads-tests
+  SRCS aio_storage_test.cpp
+  DEPENDS libc.src.__support.threads.aio_storage
+    libc.hdr.func.aligned_alloc libc.hdr.func.free
+)
+
+add_libc_test(
   notification_registry_test
   SUITE
     libc-support-threads-tests

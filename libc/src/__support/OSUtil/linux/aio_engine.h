@@ -37,6 +37,10 @@ public:
   enum class Operation { Read, Write, Sync, DataSync };
   using Classify = ErrorOr<Dependencies::Identity> (*)(
       void *, int, const internal::kernel_statx_buf &);
+  // Internal wake publication only: runs under the service gate after the
+  // original result, before any result consumption/reuse. No allocation,
+  // application code, engine mutation/reentry or blocking is permitted.
+  using Completion = void (*)(void *, const void *);
 
   struct Input {
     const void *control_block;
@@ -129,6 +133,8 @@ private:
   const uint64_t process;
   Classify classify;
   void *classification_context;
+  Completion completion;
+  void *completion_context;
   Request *requests = nullptr;
   Request *tail = nullptr;
   Work *published = nullptr;
@@ -173,6 +179,8 @@ private:
       fatal();
     }
     request.terminal = true;
+    if (completion)
+      completion(completion_context, request.input.control_block);
   }
   LIBC_INLINE void metadata_result(Request &request, int result) {
     auto &dep = request.dependency;
@@ -275,11 +283,13 @@ private:
   }
 
 public:
-  LIBC_INLINE AioEngine(RingLike &ring, uint64_t &watermark, uint64_t process,
-                        uint32_t limit, Classify classify,
-                        void *context = nullptr)
+  LIBC_INLINE
+  AioEngine(RingLike &ring, uint64_t &watermark, uint64_t process,
+            uint32_t limit, Classify classify, void *context = nullptr,
+            Completion completion = nullptr, void *completion_context = nullptr)
       : ring(ring), queue(ring, watermark), dependencies(limit),
-        process(process), classify(classify), classification_context(context) {}
+        process(process), classify(classify), classification_context(context),
+        completion(completion), completion_context(completion_context) {}
   AioEngine(const AioEngine &) = delete;
   AioEngine &operator=(const AioEngine &) = delete;
   LIBC_INLINE ~AioEngine() {

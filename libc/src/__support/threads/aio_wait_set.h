@@ -23,9 +23,11 @@ namespace LIBC_NAMESPACE_DECL {
 // or a signal-safety guarantee. The service serializes ALL access, including
 // queries, with request completion, result consumption and binding changes.
 //
-// Supply exclusive, default-constructed Slot storage sized from the service's
-// outstanding-request bound, including completed requests still held by any
-// owner. This bounds unique requests, NOT the length of the caller's list.
+// Supply exclusive, default-constructed Slot storage prepared for the unique
+// members of this group before entering the service gate. This bounds only
+// this group's references, NOT the process's retained records or list length.
+// Signal-safe any-completion waiting uses AioSuspendObservers, not allocation
+// of this storage or a variable-length array on the handler's stack.
 // Keep the set, slots and requests at stable addresses until detach(). Like
 // AioRequest::Reference, destruction does not release ownership automatically.
 class AioWaitSet {
@@ -63,9 +65,8 @@ private:
   }
 
 public:
-  LIBC_INLINE constexpr AioWaitSet(Slot *storage,
-                                   size_t outstanding_request_bound)
-      : slots(storage), capacity(outstanding_request_bound) {}
+  LIBC_INLINE constexpr AioWaitSet(Slot *storage, size_t prepared_slot_count)
+      : slots(storage), capacity(prepared_slot_count) {}
   AioWaitSet(const AioWaitSet &) = delete;
   AioWaitSet &operator=(const AioWaitSet &) = delete;
 

@@ -23,6 +23,8 @@ add_libc_test(
   SUITE libc-osutil-tests
   SRCS aio_engine_test.cpp
   DEPENDS libc.src.__support.OSUtil.linux.aio_engine libc.src.errno.errno
+    libc.src.__support.threads.aio_suspend_observers
+    libc.src.__support.threads.aio_storage libc.hdr.func.aligned_alloc
 )
 
 add_libc_test(

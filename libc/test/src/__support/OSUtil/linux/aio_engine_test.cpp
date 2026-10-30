@@ -6,7 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "hdr/func/aligned_alloc.h"
 #include "src/__support/OSUtil/linux/aio_engine.h"
+#include "src/__support/threads/aio_storage.h"
+#include "src/__support/threads/aio_suspend_observers.h"
 #include "test/UnitTest/Test.h"
 
 using LIBC_NAMESPACE::AioFileDependencies;
@@ -373,6 +376,123 @@ TEST(LlvmLibcAioEngineTest, AdmissionReservesControlHeadroom) {
   ASSERT_TRUE(bool(f.engine.cancel_queued(first)));
   ASSERT_TRUE(bool(f.engine.take_result(&a)));
   ASSERT_TRUE(bool(f.engine.retire(first)));
+}
+
+TEST(LlvmLibcAioEngineTest, RetainedResultsDoNotConsumeCompletionCredits) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.engine.initialize(3)));
+  struct Allocator {
+    bool fail = false;
+    void *allocate(size_t size, size_t alignment) {
+      return fail ? nullptr : ::aligned_alloc(alignment, size);
+    }
+    void deallocate(void *p) { ::free(p); }
+  } allocator;
+  using Storage = LIBC_NAMESPACE::AioStorage<Engine::Request, 2, Allocator>;
+  Storage storage;
+  Storage::Slot *slots[6]{};
+  Engine::Request *requests[6]{};
+  int cb[6]{};
+  for (unsigned i = 0; i < 6; ++i) {
+    if (i % 2 == 0) {
+      if (i) {
+        allocator.fail = true;
+        EXPECT_EQ(Storage::prepare(allocator), nullptr);
+        EXPECT_EQ(*f.engine.error(&cb[0]), 0);
+        EXPECT_EQ(storage.size(), size_t(i));
+        allocator.fail = false;
+      }
+      auto *block = Storage::prepare(allocator);
+      ASSERT_NE(block, nullptr);
+      ASSERT_TRUE(storage.publish(*block));
+    }
+    slots[i] = storage.acquire();
+    ASSERT_NE(slots[i], nullptr);
+    requests[i] =
+        new (slots[i]->storage()) Engine::Request(f.ring, {&f.resources});
+    ASSERT_TRUE(bool(requests[i]->resources.capture(7)));
+    ASSERT_TRUE(bool(f.engine.admit(*requests[i], input(&cb[i]))));
+    ASSERT_EQ(f.engine.progress(), 0);
+    f.ring.identify(i * 2, 10 + i);
+    f.ring.complete(i * 2 + 1, int(i));
+    ASSERT_EQ(f.engine.progress(), 0);
+    EXPECT_FALSE(bool(f.engine.retire(*requests[i])));
+    EXPECT_EQ(storage.detach_empty(), nullptr);
+  }
+  // More live result records than total CQ credits, without consuming any
+  // result to admit a successor. Every old binding remains independently live.
+  for (unsigned i = 0; i < 6; ++i) {
+    EXPECT_EQ(*f.engine.error(&cb[i]), 0);
+    auto result = f.engine.take_result(&cb[i]);
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(result->value, ssize_t(i));
+    ASSERT_TRUE(bool(f.engine.retire(*requests[i])));
+    requests[i]->~Request();
+    ASSERT_TRUE(storage.release(*slots[i]));
+  }
+  while (auto *block = storage.detach_empty())
+    ASSERT_TRUE(Storage::dispose(block));
+  EXPECT_EQ(storage.capacity(), size_t(0));
+  EXPECT_EQ(f.resources.closed, 6U);
+  EXPECT_TRUE(f.engine.empty());
+}
+
+TEST(LlvmLibcAioEngineTest, SuspendObservesOriginalNotMetadataOrCancelControl) {
+  using Observers = LIBC_NAMESPACE::AioSuspendObservers<int>;
+  FakeRing ring;
+  ResourceState resources;
+  uint64_t watermark = 0;
+  Observers observers;
+  auto complete = [](void *p, const void *cb) {
+    static_cast<Observers *>(p)->complete(cb);
+  };
+  Engine engine(ring, watermark, 17, 16, classify, nullptr, complete,
+                &observers);
+  ASSERT_TRUE(bool(engine.initialize(3)));
+  Engine::Request request(ring, {&resources}), fresh(ring, {&resources});
+  Engine::Cancel cancel;
+  int cb;
+  const int *list[] = {&cb};
+  Observers::Observer old_wait, new_wait;
+  unsigned old_wakes = 0, new_wakes = 0;
+  auto wake = [](void *p) { ++*static_cast<unsigned *>(p); };
+  auto query = [&](const int *p) -> ErrorOr<bool> {
+    auto *r = engine.find(p);
+    return r ? ErrorOr<bool>(r->complete()) : ErrorOr<bool>(Error(EINVAL));
+  };
+  ASSERT_TRUE(bool(request.resources.capture(7)));
+  ASSERT_TRUE(bool(engine.admit(request, input(&cb))));
+  ASSERT_TRUE(
+      bool(observers.attach(old_wait, list, 1, query, wake, &old_wakes)));
+  ASSERT_EQ(engine.progress(), 0);
+  ASSERT_TRUE(bool(engine.cancel_published(request, cancel)));
+  ASSERT_EQ(engine.progress(), 0);
+  ring.identify(0, 1);
+  ring.complete(2, 0);
+  ASSERT_EQ(engine.progress(), 0);
+  EXPECT_FALSE(old_wait.ready());
+  EXPECT_EQ(old_wakes, 0U);
+  ring.complete(1, -ECANCELED);
+  ASSERT_EQ(engine.progress(), 0);
+  EXPECT_TRUE(old_wait.ready());
+  EXPECT_EQ(old_wakes, 1U);
+  ASSERT_TRUE(engine.retire_cancel(cancel));
+  ASSERT_TRUE(bool(engine.take_result(&cb)));
+  ASSERT_TRUE(bool(engine.retire(request)));
+  ASSERT_TRUE(bool(fresh.resources.capture(8)));
+  ASSERT_TRUE(bool(engine.admit(fresh, input(&cb))));
+  ASSERT_TRUE(
+      bool(observers.attach(new_wait, list, 1, query, wake, &new_wakes)));
+  EXPECT_FALSE(new_wait.ready());
+  EXPECT_TRUE(old_wait.ready());
+  ASSERT_TRUE(engine.cancel_queued(fresh));
+  EXPECT_TRUE(new_wait.ready());
+  EXPECT_EQ(new_wakes, 1U);
+  EXPECT_EQ(old_wakes, 1U);
+  ASSERT_TRUE(bool(engine.take_result(&cb)));
+  ASSERT_TRUE(bool(engine.retire(fresh)));
+  EXPECT_TRUE(observers.detach(old_wait));
+  EXPECT_TRUE(observers.detach(new_wait));
 }
 
 TEST(LlvmLibcAioEngineTest, CleanupFailureRetainsOnlyPersonality) {

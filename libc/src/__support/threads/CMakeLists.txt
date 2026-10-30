@@ -31,6 +31,22 @@ add_header_library(
 )
 
 add_header_library(
+  aio_suspend_observers
+  HDRS aio_suspend_observers.h
+  DEPENDS libc.hdr.errno_macros libc.hdr.types.size_t
+    libc.src.__support.error_or libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
+  aio_storage
+  HDRS aio_storage.h
+  DEPENDS libc.hdr.stdint_proxy libc.hdr.types.size_t
+    libc.src.__support.CPP.new libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   notification_registry
   HDRS
     notification_registry.h
