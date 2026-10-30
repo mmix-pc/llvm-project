@@ -30,6 +30,7 @@ namespace pwd {
 struct ReadLineResult {
   size_t bytes_read;
   bool truncated;
+  bool eof;
 };
 
 // Forward declaration of record parser for flat database files.
@@ -47,9 +48,8 @@ private:
 
   // Reads a single line from the given file into the provided buffer, stripping
   // any trailing '\n' and ensuring the result is null-terminated.
-  // Note: POSIX getline/getdelim cannot be used here because user database
-  // lookups (including reentrant _r variants) must operate in-place within a
-  // fixed, bounded buffer without dynamic heap allocations or realloc.
+  // This helper deliberately keeps a fixed-buffer contract; public passwd
+  // enumeration uses separate dynamically sized storage.
   LIBC_INLINE static ErrorOr<ReadLineResult> read_line(File *f,
                                                        cpp::span<char> buf) {
     if (!f || buf.size() < 2)
@@ -73,7 +73,6 @@ private:
 
     auto read_span = buf.first(bytes_read);
     if (result.value == 1 && !read_span.empty() && read_span.back() != '\n') {
-      truncated = true;
       char c = '\0';
       while (true) {
         result = f->read_unlocked(&c, 1);
@@ -81,18 +80,20 @@ private:
           return Error(result.error);
         if (result.value != 1 || c == '\n')
           break;
+        truncated = true;
       }
     }
 
     if (f->error_unlocked())
       return Error(EIO);
 
+    bool eof = bytes_read == 0 && result.value == 0;
     // If the line ended with a newline, strip it.
     if (!read_span.empty() && read_span.back() == '\n')
       --bytes_read;
 
     buf[bytes_read] = '\0';
-    return ReadLineResult{bytes_read, truncated};
+    return ReadLineResult{bytes_read, truncated, eof};
   }
 
 public:
@@ -103,10 +104,7 @@ public:
   LIBC_INLINE void set_path(const char *path) {
     if (!path)
       return;
-    if (file) {
-      file->close();
-      file = nullptr;
-    }
+    enddb();
     file_path = path;
   }
 
@@ -128,8 +126,9 @@ public:
   // Closes the database file stream.
   LIBC_INLINE ErrorOr<void> enddb() {
     if (file) {
-      int result = file->close();
+      File *old = file;
       file = nullptr;
+      int result = old->close();
       if (result != 0)
         return Error(result);
     }
@@ -153,11 +152,14 @@ public:
       return Error(result.error());
 
     ReadLineResult res = result.value();
-    if (res.bytes_read == 0)
+    if (res.eof)
       return false; // EOF
 
     if (res.truncated)
       return Error(ERANGE);
+
+    if (res.bytes_read == 0)
+      return Error(EINVAL);
 
     if (parse_line(buffer.first(res.bytes_read + 1), entry))
       return true;
