@@ -45,6 +45,34 @@ add_header_library(
 )
 
 add_header_library(
+  aio_completion_queue
+  HDRS aio_completion_queue.h
+  DEPENDS
+    .io_uring
+    libc.hdr.errno_macros
+    libc.hdr.stdint_proxy
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.error_or
+    libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+    libc.src.__support.threads.aio_completion_budget
+)
+
+add_header_library(
+  aio_submission_resources
+  HDRS aio_submission_resources.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.fcntl_macros
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.__support.error_or
+    libc.src.__support.macros.attributes
+    libc.src.__support.macros.config
+)
+
+add_header_library(
   io_uring
   HDRS io_uring.h
   DEPENDS

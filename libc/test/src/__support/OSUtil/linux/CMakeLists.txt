@@ -19,6 +19,24 @@ add_libc_test(
 )
 
 add_libc_test(
+  aio_completion_queue_test
+  SUITE libc-osutil-tests
+  SRCS aio_completion_queue_test.cpp
+  DEPENDS
+    libc.src.__support.OSUtil.linux.aio_completion_queue
+    libc.src.errno.errno
+)
+
+add_libc_test(
+  aio_submission_resources_test
+  SUITE libc-osutil-tests
+  SRCS aio_submission_resources_test.cpp
+  DEPENDS
+    libc.src.__support.OSUtil.linux.aio_submission_resources
+    libc.src.errno.errno
+)
+
+add_libc_test(
   io_uring_test
   SUITE libc-osutil-tests
   SRCS io_uring_test.cpp
