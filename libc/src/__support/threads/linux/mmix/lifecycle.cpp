@@ -21,6 +21,7 @@ bool ThreadRegistry::pristine_fork_caller(ThreadControl &caller) {
   bool pristine = main_registered && !creation_started && !process_operation &&
                   !process_exiting() && !fork_recovery.is_child() &&
                   !caller.fork_recovery.is_child() && !reservations &&
+                  !helper_reservations && !unreaped_helpers &&
                   !unreaped_callbacks &&
                   live == 1 && head == &caller && !caller.next &&
                   !reap_head && !reap_tail && !reap_count &&
@@ -36,7 +37,8 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
   if (single_thread)
     *single_thread = false;
   mutex.value.lock();
-  if (process_exiting() || reservations || process_operation ||
+  if (process_exiting() || reservations || helper_reservations ||
+      process_operation ||
       caller.registry != this || !caller.listed ||
       caller.execution != ThreadExecution::Running || caller.callbacks_started ||
       !caller.fork_recovery.allows_fork() || caller.cancellation_transfer.load() ||
@@ -45,9 +47,12 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
     mutex.value.unlock();
     return false;
   }
+  // The census is necessary, but resource release after final reap must still
+  // be witnessed independently by the caller through helper_drained.
   if (single_thread)
     *single_thread = (!creation_started || helper_drained) &&
-                     !unreaped_callbacks && live == 1 && head == &caller &&
+                     !unreaped_helpers && !unreaped_callbacks &&
+                     live == 1 && head == &caller &&
                      !caller.next && !reap_head && !reap_count;
   return true;
 }
@@ -63,6 +68,7 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   head = &survivor;
   reap_head = reap_tail = nullptr;
   reap_count = reservations = unreaped_callbacks = 0;
+  helper_reservations = unreaped_helpers = 0;
   live = 1;
   process_exit_state.store(RUNNING, cpp::MemoryOrder::RELAXED);
   process_operation = false;
@@ -122,15 +128,21 @@ bool ThreadRegistryLock::reserve() {
 
 bool ThreadRegistryLock::begin_helper_creation() {
   if (registry.process_exiting() || registry.process_operation ||
-      !registry.fork_recovery.allows_thread_creation())
+      !registry.fork_recovery.allows_thread_creation() ||
+      registry.helper_reservations == SIZE_MAX)
     return false;
   registry.creation_started = true;
+  ++registry.helper_reservations;
+  change();
   return true;
 }
 
 bool ThreadRegistryLock::sole_fork_caller(const ThreadControl &caller) const {
+  // Reaper retirement uses this predicate while that helper still exists.
+  // Pending helpers must settle first; final admission checks unreaped helpers.
   return registry.main_registered && !registry.process_exiting() &&
          !registry.process_operation && !registry.reservations &&
+         !registry.helper_reservations &&
          !registry.unreaped_callbacks &&
          registry.live == 1 && registry.head == &caller && !caller.next &&
          !registry.reap_head && !registry.reap_count &&
@@ -161,7 +173,7 @@ bool ThreadRegistryLock::end_process_operation() {
 bool ThreadRegistryLock::begin_vfork(const ThreadControl &caller) {
   // The caller has retired the reaper. Preserve creation history, but freeze
   // new reservations until the shared-VM child has execed or exited.
-  if (!sole_fork_caller(caller) ||
+  if (!sole_fork_caller(caller) || registry.unreaped_helpers ||
       !caller.fork_recovery.allows_thread_creation())
     return false;
   registry.process_operation = true;
@@ -176,11 +188,21 @@ bool ThreadRegistryLock::cancel_reservation() {
   return true;
 }
 
+bool ThreadRegistryLock::cancel_helper_reservation() {
+  if (!registry.helper_reservations)
+    return false;
+  --registry.helper_reservations;
+  change();
+  return true;
+}
+
 bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
   if (c.registry || c.owner != ThreadOwner::Unpublished || !c.creator_pin ||
       !c.lifecycle_pin || registry.process_exiting() ||
       registry.process_operation ||
-      (!helper && (!registry.reservations || registry.live == SIZE_MAX)))
+      (helper ? (!registry.helper_reservations ||
+                 registry.unreaped_helpers == SIZE_MAX)
+              : (!registry.reservations || registry.live == SIZE_MAX)))
     return false;
   c.registry = &registry;
   registry.creation_started = true;
@@ -195,7 +217,10 @@ bool ThreadRegistryLock::insert(ThreadControl &c, bool detached, bool helper) {
     c.next = registry.head;
     registry.head = &c;
   }
-  if (!helper) {
+  if (helper) {
+    --registry.helper_reservations;
+    ++registry.unreaped_helpers;
+  } else {
     --registry.reservations;
     ++registry.live;
   }
@@ -248,6 +273,7 @@ bool ThreadRegistryLock::discard_callback(ThreadControl &c) {
 bool ThreadRegistryLock::register_main(ThreadControl &c) {
   if (registry.main_registered || registry.process_exiting() || registry.head ||
       registry.live || registry.reservations || registry.unreaped_callbacks ||
+      registry.helper_reservations || registry.unreaped_helpers ||
       c.registry ||
       c.owner != ThreadOwner::Unpublished || !c.creator_pin ||
       !c.lifecycle_pin || c.attributes.tid <= 0 || c.owns_stack ||
@@ -454,6 +480,8 @@ bool ThreadRegistryLock::finish_reaping(ThreadControl &c) {
       c.api_pins || c.leases)
     return false;
   c.owner = ThreadOwner::Reaped;
+  if (c.internal_helper)
+    --registry.unreaped_helpers;
   if (c.callback_phase == CallbackPhase::Discarded ||
       c.callback_phase == CallbackPhase::Active)
     --registry.unreaped_callbacks;

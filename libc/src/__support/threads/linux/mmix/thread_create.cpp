@@ -35,10 +35,8 @@ static void restore_mask(uint64_t mask) {
 }
 
 static void cancel_reservation(bool helper) {
-  if (helper)
-    return;
   ThreadRegistryLock lock(thread_registry);
-  if (!lock.cancel_reservation())
+  if (!(helper ? lock.cancel_helper_reservation() : lock.cancel_reservation()))
     __builtin_trap();
 }
 

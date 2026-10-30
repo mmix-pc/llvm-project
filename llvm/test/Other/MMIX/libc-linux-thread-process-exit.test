@@ -187,7 +187,8 @@ extern "C" int main(int argc, char **argv) {
   require(internal::activate_main_thread(main_control));
   {
     ThreadRegistryLock lock(thread_registry);
-    if (mode == 1) require(lock.insert(helper, true, true) && lock.start(helper));
+    if (mode == 1) require(lock.begin_helper_creation() &&
+                           lock.insert(helper, true, true) && lock.start(helper));
     if (mode >= 2 && mode < 12 && mode != 7)
       require(lock.reserve() && lock.insert(worker, mode == 3) && lock.start(worker));
     if (mode == 4 || mode == 5 || mode == 7) require(lock.reserve());

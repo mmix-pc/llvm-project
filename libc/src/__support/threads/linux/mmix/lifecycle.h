@@ -177,6 +177,9 @@ class ThreadRegistry {
   ThreadControl *reap_head = nullptr, *reap_tail = nullptr;
   size_t reap_count = 0;
   size_t live = 0, reservations = 0;
+  // Helpers never contribute to application lifetime. Keep their creation and
+  // unreaped ownership visible to fork admission independently of that census.
+  size_t helper_reservations = 0, unreaped_helpers = 0;
   // Precreated callbacks remain counted through activation until final reap.
   // Zero alone does not prove quiescence: reaper/owner release must drain too.
   size_t unreaped_callbacks = 0;
@@ -241,11 +244,12 @@ public:
   bool begin_vfork(const ThreadControl &caller);
   bool end_process_operation();
   bool cancel_reservation();
+  bool cancel_helper_reservation();
   // Bootstrap only, before user callbacks or worker publication. Main uses
   // static control storage and the kernel's non-owned initial stack.
   bool register_main(ThreadControl &control);
-  // Register a successful creation, consuming one reservation. The helper is
-  // explicitly excluded from application accounting and needs no reservation.
+  // Register a successful creation, consuming its application/helper
+  // reservation. Helpers are excluded from application accounting.
   bool insert(ThreadControl &control, bool detached, bool helper = false);
   // A reserved managed thread waits without a public handle or application
   // lifetime contribution. Its creator pin protects registration until a
@@ -288,6 +292,9 @@ public:
   }
   size_t live_threads() const { return registry.live; }
   size_t pending_creations() const { return registry.reservations; }
+  size_t pending_helper_creations() const {
+    return registry.helper_reservations;
+  }
   bool process_exiting() const { return registry.process_exiting(); }
   bool claim_process_exit();
   // Explicit exit may win while peers remain. Last-thread election only closes

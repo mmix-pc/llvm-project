@@ -267,6 +267,14 @@ static void callback_waiters() {
       require(!lock.begin_reaping(callback));
       callback.clear_tid.value.store(0);
       require(lock.begin_reaping(callback) && !lock.finish_reaping(callback));
+      require(lock.live_threads() == 1 && !lock.queued_reclaims());
+      require(!lock.sole_fork_caller(main) && !lock.begin_vfork(main));
+    }
+    // Activation/exit and removal do not retire the callback's creator pin.
+    require(registry.freeze_for_fork(main, 0, &single, true) && !single);
+    registry.release_after_fork();
+    {
+      ThreadRegistryLock lock(registry);
       require(lock.drop_creator(callback) && lock.finish_reaping(callback));
       require(!lock.finish_reaping(callback));
       require(lock.sole_fork_caller(main));
@@ -309,6 +317,83 @@ static void callback_waiters() {
     require(registry.claim_process_cleanup());
     require(!lock.activate_callback(callback) && lock.discard_callback(callback));
   }
+}
+
+static void helper_fork_admission() {
+  event_address = 0;
+  ThreadRegistry registry;
+  ThreadControl main, reaper, service;
+  main.attributes.tid = 1;
+  {
+    ThreadRegistryLock lock(registry);
+    require(lock.register_main(main));
+    require(!lock.insert(reaper, true, true));
+    require(!lock.cancel_helper_reservation());
+    require(lock.reserve() && !lock.insert(reaper, true, true));
+    require(lock.begin_helper_creation() && lock.begin_helper_creation());
+    require(lock.pending_helper_creations() == 2 && lock.pending_creations() == 1);
+    require(lock.cancel_helper_reservation() && lock.pending_creations() == 1);
+    require(lock.cancel_reservation() && lock.pending_helper_creations() == 1);
+    require(!lock.sole_fork_caller(main) && !lock.begin_vfork(main));
+  }
+  bool single = true;
+  require(!registry.freeze_for_fork(main, 0, &single, true) && !single);
+  require(!registry.freeze_for_fork(main));
+  {
+    ThreadRegistryLock lock(registry);
+    require(lock.cancel_helper_reservation() && !lock.cancel_helper_reservation());
+    require(lock.sole_fork_caller(main));
+    require(lock.begin_vfork(main));
+    require(!lock.begin_helper_creation());
+    require(lock.end_process_operation());
+  }
+  // A rolled-back reservation preserves history; census is not a release witness.
+  require(registry.freeze_for_fork(main, 0, &single) && !single);
+  registry.release_after_fork();
+  require(registry.freeze_for_fork(main, 0, &single, true) && single);
+  registry.release_after_fork();
+  {
+    ThreadRegistryLock lock(registry);
+    require(lock.begin_helper_creation() && lock.insert(reaper, true, true));
+    require(lock.begin_helper_creation() && lock.insert(service, true, true));
+    require(lock.start(reaper) && lock.start(service));
+    require(!lock.pending_helper_creations() && lock.live_threads() == 1);
+    require(!lock.pin(&reaper.attributes) && !lock.pin(&service.attributes));
+    require(lock.sole_fork_caller(main) && !lock.begin_vfork(main));
+  }
+  require(registry.freeze_for_fork(main, 0, &single, true) && !single);
+  registry.release_after_fork();
+  // Retire only the reaper first. The other service still excludes recovery.
+  ThreadControl *helpers[] = {&reaper, &service};
+  for (ThreadControl *helper : helpers) {
+    {
+      ThreadRegistryLock lock(registry);
+      require(lock.begin_cleanup(*helper) && lock.close_leases(*helper));
+      require(lock.exit_ready(*helper, 0));
+      require(lock.termination_action(*helper) == ThreadTermination::ThreadOnly);
+      require(lock.live_threads() == 1 && !lock.queued_reclaims());
+      require(!lock.begin_reaping(*helper));
+      helper->clear_tid.value.store(0);
+      require(lock.begin_reaping(*helper) && !lock.finish_reaping(*helper));
+      require(lock.sole_fork_caller(main) && !lock.begin_vfork(main));
+    }
+    require(registry.freeze_for_fork(main, 0, &single, true) && !single);
+    registry.release_after_fork();
+    {
+      ThreadRegistryLock lock(registry);
+      require(lock.drop_creator(*helper) && lock.finish_reaping(*helper));
+      require(!lock.finish_reaping(*helper));
+      require(lock.sole_fork_caller(main));
+      if (helper == &reaper) require(!lock.begin_vfork(main));
+      else require(lock.begin_vfork(main) && lock.end_process_operation());
+    }
+    require(registry.freeze_for_fork(main, 0, &single, true));
+    require(single == (helper == &service));
+    registry.release_after_fork();
+  }
+  // Final resource release is outside finish_reaping and remains mandatory.
+  require(registry.freeze_for_fork(main, 0, &single) && !single);
+  registry.release_after_fork();
 }
 
 static void main_registration() {
@@ -499,6 +584,7 @@ extern "C" int main() {
   layout_and_publication();
   ownership();
   callback_waiters();
+  helper_fork_admission();
   main_registration();
   detached_main();
   {
@@ -564,6 +650,7 @@ extern "C" int main() {
       }
       require(lock.begin_reaping(peer) && lock.finish_reaping(peer));
       require(lock.sole_fork_caller(caller));
+      require(lock.begin_helper_creation());
       require(lock.insert(helper, true, true) && lock.start(helper));
       require(lock.drop_creator(helper) && lock.begin_cleanup(helper));
       require(lock.close_leases(helper) && lock.exit_ready(helper, 0));
@@ -593,7 +680,7 @@ extern "C" int main() {
     require(!lock.insert(other, true, true));
     require(lock.end_process_operation() && !lock.end_process_operation());
     require(lock.begin_process_operation(main) && lock.end_process_operation());
-    if (helper) require(lock.begin_helper_creation());
+    if (helper) require(lock.begin_helper_creation() && lock.cancel_helper_reservation());
     else require(lock.reserve() && lock.cancel_reservation());
     require(!lock.begin_process_operation(main));
   }
@@ -624,6 +711,7 @@ extern "C" int main() {
     {
       ThreadRegistryLock lock(process);
       require(lock.register_main(main) && lock.reserve());
+      require(lock.begin_helper_creation());
     }
     unsigned before = wakes;
     {
@@ -653,6 +741,7 @@ extern "C" int main() {
     process.restore_fork_child(main, internal::ForkRecovery::child(true, true));
     {
       ThreadRegistryLock lock(process);
+      require(!lock.pending_helper_creations());
       require(!lock.process_exiting() && lock.reserve());
       require(lock.cancel_reservation() && lock.claim_process_cleanup());
     }
@@ -666,6 +755,7 @@ extern "C" int main() {
   event_address = 0;
   {
     ThreadRegistryLock lock(registry);
+    require(lock.begin_helper_creation());
     require(lock.insert(helper, true, true) && lock.live_threads() == 0);
     require(!lock.pin(&helper.attributes) && lock.start(helper));
     require(lock.reserve());

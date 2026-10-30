@@ -41,9 +41,11 @@ for opt in ("0", "2"):
         subprocess.run([options[0], *common, "-D__mmix__", "-O" + opt,
             "-include", str(root / "transport.h"), *map(str, sources),
             str(root / "test.cpp"), "-o", str(exe)], check=True)
-        for mode in range(23):
+        scenarios = list(range(24)) + [100 + mode for mode in
+            (0, 1, 2, 3, 4, 5, 7, 8, 10, 17, 18, 19)]
+        for mode in scenarios:
             subprocess.run([str(exe), str(mode)], check=True, timeout=10)
-        print('Native creator handshake: 23 scenarios passed at O' + opt, flush=True)
+        print('Native creator handshake: ' + str(len(scenarios)) + ' scenarios passed at O' + opt, flush=True)
 
 # Test transport constants, not an installed MMIX UAPI package.
 #--- headers/sys/syscall.h
@@ -86,12 +88,12 @@ extern "C" int fork();
 extern "C" int waitpid(int, int *, int);
 static void require(bool value) { if (!value) __builtin_abort(); }
 static unsigned mode, masks, preparations, clones, waits, clocks, wakes, releases, reclaims;
-static bool blocked;
+static bool blocked, helper;
 static ThreadControl control, main_control;
 static ThreadAttributes *output = reinterpret_cast<ThreadAttributes *>(1);
 static ThreadControl *callback_output = reinterpret_cast<ThreadControl *>(1);
 static constexpr uint64_t original_mask = 0x123456789abcdef0;
-static bool callback_mode() { return mode >= 20; }
+static bool callback_mode() { return !helper && mode >= 20; }
 static bool credential_gate, credential_member;
 
 namespace create_test { namespace mmix {
@@ -111,8 +113,16 @@ void unregister_credentials(ThreadControl &c) {
 ThreadCreationResult ensure_thread_reaper(const TLSImage &, uintptr_t) { return {}; }
 ThreadPreparationResult prepare_thread(const ThreadPreparation &r, ThreadControl *&out) {
   require(blocked && masks == 1 &&
-          r.saved_signal_mask == (callback_mode() ? UINT64_MAX : original_mask));
-  require(!callback_mode() || r.detached);
+          r.saved_signal_mask == (helper || callback_mode() ? UINT64_MAX : original_mask));
+  require(!(helper || callback_mode()) || r.detached);
+  {
+    ThreadRegistryLock lock(thread_registry);
+    require(lock.pending_creations() == unsigned(!helper));
+    require(lock.pending_helper_creations() == unsigned(helper));
+    require(!lock.sole_fork_caller(main_control) && !lock.begin_vfork(main_control));
+  }
+  bool single = true;
+  require(!thread_registry.freeze_for_fork(main_control, 0, &single, true) && !single);
   ++preparations;
   if (mode == 2) return {ThreadPrepareError::ControlMapFailed, ENOMEM};
   if (mode == 10) return {ThreadPrepareError::Overflow};
@@ -155,8 +165,12 @@ extern "C" long __llvm_libc_mmix_clone_thread(unsigned long flags, uintptr_t sta
   require(flags == 0x3d0f00 && stack == control.stack_top && tp == control.tls.tp);
   require(parent_tid == &control.parent_tid.value.val && clear_tid == &control.clear_tid.value.val);
   require(*clear_tid == UINT32_MAX && control.saved_signal_mask ==
-          (callback_mode() ? UINT64_MAX : original_mask));
-  { ThreadRegistryLock lock(thread_registry); require(lock.pending_creations() == 1); }
+          (helper || callback_mode() ? UINT64_MAX : original_mask));
+  {
+    ThreadRegistryLock lock(thread_registry);
+    require(lock.pending_creations() == unsigned(!helper));
+    require(lock.pending_helper_creations() == unsigned(helper));
+  }
   ++clones;
   if (mode == 3 || mode == 4) return -EAGAIN;
   *parent_tid = mode == 12 ? 322 : 321;
@@ -184,8 +198,11 @@ extern "C" void __llvm_libc_mmix_reclaim_failed_thread(ThreadControl *c) {
   // kernel clear and all references; this injection never qualifies reaping.
   c->clear_tid.value.store(0);
   ThreadRegistryLock lock(thread_registry);
-  require(lock.owner(*c) == ThreadOwner::AbortOwner && lock.pending_creations() == 1);
+  require(lock.owner(*c) == ThreadOwner::AbortOwner);
+  require(lock.pending_creations() == unsigned(!helper));
+  require(lock.pending_helper_creations() == unsigned(helper));
   require(lock.begin_reaping(*c) && lock.drop_creator(*c) && lock.finish_reaping(*c));
+  require(!lock.sole_fork_caller(main_control) && !lock.begin_vfork(main_control));
   c->saved_signal_mask = 0;
 }
 
@@ -220,23 +237,30 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
     if (control.acquire_decision() == CreatorDecision::Go) {
       require(credential_member && credential_gate);
       ThreadRegistryLock lock(thread_registry);
-      require(!lock.pending_creations());
+      require(!lock.pending_creations() && !lock.pending_helper_creations());
       if (callback_mode()) {
         require(callback_output == &control && lock.live_threads() == 1);
         require(output == reinterpret_cast<ThreadAttributes *>(1));
         require(!lock.pin(&control.attributes));
         require(lock.callback_phase(control) == CallbackPhase::Waiting);
+        if (mode == 23) require(lock.activate_callback(control));
+      } else if (helper) {
+        require(output == &control.attributes && lock.live_threads() == 1);
+        require(!lock.pin(output) && lock.sole_fork_caller(main_control));
+        require(!lock.begin_vfork(main_control));
       } else {
         require(output == &control.attributes && lock.live_threads() == 2);
         require(lock.pin(output) == &control && lock.unpin(control));
       }
       require(!lock.start(control)); // Already running before GO.
-      if (mode == 17) {
+      if (mode == 17 || mode == 23) {
         require(lock.begin_cleanup(control) && lock.close_leases(control));
         require(lock.exit_ready(control, 42));
         control.clear_tid.value.store(0);
         require(lock.begin_reaping(control));
         require(!lock.finish_reaping(control)); // Creator still owns wake access.
+        require(lock.live_threads() == 1);
+        if (helper || mode == 23) require(!lock.begin_vfork(main_control));
       }
     } else require(control.acquire_decision() == CreatorDecision::Abort);
     control.saved_signal_mask = 0;
@@ -267,8 +291,10 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
 
 extern "C" int main(int argc, char **argv) {
   require(argc == 2);
-  mode = unsigned(argv[1][0] - '0');
-  if (argv[1][1]) mode = 10 * mode + unsigned(argv[1][1] - '0');
+  for (const char *digit = argv[1]; *digit; ++digit)
+    mode = 10 * mode + unsigned(*digit - '0');
+  helper = mode >= 100;
+  if (helper) mode -= 100;
   main_control.attributes.tid = 123;
   { ThreadRegistryLock lock(thread_registry); require(lock.register_main(main_control)); }
   bool fatal = mode >= 11 && mode <= 16;
@@ -280,37 +306,55 @@ extern "C" int main(int argc, char **argv) {
     return 0;
   }
   ThreadPreparation request;
-  request.detached = mode == 9 || mode == 17;
-  auto result = callback_mode() ? create_callback_waiter(request, callback_output)
+  request.detached = helper || mode == 9 || mode == 17;
+  auto result = helper ? create_thread_helper(request, output)
+                : callback_mode() ? create_callback_waiter(request, callback_output)
                                 : create_thread(request, output);
   require(!fatal && !blocked);
   if (mode == 1) require(result.error == -EPERM && masks == 1 && !preparations);
   else require(masks == 2 && preparations == 1);
-  bool success = mode == 0 || mode == 6 || mode == 9 || mode == 17 || mode == 20;
+  bool success = mode == 0 || mode == 6 || mode == 9 || mode == 17 || mode == 20 || mode == 23;
+  if (helper && !success && mode != 19) {
+    // Pending helper rollback restores eligibility, but not the release witness.
+    bool single = true;
+    if (mode != 4) { // Failed resource release still needs its owner's witness.
+      require(thread_registry.freeze_for_fork(main_control, 0, &single, true) && single);
+      thread_registry.release_after_fork();
+    }
+    require(thread_registry.freeze_for_fork(main_control, 0, &single));
+    require(single == (mode == 1)); // Signal-mask failure predates reservation.
+    thread_registry.release_after_fork();
+  }
   ThreadRegistryLock lock(thread_registry);
-  require(!lock.pending_creations());
+  require(!lock.pending_creations() && !lock.pending_helper_creations());
   require(!credential_gate && credential_member == success);
-  if (mode == 20) {
+  if (mode == 20 || mode == 23) {
     require(!result.error && callback_output == &control);
     require(output == reinterpret_cast<ThreadAttributes *>(1));
     require(lock.live_threads() == 1 && !lock.pin(&control.attributes));
-    require(lock.discard_callback(control));
-    require(lock.begin_cleanup(control) && lock.close_leases(control));
-    require(lock.exit_ready(control, 0));
-    control.clear_tid.value.store(0);
-    require(lock.begin_reaping(control) && !lock.finish_reaping(control));
+    if (mode == 20) {
+      require(lock.discard_callback(control));
+      require(lock.begin_cleanup(control) && lock.close_leases(control));
+      require(lock.exit_ready(control, 0));
+      control.clear_tid.value.store(0);
+      require(lock.begin_reaping(control));
+    }
+    require(!lock.finish_reaping(control) && !lock.begin_vfork(main_control));
     require(lock.drop_creator(control) && lock.finish_reaping(control));
+    require(lock.sole_fork_caller(main_control));
     return 0;
   }
   if (success) {
     require(!result.error && output == &control.attributes && clones == 1 && wakes == 1);
-    require(lock.live_threads() == (mode == 17 ? 1u : 2u) && !lock.drop_creator(control));
+    require(lock.live_threads() == (helper || mode == 17 ? 1u : 2u) && !lock.drop_creator(control));
     if (mode == 17) require(lock.finish_reaping(control));
-    else require(lock.owner(control) == (mode == 9 ? ThreadOwner::Detached : ThreadOwner::Joinable));
+    else require(lock.owner(control) == (helper || mode == 9 ? ThreadOwner::Detached : ThreadOwner::Joinable));
     require(!reclaims && !releases);
   } else {
     require(result.error < 0 && output == reinterpret_cast<ThreadAttributes *>(1));
     require(lock.live_threads() == 1);
+    if (helper && mode != 4 && mode != 19)
+      require(lock.begin_vfork(main_control) && lock.end_process_operation());
     if (mode == 2 || mode == 5 || mode == 18 || mode == 21) require(result.error == -ENOMEM);
     if (mode == 19 || mode == 22) require(result.error == -EAGAIN);
     if (mode == 10) require(result.error == -EOVERFLOW && !clones);
