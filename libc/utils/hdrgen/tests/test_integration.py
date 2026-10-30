@@ -7,6 +7,15 @@ from pathlib import Path
 
 
 class TestHeaderGenIntegration(unittest.TestCase):
+    def test_io_uring_syscall_aliases(self):
+        output = self.output_dir / "uring-syscall.h"
+        self.run_script(self.source_dir.parents[2] / "include/sys/syscall.yaml",
+                        output)
+        content = output.read_text()
+        for name in ("io_uring_enter", "io_uring_register", "io_uring_setup"):
+            self.assertIn(f"#ifdef __NR_{name}\n#define SYS_{name} __NR_{name}\n#endif",
+                          content)
+
     def setUp(self):
         self.output_dir = TestHeaderGenIntegration.output_dir
         self.source_dir = Path(__file__).parent
