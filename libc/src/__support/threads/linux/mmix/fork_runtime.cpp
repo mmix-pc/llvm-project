@@ -125,8 +125,11 @@ int ForkOperation::prepare_runtime() {
   if (!minimal && internal::last_thread_exit_fork_owner &&
       internal::rebind_last_thread_exit_fork_owner &&
       internal::last_thread_exit_fork_owner() == caller->attributes.tid &&
-      last_thread_fork_context(*caller)) {
-    continuation = ForkContinuation::LastThreadAfter;
+      (last_thread_fork_context(*caller) ||
+       last_worker_fork_context(*caller))) {
+    continuation = caller->last_worker_cleanup_finished()
+                       ? ForkContinuation::LastWorkerAfter
+                       : ForkContinuation::LastThreadAfter;
     continuation_root = caller->unwind_root;
   } else if (!minimal &&
              initial_thread_during_fork_owner() == caller->attributes.tid &&
@@ -134,15 +137,17 @@ int ForkOperation::prepare_runtime() {
     continuation = ForkContinuation::InitialThreadDuring;
     continuation_root = caller->unwind_root;
   } else if (!minimal && internal::normal_exit_fork_owner &&
-      internal::rebind_normal_exit_fork_owner &&
-      internal::normal_exit_fork_owner(&during) == caller->attributes.tid &&
-      ordinary_fork_context(*caller)) {
+             internal::rebind_normal_exit_fork_owner &&
+             internal::normal_exit_fork_owner(&during) ==
+                 caller->attributes.tid &&
+             ordinary_fork_context(*caller)) {
     continuation = during ? ForkContinuation::NormalDuring
                           : ForkContinuation::NormalAfter;
   }
 #endif
   const bool cleanup_continuation = continuation != ForkContinuation::Ordinary;
   const bool terminal = continuation == ForkContinuation::LastThreadAfter ||
+                        continuation == ForkContinuation::LastWorkerAfter ||
                         continuation == ForkContinuation::InitialThreadDuring;
   // Unsupported terminal/DURING/forced contexts must not attempt helper
   // retirement or enter ordinary child restoration as a fallback.
@@ -259,7 +264,9 @@ int ForkOperation::freeze_registry() {
     return EAGAIN;
   }
 #endif
-  if (registry && continuation == ForkContinuation::LastThreadAfter &&
+  if (registry &&
+      (continuation == ForkContinuation::LastThreadAfter ||
+       continuation == ForkContinuation::LastWorkerAfter) &&
       (internal::last_thread_exit_fork_owner() != caller->attributes.tid ||
        !continuation_root.matches(caller->unwind_root))) {
     thread_registry.release_after_fork();
@@ -292,8 +299,9 @@ void ForkOperation::restore_runtime(bool child) {
       continuation == ForkContinuation::InitialThreadDuring;
   const bool process_cleanup =
       continuation != ForkContinuation::Ordinary && !initial_during;
-  const bool terminal =
-      continuation == ForkContinuation::LastThreadAfter || initial_during;
+  const bool terminal = continuation == ForkContinuation::LastThreadAfter ||
+                        continuation == ForkContinuation::LastWorkerAfter ||
+                        initial_during;
   // Capture provenance before child registry restoration promotes the worker.
   const bool worker_cleanup =
       process_cleanup && !caller->retains_resources_until_process_exit();
@@ -390,6 +398,9 @@ void ForkOperation::restore_runtime(bool child) {
     case ForkContinuation::LastThreadAfter:
       adopted = internal::adopt_fork_survivor_after_thread_exit();
       break;
+    case ForkContinuation::LastWorkerAfter:
+      adopted = internal::adopt_fork_survivor_after_worker_exit();
+      break;
     case ForkContinuation::InitialThreadDuring:
 #ifdef LIBC_MMIX_UNWIND_ROOTS
       adopted = internal::adopt_fork_survivor_during_thread_exit() &&
@@ -398,7 +409,8 @@ void ForkOperation::restore_runtime(bool child) {
       break;
     }
     if (!adopted ||
-        (continuation == ForkContinuation::LastThreadAfter &&
+        ((continuation == ForkContinuation::LastThreadAfter ||
+          continuation == ForkContinuation::LastWorkerAfter) &&
          (!internal::rebind_last_thread_exit_fork_owner ||
           !internal::rebind_last_thread_exit_fork_owner(previous_tid))) ||
         (process_cleanup && !terminal &&
@@ -420,7 +432,9 @@ void ForkOperation::restore_runtime(bool child) {
         (!continuation_root.matches(caller->unwind_root) ||
          (initial_during ? (!initial_thread_during_fork_owner() ||
                             !terminal_thread_fork_context(*caller))
-                         : !last_thread_fork_context(*caller))))))
+                         : (continuation == ForkContinuation::LastWorkerAfter
+                                ? !last_worker_fork_context(*caller)
+                                : !last_thread_fork_context(*caller)))))))
     internal::exit(127);
 #endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS

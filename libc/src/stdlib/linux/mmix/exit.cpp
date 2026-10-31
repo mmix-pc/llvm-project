@@ -58,8 +58,9 @@ static bool last_thread_phase_matches() {
   return normal_exit_phase == NormalExitPhase::LastThreadProcessCallbacks &&
          control && self.attrib == &control->attributes &&
          last_thread_attributes == self.attrib &&
-         main_thread_cleanup_finished() &&
-         control->terminal_cleanup_finished() &&
+         (control->last_worker_cleanup_finished() ||
+          (control->terminal_cleanup_finished() &&
+           main_thread_cleanup_finished())) &&
          control->unwind_root.kind == mmix::UnwindRootKind::LastThreadProcess &&
          last_thread_root.owner == control &&
          last_thread_root.matches(control->unwind_root);
@@ -205,7 +206,9 @@ void begin_process_exit(int status, [[maybe_unused]] bool quick) {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   auto *control = mmix::current_control;
   if (!control || self.attrib != &control->attributes ||
-      !control->terminal_cleanup_finished() || !main_thread_cleanup_finished() ||
+      !(control->last_worker_cleanup_finished() ||
+        (control->terminal_cleanup_finished() &&
+         main_thread_cleanup_finished())) ||
       !control->unwind_root.active || control->unwind_root.owner != control ||
       control->unwind_root.kind != mmix::UnwindRootKind::LastThreadProcess ||
       !control->unwind_root.generation || !control->unwind_root.chain)

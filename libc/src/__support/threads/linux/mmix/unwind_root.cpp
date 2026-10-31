@@ -144,6 +144,13 @@ bool last_thread_fork_context(ThreadControl &control) {
          validate_fork_cleanup(control.unwind_root);
 }
 
+bool last_worker_fork_context(ThreadControl &control) {
+  return control.last_worker_cleanup_finished() &&
+         control.unwind_root.kind == UnwindRootKind::LastThreadProcess &&
+         ordinary_fork_context(control) && !has_c_cleanup() &&
+         validate_fork_cleanup(control.unwind_root);
+}
+
 bool terminal_thread_fork_context(ThreadControl &control) {
   return control.terminal_cleanup_in_progress() &&
          control.unwind_root.kind == UnwindRootKind::TerminalThreadCleanup &&
@@ -191,14 +198,16 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
 run_with_process_exit_root(ThreadControl &control, RootBody *body,
                            void *argument) {
   if (current_control != &control || !body || forced.active || has_c_cleanup() ||
-      control.unwind_root.active || !control.terminal_cleanup_finished() ||
+      control.unwind_root.active ||
+      (!control.terminal_cleanup_finished() &&
+       !control.last_worker_cleanup_finished()) ||
       control.cancellation_point.load() || control.cancellation_transfer.load())
     __builtin_trap();
   capture_root(control, reinterpret_cast<uintptr_t>(&run_with_process_exit_root),
                UnwindRootKind::LastThreadProcess);
   // This also rejects an unfinished C cleanup dispatcher. Never reinitialize
   // cancellation for this new root: terminal delivery remains disabled.
-  if (!last_thread_fork_context(control))
+  if (!last_thread_fork_context(control) && !last_worker_fork_context(control))
     __builtin_trap();
   body(argument);
   __builtin_trap();

@@ -41,6 +41,7 @@ bool validate_fork_cleanup(const UnwindRoot &root);
 bool restore_fork_unwind(ThreadControl &control);
 bool ordinary_fork_context(ThreadControl &control);
 bool last_thread_fork_context(ThreadControl &control);
+bool last_worker_fork_context(ThreadControl &control);
 bool terminal_thread_fork_context(ThreadControl &control);
 [[gnu::visibility("hidden")]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument);
@@ -51,6 +52,7 @@ run_with_terminal_cleanup_root(ThreadControl &control, RootBody *body,
                                void *argument);
 // Fresh nonreturning activation after the thread root has been consumed. This
 // does not initialize cancellation windows or resume a thread cleanup drain.
+// An ordinary last worker needs its separate completed-drain/election proof.
 [[noreturn, gnu::visibility("hidden")]] void
 run_with_process_exit_root(ThreadControl &control, RootBody *body, void *argument);
 

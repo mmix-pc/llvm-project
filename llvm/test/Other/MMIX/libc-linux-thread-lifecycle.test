@@ -909,6 +909,175 @@ static void terminal_exit_fork_admission() {
   }
 }
 
+static void last_worker_after_fork_admission() {
+  constexpr auto kind = ForkContinuation::LastWorkerAfter;
+  enum Blocker {
+    None, UnjoinedInitial, Peer, Reservation, HelperReservation, LiveHelper,
+    DeadHelper, WaitingCallback, DiscardedCallback, DeadCallback, Detached,
+    CreatorPin, ApiPin, JoinClaim, Lease, OpenLeases, NoDrainReturn, NoCleanup,
+    NoCallbacks, StillCleaning, NoElection, NoProcessClaim, ResourceOwner,
+    InvalidResourceOwner, ChangedManager, InactiveRoot, RootGeneration, RootKind,
+    RootOwner, RootChain, Transfer, Point, Suppression, NoHelperWitness,
+    LostTerminal, PromotedWorker, BlockerCount
+  };
+  for (unsigned cancel = 0; cancel != 2; ++cancel) {
+    for (unsigned blocker = None; blocker != BlockerCount; ++blocker) {
+      event_address = 0;
+      ThreadRegistry process;
+      ThreadControl initial, caller, other;
+      initial.attributes.tid = 1;
+      caller.attributes.tid = 2;
+      caller.attributes.atexit_callback_mgr =
+          reinterpret_cast<ThreadAtExitCallbackMgr *>(0x1000);
+      caller.control_mapping = {0x2000, 8192};
+      caller.stack_mapping = {0x4000, 8192};
+      caller.stack_bottom = 0x4000;
+      caller.stack_top = 0x6000;
+      caller.owns_stack = true;
+      caller.tls = {8192, 0x6000, 0x7000};
+      {
+        ThreadRegistryLock lock(process);
+        require(lock.register_main(initial));
+        require(lock.reserve() && lock.insert(caller, blocker == Detached));
+        require(lock.start(caller));
+        if (blocker != CreatorPin) require(lock.drop_creator(caller));
+        require(!caller.record_worker_cleanup_finished());
+        require(lock.begin_cleanup(initial) && lock.close_leases(initial) &&
+                lock.exit_ready(initial, 42));
+        initial.clear_tid.value.store(0);
+        if (blocker != UnjoinedInitial) {
+          require(lock.pin(&initial.attributes) == &initial);
+          require(lock.claim_join(initial) && lock.begin_reaping(initial));
+          require(lock.unpin(initial) && lock.finish_reaping(initial));
+        }
+        if (blocker == Peer) {
+          require(lock.reserve() && lock.insert(other, false) &&
+                  lock.start(other) && lock.drop_creator(other));
+        }
+        if (blocker == Reservation) require(lock.reserve());
+        if (blocker == HelperReservation) require(lock.begin_helper_creation());
+        if (blocker == LiveHelper || blocker == DeadHelper) {
+          require(lock.begin_helper_creation() && lock.insert(other, true, true));
+          require(lock.start(other) && lock.drop_creator(other));
+          if (blocker == DeadHelper)
+            require(lock.begin_cleanup(other) && lock.close_leases(other) &&
+                    lock.exit_ready(other, 0));
+        }
+        if (blocker == WaitingCallback || blocker == DiscardedCallback ||
+            blocker == DeadCallback) {
+          require(lock.reserve() && lock.insert_callback_waiter(other) &&
+                  lock.start(other) && lock.drop_creator(other));
+          if (blocker == DiscardedCallback) require(lock.discard_callback(other));
+          if (blocker == DeadCallback)
+            require(lock.activate_callback(other) && lock.begin_cleanup(other) &&
+                    lock.close_leases(other) && lock.exit_ready(other, 0));
+        }
+        if (blocker == ApiPin || blocker == JoinClaim || blocker == Lease) {
+          require(lock.pin(&caller.attributes) == &caller);
+          if (blocker == JoinClaim)
+            require(lock.claim_join(caller) && lock.unpin(caller));
+          if (blocker == Lease)
+            require(lock.acquire_lease(caller) && lock.unpin(caller));
+        }
+      }
+      if (blocker == PromotedWorker) {
+        require(process.freeze_for_fork(caller));
+        process.restore_fork_child(caller, internal::ForkRecovery::child(true, true));
+      }
+      {
+        ThreadRegistryLock lock(process);
+        if (cancel) require(!lock.request_cancellation(caller, true));
+        if (blocker != NoCleanup) require(lock.begin_cleanup(caller, cancel));
+      }
+      require(!caller.record_worker_cleanup_finished()); // Not yet drained.
+      if (blocker != NoCallbacks) require(caller.begin_callback_cleanup());
+      if (blocker != NoDrainReturn) {
+        bool recorded = caller.record_worker_cleanup_finished();
+        require(recorded == (blocker != NoCallbacks && blocker != NoCleanup &&
+                             blocker != PromotedWorker));
+        require(!caller.record_worker_cleanup_finished());
+      }
+      require(!caller.last_worker_cleanup_finished()); // Not elected.
+      const bool exit_ready = blocker != NoCleanup && blocker != StillCleaning &&
+                              blocker != Lease && blocker != OpenLeases;
+      {
+        ThreadRegistryLock lock(process);
+        if (blocker != OpenLeases) require(lock.close_leases(caller));
+        if (exit_ready) {
+          require(lock.exit_ready(caller, 17));
+          require(!caller.last_worker_cleanup_finished());
+          if (blocker != NoElection) {
+            auto action = lock.termination_action(caller);
+            if (blocker == None) require(action == ThreadTermination::Process);
+          }
+        }
+      }
+      if (blocker != NoProcessClaim) require(process.claim_process_cleanup());
+      if (blocker == ResourceOwner)
+        caller.resource_owner = {&caller, +[](void *) -> long { return 0; },
+                                 +[](void *) -> long { return 0; }};
+      if (blocker == InvalidResourceOwner)
+        caller.resource_owner.retain = +[](void *) -> long { return 0; };
+      if (blocker == ChangedManager) caller.attributes.atexit_callback_mgr = nullptr;
+      caller.unwind_root = {&caller, 8, 16, 24, 4, 6, true,
+                            UnwindRootKind::LastThreadProcess};
+      if (blocker == InactiveRoot) caller.unwind_root.active = false;
+      if (blocker == RootGeneration) caller.unwind_root.generation = 0;
+      if (blocker == RootKind) caller.unwind_root.kind = UnwindRootKind::Thread;
+      if (blocker == RootOwner) caller.unwind_root.owner = &initial;
+      if (blocker == RootChain) caller.unwind_root.chain = 0;
+      if (blocker == Transfer) caller.cancellation_transfer.store(1);
+      if (blocker == Point)
+        caller.cancellation_point.store(reinterpret_cast<CancellationPoint *>(8));
+      if (blocker == LostTerminal) caller.cancellation.restore_after_fork();
+      caller.cancellation_suppression.store(blocker == Suppression ? 0 : 1);
+      bool single = true;
+      bool frozen = process.freeze_for_fork(caller, 1, &single,
+                                             blocker != NoHelperWitness, kind);
+      require(frozen == (blocker == None) && single == (blocker == None));
+      require(!caller.terminal_cleanup_finished());
+      require(caller.retains_resources_until_process_exit() ==
+              (blocker == PromotedWorker));
+      require(caller.control_mapping.base == 0x2000 &&
+              caller.stack_mapping.base == 0x4000 && caller.tls.addr == 0x6000);
+      if (!frozen) continue;
+      const auto root = caller.unwind_root;
+      process.release_after_fork(); // Failed-clone rollback is not restoration.
+      for (unsigned child = 0; child != 2; ++child) {
+        require(caller.last_worker_cleanup_finished());
+        require(!process.freeze_for_fork(caller, 1, nullptr, true,
+                                         ForkContinuation::LastThreadAfter));
+        require(!process.freeze_for_fork(caller, 1, nullptr, true,
+                                         ForkContinuation::InitialThreadDuring));
+        require(process.freeze_for_fork(caller, 1, &single, true, kind) && single);
+        process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), kind);
+        require(root.matches(caller.unwind_root));
+        require(caller.last_worker_cleanup_finished() &&
+                !caller.retains_resources_until_process_exit() &&
+                !caller.terminal_cleanup_pending() &&
+                !caller.terminal_cleanup_finished());
+        require(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+                !caller.cancellation.ready() && !caller.cancellation.request());
+        require(caller.control_mapping.base == 0x2000 &&
+                caller.stack_mapping.base == 0x4000 && caller.tls.addr == 0x6000 &&
+                caller.owns_stack && caller.clear_tid.value.load() == UINT32_MAX);
+        require(!caller.begin_callback_cleanup() && !process.claim_process_cleanup());
+        ThreadRegistryLock lock(process);
+        require(lock.live_threads() == 0 && lock.process_exiting());
+        require(lock.owner(caller) == ThreadOwner::Joinable &&
+                !lock.queued_reclaims() && !lock.begin_reaping(caller));
+        require(!lock.pin(&initial.attributes));
+        require(lock.pin(&caller.attributes) == &caller);
+        require(!lock.acquire_lease(caller) && lock.unpin(caller));
+        require(!lock.reserve() && !lock.begin_helper_creation());
+        require(!lock.begin_cleanup(caller) && !lock.exit_ready(caller, 99));
+        require(lock.request_cancellation(caller, true) == ESRCH);
+        require(caller.attributes.retval.stdc_retval == 17);
+      }
+    }
+  }
+}
+
 extern "C" int main() {
   layout_and_publication();
   ownership();
@@ -917,6 +1086,7 @@ extern "C" int main() {
   worker_exit_fork_admission();
   terminal_exit_fork_admission();
   terminal_during_fork_admission();
+  last_worker_after_fork_admission();
   main_registration();
   detached_main();
   {

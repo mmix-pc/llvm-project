@@ -885,6 +885,10 @@ bool last_thread_fork_context(ThreadControl &c) {
   return ordinary_fork_context(c) && c.terminal_cleanup_finished() &&
          c.unwind_root.kind == UnwindRootKind::LastThreadProcess;
 }
+bool last_worker_fork_context(ThreadControl &c) {
+  return ordinary_fork_context(c) && c.last_worker_cleanup_finished() &&
+         c.unwind_root.kind == UnwindRootKind::LastThreadProcess;
+}
 bool restore_fork_unwind(ThreadControl &c) {
   assert(!loader_snapshot);
   return c.unwind_root.active;

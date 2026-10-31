@@ -140,6 +140,118 @@ static void drain_body(void *) {
   assert(M::terminal_thread_fork_context(control));
 }
 
+static void worker_terminal_body(void *) {
+  auto &control = *M::current_control;
+  assert(control.unwind_root.generation == 2);
+  assert(control.unwind_root.procedure == expected_activation);
+  assert(control.unwind_root.kind == M::UnwindRootKind::LastThreadProcess);
+  assert(control.last_worker_cleanup_finished());
+  assert(!control.retains_resources_until_process_exit());
+  assert(!control.terminal_cleanup_finished() && !control.terminal_cleanup_pending());
+  assert(window_initializations == 1 && control.cancellation.terminal());
+  assert(control.cancellation_identity == 9 && control.cancellation_generation == 7);
+  assert(!M::last_thread_fork_context(control));
+  assert(!M::terminal_thread_fork_context(control));
+  assert(M::last_worker_fork_context(control) && M::restore_fork_unwind(control));
+  const auto root = control.unwind_root;
+  for (unsigned bad = 0; bad != 7; ++bad) {
+    if (bad == 0) M::forced.active = true;
+    if (bad == 1) cleanup_pending = true;
+    if (bad == 2) dispatch_pending = true;
+    if (bad == 3) ++chain;
+    if (bad == 4) control.unwind_root.owner = nullptr;
+    if (bad == 5) control.unwind_root.active = false;
+    if (bad == 6) control.unwind_root.kind = M::UnwindRootKind::Thread;
+    assert(!M::last_worker_fork_context(control));
+    M::forced.active = cleanup_pending = dispatch_pending = false;
+    if (bad == 3) --chain;
+    control.unwind_root = root;
+  }
+  assert(M::last_worker_fork_context(control));
+  throw Completed{};
+}
+
+static void worker_root() {
+  window_initializations = 0;
+  M::ThreadRegistry registry;
+  M::ThreadControl initial, control;
+  initial.attributes.tid = 1;
+  control.attributes.tid = 2;
+  control.attributes.atexit_callback_mgr =
+      reinterpret_cast<LIBC_NAMESPACE::ThreadAtExitCallbackMgr *>(0x3000);
+  control.stack_bottom = 0x1800;
+  control.stack_top = 0x2800;
+  M::current_control = &control;
+  {
+    M::ThreadRegistryLock lock(registry);
+    assert(lock.register_main(initial));
+    assert(lock.reserve() && lock.insert(control, false) && lock.start(control));
+    assert(lock.drop_creator(control));
+    assert(lock.begin_cleanup(initial) && lock.close_leases(initial));
+    assert(lock.exit_ready(initial, 0));
+    initial.clear_tid.value.store(0);
+    assert(lock.pin(&initial.attributes) == &initial && lock.claim_join(initial));
+    assert(lock.begin_reaping(initial) && lock.unpin(initial) && lock.finish_reaping(initial));
+  }
+  expected_activation = reinterpret_cast<uintptr_t>(&M::run_with_unwind_root);
+  M::run_with_unwind_root(control, ordinary_body, nullptr);
+  assert(control.unwind_root.generation == 1 && !control.unwind_root.active);
+  {
+    M::ThreadRegistryLock lock(registry);
+    assert(lock.begin_cleanup(control));
+    assert(!control.record_worker_cleanup_finished());
+    assert(control.begin_callback_cleanup());
+  }
+  assert(control.record_worker_cleanup_finished());
+  assert(!control.record_worker_cleanup_finished());
+  {
+    M::ThreadRegistryLock lock(registry);
+    assert(lock.close_leases(control) && lock.exit_ready(control, 17));
+    assert(!control.last_worker_cleanup_finished());
+    assert(lock.termination_action(control) == M::ThreadTermination::Process);
+  }
+  control.cancellation_identity = 9;
+  control.cancellation_generation = 7;
+  expected_activation = reinterpret_cast<uintptr_t>(&M::run_with_process_exit_root);
+  for (unsigned bad = 0; bad != 13; ++bad) {
+    pid_t child = ::fork();
+    assert(child >= 0);
+    if (!child) {
+      rlimit limit{0, 0};
+      assert(::setrlimit(RLIMIT_CORE, &limit) == 0);
+      ::alarm(5);
+      if (bad == 0) M::forced.active = true;
+      if (bad == 1) control.unwind_root.active = true;
+      if (bad == 2) cleanup_pending = true;
+      if (bad == 3) dispatch_pending = true;
+      if (bad == 4) control.unwind_root.generation = UINT64_MAX;
+      if (bad == 5) control.cancellation_transfer.store(1);
+      if (bad == 6) control.cancellation_point.store(
+          reinterpret_cast<M::CancellationPoint *>(8));
+      if (bad == 7) control.stack_bottom = 0x2008;
+      if (bad == 8) control.stack_top = 0x2000;
+      if (bad == 9) control.attributes.atexit_callback_mgr = nullptr;
+      if (bad == 10) control.resource_owner.context = &control;
+      if (bad == 11) control.cancellation.restore_after_fork();
+      if (bad == 12) M::current_control = nullptr;
+      M::run_with_process_exit_root(control, worker_terminal_body, nullptr);
+    }
+    int status;
+    assert(::waitpid(child, &status, 0) == child);
+    assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGILL);
+    assert(control.unwind_root.generation == 1 && !control.unwind_root.active);
+  }
+  try {
+    M::run_with_process_exit_root(control, worker_terminal_body, nullptr);
+  } catch (Completed &) {
+    assert(control.last_worker_cleanup_finished());
+    assert(!control.retains_resources_until_process_exit());
+    assert(control.unwind_root.generation == 2 && window_initializations == 1);
+    return;
+  }
+  __builtin_trap();
+}
+
 int main() {
   M::ThreadRegistry registry;
   M::ThreadControl control;
@@ -230,6 +342,7 @@ int main() {
   } catch (Completed &) {
     assert(control.terminal_cleanup_finished());
     assert(control.unwind_root.generation == 3 && window_initializations == 1);
+    worker_root();
     return 0;
   }
   __builtin_trap();

@@ -262,6 +262,9 @@ void begin_thread_cleanup(ThreadControl &control) {
   else
 #endif
     internal::cleanup_current_thread();
+  // Keep this separate from callbacks_started, which is published before the
+  // first callback. Initial and managed threads do not gain worker provenance.
+  control.record_worker_cleanup_finished();
   finish_thread(control, result);
 }
 

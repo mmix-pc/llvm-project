@@ -54,7 +54,8 @@ enum class ForkContinuation {
   NormalDuring,
   NormalAfter,
   InitialThreadDuring,
-  LastThreadAfter
+  LastThreadAfter,
+  LastWorkerAfter
 };
 
 struct ThreadMapping {
@@ -157,6 +158,31 @@ struct ThreadControl {
            cancellation.terminal();
   }
 
+  // Owner-only, called only after complete_thread_cleanup's TLS/TSS drain
+  // returns. Starting callbacks is not a completed-drain certificate.
+  bool record_worker_cleanup_finished() {
+    if (initial_thread || process_lifetime || internal_helper ||
+        callback_phase != CallbackPhase::None ||
+        execution != ThreadExecution::Cleaning || !callbacks_started ||
+        !cancellation.terminal() || !attributes.atexit_callback_mgr ||
+        completed_worker_callback_mgr)
+      return false;
+    completed_worker_callback_mgr = attributes.atexit_callback_mgr;
+    return true;
+  }
+
+  // Independent of main's phase and initial identity. Ownership, pins and the
+  // sole-task census still require the registry snapshot lock.
+  bool last_worker_cleanup_finished() {
+    return !initial_thread && !process_lifetime && !internal_helper &&
+           callback_phase == CallbackPhase::None && callbacks_started &&
+           completed_worker_callback_mgr &&
+           completed_worker_callback_mgr == attributes.atexit_callback_mgr &&
+           last_worker_exit_elected &&
+           execution == ThreadExecution::ExitReady && cancellation.terminal() &&
+           resource_owner.valid() && !resource_owner.context;
+  }
+
   // Only the owning thread may access this guard, including recursive exit.
   bool begin_callback_cleanup() {
     if (callbacks_started)
@@ -181,6 +207,8 @@ private:
   bool internal_helper = false;
   CallbackPhase callback_phase = CallbackPhase::None;
   bool callbacks_started = false;
+  ThreadAtExitCallbackMgr *completed_worker_callback_mgr = nullptr;
+  bool last_worker_exit_elected = false;
   size_t api_pins = 0, leases = 0;
 };
 
@@ -214,7 +242,7 @@ class ThreadRegistry {
   bool creation_started = false;
   bool process_operation = false;
   internal::ForkRecovery fork_recovery;
-  bool terminal_fork_caller(ThreadControl &caller);
+  bool terminal_fork_caller(ThreadControl &caller, ForkContinuation kind);
   bool terminal_during_fork_caller(ThreadControl &caller);
 
 public:
@@ -234,6 +262,8 @@ public:
   // Non-ordinary kinds require the matching private exit-owner/root
   // certificate. InitialThreadDuring retains Cleaning/live one/RUNNING;
   // LastThreadAfter requires the completed initial-thread drain and live zero.
+  // LastWorkerAfter instead requires an elected, completed ordinary worker;
+  // neither terminal AFTER kind promotes identity or transfers backing.
   bool freeze_for_fork(
       ThreadControl &caller, uint64_t suppression = 0,
       bool *single_thread = nullptr, bool helper_drained = false,
@@ -333,7 +363,7 @@ public:
   // Explicit exit may win while peers remain. Last-thread election only closes
   // creation; both paths must claim this ownership before running callbacks.
   bool claim_process_cleanup();
-  ThreadTermination termination_action(const ThreadControl &control);
+  ThreadTermination termination_action(ThreadControl &control);
 };
 
 } // namespace mmix

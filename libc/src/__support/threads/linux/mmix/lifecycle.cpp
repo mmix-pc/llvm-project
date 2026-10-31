@@ -30,8 +30,12 @@ bool ThreadRegistry::quiescent_fork_caller(ThreadControl &caller) {
   return quiescent;
 }
 
-bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller) {
+bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller,
+                                          ForkContinuation kind) {
   const auto &root = caller.unwind_root;
+  const bool completed = kind == ForkContinuation::LastWorkerAfter
+                             ? caller.last_worker_cleanup_finished()
+                             : caller.terminal_cleanup_finished();
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED &&
@@ -43,7 +47,7 @@ bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller) {
          !caller.leases && !caller.queued && !caller.reap_next &&
          caller.owner == ThreadOwner::Joinable && !caller.internal_helper &&
          caller.callback_phase == CallbackPhase::None &&
-         caller.terminal_cleanup_finished() && root.active &&
+         completed && root.active &&
          root.kind == UnwindRootKind::LastThreadProcess &&
          root.owner == &caller && root.generation && root.chain;
 }
@@ -74,10 +78,11 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
     *single_thread = false;
   mutex.value.lock();
   if (kind == ForkContinuation::LastThreadAfter ||
+      kind == ForkContinuation::LastWorkerAfter ||
       kind == ForkContinuation::InitialThreadDuring) {
-    const bool eligible = kind == ForkContinuation::LastThreadAfter
-                              ? terminal_fork_caller(caller)
-                              : terminal_during_fork_caller(caller);
+    const bool eligible = kind == ForkContinuation::InitialThreadDuring
+                              ? terminal_during_fork_caller(caller)
+                              : terminal_fork_caller(caller, kind);
     if (!helper_drained || !eligible ||
         caller.cancellation_transfer.load() ||
         caller.cancellation_suppression.load() != suppression ||
@@ -129,10 +134,11 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   if (!recovery.is_child())
     __builtin_trap();
   if (kind == ForkContinuation::LastThreadAfter ||
+      kind == ForkContinuation::LastWorkerAfter ||
       kind == ForkContinuation::InitialThreadDuring) {
-    const bool eligible = kind == ForkContinuation::LastThreadAfter
-                              ? terminal_fork_caller(survivor)
-                              : terminal_during_fork_caller(survivor);
+    const bool eligible = kind == ForkContinuation::InitialThreadDuring
+                              ? terminal_during_fork_caller(survivor)
+                              : terminal_fork_caller(survivor, kind);
     if (!recovery.allows_fork() || !eligible)
       __builtin_trap();
     // The frozen registry already contains exactly this terminal task. Do not
@@ -664,7 +670,7 @@ bool ThreadRegistryLock::claim_process_cleanup() {
 }
 
 ThreadTermination
-ThreadRegistryLock::termination_action(const ThreadControl &c) {
+ThreadRegistryLock::termination_action(ThreadControl &c) {
   if (!belongs(c) || c.counted ||
       c.execution != ThreadExecution::ExitReady)
     __builtin_trap();
@@ -678,8 +684,11 @@ ThreadRegistryLock::termination_action(const ThreadControl &c) {
     return ThreadTermination::WaitForCreation;
   // Explicit exit can close creation without this lock between the check and
   // the last-thread CAS. Its owner will perform process cleanup in that case.
-  return claim_process_exit() ? ThreadTermination::Process
-                             : ThreadTermination::ThreadOnly;
+  if (!claim_process_exit())
+    return ThreadTermination::ThreadOnly;
+  c.last_worker_exit_elected = !c.initial_thread && !c.process_lifetime &&
+                              c.owner == ThreadOwner::Joinable;
+  return ThreadTermination::Process;
 }
 
 } // namespace mmix
