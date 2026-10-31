@@ -25,6 +25,16 @@ extern "C" {
 
 extern int __unw_getcontext(unw_context_t *);
 extern int __unw_init_local(unw_cursor_t *, unw_context_t *);
+// Private static-runtime entry. The context names the first frame to process
+// at its exact instruction PC, on an already active, restorable native chain.
+// The input is not modified. No public alias or cross-DSO contract is provided.
+// Unsupported backends return _URC_FATAL_PHASE2_ERROR before accessing inputs.
+// A managed stop must finish cursor ownership before abandoning its stack.
+_LIBUNWIND_HIDDEN extern _Unwind_Reason_Code __unw_forcedunwind_from_context(
+    _Unwind_Exception *, _Unwind_Stop_Fn, void *, unw_context_t *);
+_LIBUNWIND_HIDDEN extern int __unw_init_local_current(unw_cursor_t *,
+                                                     unw_context_t *);
+_LIBUNWIND_HIDDEN extern int __unw_is_ip_before_instruction(unw_cursor_t *);
 extern int __unw_copy_cursor(unw_cursor_t *, const unw_cursor_t *);
 extern void __unw_destroy_cursor(unw_cursor_t *);
 extern int __unw_step(unw_cursor_t *);

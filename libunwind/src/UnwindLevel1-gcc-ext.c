@@ -19,6 +19,7 @@
 #include "config.h"
 #include "libunwind_ext.h"
 #include "CursorLifetime.h"
+#include "UnwindSavedContext.h"
 #include "libunwind.h"
 #include "Unwind-EHABI.h"
 #include "unwind.h"
@@ -257,11 +258,15 @@ _LIBUNWIND_EXPORT uintptr_t _Unwind_GetCFA(struct _Unwind_Context *context) {
 _LIBUNWIND_EXPORT uintptr_t _Unwind_GetIPInfo(struct _Unwind_Context *context,
                                               int *ipBefore) {
   _LIBUNWIND_TRACE_API("_Unwind_GetIPInfo(context=%p)", (void *)context);
-  int isSignalFrame = __unw_is_signal_frame((unw_cursor_t *)context);
+#if defined(_LIBUNWIND_SUPPORT_SAVED_CONTEXT)
+  int isBefore = __unw_is_ip_before_instruction((unw_cursor_t *)context);
+#else
+  int isBefore = __unw_is_signal_frame((unw_cursor_t *)context);
+#endif
   // Negative means some kind of error (probably UNW_ENOINFO), but we have no
   // good way to report that, and this maintains backward compatibility with the
   // implementation that hard-coded zero in every case, even signal frames.
-  if (isSignalFrame <= 0)
+  if (isBefore <= 0)
     *ipBefore = 0;
   else
     *ipBefore = 1;

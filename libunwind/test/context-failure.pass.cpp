@@ -37,6 +37,9 @@ extern "C" int __unw_init_local(unw_cursor_t *, unw_context_t *) {
   ++inits;
   return failure == Init ? UNW_EINVAL : UNW_ESUCCESS;
 }
+extern "C" int __unw_init_local_current(unw_cursor_t *, unw_context_t *) {
+  abort();
+}
 extern "C" int __unw_set_reg(unw_cursor_t *, unw_regnum_t, unw_word_t) {
   assert(failure != Capture && failure != Init);
   ++sets;
@@ -68,6 +71,7 @@ extern "C" int __unw_resume_with_frames_walked(unw_cursor_t *, unsigned) {
   abort();
 }
 extern "C" int __unw_is_signal_frame(unw_cursor_t *) { abort(); }
+extern "C" int __unw_is_ip_before_instruction(unw_cursor_t *) { abort(); }
 extern "C" void __unw_add_dynamic_fde(unw_word_t) { abort(); }
 extern "C" void __unw_remove_dynamic_fde(unw_word_t) { abort(); }
 

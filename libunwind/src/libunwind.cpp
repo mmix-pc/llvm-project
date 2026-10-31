@@ -14,6 +14,7 @@
 #include "config.h"
 #include "libunwind_ext.h"
 #include "CursorLifetime.h"
+#include "UnwindSavedContext.h"
 
 #include <stdlib.h>
 
@@ -39,13 +40,8 @@ LocalAddressSpace LocalAddressSpace::sThisAddressSpace;
 _LIBUNWIND_EXPORT unw_addr_space_t unw_local_addr_space =
     (unw_addr_space_t)&LocalAddressSpace::sThisAddressSpace;
 
-/// Create a cursor of a thread in this process given 'context' recorded by
-/// __unw_getcontext().
-_LIBUNWIND_HIDDEN int __unw_init_local(unw_cursor_t *cursor,
-                                       unw_context_t *context) {
-  _LIBUNWIND_TRACE_API("__unw_init_local(cursor=%p, context=%p)",
-                       static_cast<void *>(cursor),
-                       static_cast<void *>(context));
+static int unw_init_local_common(unw_cursor_t *cursor, unw_context_t *context,
+                                 bool currentFrame) {
 #if defined(__mmix__)
 # define REGISTER_KIND Registers_mmix
 #elif defined(__i386__)
@@ -88,14 +84,48 @@ _LIBUNWIND_HIDDEN int __unw_init_local(unw_cursor_t *cursor,
   // Use "placement new" to allocate UnwindCursor in the cursor buffer.
   new (reinterpret_cast<UnwindCursor<LocalAddressSpace, REGISTER_KIND> *>(cursor))
       UnwindCursor<LocalAddressSpace, REGISTER_KIND>(
-          context, LocalAddressSpace::sThisAddressSpace);
+          context, LocalAddressSpace::sThisAddressSpace
+#if !defined(_LIBUNWIND_SUPPORT_SEH_UNWIND)
+          , currentFrame
+#endif
+      );
 #undef REGISTER_KIND
   AbstractUnwindCursor *co = (AbstractUnwindCursor *)cursor;
+  if (currentFrame) {
+    unw_word_t pc = co->getReg(UNW_REG_IP);
+    if (pc == 0 || pc == ~(unw_word_t)0)
+      return UNW_EINVAL;
+  }
   co->setInfoBasedOnIPRegister();
 
   return UNW_ESUCCESS;
 }
+
+/// Create a cursor from the continuation recorded by __unw_getcontext().
+_LIBUNWIND_HIDDEN int __unw_init_local(unw_cursor_t *cursor,
+                                      unw_context_t *context) {
+  _LIBUNWIND_TRACE_API("__unw_init_local(cursor=%p, context=%p)",
+                      static_cast<void *>(cursor), static_cast<void *>(context));
+  return unw_init_local_common(cursor, context, false);
+}
 _LIBUNWIND_WEAK_ALIAS(__unw_init_local, unw_init_local)
+
+_LIBUNWIND_HIDDEN int __unw_init_local_current(unw_cursor_t *cursor,
+                                              unw_context_t *context) {
+#if defined(_LIBUNWIND_SUPPORT_SAVED_CONTEXT)
+  if (!cursor || !context)
+    return UNW_EINVAL;
+  return unw_init_local_common(cursor, context, true);
+#else
+  (void)cursor;
+  (void)context;
+  return UNW_EINVAL;
+#endif
+}
+
+_LIBUNWIND_HIDDEN int __unw_is_ip_before_instruction(unw_cursor_t *cursor) {
+  return ((AbstractUnwindCursor *)cursor)->isIPBeforeInstruction();
+}
 
 // Internal owners explicitly copy/destroy cursors. Public raw-storage clients
 // have no destruction protocol and retain their existing lifetime policy.

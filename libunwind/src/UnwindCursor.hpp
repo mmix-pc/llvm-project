@@ -485,6 +485,7 @@ public:
   virtual bool isSignalFrame() {
     _LIBUNWIND_ABORT("isSignalFrame not implemented");
   }
+  virtual bool isIPBeforeInstruction() { return isSignalFrame(); }
   virtual bool getFunctionName(char *, size_t, unw_word_t *) {
     _LIBUNWIND_ABORT("getFunctionName not implemented");
   }
@@ -969,7 +970,8 @@ template <typename A, typename R>
 class UnwindCursor : public AbstractUnwindCursor {
   typedef typename A::pint_t pint_t;
 public:
-                      UnwindCursor(unw_context_t *context, A &as);
+                      UnwindCursor(unw_context_t *context, A &as,
+                                   bool ipBeforeInstruction = false);
                       UnwindCursor(A &as, void *threadArg);
   virtual             ~UnwindCursor() {}
   virtual bool        validReg(int);
@@ -983,6 +985,9 @@ public:
   _LIBUNWIND_TRACE_NO_INLINE
     virtual void      jumpto();
   virtual bool        isSignalFrame();
+  virtual bool        isIPBeforeInstruction() {
+    return _isIPBeforeInstruction || _isSignalFrame;
+  }
   virtual bool        getFunctionName(char *buf, size_t len, unw_word_t *off);
   virtual void        setInfoBasedOnIPRegister(bool isReturnAddress = false);
   virtual const char *getRegisterName(int num);
@@ -1079,6 +1084,10 @@ private:
 #else
     typename R::link_reg_t pc = this->getReg(UNW_REG_IP);
 #endif
+    // The parser uses an exclusive upper bound; FDE lookup and exposed IP do
+    // not. The saved-context initializer has rejected overflow.
+    if (_isIPBeforeInstruction)
+      ++pc;
 #if defined(__mmix__)
     return stepWithMMIXDwarf(
 #else
@@ -1383,7 +1392,9 @@ private:
   A               &_addressSpace;
   R                _registers;
   unw_proc_info_t  _info;
-  bool             _unwindInfoMissing;
+  // Share the old missing-info flag byte; do not grow public cursor storage.
+  bool             _unwindInfoMissing : 1;
+  bool             _isIPBeforeInstruction : 1;
   bool             _isSignalFrame;
 #if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \
     defined(_LIBUNWIND_CHECK_HAIKU_SIGRETURN)
@@ -1401,8 +1412,10 @@ private:
 };
 
 template <typename A, typename R>
-UnwindCursor<A, R>::UnwindCursor(unw_context_t *context, A &as)
+UnwindCursor<A, R>::UnwindCursor(unw_context_t *context, A &as,
+                                bool ipBeforeInstruction)
     : _addressSpace(as), _registers(context), _unwindInfoMissing(false),
+      _isIPBeforeInstruction(ipBeforeInstruction),
       _isSignalFrame(false)
 #if defined(_LIBUNWIND_SUPPORT_TBTAB_UNWIND)
       ,
@@ -1418,7 +1431,8 @@ UnwindCursor<A, R>::UnwindCursor(unw_context_t *context, A &as)
 
 template <typename A, typename R>
 UnwindCursor<A, R>::UnwindCursor(A &as, void *)
-    : _addressSpace(as), _unwindInfoMissing(false), _isSignalFrame(false)
+    : _addressSpace(as), _unwindInfoMissing(false),
+      _isIPBeforeInstruction(false), _isSignalFrame(false)
 #if defined(_LIBUNWIND_SUPPORT_TBTAB_UNWIND)
       ,
       _isKnownVapiNotActive(false)
@@ -1442,6 +1456,8 @@ unw_word_t UnwindCursor<A, R>::getReg(int regNum) {
 template <typename A, typename R>
 void UnwindCursor<A, R>::setReg(int regNum, unw_word_t value) {
   _registers.setRegister(regNum, (typename A::pint_t)value);
+  if (regNum == UNW_REG_IP)
+    _isIPBeforeInstruction = false;
 }
 
 template <typename A, typename R>
@@ -1790,8 +1806,11 @@ bool UnwindCursor<A, R>::getInfoFromFdeCie(
     const typename CFI_Parser<A>::CIE_Info &cieInfo,
     typename R::link_hardened_reg_arg_t pc, uintptr_t dso_base) {
   typename CFI_Parser<A>::PrologInfo prolog;
+  typename R::link_reg_t rowPC = pc;
+  if (_isIPBeforeInstruction)
+    ++rowPC;
   if (CFI_Parser<A>::template parseFDEInstructions<R>(
-          _addressSpace, fdeInfo, cieInfo, pc, R::getArch(), &prolog)) {
+          _addressSpace, fdeInfo, cieInfo, rowPC, R::getArch(), &prolog)) {
     // Save off parsed FDE info
     _info.start_ip          = fdeInfo.pcStart;
     _info.end_ip            = fdeInfo.pcEnd;
@@ -3466,6 +3485,7 @@ template <typename A, typename R> int UnwindCursor<A, R>::step(bool stage2) {
 
   // update info based on new PC
   if (result == UNW_STEP_SUCCESS) {
+    _isIPBeforeInstruction = false;
     this->setInfoBasedOnIPRegister(true);
     if (_unwindInfoMissing)
       return UNW_STEP_END;

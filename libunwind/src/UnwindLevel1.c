@@ -30,6 +30,7 @@
 #include "libunwind_ext.h"
 #include "CursorLifetime.h"
 #include "shadow_stack_unwind.h"
+#include "UnwindSavedContext.h"
 #include "unwind.h"
 
 #if !defined(_LIBUNWIND_ARM_EHABI) && !defined(__USING_SJLJ_EXCEPTIONS__) &&   \
@@ -359,15 +360,30 @@ _LIBUNWIND_TRACE_NO_INLINE
 static _Unwind_Reason_Code
 unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                      _Unwind_Exception *exception_object, _Unwind_Stop_Fn stop,
-                     void *stop_parameter) {
-  if (__unw_init_local(cursor, uc) != UNW_ESUCCESS)
+                     void *stop_parameter, bool processCurrentFrame) {
+  int initResult;
+#if defined(_LIBUNWIND_SUPPORT_SAVED_CONTEXT)
+  if (processCurrentFrame)
+    initResult = __unw_init_local_current(cursor, uc);
+  else
+#endif
+    initResult = __unw_init_local(cursor, uc);
+  if (initResult != UNW_ESUCCESS)
     return _URC_FATAL_PHASE2_ERROR;
 
-  // uc is initialized by __unw_getcontext in the parent frame. The first stack
-  // frame walked is unwind_phase2_forced.
-  unsigned framesWalked = 1;
-  // Walk each frame until we reach where search phase said to stop
-  while (__unw_step_stage2(cursor) > 0) {
+  // Ordinary capture includes the API frame, and accounts for this helper.
+  // A saved seed counts logical edges only, not physical shadow-stack entries.
+  unsigned framesWalked = processCurrentFrame ? 0 : 1;
+  bool first = processCurrentFrame;
+  while (true) {
+    bool stepped = !first;
+    first = false;
+    int stepResult = stepped ? __unw_step_stage2(cursor) : UNW_STEP_SUCCESS;
+    if (stepResult <= 0) {
+      if (processCurrentFrame && stepResult < 0)
+        return _URC_FATAL_PHASE2_ERROR;
+      break;
+    }
 
     // Update info about this frame.
     unw_proc_info_t frameInfo;
@@ -413,7 +429,8 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
       return _URC_FATAL_PHASE2_ERROR;
     }
 
-    ++framesWalked;
+    if (stepped)
+      ++framesWalked;
     // If there is a personality routine, tell it we are unwinding.
     if (frameInfo.handler != 0) {
       _Unwind_Personality_Fn p = get_handler_function(&frameInfo);
@@ -438,6 +455,8 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                                    (void *)exception_object);
         // We may get control back if landing pad calls _Unwind_Resume().
         __unw_phase2_resume(cursor, framesWalked);
+        if (processCurrentFrame)
+          return _URC_FATAL_PHASE2_ERROR;
         break;
       default:
         // Personality routine returned an unknown result code.
@@ -515,7 +534,7 @@ _Unwind_Resume(_Unwind_Exception *exception_object) {
   if (exception_object->private_1 != 0)
     unwind_phase2_forced(&uc, &cursor, exception_object,
                          (_Unwind_Stop_Fn) exception_object->private_1,
-                         (void *)exception_object->private_2);
+                         (void *)exception_object->private_2, false);
   else
     unwind_phase2(&uc, &cursor, exception_object);
 
@@ -545,7 +564,8 @@ _Unwind_ForcedUnwind(_Unwind_Exception *exception_object,
   exception_object->private_2 = (uintptr_t) stop_parameter;
 
   // do it
-  return unwind_phase2_forced(&uc, &cursor, exception_object, stop, stop_parameter);
+  return unwind_phase2_forced(&uc, &cursor, exception_object, stop,
+                              stop_parameter, false);
 }
 
 
@@ -653,3 +673,25 @@ _LIBUNWIND_EXPORT void _Unwind_SetIP(struct _Unwind_Context *context,
 }
 
 #endif // !defined(_LIBUNWIND_ARM_EHABI) && !defined(__USING_SJLJ_EXCEPTIONS__)
+
+_LIBUNWIND_HIDDEN _Unwind_Reason_Code __unw_forcedunwind_from_context(
+    _Unwind_Exception *exception_object, _Unwind_Stop_Fn stop,
+    void *stop_parameter, unw_context_t *current_context) {
+#if defined(_LIBUNWIND_SUPPORT_SAVED_CONTEXT)
+  if (!exception_object || !stop || !current_context)
+    return _URC_FATAL_PHASE2_ERROR;
+  unw_cursor_t cursor;
+  _LIBUNWIND_CURSOR_SCOPE_WITH_STOP(cursor, stop);
+  exception_object->private_1 = (uintptr_t)stop;
+  exception_object->private_2 = (uintptr_t)stop_parameter;
+  return unwind_phase2_forced(current_context, &cursor, exception_object, stop,
+                              stop_parameter, true);
+#else
+  // In particular, do not derive a physical shadow-stack count from this seed.
+  (void)exception_object;
+  (void)stop;
+  (void)stop_parameter;
+  (void)current_context;
+  return _URC_FATAL_PHASE2_ERROR;
+#endif
+}
