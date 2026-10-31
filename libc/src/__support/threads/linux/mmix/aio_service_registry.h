@@ -20,7 +20,7 @@ namespace mmix {
 
 // Private ownership increment for an already stable service, not a public AIO
 // provider. Initialize exclusively before publishing the service. Ring,
-// allocator, token watermark and classification/completion contexts outlive it;
+// allocator, token watermark and completion context outlive it;
 // the ring is initialized separately and must never be reset while it is live.
 // No engine/ring operations may bypass this registry after publication.
 //
@@ -65,6 +65,46 @@ public:
   using Engine = AioEngine<RingLike, ResourceOps>;
   using Input = typename Engine::Input;
   using Wait = AioSuspendRegistration<ControlBlock, Gate>;
+
+  // Caller-owned preparation only, never kernel-visible or used by a worker.
+  // Reserve all members before starting a list; abandon all preparations if
+  // that first phase fails. Each handle must be started or abandoned exactly
+  // once under the ordinary external service/lifetime guards.
+  class PreparedMember {
+    friend class AioServiceRegistry;
+    AioServiceRegistry *owner = nullptr;
+    void *record = nullptr;
+    Input input{};
+
+  public:
+    PreparedMember() = default;
+    PreparedMember(const PreparedMember &) = delete;
+    PreparedMember &operator=(const PreparedMember &) = delete;
+    ~PreparedMember() {
+      if (owner)
+        __builtin_trap();
+    }
+  };
+
+  // Stable group-owned observation, acquired in the acceptance gate epoch.
+  // Its result cannot be redirected by aio_return or control-block reuse.
+  // Keep the observer and service alive until release_member, including when
+  // a public list waiter leaves early; do not leave it on an abandoned stack.
+  class MemberObservation {
+    friend class AioServiceRegistry;
+    AioServiceRegistry *owner = nullptr;
+    typename Engine::Request *request = nullptr;
+    AioRequest::Reference reference;
+
+  public:
+    MemberObservation() = default;
+    MemberObservation(const MemberObservation &) = delete;
+    MemberObservation &operator=(const MemberObservation &) = delete;
+    ~MemberObservation() {
+      if (owner)
+        __builtin_trap();
+    }
+  };
 
   // A private, single-use observation, owned by the service until release.
   // Its independent reference survives result consumption, address reuse and
@@ -117,7 +157,7 @@ public:
   };
 
 private:
-  enum class Phase { Preparing, Accepted, Rollback };
+  enum class Phase { Preparing, Accepted, Rejected, Rollback };
   struct Record {
     typename Engine::Request request;
     Notification notification;
@@ -231,6 +271,47 @@ private:
     return engine.finish_submit(result);
   }
 
+  template <class Prepare>
+  LIBC_INLINE ErrorOr<void>
+  admit_record(Record &record, Input input, Prepare prepare,
+               bool retain_failure, MemberObservation *observation = nullptr) {
+    int error = 0;
+    {
+      RingGuard lock(ring_operations.value);
+      auto captured = record.request.resources.capture(input.descriptor);
+      if (!captured)
+        error = captured.error();
+    }
+    if (!error)
+      error = int(prepare(record.notification));
+    {
+      StateGuard guard(gate);
+      if (!error) {
+        input.notify = true;
+        auto admitted = engine.admit(record.request, input);
+        if (!admitted)
+          error = admitted.error();
+      }
+      record.phase = error ? Phase::Rollback : Phase::Accepted;
+      if (error && retain_failure) {
+        auto rejected = engine.admit_rejected(record.request, input, error);
+        if (rejected)
+          record.phase = Phase::Rejected;
+        else
+          error = rejected.error();
+      }
+      if (observation && record.phase != Phase::Rollback) {
+        // This is the fresh request's first external reference. No caller can
+        // consume its result between publication and this retain.
+        if (!record.request.state().retain(observation->reference))
+          __builtin_trap();
+        observation->owner = this;
+        observation->request = &record.request;
+      }
+    }
+    return error ? ErrorOr<void>(Error(error)) : ErrorOr<void>();
+  }
+
   LIBC_INLINE int retain(typename Engine::Request &request,
                          CancelObservation &observation) {
     if (observation.used)
@@ -285,13 +366,14 @@ private:
   // are pinned by their submitting caller; only this maintainer may destroy
   // accepted/rollback records. Notification calls may reenter admission.
   LIBC_INLINE int maintain_record(Record &record) {
-    bool rollback;
+    bool rollback, rejected;
     {
       StateGuard guard(gate);
       if (record.phase == Phase::Preparing)
         return 0;
       rollback = record.phase == Phase::Rollback;
-      if (!rollback && !record.notification_claimed) {
+      rejected = record.phase == Phase::Rejected;
+      if (!rollback && !rejected && !record.notification_claimed) {
         if (!record.request.complete())
           return 0;
         if (!record.request.state().take_notification())
@@ -301,7 +383,7 @@ private:
     }
     int error = 0;
     if (!record.notification_terminal) {
-      if (rollback) {
+      if (rollback || rejected) {
         record.notification.discard();
       } else {
         error = int(record.notification.activate());
@@ -336,7 +418,7 @@ private:
       RingGuard lock(ring_operations.value);
       {
         StateGuard guard(gate);
-        if (!record.notification_released) {
+        if (!rejected && !record.notification_released) {
           if (!record.request.state().release_notification())
             __builtin_trap();
           record.notification_released = true;
@@ -360,14 +442,12 @@ private:
 public:
   AioServiceRegistry(RingLike &ring, Allocator &allocator, ResourceOps ops,
                      uint64_t &watermark, uint64_t process,
-                     typename Engine::Classify classify,
-                     void *classification_context = nullptr,
                      typename Engine::Completion completion = nullptr,
                      void *completion_context = nullptr)
       : ring(ring), allocator(allocator), resource_ops(ops),
         completion(completion), completion_context(completion_context),
-        engine(ring, watermark, process, UINT32_MAX, classify,
-               classification_context, publish_completion, this) {}
+        engine(ring, watermark, process, UINT32_MAX, publish_completion, this) {
+  }
   AioServiceRegistry(const AioServiceRegistry &) = delete;
   AioServiceRegistry &operator=(const AioServiceRegistry &) = delete;
   ~AioServiceRegistry() {
@@ -402,29 +482,81 @@ public:
       record->next = records;
       records = record;
     }
-    int error = 0;
-    {
-      RingGuard lock(ring_operations.value);
-      auto captured = record->request.resources.capture(input.descriptor);
-      if (!captured)
-        error = captured.error();
+    return admit_record(*record, input, prepare, false);
+  }
+
+  // No fd capture, notification creation, request acceptance or SQ publication.
+  // A prepared record pins storage but is invisible to public result queries.
+  // The list owner excludes duplicate/active aiocbs before starting members;
+  // concurrent reuse of one aiocb is not made valid by this API.
+  LIBC_INLINE ErrorOr<void> prepare_member(PreparedMember &member,
+                                           Input input) {
+    if (member.owner || !input.control_block)
+      return Error(EINVAL);
+    auto *slot = acquire();
+    if (!slot)
+      return Error(ENOMEM);
+    auto *record = new (slot->storage()) Record(ring, resource_ops, slot);
+    StateGuard guard(gate);
+    record->next = records;
+    records = record;
+    auto reserved = engine.prepare_rejection(record->request);
+    if (!reserved || engine.find(input.control_block)) {
+      record->phase = Phase::Rollback;
+      return Error(reserved ? EBUSY : reserved.error());
     }
-    if (!error)
-      error = int(prepare(record->notification));
-    {
-      StateGuard guard(gate);
-      if (!error) {
-        input.notify = true;
-        // Preparation may have raced another admission, result consumption or
-        // credit use. Only the engine's current binding/budget is
-        // authoritative.
-        auto admitted = engine.admit(record->request, input);
-        if (!admitted)
-          error = admitted.error();
-      }
-      record->phase = error ? Phase::Rollback : Phase::Accepted;
-    }
-    return error ? ErrorOr<void>(Error(error)) : ErrorOr<void>();
+    member.owner = this;
+    member.record = record;
+    member.input = input;
+    return {};
+  }
+
+  LIBC_INLINE int abandon_member(PreparedMember &member) {
+    if (member.owner != this)
+      return EINVAL;
+    StateGuard guard(gate);
+    static_cast<Record *>(member.record)->phase = Phase::Rollback;
+    member.owner = nullptr;
+    member.record = nullptr;
+    return 0;
+  }
+
+  // Consumes the preparation on success OR failure. Ordinary admission errors
+  // become queryable local results, with no further allocation. Failure caused
+  // by conflicting aiocb reuse preserves the existing binding instead. Failed
+  // callback/resource preparation is retained for worker cleanup as usual.
+  template <class Prepare>
+  LIBC_INLINE ErrorOr<void>
+  start_member(PreparedMember &member, Prepare prepare,
+               MemberObservation *observation = nullptr) {
+    if (member.owner != this || (observation && observation->owner))
+      return Error(EINVAL);
+    auto *record = static_cast<Record *>(member.record);
+    Input input = member.input;
+    member.owner = nullptr;
+    member.record = nullptr;
+    return admit_record(*record, input, prepare, true, observation);
+  }
+
+  LIBC_INLINE ErrorOr<AioRequest::Result>
+  member_result(const MemberObservation &observation) {
+    typename Gate::Guard guard(gate);
+    if (!guard)
+      return Error(guard.error());
+    if (observation.owner != this)
+      return Error(EINVAL);
+    return observation.request->state().result(observation.reference);
+  }
+
+  LIBC_INLINE int release_member(MemberObservation &observation) {
+    StateGuard guard(gate);
+    if (observation.owner != this)
+      return EINVAL;
+    if (!observation.request->state().release(observation.reference))
+      __builtin_trap();
+    observation.owner = nullptr;
+    observation.request = nullptr;
+    return 0;
   }
 
   LIBC_INLINE ErrorOr<int> error(const void *control_block) {
@@ -432,6 +564,25 @@ public:
     if (!guard)
       return Error(guard.error());
     return engine.error(control_block);
+  }
+
+  // Publish a never-accepted list member's failure without capturing its fd or
+  // preparing a notification. Storage failure is still synchronous: a list
+  // transaction must reserve all result storage before starting any member.
+  // This primitive alone does not implement that list-wide transaction.
+  LIBC_INLINE ErrorOr<void> admit_rejected(Input input, int failure) {
+    if (!input.control_block || failure <= 0 || failure == EINPROGRESS)
+      return Error(EINVAL);
+    auto *slot = acquire();
+    if (!slot)
+      return Error(ENOMEM);
+    auto *record = new (slot->storage()) Record(ring, resource_ops, slot);
+    StateGuard guard(gate);
+    record->next = records;
+    records = record;
+    auto result = engine.admit_rejected(record->request, input, failure);
+    record->phase = result ? Phase::Rejected : Phase::Rollback;
+    return result;
   }
   LIBC_INLINE ErrorOr<AioRequest::Result>
   take_result(const void *control_block) {
