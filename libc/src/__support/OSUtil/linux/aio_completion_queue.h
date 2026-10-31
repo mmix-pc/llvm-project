@@ -109,6 +109,15 @@ public:
   LIBC_INLINE uint32_t outstanding() const { return budget.outstanding(); }
   LIBC_INLINE uint32_t available() const { return budget.available(); }
 
+  // This token must never be published to the ring. A CQE bearing it is an
+  // unrouteable completion and remains fatal, just like any unknown token.
+  LIBC_INLINE ErrorOr<uint64_t> reserve_local_token() {
+    auto token = budget.reserve_local_token();
+    if (token)
+      watermark = budget.last_issued_token();
+    return token;
+  }
+
   // Complete fallible preparation before enqueue. Use the returned token as
   // SQE user_data, never an application aiocb pointer. Keep Entry at a stable
   // address until rollback or completion. Reserve separate cancel credits;

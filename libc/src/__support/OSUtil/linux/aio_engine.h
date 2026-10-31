@@ -12,7 +12,6 @@
 #include "src/__support/CPP/new.h"
 #include "src/__support/OSUtil/linux/aio_completion_queue.h"
 #include "src/__support/OSUtil/linux/aio_submission_resources.h"
-#include "src/__support/OSUtil/linux/stat/kernel_statx_types.h"
 #include "src/__support/threads/aio_file_dependencies.h"
 #include "src/__support/threads/aio_request.h"
 
@@ -24,9 +23,8 @@ namespace LIBC_NAMESPACE_DECL {
 // only the service worker calls progress(), never the public submission path.
 // No application callbacks, allocation, descriptor capture or waiting here.
 //
-// Identity qualification is a nonblocking, non-reentrant service policy, not
-// an assumption that statx success guarantees globally unique inode numbers.
-// Rejected/unknown identities fail dependent syncs, not ordinary transfers.
+// Synchronization groups use the original submission fd, not the private dup.
+// Different numeric descriptors are not merged even when they alias one file.
 template <class RingLike = io_uring::Ring<>,
           class ResourceOperations = aio_submission_resources::LinuxOperations>
 class AioEngine {
@@ -35,8 +33,6 @@ class AioEngine {
 
 public:
   enum class Operation { Read, Write, Sync, DataSync };
-  using Classify = ErrorOr<Dependencies::Identity> (*)(
-      void *, int, const internal::kernel_statx_buf &);
   // Internal wake publication only: runs under the service gate after the
   // original result, before any result consumption/reuse. No allocation,
   // application code, engine mutation/reentry or blocking is permitted.
@@ -61,26 +57,23 @@ private:
     Request *request = nullptr;
     Cancel *cancel = nullptr;
     Work *previous = nullptr;
-    bool metadata = false;
   };
 
 public:
   class Request {
     friend class AioEngine;
     AioEngine *owner = nullptr;
+    AioEngine *rejection_owner = nullptr;
+    uint64_t rejection_token = 0;
     Request *next = nullptr;
     Input input{};
     Dependencies::Record dependency;
     Work original;
-    Work metadata;
-    internal::kernel_statx_buf stat{};
     alignas(AioRequest) unsigned char state_storage[sizeof(AioRequest)];
     AioRequest *state_ptr = nullptr;
     bool bound = false;
     bool terminal = false;
     bool issued = false;
-    bool metadata_issued = false;
-    bool metadata_done = false;
 
   public:
     AioSubmissionResources<RingLike, ResourceOperations> resources;
@@ -131,8 +124,6 @@ private:
   Queue queue;
   Dependencies dependencies;
   const uint64_t process;
-  Classify classify;
-  void *classification_context;
   Completion completion;
   void *completion_context;
   Request *requests = nullptr;
@@ -182,20 +173,6 @@ private:
     if (completion)
       completion(completion_context, request.input.control_block);
   }
-  LIBC_INLINE void metadata_result(Request &request, int result) {
-    auto &dep = request.dependency;
-    auto identity =
-        result < 0 ? ErrorOr<Dependencies::Identity>(Error(-result))
-                   : classify(classification_context,
-                              request.resources.descriptor(), request.stat);
-    if (identity) {
-      if (!dependencies.set_known(dep, dep.order(), *identity))
-        fatal();
-    } else if (!dependencies.set_unknown(dep, dep.order(), identity.error())) {
-      fatal();
-    }
-    request.metadata_done = true;
-  }
   LIBC_INLINE ErrorOr<void> publish(Work &work) {
     Request &request = *work.request;
     io_uring_sqe sqe{};
@@ -207,12 +184,6 @@ private:
       sqe.opcode = IORING_OP_ASYNC_CANCEL;
       sqe.fd = -1;
       sqe.addr = request.state().identity().token;
-    } else if (work.metadata) {
-      sqe.opcode = IORING_OP_STATX;
-      sqe.addr = reinterpret_cast<uintptr_t>("");
-      sqe.off = reinterpret_cast<uintptr_t>(&request.stat);
-      sqe.len = internal::KERNEL_STATX_BASIC_STATS_MASK;
-      sqe.statx_flags = AT_EMPTY_PATH;
     } else if (sync(request.input.operation)) {
       sqe.opcode = IORING_OP_FSYNC;
       sqe.fsync_flags = request.input.operation == Operation::DataSync
@@ -233,9 +204,7 @@ private:
       if (!request.state().publish_cancel(*work.cancel->control))
         fatal();
       work.cancel->issued = true;
-    } else if (work.metadata)
-      request.metadata_issued = true;
-    else {
+    } else {
       if (!request.state().mark_published(sqe.user_data))
         fatal();
       request.issued = true;
@@ -252,9 +221,7 @@ private:
         fatal();
       work.cancel->local_error = error;
       work.cancel->terminal = true;
-    } else if (work.metadata)
-      metadata_result(*work.request, -error);
-    else
+    } else
       finish(*work.request, -error, false);
   }
   LIBC_INLINE void withdraw_tail(int error) {
@@ -275,9 +242,7 @@ private:
                                                    error))
           fatal();
         work.cancel->terminal = true;
-      } else if (work.metadata)
-        metadata_result(*work.request, -error);
-      else
+      } else
         finish(*work.request, -error, true);
     }
   }
@@ -285,11 +250,11 @@ private:
 public:
   LIBC_INLINE
   AioEngine(RingLike &ring, uint64_t &watermark, uint64_t process,
-            uint32_t limit, Classify classify, void *context = nullptr,
-            Completion completion = nullptr, void *completion_context = nullptr)
+            uint32_t limit, Completion completion = nullptr,
+            void *completion_context = nullptr)
       : ring(ring), queue(ring, watermark), dependencies(limit),
-        process(process), classify(classify), classification_context(context),
-        completion(completion), completion_context(completion_context) {}
+        process(process), completion(completion),
+        completion_context(completion_context) {}
   AioEngine(const AioEngine &) = delete;
   AioEngine &operator=(const AioEngine &) = delete;
   LIBC_INLINE ~AioEngine() {
@@ -297,7 +262,7 @@ public:
       fatal();
   }
   LIBC_INLINE ErrorOr<void> initialize(uint32_t capacity) {
-    if (!process || !classify || capacity < 3)
+    if (!process || capacity < 2)
       return Error(EINVAL);
     return queue.initialize(capacity);
   }
@@ -336,18 +301,40 @@ public:
     return result;
   }
 
+  // Under the service gate, before accepting ANY member of a list. The caller
+  // supplies stable storage and validates bindings separately: this reserves
+  // only a local-failure identity, not an aiocb binding, result or CQ credit.
+  // It can never be published or produce a CQE and invokes no wake/callback.
+  // Successful preparation is single-use and tied to this live engine. Failed
+  // admission preserves it; successful admission discards it without reuse.
+  // To abandon preparation, destroy the never-admitted request after draining
+  // caller-owned resources. No engine unlink/retirement is needed, and the
+  // token stays burned. The engine need not track or outlive such abandonment.
+  LIBC_INLINE ErrorOr<void> prepare_rejection(Request &request) {
+    if (request.owner || request.state_ptr || request.rejection_owner)
+      return Error(EINVAL);
+    auto token = queue.reserve_local_token();
+    if (!token)
+      return Error(token.error());
+    request.rejection_owner = this;
+    request.rejection_token = *token;
+    return {};
+  }
+
   // All notification preparation must already have succeeded. On failure the
   // service still owns resources/callback cleanup; admit never consumes them.
-  // Two credits per request (identity and original), plus control headroom.
+  // One original-operation credit per request, plus control headroom.
   LIBC_INLINE ErrorOr<void> admit(Request &request, Input input) {
     if (request.owner || request.state_ptr || !request.resources.ready() ||
-        !input.control_block || input.size > INT32_MAX ||
+        (request.rejection_owner && request.rejection_owner != this) ||
+        !input.control_block || input.descriptor < 0 ||
+        input.size > INT32_MAX ||
         (input.operation != Operation::Read &&
          input.operation != Operation::Write && !sync(input.operation)))
       return Error(EINVAL);
     if (find(input.control_block))
       return Error(EBUSY);
-    if (queue.available() < 3)
+    if (queue.available() < 2)
       return Error(EAGAIN);
     auto token = queue.prepare(
         request.original.entry,
@@ -355,18 +342,12 @@ public:
         &request.original, sync(input.operation) ? 0 : input.size);
     if (!token)
       return Error(token.error());
-    auto metadata = queue.prepare(request.metadata.entry, Queue::Kind::Metadata,
-                                  &request.metadata, 0);
-    if (!metadata) {
-      queue.rollback(request.original.entry);
-      return Error(metadata.error());
-    }
     auto order = dependencies.admit(request.dependency,
                                     sync(input.operation)
                                         ? Dependencies::Kind::Sync
-                                        : Dependencies::Kind::Operation);
+                                        : Dependencies::Kind::Operation,
+                                    input.descriptor);
     if (!order) {
-      queue.rollback(request.metadata.entry);
       queue.rollback(request.original.entry);
       return Error(order.error());
     }
@@ -374,11 +355,12 @@ public:
         {input.control_block, process, *token}, input.notify, UINT32_MAX);
     if (!request.state().accept())
       fatal();
+    request.rejection_owner = nullptr;
+    request.rejection_token = 0;
     request.owner = this;
     request.bound = true;
     request.input = input;
-    request.original.request = request.metadata.request = &request;
-    request.metadata.metadata = true;
+    request.original.request = &request;
     if (tail)
       tail->next = &request;
     else
@@ -395,12 +377,49 @@ public:
     if (!queue.rollback(request.original.entry))
       fatal();
     finish(request, -ECANCELED, false);
-    if (!request.metadata_issued && !request.metadata_done) {
-      if (!queue.rollback(request.metadata.entry))
-        fatal();
-      metadata_result(request, -ECANCELED);
-    }
     return true;
+  }
+
+  // Bind a trusted, queryable result for a rejected lio_listio member. A prior
+  // prepare_rejection guarantees its identity even after token exhaustion;
+  // unprepared callers still need a fresh token. Invalid/duplicate bindings
+  // preserve preparation. This path owns no original SQE, dependency or
+  // notification and works at CQ capacity.
+  // Any failed preparation resources remain caller-owned until retirement.
+  // Invalid member fds/opcodes are data here, not a reason to lose its error.
+  LIBC_INLINE ErrorOr<void> admit_rejected(Request &request, Input input,
+                                           int error) {
+    if (request.owner || request.state_ptr || !input.control_block ||
+        (request.rejection_owner && request.rejection_owner != this) ||
+        error <= 0 || error == EINPROGRESS)
+      return Error(EINVAL);
+    if (find(input.control_block))
+      return Error(EBUSY);
+    uint64_t token = request.rejection_token;
+    if (!token) {
+      auto reserved = queue.reserve_local_token();
+      if (!reserved)
+        return Error(reserved.error());
+      token = *reserved;
+    }
+    request.state_ptr = new (request.state_storage)
+        AioRequest({input.control_block, process, token}, false, UINT32_MAX);
+    if (!request.state().reject_with_result(error))
+      fatal();
+    request.rejection_owner = nullptr;
+    request.rejection_token = 0;
+    request.owner = this;
+    request.bound = true;
+    request.terminal = true;
+    request.input = input;
+    if (tail)
+      tail->next = &request;
+    else
+      requests = &request;
+    tail = &request;
+    if (completion)
+      completion(completion_context, input.control_block);
+    return {};
   }
 
   // Preparation reserves a control credit without enqueueing. The worker
@@ -509,9 +528,7 @@ private:
                 *work.cancel->control, result->token, result->raw_result))
           fatal();
         work.cancel->terminal = true;
-      } else if (work.metadata)
-        metadata_result(*work.request, result->raw_result);
-      else
+      } else
         finish(*work.request, result->raw_result, false);
     }
     for (auto *cancel = controls; cancel; cancel = cancel->next) {
@@ -529,11 +546,6 @@ private:
         enqueue_failure(cancel->work, result.error());
     }
     for (auto *request = requests; request; request = request->next) {
-      if (!request->metadata_issued && !request->metadata_done) {
-        auto result = publish(request->metadata);
-        if (!result && result.error() != EAGAIN)
-          enqueue_failure(request->metadata, result.error());
-      }
       if (request->terminal || request->issued)
         continue;
       if (sync(request->input.operation) &&
@@ -563,9 +575,7 @@ public:
   // This keeps resource syscalls out of the signal-safe short state lock.
   LIBC_INLINE bool begin_retire(Request &request) {
     if (submitting || cleaning || request.owner != this ||
-        !request.state().reclaimable() ||
-        !request.original.entry.reclaimable() ||
-        !request.metadata.entry.reclaimable())
+        !request.state().reclaimable() || !request.original.entry.reclaimable())
       return false;
     auto &dep = request.dependency;
     if (!dep.reclaimable() && !dependencies.release(dep, dep.order()))

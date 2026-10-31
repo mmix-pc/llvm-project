@@ -98,6 +98,16 @@ public:
   LIBC_INLINE uint32_t available() const { return limit - held; }
   LIBC_INLINE uint64_t last_issued_token() const { return last_token; }
 
+  // Identity for a local result that can never produce a CQE (for example a
+  // rejected list member). It shares the namespace but consumes no credit.
+  LIBC_INLINE ErrorOr<uint64_t> reserve_local_token() {
+    if (!limit)
+      return Error(EINVAL);
+    if (last_token == UINT64_MAX)
+      return Error(EOVERFLOW);
+    return ++last_token;
+  }
+
   // Reserve before any SQ publication or request acceptance. Failure changes
   // neither the holder nor the watermark. EAGAIN is capacity backpressure;
   // EOVERFLOW is permanent token exhaustion, even after every credit drains.

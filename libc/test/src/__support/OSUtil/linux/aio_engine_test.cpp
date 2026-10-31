@@ -12,7 +12,6 @@
 #include "src/__support/threads/aio_suspend_observers.h"
 #include "test/UnitTest/Test.h"
 
-using LIBC_NAMESPACE::AioFileDependencies;
 using LIBC_NAMESPACE::Error;
 using LIBC_NAMESPACE::ErrorOr;
 
@@ -71,25 +70,20 @@ struct FakeRing {
   void complete(unsigned index, int result) {
     cq[cq_tail++] = {sq[index].user_data, result, 0};
   }
-  void identify(unsigned index, uint64_t inode, int result = 0) {
-    auto *stat = reinterpret_cast<LIBC_NAMESPACE::internal::kernel_statx_buf *>(
-        uintptr_t(sq[index].off));
-    stat->stx_ino = inode;
-    complete(index, result);
-  }
 };
 struct ResourceState {
   unsigned closed = 0;
+  int next_descriptor = 100;
   int duplicate_error = 0;
   void (*on_close)(void *) = nullptr;
   void *context = nullptr;
 };
 struct ResourceOperations {
   ResourceState *state;
-  ErrorOr<int> duplicate(int fd) {
+  ErrorOr<int> duplicate(int) {
     if (state->duplicate_error)
       return Error(state->duplicate_error);
-    return fd + 100;
+    return ++state->next_descriptor;
   }
   ErrorOr<int> close(int) {
     ++state->closed;
@@ -100,25 +94,16 @@ struct ResourceOperations {
 };
 using Engine = LIBC_NAMESPACE::AioEngine<FakeRing, ResourceOperations>;
 using Op = Engine::Operation;
-ErrorOr<AioFileDependencies::Identity>
-classify(void *context, int,
-         const LIBC_NAMESPACE::internal::kernel_statx_buf &s) {
-  if (context)
-    return Error(ENOTSUP);
-  return AioFileDependencies::Identity{1, 2, s.stx_ino,
-                                       AioFileDependencies::FileType::Regular};
-}
-Engine::Input input(const void *address, Op op = Op::Read,
-                    bool notify = false) {
-  return {address, 7, op, nullptr, 8, 42, notify};
+Engine::Input input(const void *address, Op op = Op::Read, bool notify = false,
+                    int fd = 7) {
+  return {address, fd, op, nullptr, 8, 42, notify};
 }
 struct Fixture {
   FakeRing ring;
   ResourceState resources;
   uint64_t watermark = 0;
   Engine engine;
-  Fixture(void *classifier_context = nullptr)
-      : engine(ring, watermark, 17, 16, classify, classifier_context) {}
+  Fixture() : engine(ring, watermark, 17, 16) {}
   Engine::Request make_request() { return Engine::Request(ring, {&resources}); }
 };
 } // namespace
@@ -132,27 +117,24 @@ TEST(LlvmLibcAioEngineTest, AdmissionDoesNotSubmitAndUsesTrustedBinding) {
   ASSERT_TRUE(bool(f.engine.admit(r, input(&cb))));
   EXPECT_EQ(f.ring.submits, 0U);
   EXPECT_EQ(f.ring.tail, 0U);
+  EXPECT_EQ(f.watermark, uint64_t(1));
   EXPECT_EQ(*f.engine.error(&cb), EINPROGRESS);
   EXPECT_EQ(f.engine.error(reinterpret_cast<void *>(1)).error(), EINVAL);
   EXPECT_EQ(f.engine.take_result(&cb).error(), EINPROGRESS);
   ASSERT_EQ(f.engine.progress(), 0);
-  ASSERT_EQ(f.ring.tail, 2U);
-  EXPECT_EQ(f.ring.sq[0].opcode, static_cast<unsigned char>(IORING_OP_STATX));
-  EXPECT_EQ(f.ring.sq[1].opcode, static_cast<unsigned char>(IORING_OP_READ));
-  EXPECT_EQ(f.ring.sq[1].fd, 107);
-  EXPECT_EQ(f.ring.sq[1].personality, static_cast<unsigned short>(1));
-  EXPECT_EQ(uint64_t(f.ring.sq[1].off), uint64_t(42));
-  EXPECT_EQ(f.ring.sq[1].flags, static_cast<unsigned char>(IOSQE_ASYNC));
-  f.ring.complete(1, 5);
+  ASSERT_EQ(f.ring.tail, 1U);
+  EXPECT_EQ(f.ring.sq[0].opcode, static_cast<unsigned char>(IORING_OP_READ));
+  EXPECT_EQ(f.ring.sq[0].fd, 101);
+  EXPECT_EQ(f.ring.sq[0].personality, static_cast<unsigned short>(1));
+  EXPECT_EQ(uint64_t(f.ring.sq[0].off), uint64_t(42));
+  EXPECT_EQ(f.ring.sq[0].flags, static_cast<unsigned char>(IOSQE_ASYNC));
+  f.ring.complete(0, 5);
   ASSERT_EQ(f.engine.progress(), 0);
   auto result = f.engine.take_result(&cb);
   ASSERT_TRUE(bool(result));
   EXPECT_EQ(result->value, ssize_t(5));
   EXPECT_EQ(result->error, 0);
   EXPECT_EQ(f.engine.error(&cb).error(), EINVAL);
-  EXPECT_FALSE(bool(f.engine.retire(r))); // Metadata still owns the descriptor.
-  f.ring.identify(0, 10);
-  ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_TRUE(bool(f.engine.retire(r)));
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.ring.personalities, 0U);
@@ -193,8 +175,7 @@ TEST(LlvmLibcAioEngineTest, QueryDistinguishesOperationEinvalFromBadBinding) {
   ASSERT_TRUE(bool(r.resources.capture(7)));
   ASSERT_TRUE(bool(f.engine.admit(r, input(&cb))));
   ASSERT_EQ(f.engine.progress(), 0);
-  f.ring.identify(0, 1);
-  f.ring.complete(1, -EINVAL);
+  f.ring.complete(0, -EINVAL);
   ASSERT_EQ(f.engine.progress(), 0);
   auto status = f.engine.error(&cb);
   ASSERT_TRUE(bool(status));
@@ -209,11 +190,14 @@ TEST(LlvmLibcAioEngineTest, QueryDistinguishesOperationEinvalFromBadBinding) {
 
 TEST(LlvmLibcAioEngineTest, ShortSubmissionDoesNotRepublish) {
   Fixture f;
-  ASSERT_TRUE(bool(f.engine.initialize(8)));
-  auto r = f.make_request();
-  int cb = 0;
-  ASSERT_TRUE(bool(r.resources.capture(7)));
-  ASSERT_TRUE(bool(f.engine.admit(r, input(&cb))));
+  ASSERT_TRUE(bool(f.engine.initialize(3)));
+  auto first = f.make_request();
+  auto second = f.make_request();
+  int a = 0, b = 0;
+  ASSERT_TRUE(bool(first.resources.capture(7)));
+  ASSERT_TRUE(bool(second.resources.capture(7)));
+  ASSERT_TRUE(bool(f.engine.admit(first, input(&a))));
+  ASSERT_TRUE(bool(f.engine.admit(second, input(&b))));
   f.ring.submit_limit = 1;
   ASSERT_EQ(f.engine.progress(), 0);
   EXPECT_EQ(f.ring.head, 1U);
@@ -221,149 +205,179 @@ TEST(LlvmLibcAioEngineTest, ShortSubmissionDoesNotRepublish) {
   ASSERT_EQ(f.engine.progress(), 0);
   EXPECT_EQ(f.ring.head, 2U);
   EXPECT_EQ(f.ring.tail, 2U);
-  EXPECT_FALSE(bool(f.engine.cancel_queued(r)));
-  f.ring.identify(0, 1);
+  EXPECT_FALSE(bool(f.engine.cancel_queued(first)));
+  EXPECT_FALSE(bool(f.engine.cancel_queued(second)));
+  f.ring.complete(0, 8);
   f.ring.complete(1, 8);
   ASSERT_EQ(f.engine.progress(), 0);
-  ASSERT_TRUE(bool(f.engine.take_result(&cb)));
-  ASSERT_TRUE(bool(f.engine.retire(r)));
+  ASSERT_TRUE(bool(f.engine.take_result(&a)));
+  ASSERT_TRUE(bool(f.engine.take_result(&b)));
+  ASSERT_TRUE(bool(f.engine.retire(first)));
+  ASSERT_TRUE(bool(f.engine.retire(second)));
 }
 
 TEST(LlvmLibcAioEngineTest, EnterFailureWithdrawsOnlyUnconsumedTail) {
   for (unsigned consumed = 0; consumed != 3; ++consumed) {
     Fixture f;
-    ASSERT_TRUE(bool(f.engine.initialize(8)));
-    auto r = f.make_request();
-    int cb = 0;
-    ASSERT_TRUE(bool(r.resources.capture(7)));
-    ASSERT_TRUE(bool(f.engine.admit(r, input(&cb))));
+    ASSERT_TRUE(bool(f.engine.initialize(3)));
+    auto first = f.make_request();
+    auto second = f.make_request();
+    int a = 0, b = 0;
+    ASSERT_TRUE(bool(first.resources.capture(7)));
+    ASSERT_TRUE(bool(second.resources.capture(7)));
+    ASSERT_TRUE(bool(f.engine.admit(first, input(&a))));
+    ASSERT_TRUE(bool(f.engine.admit(second, input(&b))));
     f.ring.submit_limit = consumed;
     f.ring.submit_error = EINTR;
     ASSERT_EQ(f.engine.progress(), EINTR);
     EXPECT_EQ(f.ring.tail, consumed);
-    EXPECT_EQ(r.complete(), consumed < 2);
+    EXPECT_EQ(first.complete(), consumed == 0);
+    EXPECT_EQ(second.complete(), consumed < 2);
     f.ring.submit_error = 0;
-    if (consumed)
-      f.ring.identify(0, 1);
-    if (consumed == 2)
-      f.ring.complete(1, 8);
+    for (unsigned i = 0; i < consumed; ++i)
+      f.ring.complete(i, 8);
     ASSERT_EQ(f.engine.progress(), 0);
-    auto result = f.engine.take_result(&cb);
-    ASSERT_TRUE(bool(result));
-    EXPECT_EQ(result->error, consumed < 2 ? EINTR : 0);
-    ASSERT_TRUE(bool(f.engine.retire(r)));
+    auto first_result = f.engine.take_result(&a);
+    auto second_result = f.engine.take_result(&b);
+    ASSERT_TRUE(bool(first_result));
+    ASSERT_TRUE(bool(second_result));
+    EXPECT_EQ(first_result->error, consumed == 0 ? EINTR : 0);
+    EXPECT_EQ(second_result->error, consumed < 2 ? EINTR : 0);
+    ASSERT_TRUE(bool(f.engine.retire(first)));
+    ASSERT_TRUE(bool(f.engine.retire(second)));
   }
 }
 
-TEST(LlvmLibcAioEngineTest, SameFileSyncWaitsButUnrelatedTransferDoesNot) {
+TEST(LlvmLibcAioEngineTest,
+     SameOriginalFdGroupsDespiteDifferentPrivateDuplicates) {
   Fixture f;
-  ASSERT_TRUE(bool(f.engine.initialize(12)));
+  ASSERT_TRUE(bool(f.engine.initialize(4)));
   auto same = f.make_request();
   auto other = f.make_request();
   auto sync = f.make_request();
   int a = 0, b = 0, c = 0;
   ASSERT_TRUE(bool(same.resources.capture(7)));
   ASSERT_TRUE(bool(other.resources.capture(8)));
-  ASSERT_TRUE(bool(sync.resources.capture(9)));
+  ASSERT_TRUE(bool(sync.resources.capture(7)));
   ASSERT_TRUE(bool(f.engine.admit(same, input(&a, Op::Write))));
-  ASSERT_TRUE(bool(f.engine.admit(other, input(&b))));
+  ASSERT_TRUE(bool(f.engine.admit(other, input(&b, Op::Read, false, 8))));
   ASSERT_TRUE(bool(f.engine.admit(sync, input(&c, Op::DataSync))));
   ASSERT_EQ(f.engine.progress(), 0);
-  ASSERT_EQ(f.ring.tail, 5U);
-  f.ring.identify(0, 1);
-  f.ring.identify(2, 2);
-  f.ring.identify(4, 1);
-  ASSERT_EQ(f.engine.progress(), 0);
+  ASSERT_EQ(f.ring.tail, 2U);
   EXPECT_FALSE(bool(sync.published()));
-  f.ring.complete(1, 8);
+  f.ring.complete(0, 8);
   ASSERT_EQ(f.engine.progress(), 0);
   EXPECT_TRUE(bool(sync.published()));
   EXPECT_FALSE(bool(other.complete()));
-  ASSERT_EQ(f.ring.tail, 6U);
-  EXPECT_EQ(f.ring.sq[5].opcode, static_cast<unsigned char>(IORING_OP_FSYNC));
-  EXPECT_EQ(f.ring.sq[5].fsync_flags, unsigned(IORING_FSYNC_DATASYNC));
-  f.ring.complete(5, 0);
-  f.ring.complete(3, 8);
-  ASSERT_EQ(f.engine.progress(), 0);
+  ASSERT_EQ(f.ring.tail, 3U);
+  EXPECT_EQ(f.ring.sq[2].opcode, static_cast<unsigned char>(IORING_OP_FSYNC));
+  EXPECT_EQ(f.ring.sq[2].fsync_flags, unsigned(IORING_FSYNC_DATASYNC));
+  EXPECT_NE(f.ring.sq[0].fd, f.ring.sq[2].fd);
   ASSERT_TRUE(bool(f.engine.take_result(&a)));
+  ASSERT_TRUE(bool(f.engine.retire(same)));
+  f.ring.complete(2, 0);
+  f.ring.complete(1, 8);
+  ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_TRUE(bool(f.engine.take_result(&b)));
   ASSERT_TRUE(bool(f.engine.take_result(&c)));
-  ASSERT_TRUE(bool(f.engine.retire(same)));
   ASSERT_TRUE(bool(f.engine.retire(other)));
   ASSERT_TRUE(bool(f.engine.retire(sync)));
 }
 
 TEST(LlvmLibcAioEngineTest, FailedPredecessorSurvivesReturnUntilSyncDecision) {
-  Fixture f;
-  ASSERT_TRUE(bool(f.engine.initialize(8)));
-  auto first = f.make_request();
-  auto sync = f.make_request();
-  int a = 0, b = 0;
-  ASSERT_TRUE(bool(first.resources.capture(7)));
-  ASSERT_TRUE(bool(sync.resources.capture(8)));
-  ASSERT_TRUE(bool(f.engine.admit(first, input(&a, Op::Write))));
-  ASSERT_TRUE(bool(f.engine.admit(sync, input(&b, Op::Sync))));
-  ASSERT_EQ(f.engine.progress(), 0);
-  f.ring.complete(1, -EIO);
-  ASSERT_EQ(f.engine.progress(), 0);
-  ASSERT_TRUE(bool(f.engine.take_result(&a)));
-  EXPECT_FALSE(bool(f.engine.retire(first)));
-  f.ring.identify(0, 1);
-  f.ring.identify(2, 1);
-  ASSERT_EQ(f.engine.progress(), 0);
-  EXPECT_FALSE(bool(sync.published()));
-  EXPECT_EQ(*f.engine.error(&b), EIO);
-  ASSERT_TRUE(bool(f.engine.take_result(&b)));
-  ASSERT_TRUE(bool(f.engine.retire(first)));
-  ASSERT_TRUE(bool(f.engine.retire(sync)));
+  const bool orders[] = {false, true};
+  for (bool first_completes_first : orders) {
+    Fixture f;
+    ASSERT_TRUE(bool(f.engine.initialize(4)));
+    auto first = f.make_request();
+    auto second = f.make_request();
+    auto sync = f.make_request();
+    int a = 0, b = 0, c = 0;
+    ASSERT_TRUE(bool(first.resources.capture(7)));
+    ASSERT_TRUE(bool(second.resources.capture(7)));
+    ASSERT_TRUE(bool(sync.resources.capture(7)));
+    ASSERT_TRUE(bool(f.engine.admit(first, input(&a, Op::Write))));
+    ASSERT_TRUE(bool(f.engine.admit(second, input(&b, Op::Write))));
+    ASSERT_TRUE(bool(f.engine.admit(sync, input(&c, Op::Sync))));
+    ASSERT_EQ(f.engine.progress(), 0);
+    ASSERT_EQ(f.ring.tail, 2U);
+    auto &early = first_completes_first ? first : second;
+    const void *early_cb = first_completes_first ? &a : &b;
+    const void *late_cb = first_completes_first ? &b : &a;
+    f.ring.complete(first_completes_first ? 0 : 1,
+                    first_completes_first ? -ENOSPC : -EIO);
+    ASSERT_EQ(f.engine.progress(), 0);
+    ASSERT_TRUE(bool(f.engine.take_result(early_cb)));
+    // The other same-fd predecessor keeps this decision retryable.
+    EXPECT_FALSE(bool(f.engine.retire(early)));
+    EXPECT_EQ(*f.engine.error(&c), EINPROGRESS);
+    f.ring.complete(first_completes_first ? 1 : 0,
+                    first_completes_first ? -EIO : -ENOSPC);
+    ASSERT_EQ(f.engine.progress(), 0);
+    EXPECT_FALSE(bool(sync.published()));
+    EXPECT_EQ(f.ring.tail, 2U);
+    EXPECT_EQ(*f.engine.error(&c), ENOSPC);
+    ASSERT_TRUE(bool(f.engine.take_result(late_cb)));
+    ASSERT_TRUE(bool(f.engine.take_result(&c)));
+    ASSERT_TRUE(bool(f.engine.retire(first)));
+    ASSERT_TRUE(bool(f.engine.retire(second)));
+    ASSERT_TRUE(bool(f.engine.retire(sync)));
+  }
 }
 
-TEST(LlvmLibcAioEngineTest, UnknownIdentityFailsSyncNotTransfer) {
-  Fixture f(reinterpret_cast<void *>(1));
-  ASSERT_TRUE(bool(f.engine.initialize(8)));
-  auto first = f.make_request();
+TEST(LlvmLibcAioEngineTest, DifferentNumericAliasDoesNotGroupOrPropagateError) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.engine.initialize(3)));
+  auto alias = f.make_request();
   auto sync = f.make_request();
   int a = 0, b = 0;
-  ASSERT_TRUE(bool(first.resources.capture(7)));
-  ASSERT_TRUE(bool(sync.resources.capture(8)));
-  ASSERT_TRUE(bool(f.engine.admit(first, input(&a))));
+  // Model fd 8 as a caller-owned dup of fd 7; only the original number groups.
+  ASSERT_TRUE(bool(alias.resources.capture(8)));
+  ASSERT_TRUE(bool(sync.resources.capture(7)));
+  ASSERT_TRUE(bool(f.engine.admit(alias, input(&a, Op::Write, false, 8))));
   ASSERT_TRUE(bool(f.engine.admit(sync, input(&b, Op::Sync))));
   ASSERT_EQ(f.engine.progress(), 0);
-  f.ring.identify(0, 1);
-  f.ring.identify(2, 1);
-  ASSERT_EQ(f.engine.progress(), 0);
-  EXPECT_EQ(*f.engine.error(&b), ENOTSUP);
+  ASSERT_EQ(f.ring.tail, 2U);
+  EXPECT_TRUE(sync.published());
   EXPECT_EQ(*f.engine.error(&a), EINPROGRESS);
-  EXPECT_FALSE(bool(sync.published()));
-  f.ring.complete(1, 8);
+  EXPECT_EQ(f.ring.sq[1].opcode, static_cast<unsigned char>(IORING_OP_FSYNC));
+  f.ring.complete(0, -EIO);
   ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_TRUE(bool(f.engine.take_result(&a)));
+  ASSERT_TRUE(bool(f.engine.retire(alias)));
+  f.ring.complete(1, 0);
+  ASSERT_EQ(f.engine.progress(), 0);
+  EXPECT_EQ(*f.engine.error(&b), 0);
   ASSERT_TRUE(bool(f.engine.take_result(&b)));
-  ASSERT_TRUE(bool(f.engine.retire(first)));
   ASSERT_TRUE(bool(f.engine.retire(sync)));
 }
 
-TEST(LlvmLibcAioEngineTest, QueuedSyncCancelStillDrainsPublishedMetadata) {
+TEST(LlvmLibcAioEngineTest, QueuedSyncCancelReleasesUnpublishedCredit) {
   Fixture f;
-  ASSERT_TRUE(bool(f.engine.initialize(8)));
-  auto r = f.make_request();
-  int cb = 0;
-  ASSERT_TRUE(bool(r.resources.capture(7)));
-  ASSERT_TRUE(bool(f.engine.admit(r, input(&cb, Op::Sync))));
+  ASSERT_TRUE(bool(f.engine.initialize(3)));
+  auto prior = f.make_request();
+  auto sync = f.make_request();
+  int a = 0, b = 0;
+  ASSERT_TRUE(bool(prior.resources.capture(7)));
+  ASSERT_TRUE(bool(sync.resources.capture(7)));
+  ASSERT_TRUE(bool(f.engine.admit(prior, input(&a))));
+  ASSERT_TRUE(bool(f.engine.admit(sync, input(&b, Op::Sync))));
   ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_EQ(f.ring.tail, 1U);
-  ASSERT_TRUE(bool(f.engine.cancel_queued(r)));
-  EXPECT_EQ(*f.engine.error(&cb), ECANCELED);
-  ASSERT_TRUE(bool(f.engine.take_result(&cb)));
-  EXPECT_FALSE(bool(f.engine.retire(r)));
-  f.ring.identify(0, 1);
+  ASSERT_TRUE(bool(f.engine.cancel_queued(sync)));
+  EXPECT_EQ(*f.engine.error(&b), ECANCELED);
+  ASSERT_TRUE(bool(f.engine.take_result(&b)));
+  ASSERT_TRUE(bool(f.engine.retire(sync)));
+  EXPECT_EQ(*f.engine.error(&a), EINPROGRESS);
+  f.ring.complete(0, 8);
   ASSERT_EQ(f.engine.progress(), 0);
-  ASSERT_TRUE(bool(f.engine.retire(r)));
+  ASSERT_TRUE(bool(f.engine.take_result(&a)));
+  ASSERT_TRUE(bool(f.engine.retire(prior)));
 }
 
 TEST(LlvmLibcAioEngineTest, AdmissionReservesControlHeadroom) {
   Fixture f;
-  ASSERT_TRUE(bool(f.engine.initialize(3)));
+  ASSERT_TRUE(bool(f.engine.initialize(2)));
   auto first = f.make_request();
   auto rejected = f.make_request();
   int a = 0, b = 0;
@@ -378,9 +392,128 @@ TEST(LlvmLibcAioEngineTest, AdmissionReservesControlHeadroom) {
   ASSERT_TRUE(bool(f.engine.retire(first)));
 }
 
+TEST(LlvmLibcAioEngineTest, MinimumCapacityAndOriginalFdValidation) {
+  Fixture f;
+  EXPECT_EQ(f.engine.initialize(0).error(), EINVAL);
+  EXPECT_EQ(f.engine.initialize(1).error(), EINVAL);
+  ASSERT_TRUE(bool(f.engine.initialize(2)));
+  auto r = f.make_request();
+  int cb = 0;
+  ASSERT_TRUE(bool(r.resources.capture(0)));
+  EXPECT_EQ(f.engine.admit(r, input(&cb, Op::Read, false, -1)).error(), EINVAL);
+  EXPECT_EQ(f.engine.admit(r, input(&cb, Op::Sync, false, -2)).error(), EINVAL);
+  EXPECT_EQ(f.watermark, uint64_t(0));
+  EXPECT_TRUE(f.engine.empty());
+  EXPECT_EQ(f.engine.find(&cb), static_cast<Engine::Request *>(nullptr));
+  ASSERT_TRUE(bool(f.engine.admit(r, input(&cb, Op::Read, false, 0))));
+  ASSERT_TRUE(f.engine.cancel_queued(r));
+  ASSERT_TRUE(bool(f.engine.take_result(&cb)));
+  ASSERT_TRUE(f.engine.retire(r));
+}
+
+TEST(LlvmLibcAioEngineTest, LaterSameFdWorkAndErrorsNeverEnterSyncSnapshot) {
+  const bool outcomes[] = {false, true};
+  for (bool later_fails : outcomes) {
+    Fixture f;
+    ASSERT_TRUE(bool(f.engine.initialize(4)));
+    auto prior = f.make_request();
+    auto sync = f.make_request();
+    auto later = f.make_request();
+    int a = 0, b = 0, c = 0;
+    ASSERT_TRUE(bool(prior.resources.capture(7)));
+    ASSERT_TRUE(bool(sync.resources.capture(7)));
+    ASSERT_TRUE(bool(later.resources.capture(7)));
+    ASSERT_TRUE(bool(f.engine.admit(prior, input(&a, Op::Write))));
+    ASSERT_TRUE(bool(f.engine.admit(sync, input(&b, Op::Sync))));
+    ASSERT_TRUE(bool(f.engine.admit(later, input(&c, Op::Write))));
+    ASSERT_EQ(f.engine.progress(), 0);
+    ASSERT_EQ(f.ring.tail, 2U);
+    if (later_fails) {
+      f.ring.complete(1, -EIO);
+      ASSERT_EQ(f.engine.progress(), 0);
+    }
+    EXPECT_FALSE(sync.published());
+    f.ring.complete(0, 8);
+    ASSERT_EQ(f.engine.progress(), 0);
+    ASSERT_EQ(f.ring.tail, 3U);
+    EXPECT_TRUE(sync.published());
+    EXPECT_EQ(*f.engine.error(&c), later_fails ? EIO : EINPROGRESS);
+    f.ring.complete(2, 0);
+    if (!later_fails)
+      f.ring.complete(1, 8);
+    ASSERT_EQ(f.engine.progress(), 0);
+    EXPECT_EQ(*f.engine.error(&b), 0);
+    ASSERT_TRUE(bool(f.engine.take_result(&a)));
+    ASSERT_TRUE(bool(f.engine.take_result(&b)));
+    ASSERT_TRUE(bool(f.engine.take_result(&c)));
+    ASSERT_TRUE(f.engine.retire(prior));
+    ASSERT_TRUE(f.engine.retire(sync));
+    ASSERT_TRUE(f.engine.retire(later));
+  }
+}
+
+TEST(LlvmLibcAioEngineTest, UnrelatedSyncDoesNotRetainFailedResult) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.engine.initialize(4)));
+  auto prior = f.make_request();
+  auto other = f.make_request();
+  auto sync = f.make_request();
+  int a = 0, b = 0, c = 0;
+  ASSERT_TRUE(bool(prior.resources.capture(7)));
+  ASSERT_TRUE(bool(other.resources.capture(8)));
+  ASSERT_TRUE(bool(sync.resources.capture(7)));
+  ASSERT_TRUE(bool(f.engine.admit(prior, input(&a, Op::Write))));
+  ASSERT_TRUE(bool(f.engine.admit(other, input(&b, Op::Write, false, 8))));
+  ASSERT_TRUE(bool(f.engine.admit(sync, input(&c, Op::Sync))));
+  ASSERT_EQ(f.engine.progress(), 0);
+  ASSERT_EQ(f.ring.tail, 2U);
+  f.ring.complete(1, -EIO);
+  ASSERT_EQ(f.engine.progress(), 0);
+  ASSERT_TRUE(bool(f.engine.take_result(&b)));
+  ASSERT_TRUE(f.engine.retire(other));
+  EXPECT_FALSE(sync.published());
+  EXPECT_EQ(*f.engine.error(&c), EINPROGRESS);
+  f.ring.complete(0, 8);
+  ASSERT_EQ(f.engine.progress(), 0);
+  ASSERT_EQ(f.ring.tail, 3U);
+  f.ring.complete(2, 0);
+  ASSERT_EQ(f.engine.progress(), 0);
+  EXPECT_EQ(*f.engine.error(&c), 0);
+  ASSERT_TRUE(bool(f.engine.take_result(&a)));
+  ASSERT_TRUE(bool(f.engine.take_result(&c)));
+  ASSERT_TRUE(f.engine.retire(prior));
+  ASSERT_TRUE(f.engine.retire(sync));
+}
+
+TEST(LlvmLibcAioEngineTest, FailureTerminalBeforeSyncAdmissionIsExcluded) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.engine.initialize(2)));
+  auto prior = f.make_request();
+  auto sync = f.make_request();
+  int a = 0, b = 0;
+  ASSERT_TRUE(bool(prior.resources.capture(7)));
+  ASSERT_TRUE(bool(sync.resources.capture(7)));
+  ASSERT_TRUE(bool(f.engine.admit(prior, input(&a, Op::Write))));
+  ASSERT_EQ(f.engine.progress(), 0);
+  f.ring.complete(0, -EIO);
+  ASSERT_EQ(f.engine.progress(), 0);
+  ASSERT_TRUE(bool(f.engine.admit(sync, input(&b, Op::Sync))));
+  ASSERT_EQ(f.engine.progress(), 0);
+  ASSERT_EQ(f.ring.tail, 2U);
+  EXPECT_TRUE(sync.published());
+  EXPECT_EQ(*f.engine.error(&a), EIO);
+  f.ring.complete(1, 0);
+  ASSERT_EQ(f.engine.progress(), 0);
+  EXPECT_EQ(*f.engine.error(&b), 0);
+  ASSERT_TRUE(bool(f.engine.take_result(&a)));
+  ASSERT_TRUE(bool(f.engine.take_result(&b)));
+  ASSERT_TRUE(f.engine.retire(prior));
+  ASSERT_TRUE(f.engine.retire(sync));
+}
+
 TEST(LlvmLibcAioEngineTest, RetainedResultsDoNotConsumeCompletionCredits) {
   Fixture f;
-  ASSERT_TRUE(bool(f.engine.initialize(3)));
+  ASSERT_TRUE(bool(f.engine.initialize(2)));
   struct Allocator {
     bool fail = false;
     void *allocate(size_t size, size_t alignment) {
@@ -413,8 +546,7 @@ TEST(LlvmLibcAioEngineTest, RetainedResultsDoNotConsumeCompletionCredits) {
     ASSERT_TRUE(bool(requests[i]->resources.capture(7)));
     ASSERT_TRUE(bool(f.engine.admit(*requests[i], input(&cb[i]))));
     ASSERT_EQ(f.engine.progress(), 0);
-    f.ring.identify(i * 2, 10 + i);
-    f.ring.complete(i * 2 + 1, int(i));
+    f.ring.complete(i, int(i));
     ASSERT_EQ(f.engine.progress(), 0);
     EXPECT_FALSE(bool(f.engine.retire(*requests[i])));
     EXPECT_EQ(storage.detach_empty(), nullptr);
@@ -437,7 +569,7 @@ TEST(LlvmLibcAioEngineTest, RetainedResultsDoNotConsumeCompletionCredits) {
   EXPECT_TRUE(f.engine.empty());
 }
 
-TEST(LlvmLibcAioEngineTest, SuspendObservesOriginalNotMetadataOrCancelControl) {
+TEST(LlvmLibcAioEngineTest, SuspendObservesOriginalNotCancelControl) {
   using Observers = LIBC_NAMESPACE::AioSuspendObservers<int>;
   FakeRing ring;
   ResourceState resources;
@@ -446,9 +578,8 @@ TEST(LlvmLibcAioEngineTest, SuspendObservesOriginalNotMetadataOrCancelControl) {
   auto complete = [](void *p, const void *cb) {
     static_cast<Observers *>(p)->complete(cb);
   };
-  Engine engine(ring, watermark, 17, 16, classify, nullptr, complete,
-                &observers);
-  ASSERT_TRUE(bool(engine.initialize(3)));
+  Engine engine(ring, watermark, 17, 16, complete, &observers);
+  ASSERT_TRUE(bool(engine.initialize(2)));
   Engine::Request request(ring, {&resources}), fresh(ring, {&resources});
   Engine::Cancel cancel;
   int cb;
@@ -467,12 +598,11 @@ TEST(LlvmLibcAioEngineTest, SuspendObservesOriginalNotMetadataOrCancelControl) {
   ASSERT_EQ(engine.progress(), 0);
   ASSERT_TRUE(bool(engine.cancel_published(request, cancel)));
   ASSERT_EQ(engine.progress(), 0);
-  ring.identify(0, 1);
-  ring.complete(2, 0);
+  ring.complete(1, 0);
   ASSERT_EQ(engine.progress(), 0);
   EXPECT_FALSE(old_wait.ready());
   EXPECT_EQ(old_wakes, 0U);
-  ring.complete(1, -ECANCELED);
+  ring.complete(0, -ECANCELED);
   ASSERT_EQ(engine.progress(), 0);
   EXPECT_TRUE(old_wait.ready());
   EXPECT_EQ(old_wakes, 1U);
@@ -550,8 +680,7 @@ TEST(LlvmLibcAioEngineTest, QueriesRemainAvailableBetweenStageAndEnterReturn) {
   ASSERT_EQ(f.engine.finish_submit(f.ring.submit()), 0);
   EXPECT_FALSE(f.engine.submit_in_progress());
   ASSERT_TRUE(f.engine.retire(queued));
-  f.ring.identify(0, 1);
-  f.ring.complete(1, 8);
+  f.ring.complete(0, 8);
   ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_TRUE(bool(f.engine.take_result(&a)));
   ASSERT_TRUE(f.engine.retire(r));
@@ -561,7 +690,7 @@ TEST(LlvmLibcAioEngineTest, CancelAndOriginalCompletionsKeepSeparateOwners) {
   const bool orders[] = {false, true};
   for (bool cancel_first : orders) {
     Fixture f;
-    ASSERT_TRUE(bool(f.engine.initialize(3)));
+    ASSERT_TRUE(bool(f.engine.initialize(2)));
     auto r = f.make_request();
     Engine::Cancel cancel;
     int cb = 0;
@@ -570,12 +699,11 @@ TEST(LlvmLibcAioEngineTest, CancelAndOriginalCompletionsKeepSeparateOwners) {
     ASSERT_EQ(f.engine.progress(), 0);
     ASSERT_TRUE(bool(f.engine.cancel_published(r, cancel)));
     ASSERT_EQ(f.engine.progress(), 0);
-    ASSERT_EQ(f.ring.tail, 3U);
-    EXPECT_EQ(f.ring.sq[2].opcode,
+    ASSERT_EQ(f.ring.tail, 2U);
+    EXPECT_EQ(f.ring.sq[1].opcode,
               static_cast<unsigned char>(IORING_OP_ASYNC_CANCEL));
-    EXPECT_EQ(uint64_t(f.ring.sq[2].addr), r.state().identity().token);
-    f.ring.identify(0, 1);
-    f.ring.complete(cancel_first ? 2 : 1, cancel_first ? 0 : -ECANCELED);
+    EXPECT_EQ(uint64_t(f.ring.sq[1].addr), r.state().identity().token);
+    f.ring.complete(cancel_first ? 1 : 0, cancel_first ? 0 : -ECANCELED);
     ASSERT_EQ(f.engine.progress(), 0);
     EXPECT_EQ(r.complete(), !cancel_first);
     EXPECT_EQ(cancel.complete(), cancel_first);
@@ -586,7 +714,7 @@ TEST(LlvmLibcAioEngineTest, CancelAndOriginalCompletionsKeepSeparateOwners) {
       ASSERT_TRUE(bool(f.engine.take_result(&cb)));
       EXPECT_FALSE(f.engine.retire(r));
     }
-    f.ring.complete(cancel_first ? 1 : 2, cancel_first ? -ECANCELED : -ENOENT);
+    f.ring.complete(cancel_first ? 0 : 1, cancel_first ? -ECANCELED : -ENOENT);
     ASSERT_EQ(f.engine.progress(), 0);
     auto original = f.engine.original_result(cancel);
     ASSERT_TRUE(bool(original));
@@ -617,8 +745,7 @@ TEST(LlvmLibcAioEngineTest, CancelWithdrawalDoesNotCancelOriginal) {
   EXPECT_EQ(f.engine.cancel_result(cancel).error(), EIO);
   EXPECT_EQ(f.engine.original_result(cancel).error(), EINPROGRESS);
   f.ring.submit_error = 0;
-  f.ring.identify(0, 1);
-  f.ring.complete(1, 8);
+  f.ring.complete(0, 8);
   ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_TRUE(bool(f.engine.take_result(&cb)));
   EXPECT_FALSE(f.engine.retire(r));
@@ -640,8 +767,7 @@ TEST(LlvmLibcAioEngineTest, CancelEnqueueFailureReleasesOnlyPreparedControl) {
   ASSERT_EQ(f.engine.progress(), 0);
   EXPECT_EQ(f.engine.cancel_result(cancel).error(), ENOMEM);
   EXPECT_EQ(*f.engine.error(&cb), EINPROGRESS);
-  f.ring.identify(0, 1);
-  f.ring.complete(1, 8);
+  f.ring.complete(0, 8);
   ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_TRUE(bool(f.engine.take_result(&cb)));
   ASSERT_TRUE(f.engine.retire(r));
@@ -663,8 +789,7 @@ TEST(LlvmLibcAioEngineTest, AbortedControlDoesNotDereferenceDestroyedRequest) {
   ASSERT_TRUE(bool(f.engine.cancel_published(*r, cancel)));
   f.ring.enqueue_error = ENOMEM;
   ASSERT_EQ(f.engine.progress(), 0);
-  f.ring.identify(0, 1);
-  f.ring.complete(1, 8);
+  f.ring.complete(0, 8);
   ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_TRUE(bool(f.engine.take_result(&cb)));
   ASSERT_TRUE(f.engine.retire(*r));
@@ -688,10 +813,9 @@ TEST(LlvmLibcAioEngineTest, OriginalCompletionOvertakesPreparedCancellation) {
   ASSERT_TRUE(bool(f.engine.admit(r, input(&cb))));
   ASSERT_EQ(f.engine.progress(), 0);
   ASSERT_TRUE(bool(f.engine.cancel_published(r, cancel)));
-  f.ring.identify(0, 1);
-  f.ring.complete(1, 8);
+  f.ring.complete(0, 8);
   ASSERT_EQ(f.engine.progress(), 0);
-  EXPECT_EQ(f.ring.tail, 2U);
+  EXPECT_EQ(f.ring.tail, 1U);
   EXPECT_TRUE(cancel.complete());
   EXPECT_EQ(f.engine.cancel_result(cancel).error(), EALREADY);
   auto result = f.engine.take_result(&cb);
@@ -701,24 +825,30 @@ TEST(LlvmLibcAioEngineTest, OriginalCompletionOvertakesPreparedCancellation) {
   ASSERT_TRUE(f.engine.retire_cancel(cancel));
 }
 
-TEST(LlvmLibcAioEngineTest,
-     MetadataTokenExhaustionRollsBackOriginalReservation) {
+TEST(LlvmLibcAioEngineTest, LastOriginalTokenSucceedsThenExhaustionNeverWraps) {
   FakeRing ring;
   ResourceState resources;
   uint64_t watermark = UINT64_MAX - 1;
-  Engine engine(ring, watermark, 17, 16, classify);
+  Engine engine(ring, watermark, 17, 16);
   ASSERT_TRUE(bool(engine.initialize(3)));
-  Engine::Request r(ring, {&resources});
-  int cb = 0;
-  ASSERT_TRUE(bool(r.resources.capture(7)));
-  EXPECT_EQ(engine.admit(r, input(&cb)).error(), EOVERFLOW);
+  Engine::Request last(ring, {&resources}), blocked(ring, {&resources});
+  int a = 0, b = 0;
+  ASSERT_TRUE(bool(last.resources.capture(7)));
+  ASSERT_TRUE(bool(blocked.resources.capture(7)));
+  ASSERT_TRUE(bool(engine.admit(last, input(&a))));
   EXPECT_EQ(watermark, UINT64_MAX);
-  EXPECT_TRUE(engine.empty());
-  EXPECT_EQ(engine.find(&cb), static_cast<Engine::Request *>(nullptr));
+  EXPECT_EQ(last.state().identity().token, UINT64_MAX);
+  EXPECT_EQ(engine.admit(blocked, input(&b)).error(), EOVERFLOW);
+  EXPECT_EQ(engine.find(&b), static_cast<Engine::Request *>(nullptr));
   EXPECT_EQ(ring.tail, 0U);
-  EXPECT_EQ(engine.admit(r, input(&cb)).error(), EOVERFLOW);
-  ASSERT_TRUE(bool(r.resources.release()));
-  EXPECT_EQ(resources.closed, 1U);
+  ASSERT_TRUE(engine.cancel_queued(last));
+  ASSERT_TRUE(bool(engine.take_result(&a)));
+  ASSERT_TRUE(engine.retire(last));
+  EXPECT_EQ(engine.admit(blocked, input(&b)).error(), EOVERFLOW);
+  EXPECT_EQ(watermark, UINT64_MAX);
+  ASSERT_TRUE(bool(blocked.resources.release()));
+  EXPECT_EQ(resources.closed, 2U);
+  EXPECT_TRUE(engine.empty());
 }
 
 TEST(LlvmLibcAioEngineTest, SplitCleanupAllowsQueriesAndAddressReuse) {

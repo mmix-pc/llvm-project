@@ -28,6 +28,13 @@ add_libc_test(
 )
 
 add_libc_test(
+  aio_engine_list_test
+  SUITE libc-osutil-tests
+  SRCS aio_engine_list_test.cpp
+  DEPENDS libc.src.__support.OSUtil.linux.aio_engine libc.src.errno.errno
+)
+
+add_libc_test(
   aio_dispatch_channel_test
   SUITE libc-osutil-tests
   SRCS aio_dispatch_channel_test.cpp

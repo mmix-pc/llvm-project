@@ -333,8 +333,9 @@ TEST(LlvmLibcAioCompletionQueueTest, ForeignEntryCannotBeReclaimed) {
 
 #if LIBC_TEST_SUBPROCESS_TESTS
 TEST(LlvmLibcAioCompletionQueueTest, InvalidTokensExit127) {
-  // Zero, unknown, unpublished, rolled back, duplicate, and wrong ring token.
-  for (unsigned scenario = 0; scenario != 6; ++scenario) {
+  // Zero, unknown, unpublished, rolled back, duplicate, wrong ring and local
+  // result tokens must never route to a kernel operation.
+  for (unsigned scenario = 0; scenario != 7; ++scenario) {
     EXPECT_EXITS(
         ([scenario] {
           FakeRing ring, other_ring;
@@ -361,6 +362,8 @@ TEST(LlvmLibcAioCompletionQueueTest, InvalidTokensExit127) {
           }
           if (scenario == 5)
             token = *other.prepare(foreign, Kind::Transfer, nullptr, 4);
+          if (scenario == 6)
+            token = *queue.reserve_local_token();
           ring.complete(token);
           (void)queue.poll();
           unexpected_success();
