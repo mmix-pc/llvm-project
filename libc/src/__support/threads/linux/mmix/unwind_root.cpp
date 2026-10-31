@@ -144,6 +144,34 @@ bool last_thread_fork_context(ThreadControl &control) {
          validate_fork_cleanup(control.unwind_root);
 }
 
+bool terminal_thread_fork_context(ThreadControl &control) {
+  return control.terminal_cleanup_in_progress() &&
+         control.unwind_root.kind == UnwindRootKind::TerminalThreadCleanup &&
+         ordinary_fork_context(control) && !has_c_cleanup() &&
+         validate_fork_cleanup(control.unwind_root);
+}
+
+[[gnu::noinline, clang::disable_tail_calls]] void
+run_with_terminal_cleanup_root(ThreadControl &control, RootBody *body,
+                               void *argument) {
+  if (current_control != &control || !body || forced.active || has_c_cleanup() ||
+      control.unwind_root.active || !control.terminal_cleanup_pending() ||
+      control.cancellation_point.load() || control.cancellation_transfer.load() ||
+      control.cancellation_suppression.load())
+    __builtin_trap();
+  capture_root(control,
+               reinterpret_cast<uintptr_t>(&run_with_terminal_cleanup_root),
+               UnwindRootKind::TerminalThreadCleanup);
+  // Validate the dispatcher and fresh activation before publishing a drain.
+  if (!validate_fork_cleanup(control.unwind_root))
+    __builtin_trap();
+  const auto root = control.unwind_root;
+  body(argument);
+  if (!root.matches(control.unwind_root) || forced.active || has_c_cleanup())
+    __builtin_trap();
+  control.unwind_root.active = false;
+}
+
 [[gnu::noinline, clang::disable_tail_calls]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
   if (current_control != &control || !body)

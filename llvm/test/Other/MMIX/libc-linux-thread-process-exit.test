@@ -38,14 +38,35 @@ for opt in ('0', '2'):
     assert 'cleanup_main_thread' not in undefined and 'termination_action' not in undefined
     for name in ('pthread_', 'munmap', 'release_tls', '__tls_get_addr'):
         assert name not in undefined, undefined
+    # Compile/link the root-enabled completion composition as well. Cursor
+    # capture itself is covered by libc-linux-last-thread-root.test.
+    rooted_objects = []
+    for i, source in enumerate(sources):
+        obj = root/('rooted-'+str(i)+'-O'+opt+'.o')
+        subprocess.run(['clang', '-cc1', '-triple', 'mmix-unknown-linux',
+            '-mrelocation-model', 'static', '-ftls-model=local-exec',
+            '-fno-optimize-sibling-calls', '-internal-isystem', resource+'/include',
+            *common, '-DLIBC_MMIX_UNWIND_ROOTS', '-O'+opt,
+            '-emit-obj', str(source), '-o', str(obj)], check=True)
+        rooted_objects.append(str(obj))
+    linked = root/('rooted-linked-O'+opt+'.o')
+    subprocess.run(['ld.lld', '-m', 'elf64mmix_linux', '-r', *rooted_objects,
+                    '-o', str(linked)], check=True)
+    undefined = subprocess.check_output(['llvm-nm', '-u', str(linked)], text=True)
+    assert 'run_with_terminal_cleanup_root' in undefined
+    assert 'run_with_process_exit_root' in undefined
+    assert 'initial_thread_during_fork_owner' not in undefined
     if len(sys.argv) == 4:
-        exe = root/('host-O'+opt)
-        subprocess.run([sys.argv[3], *common, '-D__mmix__', '-O'+opt,
-            '-D__cxa_finalize=test_finalize', '-include', str(root/'finish/transport.h'),
-            *map(str,sources), str(root/'test.cpp'), '-o', str(exe)], check=True)
-        for mode in range(17):
-            subprocess.run([str(exe), str(mode)], check=True, timeout=15)
-        print('Native process completion: 17 scenarios passed at O'+opt, flush=True)
+        for roots in (False, True):
+            exe = root/('host-O'+opt+'-roots-'+str(roots))
+            flags = ['-DLIBC_MMIX_UNWIND_ROOTS'] if roots else []
+            subprocess.run([sys.argv[3], *common, *flags, '-D__mmix__', '-O'+opt,
+                '-D__cxa_finalize=test_finalize', '-include', str(root/'finish/transport.h'),
+                *map(str,sources), str(root/'test.cpp'), '-o', str(exe)], check=True)
+            for mode in range(17):
+                subprocess.run([str(exe), str(mode)], check=True, timeout=15)
+            print('Native process completion: 17 scenarios passed at O'+opt+
+                  ' roots='+str(roots), flush=True)
 
 #--- headers/sys/syscall.h
 #define SYS_futex 98
@@ -69,10 +90,34 @@ using namespace process_test;
 using namespace process_test::mmix;
 static void require(bool b) { if (!b) __builtin_abort(); }
 static unsigned mode, clean_main, clean_worker, finalizers, groups, terminals, waits;
+static unsigned drain_roots, drain_returns;
 static uint64_t mask = 0x1234;
 static ThreadControl main_control, worker, helper, pending;
 struct Done { bool group; };
 namespace process_test { namespace mmix {
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+bool has_c_cleanup() { return false; }
+void run_with_unwind_root(ThreadControl &, RootBody *, void *) { __builtin_trap(); }
+void run_with_terminal_cleanup_root(ThreadControl &c, RootBody *body, void *p) {
+  require(&c == &main_control && !c.unwind_root.active && !drain_roots++);
+  require(c.terminal_cleanup_pending() && !initial_thread_during_fork_owner());
+  c.unwind_root = {&c, 8, 16, 24, 4, 1, true,
+                   UnwindRootKind::TerminalThreadCleanup};
+  body(p);
+  require(!initial_thread_during_fork_owner() && internal::main_thread_cleanup_finished());
+  require(c.unwind_root.active && !drain_returns++);
+  c.unwind_root.active = false;
+}
+[[noreturn]] void run_with_process_exit_root(ThreadControl &c, RootBody *body, void *p) {
+  require(&c == &main_control && !c.unwind_root.active);
+  require(!initial_thread_during_fork_owner() && c.terminal_cleanup_finished());
+  require(drain_roots == drain_returns);
+  c.unwind_root = {&c, 8, 16, 24, 4, c.unwind_root.generation + 1, true,
+                   UnwindRootKind::LastThreadProcess};
+  body(p);
+  __builtin_trap();
+}
+#endif
 // Credential coordination has its own execution tests. This delegate checks
 // process ownership and retains the production terminal notification mask.
 CredentialGate::CredentialGate() { owned = true; }
@@ -93,6 +138,14 @@ void call_atexit_callbacks(ThreadAttributes *a) {
   require(a == self.attrib && mask == 0x1234);
   if (a == &main_control.attributes) {
     require(!clean_main++);
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+    if (drain_roots) {
+      require(!drain_returns && main_control.terminal_cleanup_in_progress());
+      require(initial_thread_during_fork_owner() == main_control.attributes.tid);
+      ThreadRegistryLock lock(thread_registry);
+      require(!lock.process_exiting());
+    }
+#endif
     cleanup_main_thread(); // Recursive main cleanup remains idempotent.
   } else {
     require(a == &worker.attributes && !clean_worker++);
@@ -119,6 +172,10 @@ extern "C" void test_finalize(void *dso) {
     return;
   }
   require(!dso && !finalizers++ && clean_main == 1);
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  require(!initial_thread_during_fork_owner() && drain_roots == drain_returns);
+  if (drain_roots) require(main_control.attributes.retval.stdc_retval == 42);
+#endif
   require(internal::self.attrib == (mode == 0 || mode == 1 || mode == 6 || mode == 7 || mode == 9 ?
       &main_control.attributes : &worker.attributes));
   ThreadRegistryLock lock(thread_registry);
@@ -128,6 +185,7 @@ extern "C" void test_finalize(void *dso) {
 }
 extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
   require(mask == (UINT64_MAX & ~CREDENTIAL_MASK) && !groups);
+  require(!current_control->unwind_root.active && drain_roots == drain_returns);
   ++terminals;
   throw Done{false};
 }

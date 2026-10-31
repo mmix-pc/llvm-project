@@ -471,6 +471,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     SRCS thread_finish.cpp thread_process_exit.cpp
     HDRS thread_finish.h
     DEPENDS
+      libc.hdr.types.pid_t
       ${mmix_once_dependency}
       ${mmix_root_dependency}
       .thread_start .credentials

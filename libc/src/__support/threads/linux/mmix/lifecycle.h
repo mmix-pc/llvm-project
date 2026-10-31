@@ -53,6 +53,7 @@ enum class ForkContinuation {
   Ordinary,
   NormalDuring,
   NormalAfter,
+  InitialThreadDuring,
   LastThreadAfter
 };
 
@@ -141,6 +142,13 @@ struct ThreadControl {
   }
 
   bool retains_resources_until_process_exit() const { return process_lifetime; }
+  bool terminal_cleanup_pending() {
+    return initial_thread && process_lifetime &&
+           execution == ThreadExecution::Cleaning && cancellation.terminal();
+  }
+  bool terminal_cleanup_in_progress() {
+    return terminal_cleanup_pending() && callbacks_started;
+  }
   // Owner-only local half of the terminal certificate. Registry-owned pins,
   // queues, leases and ownership are inspected only under the snapshot lock.
   bool terminal_cleanup_finished() {
@@ -207,6 +215,7 @@ class ThreadRegistry {
   bool process_operation = false;
   internal::ForkRecovery fork_recovery;
   bool terminal_fork_caller(ThreadControl &caller);
+  bool terminal_during_fork_caller(ThreadControl &caller);
 
 public:
   constexpr ThreadRegistry() = default;
@@ -223,7 +232,8 @@ public:
   bool quiescent_fork_caller(ThreadControl &caller);
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
   // Non-ordinary kinds require the matching private exit-owner/root
-  // certificate. LastThreadAfter is only the completed initial-thread drain.
+  // certificate. InitialThreadDuring retains Cleaning/live one/RUNNING;
+  // LastThreadAfter requires the completed initial-thread drain and live zero.
   bool freeze_for_fork(
       ThreadControl &caller, uint64_t suppression = 0,
       bool *single_thread = nullptr, bool helper_drained = false,

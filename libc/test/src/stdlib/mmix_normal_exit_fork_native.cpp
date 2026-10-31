@@ -38,12 +38,17 @@
 #ifndef LIBC_MMIX_SHARED_STARTUP
 #define LIBC_MMIX_SHARED_STARTUP
 #endif
+#define LIBC_MMIX_UNWIND_ROOTS
+#define LIBC_MMIX_CANCELLATION_WINDOWS
 #define __mmix__ 1
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #undef __mmix__
 #include "src/__support/threads/linux/mmix/lifecycle.cpp"
 #include "src/__support/threads/linux/mmix/main_thread.cpp"
 #include "src/__support/threads/linux/mmix/thread_reaper.cpp"
+#include "src/__support/threads/linux/mmix/thread_finish.cpp"
+#include "src/__support/threads/linux/mmix/thread_process_exit.cpp"
+#include "src/__support/threads/linux/mmix/fork_runtime.cpp"
 #include "src/errno/libc_errno.cpp"
 #define __cxa_finalize mmix_normal_exit_test_finalize
 #include "src/stdlib/linux/mmix/exit.cpp"
@@ -70,7 +75,11 @@ enum class Case {
   WorkerQuick,
   WorkerTerminal,
   WorkerLiveReaper,
-  LastThreadReturn
+  LastThreadReturn,
+  InitialDuringTLS,
+  InitialDuringTSS,
+  InitialCancelTLS,
+  InitialCancelTSS
 };
 Case selected;
 struct ExitStatus {
@@ -84,6 +93,22 @@ bool recursive_during_child;
 unsigned main_drains;
 unsigned worker_drain_returns;
 bool registration_failure;
+bool clone_failure, loader_snapshot, notification_snapshot, allocator_snapshot;
+unsigned notification_prepares, drain_roots, after_roots, drain_returns;
+unsigned pending_tls, pending_tss, callback_returns;
+
+bool initial_during_case() {
+  return selected == Case::InitialDuringTLS || selected == Case::InitialDuringTSS ||
+         selected == Case::InitialCancelTLS || selected == Case::InitialCancelTSS;
+}
+
+bool cancellation_case() {
+  return selected == Case::InitialCancelTLS || selected == Case::InitialCancelTSS;
+}
+
+void *terminal_result() {
+  return reinterpret_cast<void *>(cancellation_case() ? uintptr_t(-1) : 0x7171);
+}
 
 bool worker_case() {
   return selected == Case::WorkerReturn || selected == Case::WorkerQuick ||
@@ -97,6 +122,159 @@ void wait_success(pid_t child) {
   int status = 0;
   assert(::waitpid(child, &status, 0) == child);
   assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+void check_initial_during() {
+  auto &caller = *M::current_control;
+  assert(caller.terminal_cleanup_in_progress() &&
+         !caller.terminal_cleanup_finished());
+  assert(I::main_thread_cleanup_in_progress() && !I::main_thread_cleanup_finished());
+  assert(M::initial_thread_during_fork_owner() == caller.attributes.tid);
+  assert(!I::process_cleanup_tid && !I::normal_exit_fork_owner() &&
+         !I::last_thread_exit_fork_owner());
+  assert(!notifications_closed && M::thread_registry.admit_signal_notification());
+  assert(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+         !caller.cancellation.ready());
+  assert(caller.cancellation_identity == 19 && caller.cancellation_generation == 23);
+  assert(!caller.cancellation_point.load() && !caller.cancellation_transfer.load());
+  assert(!caller.cancellation_suppression.load());
+  assert(drain_roots == 1 && !after_roots && !drain_returns);
+  M::ThreadRegistryLock lock(M::thread_registry);
+  assert(lock.live_threads() == 1 && !lock.process_exiting());
+  assert(lock.owner(caller) == M::ThreadOwner::Joinable);
+  assert(!lock.exit_ready(caller, 0)); // Open leases, still in the drain.
+  assert(lock.reserve() && lock.cancel_reservation());
+}
+
+void fork_initial_continuation(bool during) {
+  auto &caller = *M::current_control;
+  auto *attributes = I::self.attrib;
+  auto *manager = attributes->atexit_callback_mgr;
+  const auto root = caller.unwind_root;
+  const auto scopes = caller.loader_scopes.load();
+  for (unsigned generation = 0; generation != 2; ++generation) {
+    const pid_t owner = attributes->tid;
+    const auto saved_mask = mask;
+    const auto registered = registrations;
+    LIBC_NAMESPACE::libc_errno = 73;
+    if (during) check_initial_during();
+    // Exercise the real runtime's failed-clone restoration, not a manual reset.
+    {
+      M::ForkOperation operation;
+      assert(!operation.error() && !operation.prepare_runtime());
+      assert(!operation.freeze_registry());
+      clone_failure = true;
+      assert(operation.create_child() == -EAGAIN);
+      clone_failure = false;
+      operation.restore_runtime(false);
+    }
+    assert(!loader_snapshot && !notification_snapshot && !allocator_snapshot);
+    assert(attributes->tid == owner && registrations == registered);
+    assert(root.matches(caller.unwind_root) && mask == saved_mask);
+    if (during) check_initial_during();
+    long child;
+    {
+      M::ForkOperation operation;
+      assert(!operation.error() && !operation.prepare_runtime());
+      assert(!operation.freeze_registry());
+      child = operation.create_child();
+      assert(child >= 0);
+      if (!child) ::alarm(10);
+      operation.restore_runtime(child == 0);
+    }
+    assert(mask == saved_mask && int(LIBC_NAMESPACE::libc_errno) == 73);
+    assert(root.matches(caller.unwind_root));
+    assert(I::self.attrib == attributes && attributes->atexit_callback_mgr == manager);
+    assert(caller.loader_scopes.load() == scopes);
+    assert(!loader_snapshot && !notification_snapshot && !allocator_snapshot);
+    assert(!caller.cancellation_suppression.load());
+    assert(caller.cancellation.terminal() && !caller.cancellation.ready());
+    if (during) check_initial_during();
+    else {
+      assert(!M::initial_thread_during_fork_owner());
+      assert(I::last_thread_exit_fork_owner() == attributes->tid);
+      assert(notifications_closed && caller.terminal_cleanup_finished());
+    }
+    if (child) {
+      wait_success(pid_t(child));
+      assert(attributes->tid == owner && registrations == registered);
+      return;
+    }
+    assert(attributes->tid != owner && registrations == registered + 1);
+    if (during) ++during_forks;
+  }
+}
+
+void initial_during_callback() {
+  auto &caller = *M::current_control;
+  auto *attributes = I::self.attrib;
+  auto *manager = attributes->atexit_callback_mgr;
+  const auto root = caller.unwind_root;
+  const auto owner = attributes->tid;
+  check_initial_during();
+  for (unsigned bad = 0; bad != 11; ++bad) {
+    if (bad == 0) ++caller.unwind_root.generation;
+    if (bad == 1) caller.unwind_root.owner = nullptr;
+    if (bad == 2) caller.unwind_root.active = false;
+    if (bad == 3) ++caller.unwind_root.chain;
+    if (bad == 4) ++caller.unwind_root.ro;
+    if (bad == 5) ++caller.unwind_root.sp;
+    if (bad == 6) ++caller.unwind_root.procedure;
+    if (bad == 7) caller.unwind_root.kind = M::UnwindRootKind::Thread;
+    if (bad == 8) attributes->atexit_callback_mgr = nullptr;
+    if (bad == 9) I::self.attrib = nullptr;
+    if (bad == 10) attributes->tid = owner + 1;
+    assert(!M::initial_thread_during_fork_owner());
+    assert(!M::rebind_initial_thread_during_fork_owner(owner));
+    {
+      M::ForkOperation operation;
+      assert(!operation.error() && operation.prepare_runtime() == EAGAIN);
+    }
+    caller.unwind_root = root;
+    I::self.attrib = attributes;
+    attributes->atexit_callback_mgr = manager;
+    attributes->tid = owner;
+  }
+  // Early bootstrap absence must precede notification preparation.
+  const auto prepared = notification_prepares;
+  assert(M::bootstrap.mutex.try_lock());
+  {
+    M::ForkOperation operation;
+    assert(!operation.error() && operation.prepare_runtime() == EAGAIN);
+  }
+  M::bootstrap.mutex.unlock();
+  assert(notification_prepares == prepared);
+  // Frozen revalidation is local even with loader metadata locked.
+  for (unsigned bad = 0; bad != 2; ++bad) {
+    M::ForkOperation operation;
+    assert(!operation.error() && !operation.prepare_runtime());
+    if (bad == 0) ++caller.unwind_root.generation;
+    else attributes->atexit_callback_mgr = nullptr;
+    assert(operation.freeze_registry() == EAGAIN);
+    caller.unwind_root = root;
+    attributes->atexit_callback_mgr = manager;
+  }
+  // No admission by erasing a live point, transfer or foreign suppression.
+  for (unsigned bad = 0; bad != 3; ++bad) {
+    if (bad == 0) caller.cancellation_transfer.store(1);
+    if (bad == 1) caller.cancellation_point.store(
+        reinterpret_cast<M::CancellationPoint *>(8));
+    if (bad == 2) caller.cancellation_suppression.store(1);
+    { M::ForkOperation operation; assert(operation.error() == EAGAIN); }
+    assert(caller.cancellation_transfer.load() == (bad == 0));
+    assert(bool(caller.cancellation_point.load()) == (bad == 1));
+    assert(caller.cancellation_suppression.load() == (bad == 2));
+    caller.cancellation_transfer.store(0);
+    caller.cancellation_point.store(nullptr);
+    caller.cancellation_suppression.store(0);
+  }
+  fork_initial_continuation(true);
+  assert(!I::adopt_fork_survivor_after_thread_exit());
+  assert(!I::adopt_fork_survivor_during_cleanup());
+  assert(!I::rebind_normal_exit_fork_owner(owner));
+  assert(!I::rebind_last_thread_exit_fork_owner(owner));
+  check_initial_during();
+  ++callback_returns;
 }
 
 void check_terminal_child_state(M::ThreadControl &caller) {
@@ -625,9 +803,114 @@ void fork_worker_continuation(bool during) {
 
 namespace LIBC_NAMESPACE_DECL {
 class ThreadAtExitCallbackMgr {};
+FILE *stdin = nullptr, *stdout = nullptr, *stderr = nullptr;
+Mutex File::list_lock(false, false, false, false);
+File *File::get_first_file() { return nullptr; }
+void File::unlock_list() { list_lock.unlock(); }
 namespace mmix {
+// This fixture models only the private priority-ledger snapshot lock, not PI
+// mutex behavior. The real lock implementation has independent target tests.
+MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
+                               bool try_only) {
+  assert(this == &current_control->priority_protection.guard);
+  assert(!timeout && !try_only && !lock_count);
+  lock_count = 1;
+  return MutexError::NONE;
+}
+MutexError RobustMutex::unlock() {
+  assert(this == &current_control->priority_protection.guard && lock_count == 1);
+  lock_count = 0;
+  return MutexError::NONE;
+}
 bool initialize_credentials(ThreadControl &) { return true; }
 void close_notification_admission() { notifications_closed = true; }
+CredentialGate::CredentialGate() { __builtin_trap(); }
+CredentialGate::~CredentialGate() { __builtin_trap(); }
+void unregister_credentials(ThreadControl &) { __builtin_trap(); }
+bool prepare_credentials_fork() { return true; }
+void finish_credentials_fork() {}
+void restore_credentials_after_fork(ThreadControl &) {}
+void once_after_fork(bool quiescent) { assert(quiescent); }
+void allocator_fork_prepare() {
+  assert(!allocator_snapshot);
+  allocator_snapshot = true;
+}
+void allocator_fork_release() {
+  assert(allocator_snapshot);
+  allocator_snapshot = false;
+}
+int prepare_loader_fork(bool *quiescent) {
+  assert(!loader_snapshot);
+  loader_snapshot = true;
+  *quiescent = true;
+  return 0;
+}
+void finish_loader_fork(bool, bool) {
+  assert(loader_snapshot);
+  loader_snapshot = false;
+}
+int prepare_notification_fork(bool minimal, bool *drained) {
+  assert(!minimal && !notification_snapshot);
+  ++notification_prepares;
+  notification_snapshot = true;
+  *drained = true;
+  return 0;
+}
+void finish_notification_fork(bool) {
+  assert(notification_snapshot);
+  notification_snapshot = false;
+}
+ForkResult fork_process(bool wait_for_exec) {
+  assert(!wait_for_exec);
+  const auto owner = current_control->attributes.tid;
+  if (clone_failure) return {-EAGAIN, owner};
+  pid_t child = ::fork();
+  assert(child >= 0);
+  if (!child) current_control->attributes.tid = ::getpid();
+  return {child, owner};
+}
+// Root capture/walking is separately tested with cursor injection. These
+// boundaries make the real ForkOperation/finish/certificate flow executable
+// on the host, including loader-before-metadata ordering and no window reset.
+bool has_c_cleanup() { return false; }
+bool ordinary_fork_context(ThreadControl &c) {
+  assert(!loader_snapshot);
+  return current_control == &c && c.unwind_root.active;
+}
+bool terminal_thread_fork_context(ThreadControl &c) {
+  return ordinary_fork_context(c) && c.terminal_cleanup_in_progress() &&
+         c.unwind_root.kind == UnwindRootKind::TerminalThreadCleanup;
+}
+bool last_thread_fork_context(ThreadControl &c) {
+  return ordinary_fork_context(c) && c.terminal_cleanup_finished() &&
+         c.unwind_root.kind == UnwindRootKind::LastThreadProcess;
+}
+bool restore_fork_unwind(ThreadControl &c) {
+  assert(!loader_snapshot);
+  return c.unwind_root.active;
+}
+bool restore_fork_cancellation(ThreadControl &) { __builtin_trap(); }
+void run_with_unwind_root(ThreadControl &, RootBody *, void *) { __builtin_trap(); }
+void run_with_terminal_cleanup_root(ThreadControl &c, RootBody *body, void *arg) {
+  assert(!c.unwind_root.active && c.terminal_cleanup_pending());
+  assert(!initial_thread_during_fork_owner() && !drain_roots++);
+  c.unwind_root = {&c, 8, 16, 24, 4, c.unwind_root.generation + 1, true,
+                   UnwindRootKind::TerminalThreadCleanup};
+  body(arg);
+  assert(!initial_thread_during_fork_owner() && I::main_thread_cleanup_finished());
+  assert(c.unwind_root.active && !drain_returns++);
+  c.unwind_root.active = false;
+}
+[[noreturn]] void run_with_process_exit_root(ThreadControl &c, RootBody *body,
+                                             void *arg) {
+  assert(!c.unwind_root.active && c.terminal_cleanup_finished());
+  assert(!initial_thread_during_fork_owner() && drain_returns == 1 && !after_roots++);
+  c.unwind_root = {&c, 8, 16, 24, 4, c.unwind_root.generation + 1, true,
+                   UnwindRootKind::LastThreadProcess};
+  body(arg);
+  __builtin_trap();
+}
+extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() { __builtin_trap(); }
 ThreadCreationResult create_thread_helper(const ThreadPreparation &,
                                          ThreadAttributes *&,
                                          ThreadControl **) {
@@ -639,11 +922,31 @@ long reclaim_thread(ThreadControl &, ThreadOwner, ThreadResources &) {
 extern "C" void __llvm_libc_mmix_reaper_loop() { __builtin_trap(); }
 } // namespace mmix
 namespace internal {
+EnvironmentManager &EnvironmentManager::get_instance() {
+  static EnvironmentManager manager;
+  return manager;
+}
 ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
   static ThreadAtExitCallbackMgr manager;
   return &manager;
 }
 void call_atexit_callbacks(ThreadAttributes *attributes) {
+  if (initial_during_case()) {
+    assert(attributes == self.attrib && !tls_drains++);
+    const bool tls = selected == Case::InitialDuringTLS ||
+                     selected == Case::InitialCancelTLS;
+    // Model the manager's live callback and pending cursor on this returning
+    // stack. TSS entry deliberately has no TLS loader scope left to drain.
+    assert(M::current_control->loader_scopes.fetch_add(1) == 0);
+    unsigned cursor = 1;
+    if (tls) initial_during_callback();
+    assert(cursor++ == 1 && !pending_tls++);
+    assert(M::current_control->loader_scopes.fetch_sub(1) == 1);
+    if (!tls) initial_during_callback();
+    assert(cursor++ == 2 && !pending_tss++);
+    assert(callback_returns == 1 && !M::current_control->loader_scopes.load());
+    return;
+  }
   if (worker_case()) {
     assert(attributes == self.attrib);
     if (M::current_control->retains_resources_until_process_exit()) {
@@ -766,6 +1069,17 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
 
 extern "C" void mmix_normal_exit_test_finalize(void *dso) {
   assert(!dso && ++process_drains == 1 && tls_drains == 1);
+  if (initial_during_case()) {
+    auto &caller = *M::current_control;
+    assert(drain_returns == 1 && after_roots == 1);
+    assert(pending_tls == 1 && pending_tss == 1 && callback_returns == 1);
+    assert(!M::initial_thread_during_fork_owner());
+    assert(caller.attributes.retval.posix_retval == terminal_result());
+    assert(caller.terminal_cleanup_finished() && I::main_thread_cleanup_finished());
+    assert(notifications_closed && !I::normal_exit_fork_owner());
+    fork_initial_continuation(false);
+    return;
+  }
   if (selected == Case::LastThreadReturn) {
     fork_after_last_thread_cleanup();
     return;
@@ -893,6 +1207,7 @@ extern "C" void mmix_normal_exit_test_finalize(void *dso) {
 extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long first,
                                          long second, long third, long fourth,
                                          long, long) {
+  if (number == SYS_gettid) return M::current_control->attributes.tid;
   if (number == SYS_futex) {
     assert(second == FUTEX_WAKE_PRIVATE);
     return 0;
@@ -923,6 +1238,32 @@ static void exercise(Case test) {
   assert(!I::main_thread_cleanup_in_progress());
   assert(!I::adopt_fork_survivor_after_cleanup());
   assert(!I::adopt_fork_survivor_during_cleanup());
+  if (initial_during_case()) {
+    caller.attributes.style = LIBC_NAMESPACE::ThreadStyle::POSIX;
+    caller.cancellation_identity = 19;
+    caller.cancellation_generation = 23;
+    // Inject the already-completed stack boundary, including the cancellation
+    // claim. This does not execute target forced unwinding or claim to do so.
+    if (cancellation_case()) {
+      M::ThreadRegistryLock lock(M::thread_registry);
+      assert(!lock.request_cancellation(caller, true));
+      assert(lock.begin_cleanup(caller, true));
+    } else M::begin_thread_cleanup(caller);
+    caller.unwind_root.generation = 5;
+    try {
+      M::complete_thread_cleanup(caller, LIBC_NAMESPACE::ThreadReturnValue(terminal_result()));
+    } catch (const ExitStatus &status) {
+      assert(status.value == 0 && process_drains == 1 && tls_drains == 1);
+      assert(drain_returns == 1 && after_roots == 1);
+      assert(!M::initial_thread_during_fork_owner());
+      assert(!I::last_thread_exit_fork_owner() && !I::normal_exit_fork_owner());
+      M::ThreadRegistryLock lock(M::thread_registry);
+      assert(lock.live_threads() == 0 && lock.process_exiting());
+      assert(!lock.exit_ready(caller, 0) && !lock.claim_process_cleanup());
+      return;
+    }
+    __builtin_trap();
+  }
   if (test == Case::LastThreadReturn) {
     caller.cancellation.set_enabled(false);
     caller.cancellation.set_async(true);
@@ -1093,7 +1434,11 @@ int main() {
                         Case::WorkerQuick,
                         Case::WorkerTerminal,
                         Case::WorkerLiveReaper,
-                        Case::LastThreadReturn};
+                        Case::LastThreadReturn,
+                        Case::InitialDuringTLS,
+                        Case::InitialDuringTSS,
+                        Case::InitialCancelTLS,
+                        Case::InitialCancelTSS};
   for (Case test : cases) {
     pid_t child = ::fork();
     assert(child >= 0);

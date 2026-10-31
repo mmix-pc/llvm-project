@@ -669,6 +669,156 @@ static void admission_concurrency() {
 }
 #endif
 
+static void terminal_during_fork_admission() {
+  constexpr auto kind = ForkContinuation::InitialThreadDuring;
+  // Each rejection starts from a separately constructed, deterministic census.
+  for (unsigned blocker = 0; blocker != 29; ++blocker) {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl caller, other;
+    caller.attributes.tid = 1;
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(caller));
+      if (blocker == 1 || blocker == 5 || blocker == 26) {
+        require(lock.reserve() && lock.insert(other, blocker == 5));
+        require(lock.start(other) && lock.drop_creator(other));
+        if (blocker != 1)
+          require(lock.begin_cleanup(other) && lock.close_leases(other) &&
+                  lock.exit_ready(other, 0));
+      } else if (blocker == 2 || blocker == 27) {
+        require(lock.begin_helper_creation() && lock.insert(other, true, true));
+        require(lock.start(other) && lock.drop_creator(other));
+        if (blocker == 27)
+          require(lock.begin_cleanup(other) && lock.close_leases(other) &&
+                  lock.exit_ready(other, 0));
+      } else if (blocker == 3) {
+        require(lock.reserve());
+      } else if (blocker == 4) {
+        require(lock.begin_helper_creation());
+      } else if (blocker == 6 || blocker == 28) {
+        require(lock.reserve() && lock.insert_callback_waiter(other));
+        require(lock.start(other) && lock.drop_creator(other));
+        if (blocker == 28) require(lock.discard_callback(other));
+      } else if (blocker == 7 || blocker == 13 || blocker == 14 || blocker == 16) {
+        require(lock.pin(&caller.attributes) == &caller);
+        if (blocker == 7) require(lock.detach(caller) && lock.unpin(caller));
+        if (blocker == 14) require(lock.acquire_lease(caller) && lock.unpin(caller));
+        if (blocker == 16) require(lock.claim_join(caller) && lock.unpin(caller));
+      } else if (blocker == 15) {
+        require(lock.begin_process_operation(caller));
+      }
+      if (blocker != 8) require(lock.begin_cleanup(caller));
+      if (blocker == 10 || blocker == 12) require(lock.close_leases(caller));
+      if (blocker == 10) require(lock.exit_ready(caller, 17));
+    }
+    if (blocker != 9) require(caller.begin_callback_cleanup());
+    if (blocker == 11) require(process.claim_process_cleanup());
+    caller.unwind_root = {&caller, 8, 16, 24, 4, 6, true,
+                          UnwindRootKind::TerminalThreadCleanup};
+    if (blocker == 17) caller.unwind_root.active = false;
+    if (blocker == 18) caller.unwind_root.generation = 0;
+    if (blocker == 19) caller.unwind_root.kind = UnwindRootKind::LastThreadProcess;
+    if (blocker == 20) caller.unwind_root.owner = &other;
+    if (blocker == 21) caller.unwind_root.chain = 0;
+    if (blocker == 22) caller.cancellation_transfer.store(1);
+    if (blocker == 23)
+      caller.cancellation_point.store(reinterpret_cast<CancellationPoint *>(8));
+    caller.cancellation_suppression.store(blocker == 24 ? 0 : 1);
+    bool single = true;
+    bool frozen = process.freeze_for_fork(caller, 1, &single, blocker != 25, kind);
+    require(frozen == (blocker == 0) && single == (blocker == 0));
+    if (!frozen) continue;
+    const auto root = caller.unwind_root;
+    process.release_after_fork(); // Failed clone: no progress/election mutation.
+    for (unsigned child = 0; child != 2; ++child) {
+      require(caller.terminal_cleanup_in_progress() &&
+              !caller.terminal_cleanup_finished());
+      require(process.admit_signal_notification());
+      require(!process.freeze_for_fork(caller, 1, &single, true,
+                                       ForkContinuation::LastThreadAfter));
+      require(process.freeze_for_fork(caller, 1, &single, true, kind) && single);
+      process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), kind);
+      require(root.matches(caller.unwind_root));
+      // claim() need not clear ENABLED. TERMINAL alone prevents delivery.
+      require(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+              !caller.cancellation.ready() && !caller.cancellation.request());
+      ThreadRegistryLock lock(process);
+      require(lock.live_threads() == 1 && !lock.process_exiting());
+      require(!caller.begin_callback_cleanup() && !lock.begin_cleanup(caller));
+      require(!lock.exit_ready(caller, 0)); // Leases remain open.
+      require(lock.pin(&caller.attributes) == &caller);
+      require(lock.acquire_lease(caller) && lock.release_lease(caller));
+      require(lock.unpin(caller) && lock.owner(caller) == ThreadOwner::Joinable);
+      require(lock.reserve() && lock.cancel_reservation());
+    }
+    ThreadRegistryLock lock(process);
+    require(lock.close_leases(caller) && lock.exit_ready(caller, 17));
+    require(lock.live_threads() == 0 && !lock.exit_ready(caller, 99));
+    require(caller.terminal_cleanup_finished()); // Initial identity survived.
+    require(lock.termination_action(caller) == ThreadTermination::Process);
+    require(lock.termination_action(caller) == ThreadTermination::ThreadOnly);
+    require(lock.claim_process_cleanup() && !lock.claim_process_cleanup());
+  }
+  // A promoted worker owns process-lifetime backing, but is never initial.
+  {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl main, worker;
+    main.attributes.tid = 1;
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(main));
+      require(lock.reserve() && lock.insert(worker, false) && lock.start(worker));
+      require(lock.drop_creator(worker));
+    }
+    require(process.freeze_for_fork(worker));
+    process.restore_fork_child(worker, internal::ForkRecovery::child(true, true));
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.begin_cleanup(worker) && worker.begin_callback_cleanup());
+      require(lock.live_threads() == 1);
+    }
+    worker.unwind_root = {&worker, 8, 16, 24, 4, 6, true,
+                          UnwindRootKind::TerminalThreadCleanup};
+    require(worker.retains_resources_until_process_exit());
+    require(!worker.terminal_cleanup_pending());
+    require(!process.freeze_for_fork(worker, 0, nullptr, true, kind));
+  }
+  // Sole at snapshot is not an early last-thread election. Creation stays open.
+  for (unsigned commit = 0; commit != 2; ++commit) {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl caller, peer;
+    caller.attributes.tid = 1;
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(caller) && lock.begin_cleanup(caller));
+      require(caller.begin_callback_cleanup());
+    }
+    caller.unwind_root = {&caller, 8, 16, 24, 4, 6, true,
+                          UnwindRootKind::TerminalThreadCleanup};
+    require(process.freeze_for_fork(caller, 0, nullptr, true, kind));
+    process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), kind);
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.reserve());
+    }
+    require(!process.freeze_for_fork(caller, 0, nullptr, true, kind));
+    ThreadRegistryLock lock(process);
+    require(lock.close_leases(caller) && lock.exit_ready(caller, 17));
+    require(lock.termination_action(caller) == ThreadTermination::WaitForCreation);
+    if (commit) {
+      require(lock.insert(peer, false) && lock.start(peer));
+      require(lock.termination_action(caller) == ThreadTermination::ThreadOnly);
+      require(!lock.process_exiting() && lock.live_threads() == 1);
+    } else {
+      require(lock.cancel_reservation());
+      require(lock.termination_action(caller) == ThreadTermination::Process);
+    }
+  }
+}
+
 static void terminal_exit_fork_admission() {
   constexpr auto kind = ForkContinuation::LastThreadAfter;
   for (unsigned blocker = 0; blocker != 24; ++blocker) {
@@ -766,6 +916,7 @@ extern "C" int main() {
   helper_fork_admission();
   worker_exit_fork_admission();
   terminal_exit_fork_admission();
+  terminal_during_fork_admission();
   main_registration();
   detached_main();
   {

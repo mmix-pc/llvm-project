@@ -15,7 +15,7 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 struct ThreadControl;
-enum class UnwindRootKind { Thread, LastThreadProcess };
+enum class UnwindRootKind { Thread, TerminalThreadCleanup, LastThreadProcess };
 
 // Private runtime state, not a public pthread or kernel ABI.
 struct UnwindRoot {
@@ -41,8 +41,14 @@ bool validate_fork_cleanup(const UnwindRoot &root);
 bool restore_fork_unwind(ThreadControl &control);
 bool ordinary_fork_context(ThreadControl &control);
 bool last_thread_fork_context(ThreadControl &control);
+bool terminal_thread_fork_context(ThreadControl &control);
 [[gnu::visibility("hidden")]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument);
+// Post-stack drain only. Returns to the still-live completion activation,
+// withdrawing this root before finish_thread can establish an AFTER root.
+[[gnu::visibility("hidden")]] void
+run_with_terminal_cleanup_root(ThreadControl &control, RootBody *body,
+                               void *argument);
 // Fresh nonreturning activation after the thread root has been consumed. This
 // does not initialize cancellation windows or resume a thread cleanup drain.
 [[noreturn, gnu::visibility("hidden")]] void

@@ -41,19 +41,30 @@ for opt in ("0", "2"):
             assert 'r230' in disasm and 'PUSHGO r31' in disasm
             report = subprocess.check_output(['llvm-readobj', '--sections', '--relocations', str(obj)], text=True)
             assert 'R_MMIX_TPREL' in report and '.init_array' not in report
+    # Keep the C-only composition above; also compile the selected root path.
+    rooted = root / ('rooted-O' + opt + '.o')
+    subprocess.run(base + ['-DLIBC_MMIX_UNWIND_ROOTS', '-emit-obj',
+                          str(sources[0]), '-o', str(rooted)], check=True)
+    undefined = subprocess.check_output(['llvm-nm', '-u', str(rooted)], text=True)
+    assert 'run_with_terminal_cleanup_root' in undefined
+    assert 'run_with_unwind_root' in undefined
     if len(sys.argv) == 4:
         import resource as limits
         limits.setrlimit(limits.RLIMIT_CORE, (0, 0))
         for windows in (False, True):
-            exe = root / ('host-O' + opt + ('-windows' if windows else ''))
-            flags = ['-DLIBC_MMIX_CANCELLATION_WINDOWS'] if windows else []
-            subprocess.run([sys.argv[3], *common, *flags, '-D__mmix__', '-O'+opt,
-                '-include', str(root/'transport.h'), *map(str,sources),
-                str(root/'test.cpp'), '-o', str(exe)], check=True)
-            for mode in range(19):
-                subprocess.run([str(exe), str(mode)], check=True, timeout=10)
-            print('Native thread completion: 19 scenarios passed at O'+opt+
-                  ' windows='+str(windows), flush=True)
+            for roots in (False, True):
+                exe = root / ('host-O' + opt + '-windows-' + str(windows) +
+                              '-roots-' + str(roots))
+                flags = ['-DLIBC_MMIX_CANCELLATION_WINDOWS'] if windows else []
+                if roots:
+                    flags += ['-DLIBC_MMIX_UNWIND_ROOTS']
+                subprocess.run([sys.argv[3], *common, *flags, '-D__mmix__', '-O'+opt,
+                    '-include', str(root/'transport.h'), *map(str,sources),
+                    str(root/'test.cpp'), '-o', str(exe)], check=True)
+                for mode in range(19):
+                    subprocess.run([str(exe), str(mode)], check=True, timeout=10)
+                print('Native thread completion: 19 scenarios passed at O'+opt+
+                      ' windows='+str(windows)+' roots='+str(roots), flush=True)
 
 #--- headers/sys/syscall.h
 #define SYS_futex 98
@@ -135,6 +146,10 @@ static void *run(void *p) {
 }
 static int run_int(void *p) { run(p); return -37; }
 namespace finish_test { namespace internal {
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+bool main_thread_cleanup_in_progress() { return false; }
+bool main_thread_cleanup_finished() { return false; }
+#endif
 void cleanup_main_thread() { __builtin_trap(); }
 void call_atexit_callbacks(ThreadAttributes *a) {
   owner_alive();
@@ -162,6 +177,19 @@ void cleanup_current_thread() {
 }
 } }
 namespace finish_test { namespace mmix {
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control;
+bool has_c_cleanup() { return false; }
+void run_with_unwind_root(ThreadControl &c, RootBody *body, void *p) {
+  require(!c.unwind_root.active);
+  c.unwind_root.active = true;
+  body(p);
+  __builtin_trap();
+}
+void run_with_terminal_cleanup_root(ThreadControl &, RootBody *, void *) {
+  __builtin_trap(); // Ordinary workers must not acquire initial identity.
+}
+#endif
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
 CredentialGate::CredentialGate() {
   require(!credential_gate && mask == waiting_mask);
@@ -250,6 +278,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
 }
 extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
   owner_alive();
+  require(!control.unwind_root.active);
   bool aborted = mode == 3 || mode == 4;
   require(mask == (aborted ? UINT64_MAX : waiting_mask) && !terminals++);
   require(!credential_gate && gates == (aborted ? 0u : 1u));

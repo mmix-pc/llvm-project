@@ -48,6 +48,24 @@ bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller) {
          root.owner == &caller && root.generation && root.chain;
 }
 
+bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller) {
+  const auto &root = caller.unwind_root;
+  return main_registered && fork_recovery.allows_fork() &&
+         caller.fork_recovery.allows_fork() && !process_operation &&
+         process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == RUNNING &&
+         !reservations && !helper_reservations && !unreaped_helpers &&
+         !unreaped_callbacks && live == 1 && head == &caller && !caller.next &&
+         !reap_head && !reap_tail && !reap_count && caller.registry == this &&
+         caller.listed && caller.counted && caller.lifecycle_pin &&
+         !caller.creator_pin && !caller.api_pins && caller.leases_open &&
+         !caller.leases && !caller.queued && !caller.reap_next &&
+         caller.owner == ThreadOwner::Joinable && !caller.internal_helper &&
+         caller.callback_phase == CallbackPhase::None &&
+         caller.terminal_cleanup_in_progress() && root.active &&
+         root.kind == UnwindRootKind::TerminalThreadCleanup &&
+         root.owner == &caller && root.generation && root.chain;
+}
+
 bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
                                      uint64_t suppression, bool *single_thread,
                                      bool helper_drained,
@@ -55,8 +73,12 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
   if (single_thread)
     *single_thread = false;
   mutex.value.lock();
-  if (kind == ForkContinuation::LastThreadAfter) {
-    if (!helper_drained || !terminal_fork_caller(caller) ||
+  if (kind == ForkContinuation::LastThreadAfter ||
+      kind == ForkContinuation::InitialThreadDuring) {
+    const bool eligible = kind == ForkContinuation::LastThreadAfter
+                              ? terminal_fork_caller(caller)
+                              : terminal_during_fork_caller(caller);
+    if (!helper_drained || !eligible ||
         caller.cancellation_transfer.load() ||
         caller.cancellation_suppression.load() != suppression ||
         caller.cancellation_point.load()) {
@@ -106,11 +128,15 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
                                         ForkContinuation kind) {
   if (!recovery.is_child())
     __builtin_trap();
-  if (kind == ForkContinuation::LastThreadAfter) {
-    if (!recovery.allows_fork() || !terminal_fork_caller(survivor))
+  if (kind == ForkContinuation::LastThreadAfter ||
+      kind == ForkContinuation::InitialThreadDuring) {
+    const bool eligible = kind == ForkContinuation::LastThreadAfter
+                              ? terminal_fork_caller(survivor)
+                              : terminal_during_fork_caller(survivor);
+    if (!recovery.allows_fork() || !eligible)
       __builtin_trap();
     // The frozen registry already contains exactly this terminal task. Do not
-    // recount it, reopen leases, erase cleanup, or release its live backing.
+    // recount it, change leases/election, erase cleanup or release its backing.
     fork_recovery = survivor.fork_recovery = recovery;
     event.value.store(0);
     RawMutex::init(&mutex.value);

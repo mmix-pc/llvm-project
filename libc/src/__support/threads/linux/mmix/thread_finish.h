@@ -10,6 +10,7 @@
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_THREAD_FINISH_H
 
 #include "lifecycle.h"
+#include "hdr/types/pid_t.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -23,6 +24,12 @@ finish_thread(ThreadControl &control, ThreadReturnValue result);
 // Enter Cleaning under the registry lock, restoring the caller's signal mask
 // before any callback or unwinder code. Reentry fails rather than restarting.
 void begin_thread_cleanup(ThreadControl &control);
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+// Owner-local checks only, safe under the loader/registry snapshot locks.
+// The certificate binds the live drain, manager, initial identity and root.
+pid_t initial_thread_during_fork_owner();
+bool rebind_initial_thread_during_fork_owner(pid_t previous_tid);
+#endif
 // Called once after normal return or a verified forced-unwind root handoff.
 [[noreturn]] void complete_thread_cleanup(ThreadControl &control,
                                         ThreadReturnValue result);

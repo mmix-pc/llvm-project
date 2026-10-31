@@ -24,6 +24,7 @@
 #include "src/stdio/stdout.h"
 #include "src/stdlib/environ_internal.h"
 #include "src/stdlib/linux/mmix/allocator.h"
+#include "thread_finish.h"
 #include "thread_reaper.h"
 #ifdef LIBC_MMIX_SHARED_STARTUP
 #include "src/dlfcn/linux/mmix/loading.h"
@@ -127,6 +128,11 @@ int ForkOperation::prepare_runtime() {
       last_thread_fork_context(*caller)) {
     continuation = ForkContinuation::LastThreadAfter;
     continuation_root = caller->unwind_root;
+  } else if (!minimal &&
+             initial_thread_during_fork_owner() == caller->attributes.tid &&
+             terminal_thread_fork_context(*caller)) {
+    continuation = ForkContinuation::InitialThreadDuring;
+    continuation_root = caller->unwind_root;
   } else if (!minimal && internal::normal_exit_fork_owner &&
       internal::rebind_normal_exit_fork_owner &&
       internal::normal_exit_fork_owner(&during) == caller->attributes.tid &&
@@ -135,13 +141,14 @@ int ForkOperation::prepare_runtime() {
                           : ForkContinuation::NormalAfter;
   }
 #endif
-  const bool process_cleanup = continuation != ForkContinuation::Ordinary;
+  const bool cleanup_continuation = continuation != ForkContinuation::Ordinary;
+  const bool terminal = continuation == ForkContinuation::LastThreadAfter ||
+                        continuation == ForkContinuation::InitialThreadDuring;
   // Unsupported terminal/DURING/forced contexts must not attempt helper
   // retirement or enter ordinary child restoration as a fallback.
-  if (caller->cancellation.terminal() &&
-      continuation != ForkContinuation::LastThreadAfter)
+  if (caller->cancellation.terminal() && !terminal)
     return EAGAIN;
-  if (continuation == ForkContinuation::LastThreadAfter &&
+  if (terminal &&
       !reaper_absent_for_exit_fork(*caller, continuation))
     return EAGAIN;
   // Helper TLS retirement can enter the loader and allocator. Complete it
@@ -155,8 +162,9 @@ int ForkOperation::prepare_runtime() {
   if (!minimal)
     // A terminal continuation may witness absence, never retire a live helper.
     helper_drained =
-        (process_cleanup ? reaper_absent_for_exit_fork(*caller, continuation)
-                         : retire_reaper_for_fork(*caller)) &&
+        (cleanup_continuation
+             ? reaper_absent_for_exit_fork(*caller, continuation)
+             : retire_reaper_for_fork(*caller)) &&
         notification_drained;
   else
     // The minimal precheck already excluded all helpers and incomplete reaps.
@@ -242,6 +250,15 @@ int ForkOperation::freeze_registry() {
                                              helper_drained, continuation);
   // Recheck the exact owner/root selected before locks. These hooks inspect
   // only owner-local identity and phase, never query locked loader metadata.
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  if (registry && continuation == ForkContinuation::InitialThreadDuring &&
+      (initial_thread_during_fork_owner() != caller->attributes.tid ||
+       !continuation_root.matches(caller->unwind_root))) {
+    thread_registry.release_after_fork();
+    registry = false;
+    return EAGAIN;
+  }
+#endif
   if (registry && continuation == ForkContinuation::LastThreadAfter &&
       (internal::last_thread_exit_fork_owner() != caller->attributes.tid ||
        !continuation_root.matches(caller->unwind_root))) {
@@ -271,8 +288,12 @@ long ForkOperation::create_child(bool wait_for_exec) {
 }
 
 void ForkOperation::restore_runtime(bool child) {
-  const bool process_cleanup = continuation != ForkContinuation::Ordinary;
-  const bool terminal = continuation == ForkContinuation::LastThreadAfter;
+  const bool initial_during =
+      continuation == ForkContinuation::InitialThreadDuring;
+  const bool process_cleanup =
+      continuation != ForkContinuation::Ordinary && !initial_during;
+  const bool terminal =
+      continuation == ForkContinuation::LastThreadAfter || initial_during;
   // Capture provenance before child registry restoration promotes the worker.
   const bool worker_cleanup =
       process_cleanup && !caller->retains_resources_until_process_exit();
@@ -369,9 +390,15 @@ void ForkOperation::restore_runtime(bool child) {
     case ForkContinuation::LastThreadAfter:
       adopted = internal::adopt_fork_survivor_after_thread_exit();
       break;
+    case ForkContinuation::InitialThreadDuring:
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+      adopted = internal::adopt_fork_survivor_during_thread_exit() &&
+                rebind_initial_thread_during_fork_owner(previous_tid);
+#endif
+      break;
     }
     if (!adopted ||
-        (terminal &&
+        (continuation == ForkContinuation::LastThreadAfter &&
          (!internal::rebind_last_thread_exit_fork_owner ||
           !internal::rebind_last_thread_exit_fork_owner(previous_tid))) ||
         (process_cleanup && !terminal &&
@@ -389,8 +416,11 @@ void ForkOperation::restore_runtime(bool child) {
   // Metadata queries are safe only after the quiescent loader has resumed.
   if (child && child_recovery.allows_loader() &&
       (!restore_fork_unwind(*caller) ||
-       (terminal && (!continuation_root.matches(caller->unwind_root) ||
-                     !last_thread_fork_context(*caller)))))
+       (terminal &&
+        (!continuation_root.matches(caller->unwind_root) ||
+         (initial_during ? (!initial_thread_during_fork_owner() ||
+                            !terminal_thread_fork_context(*caller))
+                         : !last_thread_fork_context(*caller))))))
     internal::exit(127);
 #endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS

@@ -75,7 +75,7 @@ static void ordinary_body(void *) {
 
 static void terminal_body(void *) {
   auto &control = *M::current_control;
-  assert(control.unwind_root.generation == 2);
+  assert(control.unwind_root.generation == 3);
   assert(control.unwind_root.procedure == expected_activation);
   assert(control.unwind_root.kind == M::UnwindRootKind::LastThreadProcess);
   assert(control.cancellation.terminal() && !control.cancellation.ready());
@@ -111,6 +111,35 @@ static void terminal_body(void *) {
   throw Completed{}; // Test transport only; the production body never returns.
 }
 
+static void drain_body(void *) {
+  auto &control = *M::current_control;
+  assert(control.unwind_root.generation == 2);
+  assert(control.unwind_root.kind == M::UnwindRootKind::TerminalThreadCleanup);
+  assert(control.unwind_root.procedure == expected_activation);
+  assert(window_initializations == 1);
+  assert(control.cancellation.terminal() && !control.cancellation.ready());
+  // Capture precedes actual callback admission.
+  assert(!M::terminal_thread_fork_context(control));
+  assert(control.begin_callback_cleanup());
+  assert(M::terminal_thread_fork_context(control));
+  assert(M::restore_fork_unwind(control));
+  const auto root = control.unwind_root;
+  for (unsigned bad = 0; bad != 7; ++bad) {
+    if (bad == 0) M::forced.active = true;
+    if (bad == 1) cleanup_pending = true;
+    if (bad == 2) dispatch_pending = true;
+    if (bad == 3) ++chain;
+    if (bad == 4) control.unwind_root.owner = nullptr;
+    if (bad == 5) control.unwind_root.active = false;
+    if (bad == 6) control.unwind_root.kind = M::UnwindRootKind::Thread;
+    assert(!M::terminal_thread_fork_context(control));
+    M::forced.active = cleanup_pending = dispatch_pending = false;
+    if (bad == 3) --chain;
+    control.unwind_root = root;
+  }
+  assert(M::terminal_thread_fork_context(control));
+}
+
 int main() {
   M::ThreadRegistry registry;
   M::ThreadControl control;
@@ -127,8 +156,40 @@ int main() {
   {
     M::ThreadRegistryLock lock(registry);
     assert(lock.begin_cleanup(control));
-    assert(control.begin_callback_cleanup());
     assert(!control.terminal_cleanup_finished());
+  }
+  expected_activation =
+      reinterpret_cast<uintptr_t>(&M::run_with_terminal_cleanup_root);
+  for (unsigned bad = 0; bad != 9; ++bad) {
+    pid_t child = ::fork();
+    assert(child >= 0);
+    if (!child) {
+      rlimit limit{0, 0};
+      assert(::setrlimit(RLIMIT_CORE, &limit) == 0);
+      ::alarm(5);
+      if (bad == 0) M::forced.active = true;
+      if (bad == 1) control.unwind_root.active = true;
+      if (bad == 2) cleanup_pending = true;
+      if (bad == 3) dispatch_pending = true;
+      if (bad == 4) control.unwind_root.generation = UINT64_MAX;
+      if (bad == 5) control.cancellation_transfer.store(1);
+      if (bad == 6) control.cancellation_point.store(
+          reinterpret_cast<M::CancellationPoint *>(8));
+      if (bad == 7) control.cancellation_suppression.store(1);
+      if (bad == 8) M::current_control = nullptr;
+      M::run_with_terminal_cleanup_root(control, drain_body, nullptr);
+      ::_exit(1);
+    }
+    int status;
+    assert(::waitpid(child, &status, 0) == child);
+    assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGILL);
+    assert(control.unwind_root.generation == 1 && !control.unwind_root.active);
+  }
+  M::run_with_terminal_cleanup_root(control, drain_body, nullptr);
+  assert(!control.unwind_root.active && control.unwind_root.generation == 2);
+  assert(window_initializations == 1);
+  {
+    M::ThreadRegistryLock lock(registry);
     assert(lock.close_leases(control) && lock.exit_ready(control, 42));
     assert(lock.termination_action(control) == M::ThreadTermination::Process);
   }
@@ -161,14 +222,14 @@ int main() {
     int status;
     assert(::waitpid(child, &status, 0) == child);
     assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGILL);
-    assert(control.unwind_root.generation == 1 && !control.unwind_root.active);
+    assert(control.unwind_root.generation == 2 && !control.unwind_root.active);
     assert(!M::forced.active && !cleanup_pending && !dispatch_pending);
   }
   try {
     M::run_with_process_exit_root(control, terminal_body, nullptr);
   } catch (Completed &) {
     assert(control.terminal_cleanup_finished());
-    assert(control.unwind_root.generation == 2 && window_initializations == 1);
+    assert(control.unwind_root.generation == 3 && window_initializations == 1);
     return 0;
   }
   __builtin_trap();

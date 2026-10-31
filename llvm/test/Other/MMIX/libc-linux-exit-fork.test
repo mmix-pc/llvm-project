@@ -5,6 +5,10 @@
 # Injected private lifecycle hooks, not guest fork-continuation qualification.
 # Includes initial-thread terminal AFTER rollback, exact owner/root binding,
 # nested terminal children, closed leases/cancellation and no drain replay.
+# Initial-thread terminal DURING additionally runs production ForkOperation
+# and completion with injected cursor/loader/transport boundaries. Both TLS
+# and TSS locations include explicit-exit and cancellation-state entries,
+# nested children, failed clone/frozen-check rollback, and a later AFTER fork.
 #--- run.py
 import pathlib
 import shlex

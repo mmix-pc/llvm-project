@@ -52,6 +52,8 @@ bool adopt_fork_survivor_during_cleanup(bool worker_cleanup = false);
 // Sole initial-thread terminal AFTER child. Preserve Finished, closed leases
 // and terminal cancellation; only re-register clear-TID and robust state.
 bool adopt_fork_survivor_after_thread_exit();
+// Sole initial-thread post-stack TLS/TSS continuation, still Cleaning/live one.
+bool adopt_fork_survivor_during_thread_exit();
 // The transport published the child TID and signals remain blocked. Do not
 // acquire locks or repair interrupted subsystems.
 bool restore_minimal_fork_child();

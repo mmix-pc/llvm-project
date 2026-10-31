@@ -3,6 +3,8 @@
 # RUN: %python %t/run.py %S/../../../../libc %t %mmix_host_cxx
 
 # Native cursor/syscall injection, not target unwind or clone qualification.
+# Ordinary -> terminal TLS/TSS drain -> AFTER uses three distinct generations;
+# only the ordinary root initializes cancellation windows.
 #--- run.py
 import pathlib
 import shlex

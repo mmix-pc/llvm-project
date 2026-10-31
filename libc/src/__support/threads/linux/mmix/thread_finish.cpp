@@ -28,6 +28,71 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+namespace {
+struct TerminalDrain {
+  ThreadControl *control;
+  ThreadAttributes *attributes;
+  ThreadAtExitCallbackMgr *manager;
+  UnwindRoot root;
+  pid_t tid;
+};
+LIBC_CONSTINIT LIBC_THREAD_LOCAL TerminalDrain *terminal_drain = nullptr;
+
+bool matches_terminal_drain() {
+  auto *drain = terminal_drain;
+  auto *control = current_control;
+  return drain && control == drain->control &&
+         internal::self.attrib == drain->attributes &&
+         drain->attributes == &control->attributes && drain->manager &&
+         drain->manager == control->attributes.atexit_callback_mgr &&
+         control->terminal_cleanup_in_progress() &&
+         internal::main_thread_cleanup_in_progress() &&
+         drain->root.matches(control->unwind_root);
+}
+
+[[gnu::noinline, clang::disable_tail_calls]] void drain_terminal_thread(void *p) {
+  auto &control = *static_cast<ThreadControl *>(p);
+  if (terminal_drain || internal::self.attrib != &control.attributes ||
+      !control.attributes.atexit_callback_mgr)
+    __builtin_trap();
+  TerminalDrain drain{&control, &control.attributes,
+                      control.attributes.atexit_callback_mgr,
+                      control.unwind_root, control.attributes.tid};
+  terminal_drain = &drain;
+  internal::cleanup_current_thread();
+  if (terminal_drain != &drain || current_control != &control ||
+      internal::self.attrib != drain.attributes ||
+      control.attributes.atexit_callback_mgr != drain.manager ||
+      control.attributes.tid != drain.tid ||
+      !internal::main_thread_cleanup_finished() ||
+      !drain.root.matches(control.unwind_root))
+    __builtin_trap();
+  terminal_drain = nullptr;
+}
+} // namespace
+
+pid_t initial_thread_during_fork_owner() {
+  return matches_terminal_drain() &&
+                 terminal_drain->tid > 0 &&
+                 terminal_drain->tid == current_control->attributes.tid
+             ? terminal_drain->tid
+             : 0;
+}
+
+bool rebind_initial_thread_during_fork_owner(pid_t previous_tid) {
+  if (!matches_terminal_drain() || previous_tid <= 0 ||
+      terminal_drain->tid != previous_tid ||
+      current_control->attributes.tid <= 0 ||
+      current_control->attributes.tid == previous_tid ||
+      !current_control->fork_recovery.is_child() ||
+      !current_control->fork_recovery.allows_fork())
+    return false;
+  terminal_drain->tid = current_control->attributes.tid;
+  return true;
+}
+#endif
+
 static void set_mask(uint64_t mask, uint64_t *previous = nullptr) {
   if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
                    reinterpret_cast<long>(&mask),
@@ -191,7 +256,12 @@ void begin_thread_cleanup(ThreadControl &control) {
   set_mask(callback_mask);
 #endif
   // Stack cleanup has finished. Drain the selected TLS/TSS manager on its owner.
-  internal::cleanup_current_thread();
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  if (control.terminal_cleanup_pending())
+    run_with_terminal_cleanup_root(control, drain_terminal_thread, &control);
+  else
+#endif
+    internal::cleanup_current_thread();
   finish_thread(control, result);
 }
 
