@@ -9,6 +9,11 @@
 # and completion with injected cursor/loader/transport boundaries. Both TLS
 # and TSS locations include explicit-exit and cancellation-state entries,
 # nested children, failed clone/frozen-check rollback, and a later AFTER fork.
+# Self-detached initial AFTER uses real detach/completion and ForkOperation,
+# preserving its self-only queue through rollback and two child generations.
+# Explicit-exit and deferred-cancel entries check DURING rollback, minimal refusal and
+# revalidate queue/root/exit-owner certificates before clone. Cursor capture,
+# TLS/TSS callbacks and kernel transport remain injected, not guest evidence.
 #--- run.py
 import pathlib
 import shlex

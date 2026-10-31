@@ -44,6 +44,7 @@
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #undef __mmix__
 #include "src/__support/threads/linux/mmix/lifecycle.cpp"
+#include "src/__support/threads/linux/mmix/thread_detach.cpp"
 #include "src/__support/threads/linux/mmix/main_thread.cpp"
 #include "src/__support/threads/linux/mmix/thread_reaper.cpp"
 #include "src/__support/threads/linux/mmix/thread_finish.cpp"
@@ -76,6 +77,8 @@ enum class Case {
   WorkerTerminal,
   WorkerLiveReaper,
   LastThreadReturn,
+  DetachedInitialAfter,
+  DetachedInitialCancelAfter,
   InitialDuringTLS,
   InitialDuringTSS,
   InitialCancelTLS,
@@ -96,6 +99,12 @@ bool registration_failure;
 bool clone_failure, loader_snapshot, notification_snapshot, allocator_snapshot;
 unsigned notification_prepares, drain_roots, after_roots, drain_returns;
 unsigned pending_tls, pending_tss, callback_returns;
+unsigned clone_attempts;
+
+bool detached_after_case() {
+  return selected == Case::DetachedInitialAfter ||
+         selected == Case::DetachedInitialCancelAfter;
+}
 
 bool initial_during_case() {
   return selected == Case::InitialDuringTLS || selected == Case::InitialDuringTSS ||
@@ -103,7 +112,8 @@ bool initial_during_case() {
 }
 
 bool cancellation_case() {
-  return selected == Case::InitialCancelTLS || selected == Case::InitialCancelTSS;
+  return selected == Case::InitialCancelTLS || selected == Case::InitialCancelTSS ||
+         selected == Case::DetachedInitialCancelAfter;
 }
 
 void *terminal_result() {
@@ -299,6 +309,144 @@ void check_terminal_child_state(M::ThreadControl &caller) {
   assert(lock.pin(&caller.attributes) == &caller);
   assert(!lock.acquire_lease(caller));
   assert(lock.unpin(caller));
+}
+
+void check_detached_initial_after() {
+  auto &caller = *M::current_control;
+  assert(caller.terminal_cleanup_finished() &&
+         caller.retains_resources_until_process_exit());
+  assert(I::main_thread_cleanup_finished() &&
+         !I::main_thread_cleanup_in_progress());
+  assert(caller.attributes.retval.posix_retval == terminal_result());
+  assert(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+         !caller.cancellation.asynchronous() && !caller.cancellation.ready());
+  assert(!caller.cancellation.request() && !caller.cancellation_transfer.load() &&
+         !caller.cancellation_point.load() &&
+         !caller.cancellation_suppression.load());
+  assert(caller.cancellation_identity == 19 &&
+         caller.cancellation_generation == 23);
+  assert(tls_drains == 1 && process_drains == 1 && pending_tls == 1 &&
+         pending_tss == 1 && callback_returns == 1);
+  assert(drain_roots == 1 && drain_returns == 1 && after_roots == 1);
+  assert(notifications_closed && !M::thread_registry.admit_signal_notification());
+  I::cleanup_current_thread();
+  assert(tls_drains == 1 && !caller.begin_callback_cleanup());
+  M::ThreadRegistryLock lock(M::thread_registry);
+  assert(lock.owner(caller) == M::ThreadOwner::Detached);
+  assert(lock.queued_reclaims() == 1 && !lock.live_threads() &&
+         lock.process_exiting());
+  assert(lock.leases_drained(caller) && !lock.begin_reaping(caller));
+  assert(!lock.begin_cleanup(caller) && !lock.exit_ready(caller, 0));
+  assert(!lock.reserve() && !lock.begin_helper_creation());
+  assert(!lock.claim_process_cleanup() && !lock.claim_process_exit());
+  assert(lock.request_cancellation(caller, true) == ESRCH);
+  assert(lock.pin(&caller.attributes) == &caller);
+  assert(!lock.acquire_lease(caller) && lock.unpin(caller));
+}
+
+void fork_detached_initial_after() {
+  auto &caller = *M::current_control;
+  auto *attributes = I::self.attrib;
+  auto *manager = attributes->atexit_callback_mgr;
+  const auto root = caller.unwind_root;
+  const auto scopes = caller.loader_scopes.load();
+  check_detached_initial_after();
+  assert(!I::normal_exit_fork_owner());
+  assert(I::last_thread_exit_fork_owner() == attributes->tid);
+  // Terminal minimal recovery and an unavailable bootstrap remain excluded.
+  const auto prepared = notification_prepares;
+  const auto attempts = clone_attempts;
+  {
+    M::ForkOperation operation(true);
+    assert(operation.error() == EAGAIN);
+  }
+  assert(M::bootstrap.mutex.try_lock());
+  {
+    M::ForkOperation operation;
+    assert(!operation.error() && operation.prepare_runtime() == EAGAIN);
+  }
+  M::bootstrap.mutex.unlock();
+  assert(notification_prepares == prepared && clone_attempts == attempts);
+
+  // Revalidate queue and certificate at the final frozen boundary. Taking the
+  // queue entry uses the real reaper transition, not a fabricated owner flag.
+  for (unsigned bad = 0; bad != 3; ++bad) {
+    {
+      M::ForkOperation operation;
+      assert(!operation.error() && !operation.prepare_runtime());
+      if (bad == 0) {
+        M::ThreadRegistryLock lock(M::thread_registry);
+        assert(lock.take_reap_candidate() == &caller && !lock.queued_reclaims());
+      } else if (bad == 1) {
+        ++caller.unwind_root.generation;
+      } else {
+        I::last_thread_attributes = nullptr;
+      }
+      assert(operation.freeze_registry() == EAGAIN);
+      if (bad == 0) {
+        M::ThreadRegistryLock lock(M::thread_registry);
+        assert(lock.requeue_candidate(caller));
+      }
+      caller.unwind_root = root;
+      I::last_thread_attributes = attributes;
+    }
+    check_detached_initial_after();
+    assert(clone_attempts == attempts);
+    assert(!loader_snapshot && !notification_snapshot && !allocator_snapshot);
+  }
+
+  for (unsigned generation = 0; generation != 2; ++generation) {
+    const auto owner = attributes->tid;
+    const auto registered = registrations;
+    const auto saved_mask = mask;
+    const auto cloned = clone_attempts;
+    LIBC_NAMESPACE::libc_errno = 73;
+    {
+      M::ForkOperation operation;
+      assert(!operation.error() && !operation.prepare_runtime());
+      assert(!operation.freeze_registry());
+      clone_failure = true;
+      assert(operation.create_child() == -EAGAIN);
+      clone_failure = false;
+      operation.restore_runtime(false);
+    }
+    check_detached_initial_after();
+    assert(clone_attempts == cloned + 1 && attributes->tid == owner);
+    assert(registrations == registered && mask == saved_mask);
+    assert(int(LIBC_NAMESPACE::libc_errno) == 73 &&
+           root.matches(caller.unwind_root));
+    assert(I::last_thread_exit_fork_owner() == owner);
+    assert(!loader_snapshot && !notification_snapshot && !allocator_snapshot);
+
+    long child;
+    {
+      M::ForkOperation operation;
+      assert(!operation.error() && !operation.prepare_runtime());
+      assert(!operation.freeze_registry());
+      child = operation.create_child();
+      assert(child >= 0);
+      if (!child) ::alarm(10);
+      operation.restore_runtime(child == 0);
+    }
+    check_detached_initial_after();
+    assert(clone_attempts == cloned + 2 && root.matches(caller.unwind_root));
+    assert(mask == saved_mask && int(LIBC_NAMESPACE::libc_errno) == 73);
+    assert(I::self.attrib == attributes &&
+           attributes->atexit_callback_mgr == manager);
+    assert(I::active_attributes == attributes &&
+           caller.loader_scopes.load() == scopes);
+    assert(I::last_thread_exit_fork_owner() == attributes->tid);
+    assert(!loader_snapshot && !notification_snapshot && !allocator_snapshot);
+    if (child) {
+      wait_success(pid_t(child));
+      check_detached_initial_after();
+      assert(attributes->tid == owner && registrations == registered);
+      return;
+    }
+    assert(attributes->tid != owner && registrations == registered + 1);
+    assert(caller.clear_tid.value.load() == UINT32_MAX);
+  }
+  // The nested descendant returns through this same process-finalizer frame.
 }
 
 void fork_after_last_thread_cleanup() {
@@ -862,6 +1010,7 @@ void finish_notification_fork(bool) {
 }
 ForkResult fork_process(bool wait_for_exec) {
   assert(!wait_for_exec);
+  ++clone_attempts;
   const auto owner = current_control->attributes.tid;
   if (clone_failure) return {-EAGAIN, owner};
   pid_t child = ::fork();
@@ -939,6 +1088,37 @@ ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
   return &manager;
 }
 void call_atexit_callbacks(ThreadAttributes *attributes) {
+  if (detached_after_case()) {
+    auto &caller = *M::current_control;
+    assert(attributes == self.attrib && !tls_drains++);
+    assert(caller.terminal_cleanup_in_progress() &&
+           !caller.terminal_cleanup_finished());
+    assert(main_thread_cleanup_in_progress() && !normal_exit_fork_owner());
+    {
+      M::ThreadRegistryLock lock(M::thread_registry);
+      assert(lock.owner(caller) == M::ThreadOwner::Detached);
+      assert(!lock.queued_reclaims() && lock.live_threads() == 1);
+    }
+    // The sole detached initial carrier can freeze during its certified drain.
+    // Scope rollback must leave that live drain intact without creating a child.
+    const auto prepared = notification_prepares;
+    {
+      M::ForkOperation operation;
+      assert(!operation.error() && !operation.prepare_runtime());
+      assert(!operation.freeze_registry());
+    }
+    assert(notification_prepares == prepared + 1 && !clone_attempts);
+    assert(caller.terminal_cleanup_in_progress());
+    {
+      M::ThreadRegistryLock lock(M::thread_registry);
+      assert(lock.owner(caller) == M::ThreadOwner::Detached);
+      assert(!lock.queued_reclaims() && lock.live_threads() == 1);
+    }
+    assert(caller.unwind_root.active &&
+           caller.unwind_root.kind == M::UnwindRootKind::TerminalThreadCleanup);
+    assert(!pending_tls++ && !pending_tss++ && !callback_returns++);
+    return;
+  }
   if (initial_during_case()) {
     assert(attributes == self.attrib && !tls_drains++);
     const bool tls = selected == Case::InitialDuringTLS ||
@@ -1077,6 +1257,10 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
 
 extern "C" void mmix_normal_exit_test_finalize(void *dso) {
   assert(!dso && ++process_drains == 1 && tls_drains == 1);
+  if (detached_after_case()) {
+    fork_detached_initial_after();
+    return;
+  }
   if (initial_during_case()) {
     auto &caller = *M::current_control;
     assert(drain_returns == 1 && after_roots == 1);
@@ -1222,6 +1406,9 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long first,
   }
   if (number == SYS_set_tid_address) {
     assert(first != 0 && M::current_control);
+    if (detached_after_case())
+      assert(first ==
+             reinterpret_cast<long>(&M::current_control->clear_tid.value.val));
     ++registrations;
     if (registration_failure)
       return -1;
@@ -1246,10 +1433,16 @@ static void exercise(Case test) {
   assert(!I::main_thread_cleanup_in_progress());
   assert(!I::adopt_fork_survivor_after_cleanup());
   assert(!I::adopt_fork_survivor_during_cleanup());
-  if (initial_during_case()) {
+  if (initial_during_case() || detached_after_case()) {
     caller.attributes.style = LIBC_NAMESPACE::ThreadStyle::POSIX;
     caller.cancellation_identity = 19;
     caller.cancellation_generation = 23;
+    if (detached_after_case()) {
+      assert(!M::detach_thread(&caller.attributes));
+      M::ThreadRegistryLock lock(M::thread_registry);
+      assert(lock.owner(caller) == M::ThreadOwner::Detached);
+      assert(!lock.queued_reclaims() && lock.live_threads() == 1);
+    }
     // Inject the already-completed stack boundary, including the cancellation
     // claim. This does not execute target forced unwinding or claim to do so.
     if (cancellation_case()) {
@@ -1265,6 +1458,7 @@ static void exercise(Case test) {
       assert(drain_returns == 1 && after_roots == 1);
       assert(!M::initial_thread_during_fork_owner());
       assert(!I::last_thread_exit_fork_owner() && !I::normal_exit_fork_owner());
+      if (detached_after_case()) check_detached_initial_after();
       M::ThreadRegistryLock lock(M::thread_registry);
       assert(lock.live_threads() == 0 && lock.process_exiting());
       assert(!lock.exit_ready(caller, 0) && !lock.claim_process_cleanup());
@@ -1443,6 +1637,8 @@ int main() {
                         Case::WorkerTerminal,
                         Case::WorkerLiveReaper,
                         Case::LastThreadReturn,
+                        Case::DetachedInitialAfter,
+                        Case::DetachedInitialCancelAfter,
                         Case::InitialDuringTLS,
                         Case::InitialDuringTSS,
                         Case::InitialCancelTLS,

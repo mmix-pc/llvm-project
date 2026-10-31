@@ -36,16 +36,24 @@ bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller,
   const bool completed = kind == ForkContinuation::LastWorkerAfter
                              ? caller.last_worker_cleanup_finished()
                              : caller.terminal_cleanup_finished();
+  const bool owner_queue =
+      (caller.owner == ThreadOwner::Joinable && !caller.queued &&
+       !caller.reap_next && !reap_head && !reap_tail && !reap_count) ||
+      (kind == ForkContinuation::LastThreadAfter && caller.initial_thread &&
+       caller.process_lifetime && caller.owner == ThreadOwner::Detached &&
+       caller.queued && !caller.reap_next && reap_head == &caller &&
+       reap_tail == &caller && reap_count == 1);
+  // A detached initial carrier may retain only its own completed queue entry.
+  // The helper absence and closed process admission leave no live reclaimer.
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED &&
          !reservations && !helper_reservations && !unreaped_helpers &&
          !unreaped_callbacks && !live && head == &caller && !caller.next &&
-         !reap_head && !reap_tail && !reap_count && caller.registry == this &&
+         owner_queue && caller.registry == this &&
          caller.listed && !caller.counted && caller.lifecycle_pin &&
          !caller.creator_pin && !caller.api_pins && !caller.leases_open &&
-         !caller.leases && !caller.queued && !caller.reap_next &&
-         caller.owner == ThreadOwner::Joinable && !caller.internal_helper &&
+         !caller.leases && !caller.internal_helper &&
          caller.callback_phase == CallbackPhase::None &&
          completed && root.active &&
          root.kind == UnwindRootKind::LastThreadProcess &&
@@ -58,6 +66,12 @@ bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
   const bool draining = kind == ForkContinuation::WorkerThreadDuring
                             ? caller.worker_cleanup_in_progress()
                             : caller.terminal_cleanup_in_progress();
+  // Detaching the initial carrier does not enqueue it until ExitReady. Its
+  // process-lifetime backing remains owned throughout the certified drain.
+  const bool owner =
+      caller.owner == ThreadOwner::Joinable ||
+      (kind == ForkContinuation::InitialThreadDuring && caller.initial_thread &&
+       caller.process_lifetime && caller.owner == ThreadOwner::Detached);
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == RUNNING &&
@@ -67,7 +81,7 @@ bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
          caller.listed && caller.counted && caller.lifecycle_pin &&
          !caller.creator_pin && !caller.api_pins && caller.leases_open &&
          !caller.leases && !caller.queued && !caller.reap_next &&
-         caller.owner == ThreadOwner::Joinable && !caller.internal_helper &&
+         owner && !caller.internal_helper &&
          caller.callback_phase == CallbackPhase::None &&
          draining && root.active &&
          root.kind == UnwindRootKind::TerminalThreadCleanup &&

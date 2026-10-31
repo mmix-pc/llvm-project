@@ -21,8 +21,9 @@ static void finalize_last_thread(void *) {
 #ifdef LIBC_MMIX_UNWIND_ROOTS
   // Initial completion and elected ordinary-worker completion have distinct
   // certificates. A worker never consults the initial thread's phase.
-  // Fork still requires the locked joinable/unqueued, sole-task certificate;
-  // merely entering finalization does not grant a detached caller recovery.
+  // Fork still requires the locked sole-task certificate: joinable/unqueued,
+  // or an initial detached carrier with exactly its own completed queue entry.
+  // Merely entering finalization does not grant detached workers recovery.
   if (current_control &&
       ((current_control->terminal_cleanup_finished() &&
         internal::main_thread_cleanup_finished()) ||
