@@ -1,5 +1,16 @@
 add_custom_target(libc-support-threads-tests)
 
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
+  add_libc_test(
+    aio_input_test
+    SUITE libc-support-threads-tests
+    SRCS aio_input_test.cpp
+    DEPENDS libc.include.aio libc.hdr.errno_macros libc.hdr.signal_macros
+      libc.hdr.stdint_proxy libc.src.__support.CPP.new
+      libc.src.__support.macros.attributes libc.src.__support.macros.config
+  )
+endif()
+
 add_libc_test(
   aio_file_dependencies_test
   SUITE libc-support-threads-tests

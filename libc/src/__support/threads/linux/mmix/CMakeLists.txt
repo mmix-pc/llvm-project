@@ -1,4 +1,14 @@
 add_header_library(
+  aio_input
+  HDRS aio_input.h
+  DEPENDS libc.include.aio libc.hdr.errno_macros libc.hdr.fcntl_macros
+    libc.hdr.limits_macros
+    libc.hdr.signal_macros
+    libc.hdr.stdint_proxy libc.src.__support.CPP.new
+    libc.src.__support.macros.attributes libc.src.__support.macros.config
+)
+
+add_header_library(
   tls_h
   HDRS tls.h
   DEPENDS libc.config.app_h
