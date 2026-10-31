@@ -106,6 +106,30 @@ bool restore_minimal_fork_child() {
 #endif
 }
 
+bool main_thread_cleanup_finished() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  // Do not inspect main's mutable phase from an ordinary worker.
+  return control && control->retains_resources_until_process_exit() &&
+         self.attrib == &control->attributes &&
+         self.attrib == active_attributes && phase == Phase::Finished;
+#else
+  return false;
+#endif
+}
+
+bool adopt_fork_survivor_after_cleanup() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!main_thread_cleanup_finished() || !control->fork_recovery.is_child() ||
+      !control->fork_recovery.allows_fork())
+    return false;
+  return register_fork_child(*control, RobustInheritance::Preserve);
+#else
+  return false;
+#endif
+}
+
 #if LIBC_THREAD_MODE != LIBC_THREAD_MODE_SINGLE
 bool restore_main_thread_after_fork() {
   auto *control = mmix::current_control;

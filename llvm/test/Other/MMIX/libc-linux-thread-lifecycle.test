@@ -592,18 +592,47 @@ extern "C" int main() {
     ThreadRegistry process;
     ThreadControl caller;
     caller.attributes.tid = 1;
-    require(!process.pristine_fork_caller(caller));
     {
       ThreadRegistryLock lock(process);
       require(lock.register_main(caller));
-      require(!process.pristine_fork_caller(caller)); // Never wait on an owner.
     }
-    require(process.pristine_fork_caller(caller));
+    bool single = false;
+    // A certificate cannot bypass the actual claim and completed drain state.
+    require(!process.freeze_for_fork(caller, 0, &single, false, true));
+    require(process.claim_process_cleanup());
+    require(!process.freeze_for_fork(caller, 0, &single, false, true));
+    require(caller.begin_callback_cleanup());
+    require(!process.freeze_for_fork(caller));
+    require(process.freeze_for_fork(caller, 0, &single, false, true) && single);
+    process.release_after_fork(); // A failed clone must not erase parent state.
+    require(!caller.begin_callback_cleanup() && !process.claim_process_cleanup());
+    require(process.freeze_for_fork(caller, 0, &single, false, true) && single);
+    process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), true);
+    require(!caller.begin_callback_cleanup() && !process.claim_process_cleanup());
+    {
+      ThreadRegistryLock lock(process);
+      require(!lock.reserve() && !lock.begin_helper_creation());
+    }
+    require(process.freeze_for_fork(caller, 0, &single, false, true) && single);
+    process.release_after_fork();
+  }
+  {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl caller;
+    caller.attributes.tid = 1;
+    require(!process.quiescent_fork_caller(caller));
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(caller));
+      require(!process.quiescent_fork_caller(caller)); // Never wait on an owner.
+    }
+    require(process.quiescent_fork_caller(caller));
     {
       ThreadRegistryLock lock(process);
       require(lock.reserve() && lock.cancel_reservation());
     }
-    require(!process.pristine_fork_caller(caller)); // History survives failure.
+    require(process.quiescent_fork_caller(caller)); // Rolled-back history is not a peer.
   }
   {
     event_address = 0;
@@ -616,17 +645,17 @@ extern "C" int main() {
     }
     require(process.freeze_for_fork(caller));
     process.restore_fork_child(caller, internal::ForkRecovery::child(true, true));
-    require(process.pristine_fork_caller(caller)); // Coordinated child is quiescent.
+    require(process.quiescent_fork_caller(caller)); // Coordinated child is quiescent.
     {
       ThreadRegistryLock lock(process);
       require(lock.begin_helper_creation());
     }
-    require(!process.pristine_fork_caller(caller));
+    require(!process.quiescent_fork_caller(caller));
     {
       ThreadRegistryLock lock(process);
       require(lock.cancel_helper_reservation());
     }
-    require(!process.pristine_fork_caller(caller)); // New creation history persists.
+    require(process.quiescent_fork_caller(caller)); // A cancelled helper is absent.
   }
   {
     event_address = 0;
@@ -639,7 +668,7 @@ extern "C" int main() {
     }
     require(process.freeze_for_fork(caller));
     process.restore_fork_child(caller, internal::ForkRecovery::child());
-    require(!process.pristine_fork_caller(caller)); // Exec-only is never recovered.
+    require(!process.quiescent_fork_caller(caller)); // Exec-only is never recovered.
   }
   // History alone neither proves nor disproves a recoverable snapshot. The
   // bootstrap must drain the helper, and registry ownership must agree.

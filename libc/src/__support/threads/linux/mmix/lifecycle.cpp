@@ -15,33 +15,41 @@ namespace mmix {
 
 LIBC_CONSTINIT ThreadRegistry thread_registry;
 
-bool ThreadRegistry::pristine_fork_caller(ThreadControl &caller) {
+bool ThreadRegistry::quiescent_fork_caller(ThreadControl &caller) {
   if (!mutex.value.try_lock())
     return false;
-  bool pristine = main_registered && !creation_started && !process_operation &&
-                  !process_exiting() && fork_recovery.allows_fork() &&
-                  caller.fork_recovery.allows_fork() && !reservations &&
-                  !helper_reservations && !unreaped_helpers &&
-                  !unreaped_callbacks &&
-                  live == 1 && head == &caller && !caller.next &&
-                  !reap_head && !reap_tail && !reap_count &&
-                  caller.registry == this && caller.listed &&
-                  caller.execution == ThreadExecution::Running &&
-                  !caller.callbacks_started;
+  bool quiescent =
+      main_registered && !process_operation && !process_exiting() &&
+      fork_recovery.allows_fork() && caller.fork_recovery.allows_fork() &&
+      !reservations && !helper_reservations && !unreaped_helpers &&
+      !unreaped_callbacks && live == 1 && head == &caller && !caller.next &&
+      !reap_head && !reap_tail && !reap_count && caller.registry == this &&
+      caller.listed && caller.execution == ThreadExecution::Running &&
+      !caller.callbacks_started;
   mutex.value.unlock();
-  return pristine;
+  return quiescent;
 }
 
-bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression,
-                                    bool *single_thread, bool helper_drained) {
+bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
+                                     uint64_t suppression, bool *single_thread,
+                                     bool helper_drained,
+                                     bool process_cleanup) {
   if (single_thread)
     *single_thread = false;
   mutex.value.lock();
-  if (process_exiting() || reservations || helper_reservations ||
-      process_operation ||
-      caller.registry != this || !caller.listed ||
-      caller.execution != ThreadExecution::Running || caller.callbacks_started ||
-      !caller.fork_recovery.allows_fork() || caller.cancellation_transfer.load() ||
+  // The private exit-owner certificate is checked by ForkOperation. Keep its
+  // claim and completed callback phase rather than making the caller Running
+  // again merely to pass admission.
+  bool continuation =
+      process_cleanup && caller.process_lifetime && caller.callbacks_started &&
+      process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED;
+  if ((process_cleanup && !continuation) ||
+      (process_exiting() && !continuation) || reservations ||
+      helper_reservations || process_operation || caller.registry != this ||
+      !caller.listed || caller.execution != ThreadExecution::Running ||
+      (caller.callbacks_started && !continuation) ||
+      !caller.fork_recovery.allows_fork() ||
+      caller.cancellation_transfer.load() ||
       caller.cancellation_suppression.load() != suppression ||
       caller.cancellation_point.load()) {
     mutex.value.unlock();
@@ -60,8 +68,15 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller, uint64_t suppression
 void ThreadRegistry::release_after_fork() { mutex.value.unlock(); }
 
 void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
-                                      internal::ForkRecovery recovery) {
+                                        internal::ForkRecovery recovery,
+                                        bool process_cleanup) {
   if (!recovery.is_child())
+    __builtin_trap();
+  if (process_cleanup &&
+      (!recovery.allows_fork() || !survivor.process_lifetime ||
+       !survivor.callbacks_started ||
+       survivor.execution != ThreadExecution::Running ||
+       process_exit_state.load() != CLEANUP_CLAIMED))
     __builtin_trap();
   // Only the survivor exists in this copied address space. Do not traverse or
   // reclaim vanished stacks, copied pins, leases or reaper queue entries.
@@ -70,7 +85,8 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   reap_count = reservations = unreaped_callbacks = 0;
   helper_reservations = unreaped_helpers = 0;
   live = 1;
-  process_exit_state.store(RUNNING, cpp::MemoryOrder::RELAXED);
+  process_exit_state.store(process_cleanup ? CLEANUP_CLAIMED : RUNNING,
+                           cpp::MemoryOrder::RELAXED);
   process_operation = false;
   main_registered = true;
   // Only a proven quiescent snapshot starts a fresh creation history.
@@ -83,7 +99,8 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   survivor.leases_open = recovery.allows_thread_creation();
   survivor.listed = survivor.counted = survivor.lifecycle_pin = true;
   survivor.process_lifetime = true;
-  survivor.internal_helper = survivor.callbacks_started = false;
+  survivor.internal_helper = false;
+  survivor.callbacks_started = process_cleanup;
   survivor.callback_phase = CallbackPhase::None;
   survivor.api_pins = survivor.leases = 0;
   survivor.owner = ThreadOwner::Joinable;

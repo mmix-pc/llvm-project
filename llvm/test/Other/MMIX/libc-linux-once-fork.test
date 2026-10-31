@@ -1,0 +1,244 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t %mmix_host_cxx
+
+# Native Linux execution of the MMIX once implementation, not guest evidence.
+# No real fork or multithreaded-child API use is needed to inject an epoch.
+
+#--- run.py
+import pathlib
+import shlex
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+host = shlex.split(sys.argv[3])
+for opt in ("0", "2"):
+    exe = root / ("native-O" + opt)
+    subprocess.run([*host, "-std=c++17", "-pthread", "-fexceptions", "-UNDEBUG",
+                    "-O" + opt,
+                    "-DLIBC_NAMESPACE=once_fork_test",
+                    "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+                    "-I", str(libc), str(root / "test.cpp"), "-o", str(exe)],
+                   check=True)
+    subprocess.run([str(exe), "edges", "0"], check=True, timeout=30)
+    for generation in ("0", "256"):
+        for mode in ("complete", "exception", "abandon"):
+            subprocess.run([str(exe), mode, generation], check=True, timeout=30)
+
+#--- test.cpp
+#include <atomic>
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <initializer_list>
+#include <pthread.h>
+#include <sched.h>
+#include <unistd.h>
+
+#include "src/__support/OSUtil/syscall.h"
+#include "src/__support/threads/linux/futex_word.h"
+#include <linux/futex.h>
+
+static constexpr unsigned Waiters = 2;
+static std::atomic<long> waiter_tid[Waiters];
+static std::atomic<unsigned> wake_calls{0}, woken{0};
+static thread_local int waiter_index = -1;
+static void *watched;
+
+namespace once_fork_test {
+template <typename Ret, typename Address, typename Op, typename... Args>
+Ret observed_syscall(long number, Address address, Op operation, Args... args) {
+  bool observe = number == FUTEX_SYSCALL_ID &&
+                 static_cast<void *>(address) == watched;
+  unsigned command = operation & FUTEX_CMD_MASK;
+  if (observe && command == FUTEX_WAIT_BITSET && waiter_index >= 0)
+    waiter_tid[waiter_index].store(syscall_impl<long>(SYS_gettid));
+  Ret result = syscall_impl<Ret>(number, address, operation, args...);
+  if (observe && command == FUTEX_WAKE) {
+    ++wake_calls;
+    assert(result >= 0);
+    woken.fetch_add(static_cast<unsigned>(result));
+  }
+  return result;
+}
+} // namespace once_fork_test
+
+#define syscall_impl observed_syscall
+// Keep injection private to this translation unit; add no production test API.
+#include "src/__support/threads/linux/mmix/once.cpp"
+#undef syscall_impl
+
+using namespace once_fork_test;
+namespace M = once_fork_test::mmix;
+namespace C = once_fork_test::callonce_impl;
+
+static void edges() {
+  // A borrowed record must not reset the generic guard's live flag.
+  CallOnceFlag borrowed{C::START};
+  {
+    M::OnceInitializer record(&borrowed);
+  }
+  assert(borrowed.load() == C::START && !M::once_initializer_active());
+
+  for (uint32_t epoch : {0U, 0xfffffe00U, 0xffffff00U}) {
+    M::generation.value.store(epoch);
+    CallOnceFlag outer{0}, inner{0}, done{C::FINISH};
+    unsigned calls = 0;
+    assert(!M::fork_aware_once(&outer, [&] {
+      ++calls;
+      assert(!M::fork_aware_once(&inner, [&] {
+        ++calls;
+        // Exercise both surviving active states without changing their tags.
+        outer.store(epoch | C::WAITING);
+        for (unsigned i = 0; i != 256; ++i) {
+          M::once_after_fork(true);
+          assert(M::once_fork_generation() == epoch);
+          assert(outer.load() == (epoch | C::WAITING));
+          assert(inner.load() == (epoch | C::START));
+          assert(done.load() == C::FINISH);
+        }
+      }));
+    }));
+    assert(calls == 2 && outer.load() == C::FINISH &&
+           inner.load() == C::FINISH && !M::once_initializer_active());
+    assert(!M::fork_aware_once(&outer, [] { std::abort(); }));
+    assert(!M::fork_aware_once(&done, [] { std::abort(); }));
+  }
+
+  M::generation.value.store(0xfffffe00U);
+  M::once_after_fork();
+  assert(M::once_fork_generation() == 0xffffff00U);
+  M::once_after_fork(true);
+  assert(M::once_fork_generation() == 0xffffff00U);
+
+  M::generation.value.store(0);
+  CallOnceFlag survivor{0}, nested{0}, foreign_start{C::START},
+      foreign_waiting{C::WAITING}, done{C::FINISH};
+  unsigned retried = 0;
+  assert(!M::fork_aware_once(&survivor, [&] {
+    assert(!M::fork_aware_once(&nested, [&] {
+      survivor.store(C::WAITING);
+      M::once_after_fork(); // Retain the old private fixture's default argument.
+      assert(M::once_fork_generation() == 0x100);
+      assert(survivor.load() == (0x100 | C::WAITING));
+      assert(nested.load() == (0x100 | C::START));
+      assert(foreign_start.load() == C::START);
+      assert(foreign_waiting.load() == C::WAITING);
+      for (auto *flag : {&foreign_start, &foreign_waiting}) {
+        assert(!M::fork_aware_once(flag, [&] { ++retried; }));
+        assert(flag->load() == C::FINISH);
+      }
+      assert(!M::fork_aware_once(&done, [] { std::abort(); }));
+    }));
+  }));
+  assert(retried == 2 && survivor.load() == C::FINISH &&
+         nested.load() == C::FINISH && !M::once_initializer_active());
+
+  // Draining disarms owned records before a later unwind can reset a new owner.
+  CallOnceFlag first{0x100 | C::WAITING}, second{0x100 | C::START};
+  {
+    M::OnceInitializer a(&first, true);
+    {
+      M::OnceInitializer b(&second, true);
+      M::abandon_once_initializers();
+      assert(!M::once_initializer_active());
+      assert(!first.load() && !second.load());
+      first.store(C::FINISH);
+      second.store(C::FINISH);
+    }
+    assert(!M::once_initializer_active());
+  }
+  assert(first.load() == C::FINISH && second.load() == C::FINISH);
+}
+
+static CallOnceFlag flag{0};
+static std::atomic<unsigned> callbacks{0};
+static int published;
+
+static void *waiter(void *argument) {
+  waiter_index = *static_cast<unsigned *>(argument);
+  assert(!M::fork_aware_once(&flag, [] {
+    ++callbacks;
+    published = 73;
+  }));
+  assert(published == 73);
+  return nullptr;
+}
+
+static bool sleeping(long tid) {
+  char path[80], buffer[1024];
+  std::snprintf(path, sizeof(path), "/proc/self/task/%ld/stat", tid);
+  FILE *file = std::fopen(path, "r");
+  assert(file && "/proc task state is required for native waiter observation");
+  char *line = std::fgets(buffer, sizeof(buffer), file);
+  assert(line);
+  std::fclose(file);
+  const char *name_end = std::strrchr(buffer, ')');
+  assert(name_end && name_end[1] == ' ');
+  return name_end[2] == 'S';
+}
+
+static pthread_t threads[Waiters];
+static unsigned indices[Waiters];
+
+static void start_waiters() {
+  for (unsigned i = 0; i != Waiters; ++i) {
+    indices[i] = i;
+    assert(!pthread_create(&threads[i], nullptr, waiter, &indices[i]));
+  }
+  for (unsigned i = 0; i != Waiters; ++i) {
+    // After the observed futex entry this thread has no other blocking call.
+    // The runner's deadline bounds failure; no timed delay establishes success.
+    long tid;
+    while (!(tid = waiter_tid[i].load()) || !sleeping(tid))
+      sched_yield();
+  }
+  assert(flag.load() == (M::once_fork_generation() | C::WAITING));
+}
+
+static void wake_test(const char *mode, uint32_t epoch) {
+  assert(epoch == 0 || epoch == 0x100);
+  M::generation.value.store(0);
+  if (epoch)
+    M::once_after_fork();
+  watched = &flag;
+  if (!std::strcmp(mode, "abandon")) {
+    // The direct-exit path drains records instead of executing their guards.
+    flag.store(epoch | C::START);
+    M::OnceInitializer record(&flag, true);
+    start_waiters();
+    M::abandon_once_initializers();
+    assert(!M::once_initializer_active());
+  } else {
+    bool throws = !std::strcmp(mode, "exception");
+    assert(throws || !std::strcmp(mode, "complete"));
+    try {
+      assert(!M::fork_aware_once(&flag, [&] {
+        ++callbacks;
+        start_waiters();
+        if (throws)
+          throw 42;
+        published = 73;
+      }));
+      assert(!throws);
+    } catch (int error) {
+      assert(throws && error == 42);
+    }
+  }
+  for (auto &thread : threads)
+    assert(!pthread_join(thread, nullptr));
+  assert(wake_calls.load() >= 1 && woken.load() >= Waiters);
+  assert(callbacks.load() == (!std::strcmp(mode, "exception") ? 2U : 1U));
+  assert(flag.load() == C::FINISH && !M::once_initializer_active());
+  assert(!M::fork_aware_once(&flag, [] { std::abort(); }));
+}
+
+int main(int argc, char **argv) {
+  assert(argc == 3);
+  if (!std::strcmp(argv[1], "edges"))
+    edges();
+  else
+    wake_test(argv[1], static_cast<uint32_t>(std::strtoul(argv[2], nullptr, 10)));
+}

@@ -19,9 +19,11 @@ struct alignas(8) Generation {
 static LIBC_CONSTINIT Generation generation;
 
 uint32_t once_fork_generation() { return generation.value.load(); }
-bool once_can_fork() { return once_fork_generation() != 0xffffff00U; }
 bool once_initializer_active() { return active != nullptr; }
-void once_after_fork() {
+void once_after_fork(bool quiescent) {
+  // No initializer owner vanished. Retain the epoch, including at its limit.
+  if (quiescent)
+    return;
   uint32_t next = once_fork_generation() + 0x100;
   if (!next)
     __builtin_trap();
@@ -33,18 +35,38 @@ void once_after_fork() {
   }
 }
 
-OnceInitializer::OnceInitializer(CallOnceFlag *flag)
-    : flag(flag), previous(active) {
+static void publish_once(CallOnceFlag *flag, uint32_t state) {
+  if ((flag->exchange(state, cpp::MemoryOrder::RELEASE) & 0xff) ==
+      callonce_impl::WAITING)
+    flag->notify_all();
+}
+
+OnceInitializer::OnceInitializer(CallOnceFlag *flag, bool owns_completion)
+    : flag(flag), previous(active), owns_completion(owns_completion) {
   active = this;
 }
 
-OnceInitializer::~OnceInitializer() { active = previous; }
+OnceInitializer::~OnceInitializer() {
+  // Explicit abandonment may already have drained this frame.
+  if (active == this)
+    active = previous;
+  if (owns_completion)
+    publish_once(flag, callonce_impl::NOT_CALLED);
+}
+
+void OnceInitializer::complete() {
+  if (!owns_completion)
+    __builtin_trap();
+  owns_completion = false;
+  publish_once(flag, callonce_impl::FINISH);
+}
 
 void abandon_once_initializers() {
   while (active) {
     auto *entry = active;
     active = entry->previous;
-    callonce_impl::abandon(entry->flag);
+    entry->owns_completion = false;
+    publish_once(entry->flag, callonce_impl::NOT_CALLED);
   }
 }
 } // namespace mmix

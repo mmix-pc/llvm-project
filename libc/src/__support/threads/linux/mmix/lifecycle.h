@@ -201,15 +201,17 @@ public:
   bool claim_process_cleanup(bool sole_fork_child = false);
   // Nonblocking precheck; the caller has blocked signals and proved that it
   // is on its ordinary chain before inspecting the registry.
-  bool pristine_fork_caller(ThreadControl &caller);
+  bool quiescent_fork_caller(ThreadControl &caller);
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
   bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0,
                        bool *single_thread = nullptr,
-                       bool helper_drained = false);
+                       bool helper_drained = false,
+                       bool process_cleanup = false);
   void release_after_fork();
   void restore_fork_child(
       ThreadControl &survivor,
-      internal::ForkRecovery recovery = internal::ForkRecovery::child());
+      internal::ForkRecovery recovery = internal::ForkRecovery::child(),
+      bool process_cleanup = false);
   // Snapshot under ThreadRegistryLock; wait only after releasing it. Callers
   // supply a bounded deadline and recheck predicates even after timeout/wrap.
   ErrorOr<int> wait(uint32_t sequence, Futex::Timeout deadline) {

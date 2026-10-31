@@ -41,10 +41,13 @@ bool try_lock_random48_for_fork() __attribute__((weak));
 void unlock_random48_after_fork() __attribute__((weak));
 bool try_lock_random_for_fork() __attribute__((weak));
 void unlock_random_after_fork() __attribute__((weak));
+pid_t normal_exit_fork_owner() __attribute__((weak));
+bool rebind_normal_exit_fork_owner(pid_t) __attribute__((weak));
 } // namespace internal
 namespace mmix {
 int prepare_notification_fork(bool, bool *) __attribute__((weak));
 void finish_notification_fork(bool) __attribute__((weak));
+void close_notification_admission() __attribute__((weak));
 namespace {
 struct alignas(8) Serializer {
   RawMutex mutex;
@@ -65,12 +68,11 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
   }
   if (minimal) {
 #ifdef LIBC_MMIX_UNWIND_ROOTS
-    // Reject interrupted execution before acquiring runtime locks. The locked
-    // history check then proves there is no peer that can change this snapshot.
+    // Reject interrupted execution before acquiring runtime locks. The census
+    // includes unreaped helpers, not merely the caller's creation history.
     if (!ordinary_fork_context(*caller) ||
-        !thread_registry.pristine_fork_caller(*caller) ||
-        caller->cancellation.terminal() || once_initializer_active() ||
-        !robust_list_empty()) {
+        !thread_registry.quiescent_fork_caller(*caller) ||
+        caller->cancellation.terminal()) {
       error_code = EAGAIN;
       return;
     }
@@ -84,15 +86,6 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
       return;
     }
 #endif
-    if (caller->priority_protection.restore_pending) {
-      error_code = EAGAIN;
-      return;
-    }
-    for (unsigned count : caller->priority_protection.contributions)
-      if (count) {
-        error_code = EAGAIN;
-        return;
-      }
   }
   // Do not leave the serializer owned if async delivery interrupts admission.
   uint64_t full = minimal ? UINT64_MAX : UINT64_MAX & ~CREDENTIAL_MASK;
@@ -112,7 +105,7 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
   serial = active_fork = true;
   if (caller->cancellation_transfer.load() ||
       caller->cancellation_point.load() ||
-      caller->cancellation_suppression.load() || !once_can_fork()) {
+      caller->cancellation_suppression.load()) {
     error_code = EAGAIN;
     return;
   }
@@ -124,6 +117,13 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
 }
 
 int ForkOperation::prepare_runtime() {
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  process_cleanup =
+      !minimal && internal::normal_exit_fork_owner &&
+      internal::rebind_normal_exit_fork_owner &&
+      internal::normal_exit_fork_owner() == caller->attributes.tid &&
+      ordinary_fork_context(*caller);
+#endif
   // Helper TLS retirement can enter the loader and allocator. Complete it
   // before either subsystem is locked for the clone snapshot.
   bool notification_drained = true;
@@ -134,6 +134,10 @@ int ForkOperation::prepare_runtime() {
   }
   if (!minimal)
     helper_drained = retire_reaper_for_fork(*caller) && notification_drained;
+  else
+    // The minimal precheck already excluded all helpers and incomplete reaps.
+    // Repeat the census at freeze; old creation history is not a live owner.
+    helper_drained = notification_drained;
   if (!prepare_credentials_fork())
     return EAGAIN;
   credentials = true;
@@ -211,14 +215,17 @@ int ForkOperation::prepare_runtime() {
 int ForkOperation::freeze_registry() {
   bool single_thread = false;
   registry = thread_registry.freeze_for_fork(*caller, 1, &single_thread,
-                                             helper_drained);
+                                             helper_drained, process_cleanup);
 #ifdef LIBC_MMIX_SHARED_STARTUP
   resume_loader &= single_thread;
   child_recovery = internal::ForkRecovery::child(single_thread, resume_loader);
 #else
   child_recovery = internal::ForkRecovery::child(single_thread, true);
 #endif
-  return registry && (!minimal || child_recovery.allows_fork()) ? 0 : EAGAIN;
+  return registry &&
+                 (!(minimal || process_cleanup) || child_recovery.allows_fork())
+             ? 0
+             : EAGAIN;
 }
 
 long ForkOperation::create_child(bool wait_for_exec) {
@@ -232,7 +239,8 @@ long ForkOperation::create_child(bool wait_for_exec) {
 void ForkOperation::restore_runtime(bool child) {
   if (registry) {
     if (child)
-      thread_registry.restore_fork_child(*caller, child_recovery);
+      thread_registry.restore_fork_child(*caller, child_recovery,
+                                         process_cleanup);
     else
       thread_registry.release_after_fork();
     registry = false;
@@ -287,8 +295,10 @@ void ForkOperation::restore_runtime(bool child) {
   }
   if (priority) {
     if (child) {
-      new (&caller->priority_protection.guard)
-          RobustMutex{false, false, false, true, false};
+      // Application mutex ownership is not transferred. Preserve the kernel's
+      // inherited policy/priority, but do not apply the parent's lock ledger or
+      // restoration debt to subsequent unrelated child scheduling operations.
+      new (&caller->priority_protection) PriorityProtectionState{};
     } else if (caller->priority_protection.guard.unlock() != MutexError::NONE)
       __builtin_trap();
     priority = false;
@@ -301,8 +311,12 @@ void ForkOperation::restore_runtime(bool child) {
     caller->cancellation_point.store(nullptr);
     caller->cancellation_transfer.store(0);
     restore_reaper_after_fork();
-    once_after_fork();
-    if (!internal::adopt_fork_survivor())
+    once_after_fork(child_recovery.allows_fork());
+    if (process_cleanup
+            ? (!internal::adopt_fork_survivor_after_cleanup() ||
+               !internal::rebind_normal_exit_fork_owner ||
+               !internal::rebind_normal_exit_fork_owner(previous_tid))
+            : !internal::adopt_fork_survivor())
       internal::exit(127);
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
@@ -327,6 +341,8 @@ void ForkOperation::restore_runtime(bool child) {
   }
   if (notifications) {
     finish_notification_fork(child);
+    if (child && process_cleanup && close_notification_admission)
+      close_notification_admission();
     notifications = false;
   }
 }

@@ -30,6 +30,15 @@ bool activate_main_thread(MainThreadState &state);
 // Pre-creation fork only, after publishing the child's TID with signals blocked.
 bool restore_main_thread_after_fork();
 bool adopt_fork_survivor();
+// Owner-only phase query. False for workers and for an unfinished TLS/TSS
+// drain; this neither proves process-exit ownership nor validates an unwind
+// root.
+bool main_thread_cleanup_finished();
+// Certified normal-exit fork child only: retain Finished and the existing
+// attributes rather than restarting main-thread cleanup. Signals remain
+// blocked; the caller separately preserves registry progress and rebinds the
+// exit owner.
+bool adopt_fork_survivor_after_cleanup();
 // The transport published the child TID and signals remain blocked. Do not
 // acquire locks or repair interrupted subsystems.
 bool restore_minimal_fork_child();

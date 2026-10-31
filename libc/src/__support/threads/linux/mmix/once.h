@@ -17,25 +17,27 @@ namespace mmix {
 class OnceInitializer {
   CallOnceFlag *flag;
   OnceInitializer *previous;
+  bool owns_completion;
   friend void abandon_once_initializers();
-  friend void once_after_fork();
+  friend void once_after_fork(bool);
 
 public:
-  explicit OnceInitializer(CallOnceFlag *flag);
+  // The non-coordinated wrapper borrows the generic guard's completion.
+  explicit OnceInitializer(CallOnceFlag *flag, bool owns_completion = false);
   ~OnceInitializer();
+  void complete();
   OnceInitializer(const OnceInitializer &) = delete;
   OnceInitializer &operator=(const OnceInitializer &) = delete;
 };
 
 // Retained direct C exit drains records before reclamation. In the forced-exit
-// profile, stack unwinding already removed them and the common guard reset them.
+// profile, stack unwinding already removed them and their guards reset them.
 // Deferred cancellation uses the same forced-unwind abandonment ordering.
 void abandon_once_initializers();
 
 uint32_t once_fork_generation();
-bool once_can_fork();
 bool once_initializer_active();
-void once_after_fork();
+void once_after_fork(bool quiescent = false);
 
 // Keep completion compatible; tag only in-progress words in the fork profile.
 template <class Callback>
@@ -50,10 +52,9 @@ int fork_aware_once(CallOnceFlag *flag, Callback callback) {
     uint32_t waiting = generation | callonce_impl::WAITING;
     if (!status || (status & ~StateMask) != generation) {
       if (flag->compare_exchange_strong(status, start)) {
-        callonce_impl::CompletionGuard completion(flag);
-        OnceInitializer active(flag);
+        OnceInitializer active(flag, /*owns_completion=*/true);
         callback();
-        completion.complete();
+        active.complete();
         return 0;
       }
       continue;
