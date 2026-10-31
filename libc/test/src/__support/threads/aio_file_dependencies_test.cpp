@@ -65,6 +65,78 @@ TEST(LlvmLibcAioFileDependenciesTest, SameOriginalFdWaitsForEveryPredecessor) {
   }
 }
 
+TEST(LlvmLibcAioFileDependenciesTest,
+     ExecutionReadinessIgnoresErrorsWithoutConsumingSyncSnapshot) {
+  Dependencies dependencies(5);
+  Record first, second, sync, later, other;
+  admit_record(dependencies, first, Kind::Operation);
+  admit_record(dependencies, second, Kind::Operation);
+  admit_record(dependencies, sync, Kind::Sync);
+  admit_record(dependencies, later, Kind::Operation);
+  admit_record(dependencies, other, Kind::Operation, OTHER);
+  EXPECT_EQ(*dependencies.ready_to_publish(first, first.order()),
+            Decision::Ready);
+  EXPECT_EQ(*dependencies.ready_to_publish(second, second.order()),
+            Decision::Wait);
+  EXPECT_EQ(*dependencies.ready_to_publish(other, other.order()),
+            Decision::Ready);
+  ASSERT_TRUE(dependencies.complete(first, first.order(), ENOSPC));
+  EXPECT_FALSE(dependencies.release(first, first.order()));
+  EXPECT_EQ(*dependencies.ready_to_publish(second, second.order()),
+            Decision::Ready);
+  EXPECT_FALSE(second.decision_final());
+  EXPECT_EQ(*dependencies.ready_to_publish(sync, sync.order()), Decision::Wait);
+  ASSERT_TRUE(dependencies.complete(second, second.order(), EIO));
+  for (unsigned i = 0; i != 2; ++i) {
+    EXPECT_EQ(*dependencies.ready_to_publish(sync, sync.order()),
+              Decision::Ready);
+    EXPECT_FALSE(sync.decision_final());
+  }
+  expect_error(dependencies.decide(sync, sync.order()), ENOSPC);
+  // A final sync decision is not the sync's original terminal event.
+  EXPECT_EQ(*dependencies.ready_to_publish(later, later.order()),
+            Decision::Wait);
+  ASSERT_TRUE(dependencies.complete(sync, sync.order(), ENOSPC));
+  EXPECT_EQ(*dependencies.ready_to_publish(later, later.order()),
+            Decision::Ready);
+  ASSERT_TRUE(dependencies.release(first, first.order()));
+  ASSERT_TRUE(dependencies.release(second, second.order()));
+  ASSERT_TRUE(dependencies.release(sync, sync.order()));
+  ASSERT_TRUE(dependencies.complete(later, later.order()));
+  ASSERT_TRUE(dependencies.complete(other, other.order()));
+  ASSERT_TRUE(dependencies.release(later, later.order()));
+  ASSERT_TRUE(dependencies.release(other, other.order()));
+}
+
+TEST(LlvmLibcAioFileDependenciesTest,
+     ExecutionReadinessChecksAllPredecessorsAndRecordIdentity) {
+  Dependencies dependencies(3), foreign(1);
+  Record first, canceled, later, empty;
+  admit_record(dependencies, first, Kind::Operation);
+  admit_record(dependencies, canceled, Kind::Sync);
+  admit_record(dependencies, later, Kind::Operation);
+  expect_error(dependencies.ready_to_publish(empty, 0), EINVAL);
+  expect_error(foreign.ready_to_publish(first, first.order()), EINVAL);
+  expect_error(dependencies.ready_to_publish(first, 0), EINVAL);
+  expect_error(dependencies.ready_to_publish(first, first.order() + 1), EINVAL);
+  ASSERT_TRUE(dependencies.abandon_sync(canceled, canceled.order(), ECANCELED));
+  EXPECT_EQ(*dependencies.ready_to_publish(later, later.order()),
+            Decision::Wait);
+  ASSERT_TRUE(dependencies.complete(first, first.order(), ECANCELED));
+  expect_error(dependencies.ready_to_publish(first, first.order()), EINVAL);
+  EXPECT_EQ(*dependencies.ready_to_publish(later, later.order()),
+            Decision::Ready);
+  const uint64_t old_order = first.order();
+  ASSERT_TRUE(dependencies.release(first, old_order));
+  admit_record(dependencies, first, Kind::Operation);
+  expect_error(dependencies.ready_to_publish(first, old_order), EINVAL);
+  EXPECT_EQ(*dependencies.ready_to_publish(first, first.order()),
+            Decision::Wait);
+  ASSERT_TRUE(dependencies.complete(later, later.order()));
+  EXPECT_EQ(*dependencies.ready_to_publish(first, first.order()),
+            Decision::Ready);
+}
+
 TEST(LlvmLibcAioFileDependenciesTest, DifferentNumericAliasesDoNotGroup) {
   Dependencies dependencies(2);
   Record alias, sync;
@@ -284,7 +356,8 @@ TEST(LlvmLibcAioFileDependenciesTest, InvalidCompletionDoesNotEndDependency) {
   expect_error(dependencies.decide(sync, sync.order()), EIO);
 }
 
-TEST(LlvmLibcAioFileDependenciesTest, AbandonQueuedSyncReleasesOnlyItsSnapshot) {
+TEST(LlvmLibcAioFileDependenciesTest,
+     AbandonQueuedSyncReleasesOnlyItsSnapshot) {
   Dependencies dependencies(3);
   Record prior, sync, later;
   admit_record(dependencies, prior, Kind::Operation);

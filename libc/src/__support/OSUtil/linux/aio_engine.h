@@ -23,8 +23,12 @@ namespace LIBC_NAMESPACE_DECL {
 // only the service worker calls progress(), never the public submission path.
 // No application callbacks, allocation, descriptor capture or waiting here.
 //
-// Synchronization groups use the original submission fd, not the private dup.
-// Different numeric descriptors are not merged even when they alias one file.
+// All original I/O is serialized by admission order on the original numeric fd,
+// until terminal completion, not result consumption or notification delivery.
+// A blocked read therefore also holds back later writes on that same fd.
+// Execution and sync groups use the original submission fd, not the private
+// dup. Different numeric descriptors are not merged even when they alias one
+// file.
 template <class RingLike = io_uring::Ring<>,
           class ResourceOperations = aio_submission_resources::LinuxOperations>
 class AioEngine {
@@ -324,6 +328,8 @@ public:
   // All notification preparation must already have succeeded. On failure the
   // service still owns resources/callback cleanup; admit never consumes them.
   // One original-operation credit per request, plus control headroom.
+  // Dependency admission under the service gate linearizes execution order,
+  // including for overlapping callers; wall-clock call order is not used.
   LIBC_INLINE ErrorOr<void> admit(Request &request, Input input) {
     if (request.owner || request.state_ptr || !request.resources.ready() ||
         (request.rejection_owner && request.rejection_owner != this) ||
@@ -547,6 +553,12 @@ private:
     }
     for (auto *request = requests; request; request = request->next) {
       if (request->terminal || request->issued)
+        continue;
+      auto readiness = dependencies.ready_to_publish(
+          request->dependency, request->dependency.order());
+      if (!readiness)
+        fatal();
+      if (*readiness == Dependencies::Decision::Wait)
         continue;
       if (sync(request->input.operation) &&
           !request->dependency.decision_final()) {

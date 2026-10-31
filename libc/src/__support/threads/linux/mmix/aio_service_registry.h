@@ -50,7 +50,7 @@ namespace mmix {
 // capacity or a new resource policy. No public capability or limit is selected.
 // Notification/thread admission policy remains with the external runtime.
 //
-// Deferred owners: public cancellation wrappers, list groups,
+// Deferred owners: public cancellation/list wrappers,
 // public wait cancellation, lazy worker startup and process
 // transition/quarantine hooks are not implemented here. In particular, do not
 // use a copied service in a fork child, or destroy outstanding records to
@@ -106,6 +106,50 @@ public:
     }
   };
 
+  // The public wrapper removes NULL/NOP entries and snapshots the remaining
+  // inputs. A malformed member has its own positive error, not an aggregate
+  // validation error. Flags, list limits and duplicate aiocbs are checked
+  // before any member is started. This layer does not borrow the public list.
+  struct ListInput {
+    Input input;
+    int error = 0;
+  };
+
+private:
+  struct ListMember {
+    PreparedMember prepared;
+    MemberObservation observation;
+    int error = 0;
+  };
+
+public:
+  // Stable service allocation: one caller owns preparation/status access until
+  // finish_list. That release does not cancel members or suppress notification.
+  // The maintainer retains the group until all members and notification owners
+  // have finished. WAIT supplies an inert notification, never the public sig.
+  class alignas(ListMember) ListGroup {
+    friend class AioServiceRegistry;
+    enum class Phase { Preparing, Active, Rollback };
+    AioServiceRegistry *owner;
+    ListGroup *next = nullptr;
+    size_t count;
+    Phase phase = Phase::Preparing;
+    Notification notification;
+    AioWaitEvent completion;
+    int error = 0;
+    bool complete = false;
+    bool released = false;
+    bool notification_terminal = false;
+
+    ListGroup(AioServiceRegistry *owner, size_t count)
+        : owner(owner), count(count) {}
+    ListMember *items() { return reinterpret_cast<ListMember *>(this + 1); }
+
+  public:
+    ListGroup(const ListGroup &) = delete;
+    ListGroup &operator=(const ListGroup &) = delete;
+  };
+
   // A private, single-use observation, owned by the service until release.
   // Its independent reference survives result consumption, address reuse and
   // failed cancel enqueue. Do not put it on a public caller's stack unless all
@@ -157,6 +201,11 @@ public:
   };
 
 private:
+  struct NoNormalization {
+    int operator()(int, Input &) const { return 0; }
+    int operator()(size_t, int, Input &) const { return 0; }
+  };
+
   enum class Phase { Preparing, Accepted, Rejected, Rollback };
   struct Record {
     typename Engine::Request request;
@@ -188,6 +237,7 @@ private:
   Storage storage;
   Record *records = nullptr;
   CancelBatch *cancel_batches = nullptr;
+  ListGroup *list_groups = nullptr;
   bool maintaining = false;
 
   static void publish_completion(void *context, const void *control_block) {
@@ -271,16 +321,33 @@ private:
     return engine.finish_submit(result);
   }
 
-  template <class Prepare>
+  template <class Prepare, class Normalize>
   LIBC_INLINE ErrorOr<void>
   admit_record(Record &record, Input input, Prepare prepare,
-               bool retain_failure, MemberObservation *observation = nullptr) {
+               Normalize normalize, bool retain_failure,
+               MemberObservation *observation = nullptr) {
     int error = 0;
     {
       RingGuard lock(ring_operations.value);
       auto captured = record.request.resources.capture(input.descriptor);
       if (!captured)
         error = captured.error();
+    }
+    if (!error) {
+      Input normalized = input;
+      error = int(normalize(record.request.resources.descriptor(), normalized));
+      if (normalized.control_block != input.control_block ||
+          normalized.descriptor != input.descriptor ||
+          normalized.operation != input.operation ||
+          normalized.notify != input.notify || error < 0 ||
+          error == EINPROGRESS)
+        error = EINVAL;
+      // Preserve the original binding and policy even for retained failures.
+      if (!error) {
+        input.buffer = normalized.buffer;
+        input.size = normalized.size;
+        input.offset = normalized.offset;
+      }
     }
     if (!error)
       error = int(prepare(record.notification));
@@ -331,6 +398,86 @@ private:
       batch.items()[i].~CancelObservation();
     batch.~CancelBatch();
     allocator.deallocate(&batch);
+  }
+
+  LIBC_INLINE void dispose_list(ListGroup &group) {
+    for (size_t i = 0; i < group.count; ++i)
+      group.items()[i].~ListMember();
+    group.~ListGroup();
+    allocator.deallocate(&group);
+  }
+
+  // Gate held. Observe the original requests, never look up a reused aiocb.
+  LIBC_INLINE void update_list(ListGroup &group) {
+    if (group.complete)
+      return;
+    bool complete = true;
+    for (size_t i = 0; i < group.count; ++i) {
+      auto &observation = group.items()[i].observation;
+      if (!observation.owner)
+        continue;
+      auto result = observation.request->state().result(observation.reference);
+      if (!result) {
+        if (result.error() != EINPROGRESS)
+          __builtin_trap();
+        complete = false;
+      } else if (result->error && !group.error)
+        group.error = EIO;
+    }
+    group.complete = complete;
+    if (complete)
+      group.completion.publish();
+  }
+
+  LIBC_INLINE int maintain_list(ListGroup &group) {
+    bool rollback;
+    {
+      StateGuard guard(gate);
+      if (group.phase == ListGroup::Phase::Preparing)
+        return 0;
+      rollback = group.phase == ListGroup::Phase::Rollback;
+      if (!rollback) {
+        update_list(group);
+        if (!group.complete)
+          return 0;
+        for (size_t i = 0; i < group.count; ++i) {
+          auto &observation = group.items()[i].observation;
+          if (!observation.owner)
+            continue;
+          if (!observation.request->state().release(observation.reference))
+            __builtin_trap();
+          observation.owner = nullptr;
+          observation.request = nullptr;
+        }
+      }
+    }
+    int error = 0;
+    if (!group.notification_terminal) {
+      if (rollback)
+        group.notification.discard();
+      else {
+        error = int(group.notification.activate());
+        if (error == EAGAIN || error == EBUSY)
+          return error;
+      }
+      group.notification_terminal = true;
+    }
+    int cleanup_error = int(group.notification.cleanup());
+    if (!error)
+      error = cleanup_error;
+    if (!group.notification.drained())
+      return error;
+    {
+      StateGuard guard(gate);
+      if (!group.released)
+        return error;
+      ListGroup **link = &list_groups;
+      while (*link != &group)
+        link = &(*link)->next;
+      *link = group.next;
+    }
+    dispose_list(group);
+    return error;
   }
 
   // Sole maintainer, after the caller has relinquished all batch access.
@@ -451,7 +598,8 @@ public:
   AioServiceRegistry(const AioServiceRegistry &) = delete;
   AioServiceRegistry &operator=(const AioServiceRegistry &) = delete;
   ~AioServiceRegistry() {
-    if (records || cancel_batches || storage.size() || maintaining)
+    if (records || cancel_batches || list_groups || storage.size() ||
+        maintaining)
       __builtin_trap();
   }
 
@@ -471,8 +619,20 @@ public:
   // requested delivery mode. Only drained() releases that claim. Input.notify
   // is ignored here; the prepared Notification selects delivery, not this bit.
   // Failure retains rollback in this service; maintain() must keep running.
-  template <class Prepare>
-  LIBC_INLINE ErrorOr<void> admit(Input input, Prepare prepare) {
+  // Optional normalize(int retained_fd, Input &) runs after successful capture,
+  // before prepare/admission, outside BOTH locks on the submitting thread.
+  // It returns zero or positive errno (not EINPROGRESS); invalid status or
+  // mutation of control_block/descriptor/operation/notify yields EINVAL. Only
+  // checked buffer/size/offset changes are committed. The fd is the borrowed
+  // private duplicate, not Input.descriptor (the original scheduling key).
+  // Do not close/replace it, change shared OFD flags/position, perform blocking
+  // I/O or wait for accepted work. Non-positioned/nonblocking policy stays with
+  // the caller/engine; this hook does not authorize changing descriptor flags.
+  // Queries and ordinary service reentry are permitted under the outer guards.
+  // Neither closure nor Input reference may escape this synchronous call.
+  template <class Prepare, class Normalize = NoNormalization>
+  LIBC_INLINE ErrorOr<void> admit(Input input, Prepare prepare,
+                                  Normalize normalize = {}) {
     auto *slot = acquire();
     if (!slot)
       return Error(ENOMEM);
@@ -482,7 +642,7 @@ public:
       record->next = records;
       records = record;
     }
-    return admit_record(*record, input, prepare, false);
+    return admit_record(*record, input, prepare, normalize, false);
   }
 
   // No fd capture, notification creation, request acceptance or SQ publication.
@@ -525,17 +685,191 @@ public:
   // become queryable local results, with no further allocation. Failure caused
   // by conflicting aiocb reuse preserves the existing binding instead. Failed
   // callback/resource preparation is retained for worker cleanup as usual.
-  template <class Prepare>
+  // normalize has the same contract as admit, including on retained failure.
+  template <class Prepare, class Normalize = NoNormalization>
   LIBC_INLINE ErrorOr<void>
   start_member(PreparedMember &member, Prepare prepare,
-               MemberObservation *observation = nullptr) {
+               MemberObservation *observation = nullptr,
+               Normalize normalize = {}) {
     if (member.owner != this || (observation && observation->owner))
       return Error(EINVAL);
     auto *record = static_cast<Record *>(member.record);
     Input input = member.input;
     member.owner = nullptr;
     member.record = nullptr;
-    return admit_record(*record, input, prepare, true, observation);
+    return admit_record(*record, input, prepare, normalize, true, observation);
+  }
+
+  // Consume a reserved malformed member without touching its fd or event.
+  LIBC_INLINE ErrorOr<void> reject_member(PreparedMember &member, int error,
+                                          MemberObservation &observation) {
+    if (member.owner != this || observation.owner || error <= 0 ||
+        error == EINPROGRESS)
+      return Error(EINVAL);
+    auto *record = static_cast<Record *>(member.record);
+    Input input = member.input;
+    member.owner = nullptr;
+    member.record = nullptr;
+    StateGuard guard(gate);
+    auto result = engine.admit_rejected(record->request, input, error);
+    record->phase = result ? Phase::Rejected : Phase::Rollback;
+    if (result) {
+      if (!record->request.state().retain(observation.reference))
+        __builtin_trap();
+      observation.owner = this;
+      observation.request = &record->request;
+    }
+    return result;
+  }
+
+  // No I/O starts until every member and the group notification are prepared.
+  // A failed preparation remains privately owned for deferred cleanup; it does
+  // not create public results. Inputs and the supplied preparation closure are
+  // used only during this call. No fixed retained-list limit is imposed here.
+  template <class Prepare>
+  LIBC_INLINE ErrorOr<ListGroup *> prepare_list(const ListInput *inputs,
+                                                size_t count, Prepare prepare) {
+    if (count && !inputs)
+      return Error(EINVAL);
+    if (count > (SIZE_MAX - sizeof(ListGroup)) / sizeof(ListMember))
+      return Error(ENOMEM);
+    for (size_t i = 0; i < count; ++i) {
+      if (!inputs[i].input.control_block || inputs[i].error < 0 ||
+          inputs[i].error == EINPROGRESS)
+        return Error(EINVAL);
+      for (size_t j = 0; j < i; ++j)
+        if (inputs[i].input.control_block == inputs[j].input.control_block)
+          return Error(EINVAL);
+    }
+    void *memory = allocator.allocate(
+        sizeof(ListGroup) + count * sizeof(ListMember), alignof(ListGroup));
+    if (!memory)
+      return Error(ENOMEM);
+    auto *group = new (memory) ListGroup(this, count);
+    for (size_t i = 0; i < count; ++i)
+      new (&group->items()[i]) ListMember;
+    {
+      StateGuard guard(gate);
+      group->next = list_groups;
+      list_groups = group;
+    }
+    size_t prepared = 0;
+    int error = 0;
+    for (; prepared < count; ++prepared) {
+      auto &item = group->items()[prepared];
+      item.error = inputs[prepared].error;
+      auto result = prepare_member(item.prepared, inputs[prepared].input);
+      if (!result) {
+        error = result.error();
+        break;
+      }
+    }
+    if (!error)
+      error = int(prepare(group->notification));
+    if (error) {
+      for (size_t i = 0; i < prepared; ++i)
+        if (abandon_member(group->items()[i].prepared))
+          __builtin_trap();
+      StateGuard guard(gate);
+      group->released = true;
+      group->phase = ListGroup::Phase::Rollback;
+      return Error(error);
+    }
+    return group;
+  }
+
+  // Starts all prepared members, including local failures. Queue resource
+  // failures report aggregate EAGAIN; other member failures report EIO. Neither
+  // rolls back successful members. The caller
+  // must finish_list on every return after start_list. Its prepare closure may
+  // snapshot per-member events by index; malformed members never invoke it.
+  // normalize(size_t index, int retained_fd, Input &) follows admit's contract;
+  // malformed members skip it, and normalization failure skips member prepare.
+  // The independent group notification was already prepared by prepare_list.
+  template <class Prepare, class Normalize = NoNormalization>
+  LIBC_INLINE int start_list(ListGroup &group, Prepare prepare,
+                             Normalize normalize = {}) {
+    if (group.owner != this || group.phase != ListGroup::Phase::Preparing)
+      return EINVAL;
+    int error = 0;
+    for (size_t i = 0; i < group.count; ++i) {
+      auto &item = group.items()[i];
+      auto result = item.error ? reject_member(item.prepared, item.error,
+                                               item.observation)
+                               : start_member(
+                                     item.prepared,
+                                     [&](Notification &notification) {
+                                       return prepare(i, notification);
+                                     },
+                                     &item.observation,
+                                     [&](int descriptor, Input &input) {
+                                       return normalize(i, descriptor, input);
+                                     });
+      int failure = item.error ? item.error : (result ? 0 : result.error());
+      if (failure == EAGAIN || failure == ENOMEM || failure == EMFILE ||
+          failure == ENFILE)
+        error = EAGAIN;
+      else if (failure && !error)
+        error = EIO;
+    }
+    StateGuard guard(gate);
+    group.error = error;
+    group.phase = ListGroup::Phase::Active;
+    return error;
+  }
+
+  // Result is independent of member aio_return and group notification delivery.
+  // EINPROGRESS is not permission to release request buffers. Even EIO is only
+  // returned once every started member has terminated. A queue-resource EAGAIN
+  // remains distinct from a completed member's I/O error.
+  LIBC_INLINE ErrorOr<int> list_result(ListGroup &group) {
+    typename Gate::Guard guard(gate);
+    if (!guard)
+      return Error(guard.error());
+    if (group.owner != this || group.released ||
+        group.phase != ListGroup::Phase::Active)
+      return Error(EINVAL);
+    update_list(group);
+    return group.complete ? ErrorOr<int>(group.error)
+                          : ErrorOr<int>(Error(EINPROGRESS));
+  }
+
+  LIBC_INLINE int finish_list(ListGroup &group) {
+    typename Gate::Guard guard(gate);
+    if (!guard)
+      return guard.error();
+    if (group.owner != this || group.released ||
+        group.phase != ListGroup::Phase::Active)
+      return EINVAL;
+    group.released = true;
+    return 0;
+  }
+
+  // One owning waiter, no state/ring lock held across the syscall. Timeout or
+  // interruption keeps the group owned; the wrapper must finish_list on every
+  // departure (including cancellation). The group, not a caller stack frame,
+  // owns the published event. A zero return means all original results exist,
+  // not that every member or notification succeeded; consult list_result.
+  LIBC_INLINE int wait_list(ListGroup &group,
+                            const timespec *deadline = nullptr,
+                            AioWaitEvent::WaitSyscall wait_syscall = nullptr,
+                            void *context = nullptr) {
+    {
+      typename Gate::Guard guard(gate);
+      if (!guard)
+        return guard.error();
+      if (group.owner != this || group.released ||
+          group.phase != ListGroup::Phase::Active)
+        return EINVAL;
+      update_list(group);
+    }
+    return wait_syscall ? group.completion.wait(deadline, wait_syscall, context)
+                        : group.completion.wait(deadline);
+  }
+
+  LIBC_INLINE bool has_list_groups() {
+    StateGuard guard(gate);
+    return list_groups != nullptr;
   }
 
   LIBC_INLINE ErrorOr<AioRequest::Result>
@@ -874,6 +1208,7 @@ public:
   LIBC_INLINE int maintain() {
     Record *record;
     CancelBatch *batch;
+    ListGroup *group;
     {
       StateGuard guard(gate);
       if (maintaining)
@@ -881,8 +1216,20 @@ public:
       maintaining = true;
       record = records;
       batch = cancel_batches;
+      group = list_groups;
     }
     int error = 0;
+    while (group) {
+      ListGroup *next;
+      {
+        StateGuard guard(gate);
+        next = group->next;
+      }
+      int result = maintain_list(*group);
+      if (!error)
+        error = result;
+      group = next;
+    }
     while (batch) {
       CancelBatch *next;
       {

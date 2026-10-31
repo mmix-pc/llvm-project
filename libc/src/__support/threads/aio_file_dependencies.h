@@ -26,6 +26,8 @@ namespace LIBC_NAMESPACE_DECL {
 // admission, never a private duplicate, file identity or open description.
 // Different numeric aliases do not group; reuse of the same numeric fd does.
 // A cancel/control CQE is not the original operation's terminal event.
+// ready_to_publish() gates every original I/O on earlier same-fd terminal
+// events, independently of result consumption, notification or sync snapshots.
 //
 // A sync owns a snapshot of retained earlier records with the same original fd
 // until decide() returns Ready or an error. Later admissions never enter that
@@ -129,13 +131,25 @@ public:
   // explicitly and calls complete(), without publishing a successful sync.
   LIBC_INLINE bool complete(Record &record, uint64_t order, int error = 0) {
     if (!matches(record, order) || record.terminal || error < 0 ||
-        error == EINPROGRESS ||
-        (record.kind == Kind::Sync && !record.decided))
+        error == EINPROGRESS || (record.kind == Kind::Sync && !record.decided))
       return false;
     record.terminal_error = error;
     record.terminal_order = last_order;
     record.terminal = true;
     return true;
+  }
+
+  // Repeatable execution readiness for operations AND syncs. Terminal records
+  // never block publication, even if retained for a result or sync snapshot.
+  // Predecessor errors do not propagate here; syncs also require decide().
+  LIBC_INLINE ErrorOr<Decision> ready_to_publish(const Record &request,
+                                                 uint64_t order) const {
+    if (!matches(request, order) || request.terminal)
+      return Error(EINVAL);
+    for (const Record *record = head; record != &request; record = record->next)
+      if (record->original_fd == request.original_fd && !record->terminal)
+        return Decision::Wait;
+    return Decision::Ready;
   }
 
   // Wait is retryable; Ready and errors consume the snapshot exactly once.
@@ -154,8 +168,8 @@ public:
     for (Record *record = head; record != &sync; record = record->next) {
       if (record->original_fd != sync.original_fd)
         continue;
-      if (record->terminal &&
-          (!record->terminal_error || record->terminal_order < sync.order_value))
+      if (record->terminal && (!record->terminal_error ||
+                               record->terminal_order < sync.order_value))
         continue;
       if (!record->terminal)
         waiting = true;
