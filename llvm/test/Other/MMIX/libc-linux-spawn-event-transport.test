@@ -1,0 +1,272 @@
+# REQUIRES: mmix-registered-target, mmix-spawn-event-uapi
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+# Private opt-in fixture: the harness must supply MMIX_SPAWN_UAPI and explicitly
+# enable mmix-spawn-event-uapi. No default package, numeric UAPI stub or provider
+# selection is installed. run.py also accepts --uapi and optional --host-cxx.
+# Native injection and assembly inspection are not guest returns-twice evidence.
+
+#--- run.py
+import argparse
+import hashlib
+import json
+import os
+import pathlib
+import re
+import shlex
+import shutil
+import subprocess
+
+parser = argparse.ArgumentParser()
+parser.add_argument("libc", type=pathlib.Path)
+parser.add_argument("root", type=pathlib.Path)
+parser.add_argument("--uapi", default=os.environ.get("MMIX_SPAWN_UAPI"))
+parser.add_argument("--host-cxx")
+args = parser.parse_args()
+if not args.uapi:
+    parser.error("explicit delivered MMIX UAPI include directory required")
+uapi = pathlib.Path(args.uapi).resolve(strict=True)
+for header in ("asm/spawn.h", "asm/unistd.h"):
+    if not (uapi / header).is_file():
+        parser.error("missing delivered header: " + header)
+libc, root = args.libc.resolve(), args.root.resolve()
+source = libc / "src/spawn/linux/mmix/spawn_event.cpp"
+leaf = source.with_suffix(".S")
+resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
+flags = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-fno-exceptions",
+         "-fno-rtti", "-fno-optimize-sibling-calls", "-DLIBC_FULL_BUILD",
+         "-DLIBC_NAMESPACE=spawn_event_test", "-I", str(uapi), "-I", str(libc)]
+target = ["clang", "-cc1", "-triple", "mmix-unknown-linux",
+          "-internal-isystem", resource + "/include"]
+
+
+def check_ir(path, consumer):
+    ir = path.read_text()
+    attrs = dict(re.findall(r"^attributes #(\d+) = \{([^\n]*)\}", ir, re.M))
+    names = (["create_spawn_event", "spawn_event_capability", "query_spawn_event",
+              "wait_spawn_event"] if consumer else
+             ["__llvm_libc_mmix_spawn_event_create", "create_spawn_event",
+              "spawn_event_capability", "query_spawn_event", "wait_spawn_event",
+              "__llvm_libc_mmix_syscall"])
+    for name in names:
+        declarations = [line for line in ir.splitlines()
+                        if line.startswith(("define ", "declare ")) and
+                        re.search(r"@[^ (]*" + name + r"[^ (]*\(", line)]
+        assert declarations, (path, name)
+        for line in declarations:
+            groups = re.findall(r"#(\d+)", line)
+            attributes = " ".join(attrs[g] for g in groups)
+            twice = name in ("create_spawn_event", "__llvm_libc_mmix_spawn_event_create")
+            assert ("returns_twice" in attributes) == twice, line
+        if name in ("create_spawn_event", "__llvm_libc_mmix_spawn_event_create"):
+            calls = [line for line in ir.splitlines() if "call " in line and
+                     re.search(r"@[^ (]*" + name + r"[^ (]*\(", line)]
+            # The wrapper definition has no recursive call to itself.
+            if consumer or name.startswith("__llvm"):
+                assert calls, (path, name)
+                for line in calls:
+                    assert any("returns_twice" in attrs[g]
+                               for g in re.findall(r"#(\d+)", line)), line
+
+
+for opt in ("0", "2"):
+    for reloc in ("static", "pic"):
+        for unit in (source, root / "consumer.cpp"):
+            stem = unit.stem + "-O" + opt + "-" + reloc
+            # cc1 disables exceptions by default; -fno-exceptions is a driver flag.
+            command = [*target, *(f for f in flags if f != "-fno-exceptions"),
+                       "-O" + opt, "-mrelocation-model", reloc]
+            obj, ir = root / (stem + ".o"), root / (stem + ".ll")
+            subprocess.run([*command, "-emit-obj", str(unit), "-o", str(obj)], check=True)
+            subprocess.run([*command, "-emit-llvm", str(unit), "-o", str(ir)], check=True)
+            check_ir(ir, unit != source)
+            symbols = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
+            assert not any(name in symbols for name in
+                           ("__emutls", "__atomic_", "pthread_", "posix_spawn", "vfork"))
+    if args.host_cxx:
+        exe = root / ("native-O" + opt)
+        subprocess.run([*shlex.split(args.host_cxx),
+                        *(f for f in flags if f != "-ffreestanding"), "-O" + opt,
+                        "-D__mmix__", str(source), str(root / "native.cpp"),
+                        "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=20)
+
+# Preprocess only from delivered headers, then assemble the real leaf. The
+# register model checks its bounded instruction sequence, not CPU execution.
+cpp = ["clang", "--target=mmix-unknown-linux", "-E", "-P", "-nostdinc",
+       "-x", "assembler-with-cpp", "-I", str(uapi)]
+assembly = subprocess.check_output([*cpp, str(leaf)], text=True)
+preprocessed = root / "spawn-event-leaf.s"
+preprocessed.write_text(assembly)
+obj = root / "spawn-event-leaf.o"
+subprocess.run(["llvm-mc", "-triple=mmix-unknown-linux", "-filetype=obj",
+                str(preprocessed), "-o", str(obj)], check=True)
+symbols = subprocess.check_output(["llvm-readobj", "--symbols", str(obj)], text=True)
+assert "__llvm_libc_mmix_spawn_event_create" in symbols and "STV_HIDDEN" in symbols
+values = subprocess.check_output([*cpp, str(root / "abi-values.S")], text=True)
+operation, syscall = map(int, values.split())
+instructions = []
+for line in assembly.splitlines():
+    line = line.strip()
+    if line and not line.startswith(".") and not line.endswith(":"):
+        instructions.append(re.sub(r"\s+", " ", line))
+assert instructions == ["OR r233, r232, 0", "OR r232, r231, 0",
+                        f"SETL r231, {operation}", "SETL r234, 0",
+                        "SETL r235, 0", "SETL r236, 0",
+                        f"SETL r237, {syscall}", "TRAP 1, 0, 0", "POP 0, 0"]
+for result in (0, 417, -1):
+    registers = {n: 0x10000 + n for n in range(256)}
+    registers[231], registers[232] = 0x123400, 32
+    before = dict(registers)
+    for instruction in instructions:
+        fields = instruction.replace(",", "").split()
+        if fields[0] == "OR":
+            registers[int(fields[1][1:])] = registers[int(fields[2][1:])]
+        elif fields[0] == "SETL":
+            registers[int(fields[1][1:])] = int(fields[2])
+        elif fields[0] == "TRAP":
+            assert [registers[n] for n in range(231, 238)] == [
+                operation, before[231], before[232], 0, 0, 0, syscall]
+            registers[231] = result
+        else:
+            assert fields == ["POP", "0", "0"]
+    assert registers[231] == result
+    assert all(registers[n] == before[n] for n in range(256)
+               if n not in range(231, 238))
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+inputs = [source, source.with_suffix(".h"), leaf, pathlib.Path(__file__),
+          uapi / "asm/spawn.h", uapi / "asm/unistd.h", uapi / "asm/unistd_64.h",
+          root / "consumer.cpp", root / "native.cpp", root / "abi-values.S"]
+tools = ["clang", "llvm-nm", "llvm-mc", "llvm-readobj"]
+if args.host_cxx:
+    tools.append(shlex.split(args.host_cxx)[0])
+inputs.extend(pathlib.Path(shutil.which(tool)).resolve() for tool in tools)
+manifest = uapi.parent / "headers.sha256"
+if manifest.is_file():
+    inputs.append(manifest)
+artifacts = list(root.glob("*.o")) + list(root.glob("*.ll")) + list(root.glob("native-O*"))
+(root / "report.json").write_text(json.dumps({
+    "passed": True, "native_injection": bool(args.host_cxx),
+    "guest_qualified": False, "uapi": str(uapi),
+    "inputs": {str(path): digest(path) for path in inputs},
+    "artifacts": {str(path): digest(path) for path in artifacts},
+}, indent=2) + "\n")
+print("Target compile/IR/leaf-model checks finished; native injection " +
+      ("finished" if args.host_cxx else "NOT RUN") + "; no guest qualification")
+
+#--- abi-values.S
+#include <asm/spawn.h>
+#include <asm/unistd.h>
+MMIX_SPAWN_CREATE
+__NR_mmix_spawn
+
+#--- consumer.cpp
+#include "src/spawn/linux/mmix/spawn_event.h"
+using namespace spawn_event_test::mmix;
+extern "C" long consume_create(SpawnEventHandles &handles, long *witness) {
+  const long before = *witness;
+  long result = create_spawn_event(handles);
+  *witness = before + result;
+  return result;
+}
+extern "C" long consume_capability() { return spawn_event_capability(); }
+extern "C" long consume_query(int fd) { return query_spawn_event(fd); }
+extern "C" long consume_wait(int fd) { return wait_spawn_event(fd); }
+
+#--- native.cpp
+// Host-only injection: zero models the child's result but does not fork or
+// execute twice. Dirty failed outputs are not live descriptors to close.
+#include "src/spawn/linux/mmix/spawn_event.h"
+#include <asm/errno.h>
+#include <asm/unistd.h>
+using namespace spawn_event_test::mmix;
+static void check(bool condition) { if (!condition) __builtin_trap(); }
+static long create_result, scalar_result, expected_operation, expected_fd;
+static unsigned creates, scalars;
+static int writes;
+static SpawnEventHandles *caller_output;
+
+extern "C" [[gnu::returns_twice]] long
+__llvm_libc_mmix_spawn_event_create(const mmix_spawn_args *request,
+                                   unsigned long size) {
+  ++creates;
+  check(size == sizeof(*request) && request->version == MMIX_SPAWN_VERSION);
+  check(!request->reserved && !request->reserved2);
+  check(request->event_fd && request->pidfd && request->event_fd != request->pidfd);
+  check(request->event_fd % alignof(int) == 0 && request->pidfd % alignof(int) == 0);
+  auto *event = reinterpret_cast<int *>(request->event_fd);
+  auto *pidfd = reinterpret_cast<int *>(request->pidfd);
+  check(event != &caller_output->event_fd && pidfd != &caller_output->pidfd);
+  check(*event == -1 && *pidfd == -1);
+  if (writes >= 1) *event = 71;
+  if (writes >= 2) *pidfd = 72;
+  return create_result;
+}
+
+extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long operation,
+                                        long fd, long c, long d, long e, long f) {
+  ++scalars;
+  check(number == __NR_mmix_spawn && operation == expected_operation);
+  check(operation != MMIX_SPAWN_CREATE && fd == expected_fd);
+  check(!c && !d && !e && !f);
+  return scalar_result;
+}
+
+int main() {
+  struct Guarded {
+    unsigned long before;
+    SpawnEventHandles handles;
+    unsigned long after;
+  } output{0x12345678UL, {81, 82}, 0x87654321UL};
+  caller_output = &output.handles;
+  const long results[] = {417, 0, -EAGAIN, -ENOMEM, -EPERM, -EFAULT,
+                          -EINVAL, -ENOSYS};
+  for (long result : results) {
+    for (int dirty = 0; dirty <= 2; ++dirty) {
+      if (result > 0 && dirty != 2) continue;
+      create_result = result;
+      writes = dirty;
+      output.handles = {81, 82};
+      unsigned old_creates = creates;
+      check(create_spawn_event(output.handles) == result);
+      check(creates == old_creates + 1 && scalars == 0);
+      check(output.before == 0x12345678UL && output.after == 0x87654321UL);
+      check(output.handles.event_fd == (result > 0 ? 71 : 81));
+      check(output.handles.pidfd == (result > 0 ? 72 : 82));
+    }
+  }
+  const unsigned old_creates = creates;
+  expected_operation = MMIX_SPAWN_QUERY;
+  expected_fd = 0;
+  const long capabilities[] = {MMIX_SPAWN_CAP_V1, -ENOSYS, -EPERM};
+  for (long result : capabilities) {
+    scalar_result = result;
+    unsigned old_scalars = scalars;
+    check(spawn_event_capability() == result && scalars == old_scalars + 1);
+  }
+  const long observed[] = {MMIX_SPAWN_PENDING, MMIX_SPAWN_RELEASED,
+                           -EBADF, -EINVAL, -EINTR, -ENOSYS};
+  const int fds[] = {71, -1};
+  for (int fd : fds) {
+    expected_fd = fd;
+    for (long result : observed) {
+      scalar_result = result;
+      expected_operation = MMIX_SPAWN_EVENT_QUERY;
+      unsigned old_scalars = scalars;
+      check(query_spawn_event(fd) == result && scalars == old_scalars + 1);
+    }
+    const long waited[] = {0, -EINTR, -EBADF, -EINVAL, -ENOSYS};
+    for (long result : waited) {
+      scalar_result = result;
+      expected_operation = MMIX_SPAWN_EVENT_WAIT;
+      unsigned old_scalars = scalars;
+      check(wait_spawn_event(fd) == result && scalars == old_scalars + 1);
+    }
+  }
+  check(creates == old_creates);
+  check(output.handles.event_fd == 81 && output.handles.pidfd == 82);
+  return 0;
+}
