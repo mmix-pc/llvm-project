@@ -693,9 +693,17 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
 #else
     uintptr_t base = 0;
 #endif
-    // Get the current instruction pointer and offset it before next
-    // instruction in the current frame which threw the exception.
+#if defined(__USING_SJLJ_EXCEPTIONS__) || defined(__WASM_EXCEPTIONS__) || \
+    defined(_LIBCXXABI_ARM_EHABI) || defined(__SEH__) || defined(_AIX) || defined(__MVS__)
     uintptr_t ip = _Unwind_GetIP(context) - 1;
+#else
+    // A saved instruction PC already identifies the instruction to clean up;
+    // only a return address belongs to the preceding call-site interval.
+    int ipBefore = 0;
+    uintptr_t ip = _Unwind_GetIPInfo(context, &ipBefore);
+    if (!ipBefore)
+        --ip;
+#endif
     // Get beginning current frame's code (as defined by the
     // emitted dwarf code)
     uintptr_t funcStart = _Unwind_GetRegionStart(context);
