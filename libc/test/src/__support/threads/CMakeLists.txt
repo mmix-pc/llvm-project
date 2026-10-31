@@ -112,6 +112,16 @@ if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.futex_utils)
         libc.src.__support.CPP.new
     )
     add_libc_test(
+      aio_service_relative_test
+      SUITE libc-support-threads-tests
+      SRCS aio_service_relative_test.cpp
+      DEPENDS libc.include.aio libc.hdr.signal_macros
+        libc.src.__support.OSUtil.linux.aio_wait_event
+        libc.src.__support.threads.aio_request
+        libc.src.__support.CPP.limits libc.src.__support.CPP.new
+        libc.src.__support.libc_errno
+    )
+    add_libc_test(
       aio_gate_test
       SUITE libc-support-threads-tests
       SRCS aio_gate_test.cpp

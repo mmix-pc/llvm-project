@@ -45,6 +45,56 @@ int submit_aio_list_wait(aiocb *const *, int count, const sigevent *,
 int suspend_aio_requests(const aiocb *const *, size_t count,
                          const timespec *deadline,
                          AioWaitEvent::WaitSyscall = nullptr, void * = nullptr);
+// Same registration, ready-first and cleanup rules, with a relative interval.
+// Null is unbounded. Negative seconds or invalid nanoseconds yield EINVAL;
+// an unrepresentable absolute deadline yields private ERANGE, not a selected
+// public aio_suspend overflow policy. Empty/all-null lists retain the absolute
+// wait's behavior. This does not add a ready-path cancellation point.
+int suspend_aio_requests_relative(const aiocb *const *, size_t count,
+                                  const timespec *timeout,
+                                  AioWaitEvent::WaitSyscall = nullptr,
+                                  void * = nullptr);
+
+namespace aio_service_detail {
+// Only called with an already registered, cleanup-protected event. Clock is
+// resident nonallocating code returning a positive error, never an application
+// callback. Keeping this adapter separate permits native arithmetic injection
+// without admitting a clock hook through the service interface.
+template <class Clock>
+LIBC_INLINE int wait_relative(AioWaitEvent &event, const timespec *timeout,
+                              Clock clock, AioWaitEvent::WaitSyscall wait,
+                              void *context) {
+  static_assert(__is_trivially_destructible(Clock));
+  if (event.ready())
+    return 0;
+  if (!timeout)
+    return event.wait(nullptr, wait, context);
+
+  const timespec interval = *timeout;
+  if (interval.tv_sec < 0 || interval.tv_nsec < 0 ||
+      interval.tv_nsec >= 1000000000)
+    return event.ready() ? 0 : EINVAL;
+
+  timespec now{};
+  if (int error = clock(now))
+    return event.ready() ? 0 : error;
+  if (now.tv_sec < 0 || now.tv_nsec < 0 || now.tv_nsec >= 1000000000)
+    return event.ready() ? 0 : EPROTO;
+
+  // Both nanosecond fields are normalized, so their sum fits even a 32-bit
+  // long. Check seconds and the normalization carry separately before use.
+  timespec deadline{};
+  deadline.tv_nsec = now.tv_nsec + interval.tv_nsec;
+  const bool carry = deadline.tv_nsec >= 1000000000;
+  if (__builtin_add_overflow(now.tv_sec, interval.tv_sec, &deadline.tv_sec) ||
+      __builtin_add_overflow(deadline.tv_sec, carry, &deadline.tv_sec))
+    return event.ready() ? 0 : ERANGE;
+  if (carry)
+    deadline.tv_nsec -= 1000000000;
+  // The absolute wait copies this once; spurious wakes never resample Clock.
+  return event.wait(&deadline, wait, context);
+}
+} // namespace aio_service_detail
 
 // Called with application/cancellation signals excluded by ForkOperation,
 // before allocator/loader/registry snapshot locks. Every successful prepare

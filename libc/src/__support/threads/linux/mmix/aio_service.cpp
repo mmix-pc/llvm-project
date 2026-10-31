@@ -14,6 +14,7 @@
 #include "cancellation_point.h"
 #include "config/app.h"
 #include "hdr/pthread_macros.h"
+#include "hdr/time_macros.h"
 #include "src/stdlib/linux/mmix/allocator.h"
 #include "src/setjmp/mmix/linux/jump_cleanup.h"
 #include <asm/rstack.h>
@@ -585,10 +586,12 @@ ErrorOr<int> cancel_aio_requests(int descriptor, const aiocb *cb) {
   __builtin_trap();
 }
 
+namespace {
 [[gnu::noinline, clang::disable_tail_calls]]
-int suspend_aio_requests(const aiocb *const *list, size_t count,
-                         const timespec *deadline,
-                         AioWaitEvent::WaitSyscall wait_syscall, void *context) {
+int suspend_aio_requests_impl(const aiocb *const *list, size_t count,
+                              const timespec *timeout, bool relative,
+                              AioWaitEvent::WaitSyscall wait_syscall,
+                              void *context) {
   uint64_t saved_mask;
   const uint64_t blocked = UINT64_MAX & ~CREDENTIAL_MASK;
   long masked = syscall_impl<long>(SYS_rt_sigprocmask, SIG_BLOCK, &blocked,
@@ -611,9 +614,39 @@ int suspend_aio_requests(const aiocb *const *list, size_t count,
     __builtin_trap();
   if (error)
     return error;
-  return frame.wait.completion().wait(deadline,
-                                      wait_syscall ? wait_syscall : cancel_wait,
-                                      context);
+  auto &event = frame.wait.completion();
+  auto wait = wait_syscall ? wait_syscall : cancel_wait;
+  if (relative) {
+    return aio_service_detail::wait_relative(
+        event, timeout,
+        [](timespec &now) {
+          static_assert(sizeof(timespec::tv_sec) == 8 &&
+                        sizeof(timespec::tv_nsec) == 8 && sizeof(timespec) == 16);
+          // Match the MMIX syscall-only clock provider without introducing
+          // public errno, lazy vDSO resolution or cancellation into sampling.
+          long result =
+              syscall_impl<long>(SYS_clock_gettime, CLOCK_MONOTONIC, &now);
+          return result < 0 ? int(-result) : result ? EIO : 0;
+        },
+        wait, context);
+  }
+  return event.wait(timeout, wait, context);
+}
+} // namespace
+
+int suspend_aio_requests(const aiocb *const *list, size_t count,
+                         const timespec *deadline,
+                         AioWaitEvent::WaitSyscall wait_syscall, void *context) {
+  return suspend_aio_requests_impl(list, count, deadline, false, wait_syscall,
+                                   context);
+}
+
+int suspend_aio_requests_relative(const aiocb *const *list, size_t count,
+                                  const timespec *timeout,
+                                  AioWaitEvent::WaitSyscall wait_syscall,
+                                  void *context) {
+  return suspend_aio_requests_impl(list, count, timeout, true, wait_syscall,
+                                   context);
 }
 
 int prepare_aio_fork(bool minimal, bool *drained) {
