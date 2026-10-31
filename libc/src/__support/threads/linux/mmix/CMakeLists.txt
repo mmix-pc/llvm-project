@@ -308,6 +308,17 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   )
   if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION AND LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
     add_object_library(
+      aio_service
+      SRCS aio_service.cpp
+      HDRS aio_service.h
+      DEPENDS .aio_dispatcher .aio_service_registry .aio_input .aio_transfer
+        .cancellation .credentials libc.config.app_h libc.include.pthread
+        libc.src.__support.CPP.new libc.include.sys_syscall
+        libc.src.stdlib.malloc libc.src.stdlib.free
+      COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
+        ${mmix_scheduling_options}
+    )
+    add_object_library(
       notification_service
       SRCS notification_service.cpp
       HDRS notification_service.h

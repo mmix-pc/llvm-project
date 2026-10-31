@@ -28,6 +28,7 @@ namespace LIBC_NAMESPACE_DECL {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
 namespace mmix {
 void close_notification_admission() __attribute__((weak));
+void close_aio_admission() __attribute__((weak));
 }
 #endif
 
@@ -171,6 +172,8 @@ void begin_process_exit(int status, [[maybe_unused]] bool quick) {
       control && !control->fork_recovery.allows_thread_creation();
   if (mmix::close_notification_admission)
     mmix::close_notification_admission();
+  if (mmix::close_aio_admission)
+    mmix::close_aio_admission();
   bool owner = mmix::thread_registry.claim_process_cleanup(sole_fork_child);
   if (!owner) {
     // The winner never releases ownership: exit_group terminates every peer.

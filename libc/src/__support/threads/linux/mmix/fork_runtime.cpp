@@ -51,6 +51,9 @@ namespace mmix {
 int prepare_notification_fork(bool, bool *) __attribute__((weak));
 void finish_notification_fork(bool) __attribute__((weak));
 void close_notification_admission() __attribute__((weak));
+int prepare_aio_fork(bool, bool *) __attribute__((weak));
+void finish_aio_fork(bool) __attribute__((weak));
+void close_aio_admission() __attribute__((weak));
 namespace {
 struct alignas(8) Serializer {
   RawMutex mutex;
@@ -164,17 +167,22 @@ int ForkOperation::prepare_runtime() {
       return error;
     notifications = true;
   }
+  bool aio_drained = true;
+  if (prepare_aio_fork) {
+    if (int error = prepare_aio_fork(minimal, &aio_drained))
+      return error;
+    aio = true;
+  }
   if (!minimal)
     // A terminal continuation may witness absence, never retire a live helper.
-    helper_drained =
-        (cleanup_continuation
-             ? reaper_absent_for_exit_fork(*caller, continuation)
-             : retire_reaper_for_fork(*caller)) &&
-        notification_drained;
+    helper_drained = (cleanup_continuation
+                          ? reaper_absent_for_exit_fork(*caller, continuation)
+                          : retire_reaper_for_fork(*caller)) &&
+                     notification_drained && aio_drained;
   else
     // The minimal precheck already excluded all helpers and incomplete reaps.
     // Repeat the census at freeze; old creation history is not a live owner.
-    helper_drained = notification_drained;
+    helper_drained = notification_drained && aio_drained;
   if (!prepare_credentials_fork())
     return EAGAIN;
   credentials = true;
@@ -445,6 +453,12 @@ void ForkOperation::restore_runtime(bool child) {
   if (credentials) {
     finish_credentials_fork();
     credentials = false;
+  }
+  if (aio) {
+    finish_aio_fork(child);
+    if (child && process_cleanup && close_aio_admission)
+      close_aio_admission();
+    aio = false;
   }
   if (notifications) {
     finish_notification_fork(child);

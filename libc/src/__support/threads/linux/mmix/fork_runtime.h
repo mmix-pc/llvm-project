@@ -19,6 +19,7 @@ class ForkOperation {
   bool priority = false, streams = false, allocator = false, registry = false;
   bool helper_drained = false;
   bool notifications = false;
+  bool aio = false;
   bool minimal = false;
   ForkContinuation continuation = ForkContinuation::Ordinary;
   UnwindRoot continuation_root;
