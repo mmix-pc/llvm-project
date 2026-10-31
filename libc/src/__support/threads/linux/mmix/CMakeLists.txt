@@ -312,7 +312,8 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       SRCS aio_service.cpp
       HDRS aio_service.h
       DEPENDS .aio_dispatcher .aio_service_registry .aio_input .aio_transfer
-        .cancellation .credentials libc.config.app_h libc.include.pthread
+        .cancellation .cancellation_point .credentials libc.src.setjmp.mmix.jump_cleanup
+        libc.config.app_h libc.include.pthread
         libc.src.__support.CPP.new libc.include.sys_syscall
         libc.src.stdlib.malloc libc.src.stdlib.free
       COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables

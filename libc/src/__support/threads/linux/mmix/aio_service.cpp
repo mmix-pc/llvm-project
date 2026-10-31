@@ -11,9 +11,11 @@
 #include "aio_service_registry.h"
 #include "aio_transfer.h"
 #include "cancellation.h"
+#include "cancellation_point.h"
 #include "config/app.h"
 #include "hdr/pthread_macros.h"
 #include "src/stdlib/linux/mmix/allocator.h"
+#include "src/setjmp/mmix/linux/jump_cleanup.h"
 #include <asm/rstack.h>
 #include <pthread.h>
 
@@ -215,6 +217,132 @@ public:
   }
   int error() const { return error_code; }
 };
+
+// The only automatically owned state across the wait is trivially destructible.
+// A compiler cleanup supplies the exception landing; paired jump hooks handle
+// legal nonlocal exits without requiring a C++ destructor or catch runtime.
+struct WaitFrame {
+  using Operation = AioDispatcher::Operation;
+  using Node = JumpCleanupStack::Node;
+  Service &owner;
+  Registry::Wait wait;
+  alignas(Operation) unsigned char operation_storage[sizeof(Operation)];
+  alignas(Node) unsigned char pin_storage[sizeof(Node)];
+  Operation *operation = nullptr;
+  Node *pin = nullptr;
+  bool waiting = false;
+
+  explicit WaitFrame(Service &owner)
+      : owner(owner), wait(owner.registry.make_wait(jump_cleanup_head)) {}
+  static bool release_pin(void *context) {
+    auto &self = *static_cast<WaitFrame *>(context);
+    if (!self.operation)
+      return false;
+    self.operation->~Operation();
+    self.operation = nullptr;
+    return true;
+  }
+  // Caller blocks application/cancellation signals until both nodes are live.
+  int begin(const aiocb *const *list, size_t count) {
+    operation = new (operation_storage) Operation(owner.dispatcher);
+    if (!*operation) {
+      operation->~Operation();
+      operation = nullptr;
+      return EAGAIN;
+    }
+    pin = new (pin_storage) Node;
+    if (!JumpCleanupStack::push(jump_cleanup_head, *pin, release_pin, this))
+      __builtin_trap();
+    int error = owner.registry.begin_wait(wait, list, count);
+    waiting = !error;
+    return error;
+  }
+  static void finish(WaitFrame *self) {
+    QueryMask mask;
+    if (mask.error())
+      __builtin_trap();
+    if (self->waiting) {
+      if (self->wait.finish())
+        __builtin_trap();
+      self->waiting = false;
+    }
+    if (self->pin) {
+      if (!JumpCleanupStack::pop(jump_cleanup_head, *self->pin))
+        __builtin_trap();
+      self->pin->~Node();
+      self->pin = nullptr;
+    }
+  }
+};
+static_assert(__is_trivially_destructible(WaitFrame));
+void finish_wait_frame(WaitFrame *frame) { WaitFrame::finish(frame); }
+
+struct ListFrame {
+  using Operation = AioDispatcher::Operation;
+  using Node = JumpCleanupStack::Node;
+  Service *owner = nullptr;
+  Registry::ListGroup *group = nullptr;
+  alignas(Operation) unsigned char operation_storage[sizeof(Operation)];
+  alignas(Node) unsigned char pin_storage[sizeof(Node)];
+  Operation *operation = nullptr;
+  Node *pin = nullptr;
+
+  static bool release(void *context) {
+    auto &self = *static_cast<ListFrame *>(context);
+    if (!self.operation)
+      return false;
+    if (self.group) {
+      if (self.owner->registry.finish_list(*self.group))
+        return false;
+      self.group = nullptr;
+    }
+    self.operation->~Operation();
+    self.operation = nullptr;
+    return true;
+  }
+  // Preparation and publication run with application/cancellation signals off.
+  int begin(Service &service) {
+    owner = &service;
+    operation = new (operation_storage) Operation(owner->dispatcher);
+    if (!*operation) {
+      operation->~Operation();
+      operation = nullptr;
+      return EAGAIN;
+    }
+    pin = new (pin_storage) Node;
+    if (!JumpCleanupStack::push(jump_cleanup_head, *pin, release, this))
+      __builtin_trap();
+    return 0;
+  }
+  int result() {
+    QueryMask mask;
+    if (mask.error())
+      return mask.error();
+    auto status = owner->registry.list_result(*group);
+    return status ? *status : status.error();
+  }
+  static void finish(ListFrame *self) {
+    QueryMask mask;
+    if (mask.error())
+      __builtin_trap();
+    if (self->pin) {
+      if (!JumpCleanupStack::pop(jump_cleanup_head, *self->pin))
+        __builtin_trap();
+      self->pin->~Node();
+      self->pin = nullptr;
+    }
+  }
+};
+static_assert(__is_trivially_destructible(ListFrame));
+void finish_list_frame(ListFrame *frame) { ListFrame::finish(frame); }
+
+int cancel_wait(void *, Futex *word, int operation, FutexWordType expected,
+                const void *timeout, unsigned bitset) {
+  return int(cancellation_syscall(FUTEX_SYSCALL_ID,
+                                  reinterpret_cast<long>(word), operation,
+                                  expected, reinterpret_cast<long>(timeout),
+                                  0, bitset));
+}
 } // namespace
 
 int submit_aio_transfer(const AioInput &input) {
@@ -278,6 +406,119 @@ int submit_aio_sync(const AioSyncInput &input) {
   return result ? 0 : result.error();
 }
 
+namespace {
+int prepare_aio_list(ListFrame &frame, int mode, aiocb *const *list, int count,
+                     const sigevent *notification) {
+  Call call;
+  if (call.error())
+    return call.error();
+  // Capture and allocation run outside the publication serializer. The
+  // operation pin excludes fork throughout preparation and ownership release.
+  if (int error = ensure_service(call))
+    return error;
+  if (int error = frame.begin(*service))
+    return error;
+  call.unlock();
+  Allocator allocator;
+  AioListInput<Allocator> captured(allocator);
+  if (int error = captured.capture(mode, list, count, notification))
+    return error;
+  size_t size = captured.size();
+  if (size > SIZE_MAX / sizeof(Registry::ListInput))
+    return ENOMEM;
+  Registry::ListInput *inputs = nullptr;
+  if (size) {
+    inputs = static_cast<Registry::ListInput *>(allocator.allocate(
+        size * sizeof(Registry::ListInput), alignof(Registry::ListInput)));
+    if (!inputs)
+      return ENOMEM;
+  }
+  for (size_t i = 0; i < size; ++i) {
+    const auto &input = captured.data()[i];
+    new (&inputs[i]) Registry::ListInput{
+        {input.control_block, input.descriptor,
+         input.opcode == LIO_READ ? Registry::Engine::Operation::Read
+                                  : Registry::Engine::Operation::Write,
+         const_cast<void *>(input.buffer), 0, 0, false},
+        input.member_error};
+  }
+  auto prepared = service->registry.prepare_list(
+      inputs, size, [&](AioNotification &event) {
+        return event.prepare(captured.notification(), app.tls, app.page_size);
+      });
+  for (size_t i = 0; i < size; ++i)
+    inputs[i].~ListInput();
+  if (inputs)
+    allocator.deallocate(inputs);
+  if (!prepared) {
+    (void)service->dispatcher.wake();
+    return prepared.error();
+  }
+  auto &group = **prepared;
+  int error = service->registry.start_list(
+      group,
+      [&](size_t i, AioNotification &event) {
+        return event.prepare(captured.data()[i].event, app.tls, app.page_size);
+      },
+      [&](size_t i, int retained, Registry::Input &normalized) {
+        AioTransfer transfer{};
+        int result = normalize_aio_transfer(retained, captured.data()[i], transfer);
+        if (!result) {
+          normalized.size = transfer.size;
+          normalized.offset = transfer.offset;
+          normalized.transfer_flags = transfer.flags;
+        }
+        return result;
+      });
+  frame.group = &group;
+  (void)service->dispatcher.wake();
+  return error;
+}
+
+[[gnu::noinline, clang::disable_tail_calls]]
+int submit_aio_list(int mode, aiocb *const *list, int count,
+                    const sigevent *notification,
+                    AioWaitEvent::WaitSyscall wait_syscall, void *context) {
+  if (count < 0 || (count && !list))
+    return EINVAL;
+  uint64_t saved_mask;
+  const uint64_t blocked = UINT64_MAX & ~CREDENTIAL_MASK;
+  long masked = syscall_impl<long>(SYS_rt_sigprocmask, SIG_BLOCK, &blocked,
+                                   &saved_mask, sizeof(saved_mask));
+  if (masked)
+    return int(-masked);
+  ListFrame frame __attribute__((cleanup(finish_list_frame)));
+  // Destroy all capture scratch and Call before permitting a handler jump.
+  // The frame's cleanup is already registered when Call restores cancellation.
+  int error = prepare_aio_list(frame, mode, list, count, notification);
+  if (mode == LIO_NOWAIT || !frame.group)
+    ListFrame::finish(&frame);
+  if (syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &saved_mask, nullptr,
+                         sizeof(saved_mask)))
+    __builtin_trap();
+  if (mode == LIO_NOWAIT || !frame.group)
+    return error;
+  // Even an already-complete group checks pending cancellation with its caller
+  // owner protected. A start error does not imply accepted siblings are done.
+  test_cancel();
+  error = frame.owner->registry.wait_list(
+      *frame.group, nullptr, wait_syscall ? wait_syscall : cancel_wait, context);
+  return error ? error : frame.result();
+}
+} // namespace
+
+int submit_aio_list_nowait(aiocb *const *list, int count,
+                           const sigevent *notification) {
+  return submit_aio_list(LIO_NOWAIT, list, count, notification, nullptr, nullptr);
+}
+
+int submit_aio_list_wait(aiocb *const *list, int count,
+                         const sigevent *notification,
+                         AioWaitEvent::WaitSyscall wait_syscall, void *context) {
+  return submit_aio_list(LIO_WAIT, list, count, notification, wait_syscall,
+                         context);
+}
+
 ErrorOr<int> query_aio_error(const aiocb *cb) {
   QueryMask mask;
   if (mask.error())
@@ -302,6 +543,77 @@ ErrorOr<AioRequest::Result> take_aio_result(const aiocb *cb) {
   // No wake syscall is required here. The helper's periodic pass reclaims the
   // released record; result retrieval remains allocation/loader/ring-lock free.
   return owner->registry.take_result(cb);
+}
+
+ErrorOr<int> cancel_aio_requests(int descriptor, const aiocb *cb) {
+  Call call;
+  if (call.error())
+    return Error(call.error());
+  long flags = syscall_impl<long>(SYS_fcntl, descriptor, F_GETFD);
+  if (flags < 0)
+    return Error(int(-flags));
+  // Cancellation of an empty descriptor must not allocate a ring or helper.
+  if (!service || !service->running)
+    return cb ? ErrorOr<int>(Error(EINVAL)) : ErrorOr<int>(AIO_ALLDONE);
+  AioDispatcher::Operation operation(service->dispatcher);
+  if (!operation)
+    return Error(EAGAIN);
+  call.unlock();
+  auto prepared = service->registry.prepare_cancels(descriptor, cb);
+  if (!prepared)
+    return Error(prepared.error() == ERANGE ? EAGAIN : prepared.error());
+  auto &batch = **prepared;
+  int attempted = service->registry.attempt_cancels(batch);
+  auto status = service->registry.cancel_status(batch);
+  if (service->registry.finish_cancels(batch))
+    __builtin_trap();
+  (void)service->dispatcher.wake();
+  if (!status)
+    return Error(status.error());
+  // Even a failed control reservation does not undo successful sibling
+  // attempts. Keep their observations in the service until real completion.
+  if (attempted && *status == Registry::CancelStatus::NotCanceled)
+    return Error(attempted);
+  switch (*status) {
+  case Registry::CancelStatus::AllDone:
+    return AIO_ALLDONE;
+  case Registry::CancelStatus::Canceled:
+    return AIO_CANCELED;
+  case Registry::CancelStatus::NotCanceled:
+    return AIO_NOTCANCELED;
+  }
+  __builtin_trap();
+}
+
+[[gnu::noinline, clang::disable_tail_calls]]
+int suspend_aio_requests(const aiocb *const *list, size_t count,
+                         const timespec *deadline,
+                         AioWaitEvent::WaitSyscall wait_syscall, void *context) {
+  uint64_t saved_mask;
+  const uint64_t blocked = UINT64_MAX & ~CREDENTIAL_MASK;
+  long masked = syscall_impl<long>(SYS_rt_sigprocmask, SIG_BLOCK, &blocked,
+                                   &saved_mask, sizeof(saved_mask));
+  if (masked)
+    return int(-masked);
+  auto *owner = query_service();
+  if (!owner) {
+    if (syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &saved_mask,
+                           nullptr, sizeof(saved_mask)))
+      __builtin_trap();
+    return EINVAL;
+  }
+  WaitFrame frame __attribute__((cleanup(finish_wait_frame)))(*owner);
+  int error = frame.begin(list, count);
+  if (error)
+    WaitFrame::finish(&frame);
+  if (syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &saved_mask, nullptr,
+                         sizeof(saved_mask)))
+    __builtin_trap();
+  if (error)
+    return error;
+  return frame.wait.completion().wait(deadline,
+                                      wait_syscall ? wait_syscall : cancel_wait,
+                                      context);
 }
 
 int prepare_aio_fork(bool minimal, bool *drained) {
