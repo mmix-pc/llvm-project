@@ -55,7 +55,8 @@ enum class ForkContinuation {
   NormalAfter,
   InitialThreadDuring,
   LastThreadAfter,
-  LastWorkerAfter
+  LastWorkerAfter,
+  WorkerThreadDuring
 };
 
 struct ThreadMapping {
@@ -150,6 +151,18 @@ struct ThreadControl {
   bool terminal_cleanup_in_progress() {
     return terminal_cleanup_pending() && callbacks_started;
   }
+  // Original worker only. Snapshot ownership/census checks remain under the
+  // registry lock; this predicate does not elect a last thread or close leases.
+  bool worker_cleanup_pending() {
+    return !initial_thread && !process_lifetime && !internal_helper &&
+           callback_phase == CallbackPhase::None &&
+           execution == ThreadExecution::Cleaning && cancellation.terminal() &&
+           !completed_worker_callback_mgr && !last_worker_exit_elected &&
+           resource_owner.valid() && !resource_owner.context;
+  }
+  bool worker_cleanup_in_progress() {
+    return worker_cleanup_pending() && callbacks_started;
+  }
   // Owner-only local half of the terminal certificate. Registry-owned pins,
   // queues, leases and ownership are inspected only under the snapshot lock.
   bool terminal_cleanup_finished() {
@@ -243,7 +256,7 @@ class ThreadRegistry {
   bool process_operation = false;
   internal::ForkRecovery fork_recovery;
   bool terminal_fork_caller(ThreadControl &caller, ForkContinuation kind);
-  bool terminal_during_fork_caller(ThreadControl &caller);
+  bool terminal_during_fork_caller(ThreadControl &caller, ForkContinuation kind);
 
 public:
   constexpr ThreadRegistry() = default;
@@ -260,7 +273,7 @@ public:
   bool quiescent_fork_caller(ThreadControl &caller);
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
   // Non-ordinary kinds require the matching private exit-owner/root
-  // certificate. InitialThreadDuring retains Cleaning/live one/RUNNING;
+  // certificate. Both terminal DURING kinds retain Cleaning/live one/RUNNING;
   // LastThreadAfter requires the completed initial-thread drain and live zero.
   // LastWorkerAfter instead requires an elected, completed ordinary worker;
   // neither terminal AFTER kind promotes identity or transfers backing.

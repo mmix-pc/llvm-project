@@ -158,11 +158,19 @@ bool terminal_thread_fork_context(ThreadControl &control) {
          validate_fork_cleanup(control.unwind_root);
 }
 
+bool terminal_worker_fork_context(ThreadControl &control) {
+  return control.worker_cleanup_in_progress() &&
+         control.unwind_root.kind == UnwindRootKind::TerminalThreadCleanup &&
+         ordinary_fork_context(control) && !has_c_cleanup() &&
+         validate_fork_cleanup(control.unwind_root);
+}
+
 [[gnu::noinline, clang::disable_tail_calls]] void
 run_with_terminal_cleanup_root(ThreadControl &control, RootBody *body,
                                void *argument) {
   if (current_control != &control || !body || forced.active || has_c_cleanup() ||
-      control.unwind_root.active || !control.terminal_cleanup_pending() ||
+      control.unwind_root.active ||
+      (!control.terminal_cleanup_pending() && !control.worker_cleanup_pending()) ||
       control.cancellation_point.load() || control.cancellation_transfer.load() ||
       control.cancellation_suppression.load())
     __builtin_trap();

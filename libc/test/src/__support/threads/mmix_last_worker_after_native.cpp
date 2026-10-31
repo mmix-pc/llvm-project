@@ -48,8 +48,17 @@ namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 bool has_c_cleanup() { return false; }
 void run_with_unwind_root(ThreadControl &, RootBody *, void *) { __builtin_trap(); }
-void run_with_terminal_cleanup_root(ThreadControl &, RootBody *, void *) {
-  __builtin_trap(); // Worker DURING remains excluded.
+void run_with_terminal_cleanup_root(ThreadControl &control, RootBody *body,
+                                     void *argument) {
+  assert(&control == &worker && control.worker_cleanup_pending());
+  assert(!control.unwind_root.active);
+  control.unwind_root = {&control, 8, 16, 24, 4, 1, true,
+                         UnwindRootKind::TerminalThreadCleanup};
+  const auto root = control.unwind_root;
+  body(argument);
+  assert(root.matches(control.unwind_root));
+  assert(!worker_thread_during_fork_owner());
+  control.unwind_root.active = false;
 }
 [[noreturn]] void run_with_process_exit_root(ThreadControl &control,
                                            RootBody *body, void *argument) {

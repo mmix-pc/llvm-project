@@ -139,6 +139,11 @@ int ForkOperation::prepare_runtime() {
              terminal_thread_fork_context(*caller)) {
     continuation = ForkContinuation::InitialThreadDuring;
     continuation_root = caller->unwind_root;
+  } else if (!minimal &&
+             worker_thread_during_fork_owner() == caller->attributes.tid &&
+             terminal_worker_fork_context(*caller)) {
+    continuation = ForkContinuation::WorkerThreadDuring;
+    continuation_root = caller->unwind_root;
   } else if (!minimal && internal::normal_exit_fork_owner &&
              internal::rebind_normal_exit_fork_owner &&
              internal::normal_exit_fork_owner(&during) ==
@@ -151,7 +156,8 @@ int ForkOperation::prepare_runtime() {
   const bool cleanup_continuation = continuation != ForkContinuation::Ordinary;
   const bool terminal = continuation == ForkContinuation::LastThreadAfter ||
                         continuation == ForkContinuation::LastWorkerAfter ||
-                        continuation == ForkContinuation::InitialThreadDuring;
+                        continuation == ForkContinuation::InitialThreadDuring ||
+                        continuation == ForkContinuation::WorkerThreadDuring;
   // Unsupported terminal/DURING/forced contexts must not attempt helper
   // retirement or enter ordinary child restoration as a fallback.
   if (caller->cancellation.terminal() && !terminal)
@@ -264,6 +270,13 @@ int ForkOperation::freeze_registry() {
   // Recheck the exact owner/root selected before locks. These hooks inspect
   // only owner-local identity and phase, never query locked loader metadata.
 #ifdef LIBC_MMIX_UNWIND_ROOTS
+  if (registry && continuation == ForkContinuation::WorkerThreadDuring &&
+      (worker_thread_during_fork_owner() != caller->attributes.tid ||
+       !continuation_root.matches(caller->unwind_root))) {
+    thread_registry.release_after_fork();
+    registry = false;
+    return EAGAIN;
+  }
   if (registry && continuation == ForkContinuation::InitialThreadDuring &&
       (initial_thread_during_fork_owner() != caller->attributes.tid ||
        !continuation_root.matches(caller->unwind_root))) {
@@ -305,11 +318,14 @@ long ForkOperation::create_child(bool wait_for_exec) {
 void ForkOperation::restore_runtime(bool child) {
   const bool initial_during =
       continuation == ForkContinuation::InitialThreadDuring;
+  const bool worker_during =
+      continuation == ForkContinuation::WorkerThreadDuring;
+  const bool terminal_during = initial_during || worker_during;
   const bool process_cleanup =
-      continuation != ForkContinuation::Ordinary && !initial_during;
+      continuation != ForkContinuation::Ordinary && !terminal_during;
   const bool terminal = continuation == ForkContinuation::LastThreadAfter ||
                         continuation == ForkContinuation::LastWorkerAfter ||
-                        initial_during;
+                        terminal_during;
   // Capture provenance before child registry restoration promotes the worker.
   const bool worker_cleanup =
       process_cleanup && !caller->retains_resources_until_process_exit();
@@ -415,6 +431,12 @@ void ForkOperation::restore_runtime(bool child) {
                 rebind_initial_thread_during_fork_owner(previous_tid);
 #endif
       break;
+    case ForkContinuation::WorkerThreadDuring:
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+      adopted = internal::adopt_fork_survivor_during_worker_exit() &&
+                rebind_worker_thread_during_fork_owner(previous_tid);
+#endif
+      break;
     }
     if (!adopted ||
         ((continuation == ForkContinuation::LastThreadAfter ||
@@ -434,15 +456,25 @@ void ForkOperation::restore_runtime(bool child) {
 #endif
 #ifdef LIBC_MMIX_UNWIND_ROOTS
   // Metadata queries are safe only after the quiescent loader has resumed.
+  bool terminal_context = true;
+  if (child && terminal && child_recovery.allows_loader()) {
+    if (initial_during)
+      terminal_context =
+          initial_thread_during_fork_owner() == caller->attributes.tid &&
+          terminal_thread_fork_context(*caller);
+    else if (worker_during)
+      terminal_context =
+          worker_thread_during_fork_owner() == caller->attributes.tid &&
+          terminal_worker_fork_context(*caller);
+    else if (continuation == ForkContinuation::LastWorkerAfter)
+      terminal_context = last_worker_fork_context(*caller);
+    else
+      terminal_context = last_thread_fork_context(*caller);
+  }
   if (child && child_recovery.allows_loader() &&
       (!restore_fork_unwind(*caller) ||
-       (terminal &&
-        (!continuation_root.matches(caller->unwind_root) ||
-         (initial_during ? (!initial_thread_during_fork_owner() ||
-                            !terminal_thread_fork_context(*caller))
-                         : (continuation == ForkContinuation::LastWorkerAfter
-                                ? !last_worker_fork_context(*caller)
-                                : !last_thread_fork_context(*caller)))))))
+       (terminal && (!continuation_root.matches(caller->unwind_root) ||
+                     !terminal_context))))
     internal::exit(127);
 #endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS

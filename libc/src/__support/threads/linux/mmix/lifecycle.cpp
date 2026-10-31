@@ -52,8 +52,12 @@ bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller,
          root.owner == &caller && root.generation && root.chain;
 }
 
-bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller) {
+bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
+                                                ForkContinuation kind) {
   const auto &root = caller.unwind_root;
+  const bool draining = kind == ForkContinuation::WorkerThreadDuring
+                            ? caller.worker_cleanup_in_progress()
+                            : caller.terminal_cleanup_in_progress();
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == RUNNING &&
@@ -65,7 +69,7 @@ bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller) {
          !caller.leases && !caller.queued && !caller.reap_next &&
          caller.owner == ThreadOwner::Joinable && !caller.internal_helper &&
          caller.callback_phase == CallbackPhase::None &&
-         caller.terminal_cleanup_in_progress() && root.active &&
+         draining && root.active &&
          root.kind == UnwindRootKind::TerminalThreadCleanup &&
          root.owner == &caller && root.generation && root.chain;
 }
@@ -79,10 +83,12 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
   mutex.value.lock();
   if (kind == ForkContinuation::LastThreadAfter ||
       kind == ForkContinuation::LastWorkerAfter ||
-      kind == ForkContinuation::InitialThreadDuring) {
-    const bool eligible = kind == ForkContinuation::InitialThreadDuring
-                              ? terminal_during_fork_caller(caller)
-                              : terminal_fork_caller(caller, kind);
+      kind == ForkContinuation::InitialThreadDuring ||
+      kind == ForkContinuation::WorkerThreadDuring) {
+    const bool during = kind == ForkContinuation::InitialThreadDuring ||
+                        kind == ForkContinuation::WorkerThreadDuring;
+    const bool eligible = during ? terminal_during_fork_caller(caller, kind)
+                                 : terminal_fork_caller(caller, kind);
     if (!helper_drained || !eligible ||
         caller.cancellation_transfer.load() ||
         caller.cancellation_suppression.load() != suppression ||
@@ -135,10 +141,12 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
     __builtin_trap();
   if (kind == ForkContinuation::LastThreadAfter ||
       kind == ForkContinuation::LastWorkerAfter ||
-      kind == ForkContinuation::InitialThreadDuring) {
-    const bool eligible = kind == ForkContinuation::InitialThreadDuring
-                              ? terminal_during_fork_caller(survivor)
-                              : terminal_fork_caller(survivor, kind);
+      kind == ForkContinuation::InitialThreadDuring ||
+      kind == ForkContinuation::WorkerThreadDuring) {
+    const bool during = kind == ForkContinuation::InitialThreadDuring ||
+                        kind == ForkContinuation::WorkerThreadDuring;
+    const bool eligible = during ? terminal_during_fork_caller(survivor, kind)
+                                 : terminal_fork_caller(survivor, kind);
     if (!recovery.allows_fork() || !eligible)
       __builtin_trap();
     // The frozen registry already contains exactly this terminal task. Do not

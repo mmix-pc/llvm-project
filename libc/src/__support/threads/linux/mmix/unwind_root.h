@@ -43,6 +43,7 @@ bool ordinary_fork_context(ThreadControl &control);
 bool last_thread_fork_context(ThreadControl &control);
 bool last_worker_fork_context(ThreadControl &control);
 bool terminal_thread_fork_context(ThreadControl &control);
+bool terminal_worker_fork_context(ThreadControl &control);
 [[gnu::visibility("hidden")]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument);
 // Post-stack drain only. Returns to the still-live completion activation,

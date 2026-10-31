@@ -881,6 +881,10 @@ bool terminal_thread_fork_context(ThreadControl &c) {
   return ordinary_fork_context(c) && c.terminal_cleanup_in_progress() &&
          c.unwind_root.kind == UnwindRootKind::TerminalThreadCleanup;
 }
+bool terminal_worker_fork_context(ThreadControl &c) {
+  return ordinary_fork_context(c) && c.worker_cleanup_in_progress() &&
+         c.unwind_root.kind == UnwindRootKind::TerminalThreadCleanup;
+}
 bool last_thread_fork_context(ThreadControl &c) {
   return ordinary_fork_context(c) && c.terminal_cleanup_finished() &&
          c.unwind_root.kind == UnwindRootKind::LastThreadProcess;

@@ -5,8 +5,8 @@
 # Native cursor/syscall injection, not target unwind or clone qualification.
 # Ordinary -> terminal TLS/TSS drain -> AFTER uses three distinct generations;
 # only the ordinary root initializes cancellation windows.
-# Ordinary last workers instead require a completed drain and last-thread
-# election, retain worker stack bounds, and acquire only the fresh AFTER root.
+# Original workers retain bounds through the fresh drain and AFTER roots;
+# only actual drain return and last-thread election permit the latter.
 #--- run.py
 import pathlib
 import shlex

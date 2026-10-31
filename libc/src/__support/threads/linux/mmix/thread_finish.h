@@ -29,6 +29,9 @@ void begin_thread_cleanup(ThreadControl &control);
 // The certificate binds the live drain, manager, initial identity and root.
 pid_t initial_thread_during_fork_owner();
 bool rebind_initial_thread_during_fork_owner(pid_t previous_tid);
+// Separate original-worker certificate; never consults the initial phase.
+pid_t worker_thread_during_fork_owner();
+bool rebind_worker_thread_during_fork_owner(pid_t previous_tid);
 #endif
 // Called once after normal return or a verified forced-unwind root handoff.
 [[noreturn]] void complete_thread_cleanup(ThreadControl &control,

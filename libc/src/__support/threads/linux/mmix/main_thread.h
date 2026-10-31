@@ -57,6 +57,8 @@ bool adopt_fork_survivor_after_thread_exit();
 bool adopt_fork_survivor_after_worker_exit();
 // Sole initial-thread post-stack TLS/TSS continuation, still Cleaning/live one.
 bool adopt_fork_survivor_during_thread_exit();
+// Original worker post-stack drain. No initial phase or identity adoption.
+bool adopt_fork_survivor_during_worker_exit();
 // The transport published the child TID and signals remain blocked. Do not
 // acquire locks or repair interrupted subsystems.
 bool restore_minimal_fork_child();

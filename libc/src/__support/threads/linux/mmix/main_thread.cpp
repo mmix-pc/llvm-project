@@ -172,6 +172,20 @@ bool adopt_fork_survivor_after_worker_exit() {
 #endif
 }
 
+bool adopt_fork_survivor_during_worker_exit() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes ||
+      !control->worker_cleanup_in_progress() ||
+      !control->fork_recovery.is_child() ||
+      !control->fork_recovery.allows_fork())
+    return false;
+  return register_fork_child(*control, RobustInheritance::Preserve);
+#else
+  return false;
+#endif
+}
+
 bool adopt_fork_survivor_after_cleanup([[maybe_unused]] bool worker_cleanup) {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   auto *control = mmix::current_control;
