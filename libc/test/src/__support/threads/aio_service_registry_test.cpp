@@ -246,7 +246,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   bool normalized = false;
   int retained_fd = -1;
   auto admitted = f.service.admit(
-      input(&cb[0]),
+      input(&cb[0], Op::Write),
       [&](Notification &n) {
         EXPECT_TRUE(normalized);
         return n.prepare(notification);
@@ -268,6 +268,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
         value.buffer = &buffer;
         value.size = 4;
         value.offset = 123;
+        value.transfer_flags = RWF_APPEND;
         normalized = true;
         return 0;
       });
@@ -278,6 +279,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(uint64_t(f.ring.sq[1].addr), uint64_t(uintptr_t(&buffer)));
   EXPECT_EQ(f.ring.sq[1].len, 4U);
   EXPECT_EQ(uint64_t(f.ring.sq[1].off), uint64_t(123));
+  EXPECT_EQ(unsigned(f.ring.sq[1].rw_flags), unsigned(RWF_APPEND));
   EXPECT_EQ(*f.service.cancel_count(7), size_t(1));
   EXPECT_EQ(*f.service.cancel_count(retained_fd), size_t(0));
   f.finish(0);
@@ -457,7 +459,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   const bool retain_modes[] = {false, true};
   const int failures[] = {0, EIO};
   for (bool retain : retain_modes) {
-    for (unsigned field = 0; field < 4; ++field) {
+    for (unsigned field = 0; field < 5; ++field) {
       for (int failure : failures) {
         Fixture f;
         ASSERT_TRUE(bool(f.service.initialize(2)));
@@ -477,6 +479,9 @@ TEST(LlvmLibcAioServiceRegistryTest,
             break;
           case 3:
             value.notify = true;
+            break;
+          case 4:
+            value.transfer_flags = RWF_NOWAIT;
             break;
           }
           return failure;

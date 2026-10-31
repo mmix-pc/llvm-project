@@ -340,13 +340,14 @@ private:
           normalized.descriptor != input.descriptor ||
           normalized.operation != input.operation ||
           normalized.notify != input.notify || error < 0 ||
-          error == EINPROGRESS)
+          error == EINPROGRESS || !Engine::valid_transfer_flags(normalized))
         error = EINVAL;
       // Preserve the original binding and policy even for retained failures.
       if (!error) {
         input.buffer = normalized.buffer;
         input.size = normalized.size;
         input.offset = normalized.offset;
+        input.transfer_flags = normalized.transfer_flags;
       }
     }
     if (!error)
@@ -623,13 +624,14 @@ public:
   // before prepare/admission, outside BOTH locks on the submitting thread.
   // It returns zero or positive errno (not EINPROGRESS); invalid status or
   // mutation of control_block/descriptor/operation/notify yields EINVAL. Only
-  // checked buffer/size/offset changes are committed. The fd is the borrowed
-  // private duplicate, not Input.descriptor (the original scheduling key).
-  // Do not close/replace it, change shared OFD flags/position, perform blocking
-  // I/O or wait for accepted work. Non-positioned/nonblocking policy stays with
-  // the caller/engine; this hook does not authorize changing descriptor flags.
-  // Queries and ordinary service reentry are permitted under the outer guards.
-  // Neither closure nor Input reference may escape this synchronous call.
+  // checked buffer/size/offset and append-policy changes are committed. The fd
+  // is the borrowed private duplicate, not Input.descriptor (the scheduling
+  // key). Do not close/replace it, change shared OFD flags/position, perform
+  // blocking I/O or wait for accepted work. Non-positioned/nonblocking policy
+  // stays with the caller/engine; this hook does not authorize changing
+  // descriptor flags. Queries and ordinary service reentry are permitted under
+  // the outer guards. Neither closure nor Input reference may escape this
+  // synchronous call.
   template <class Prepare, class Normalize = NoNormalization>
   LIBC_INLINE ErrorOr<void> admit(Input input, Prepare prepare,
                                   Normalize normalize = {}) {

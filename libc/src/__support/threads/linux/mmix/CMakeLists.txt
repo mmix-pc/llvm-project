@@ -1,4 +1,14 @@
 add_header_library(
+  aio_transfer
+  HDRS aio_transfer.h
+  DEPENDS .aio_input libc.hdr.sys_socket_macros libc.hdr.sys_stat_macros
+    libc.hdr.types.socklen_t
+    libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+    libc.src.__support.OSUtil.linux.syscall_wrappers.fstatfs
+    libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+)
+
+add_header_library(
   aio_input
   HDRS aio_input.h
   DEPENDS libc.include.aio libc.hdr.errno_macros libc.hdr.fcntl_macros
