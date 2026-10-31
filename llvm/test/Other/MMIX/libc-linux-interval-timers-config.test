@@ -1,0 +1,27 @@
+# REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+include(${SOURCE}/config/linux/mmix/Time.cmake)
+foreach(entry libc.src.sys.time.getitimer libc.src.sys.time.setitimer)
+  if(LIBC_MMIX_BUILD_TIME AND NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "Missing selected interval timer: ${entry}")
+  endif()
+  if(NOT LIBC_MMIX_BUILD_TIME AND entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
+    message(FATAL_ERROR "Interval timer enabled outside time configuration")
+  endif()
+endforeach()
+
+#--- check.py
+from pathlib import Path
+import subprocess
+import sys
+
+source, root = (Path(p).resolve() for p in sys.argv[1:])
+for enabled in ("OFF", "ON"):
+    subprocess.run(["cmake", "-DSOURCE=" + str(source),
+                    "-DLIBC_MMIX_BUILD_TIME=" + enabled,
+                    "-P", str(root / "selection.cmake")], check=True)
