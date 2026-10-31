@@ -55,6 +55,16 @@ add_header_library(
 )
 
 add_header_library(
+  aio_dispatch_channel
+  HDRS aio_dispatch_channel.h
+  DEPENDS libc.hdr.errno_macros libc.hdr.fcntl_macros
+    libc.hdr.limits_macros libc.hdr.stdint_proxy
+    libc.hdr.types.nfds_t libc.hdr.types.struct_pollfd
+    libc.hdr.types.struct_timespec libc.include.llvm-libc-macros.poll-macros
+    libc.src.__support.OSUtil.osutil libc.src.__support.error_or
+)
+
+add_header_library(
   aio_wait_event
   HDRS aio_wait_event.h
   DEPENDS libc.hdr.errno_macros libc.hdr.stdint_proxy
