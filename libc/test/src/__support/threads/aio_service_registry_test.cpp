@@ -129,8 +129,15 @@ struct ResourceOps {
 struct Allocator {
   bool fail = false;
   unsigned allocated = 0, freed = 0;
+  void (*on_allocate)(void *) = nullptr;
+  void *context = nullptr;
   void *allocate(size_t size, size_t alignment) {
     EXPECT_FALSE(CheckedGate::held);
+    if (on_allocate) {
+      auto callback = on_allocate;
+      on_allocate = nullptr;
+      callback(context);
+    }
     if (fail)
       return nullptr;
     ++allocated;
@@ -233,12 +240,313 @@ struct Fixture {
     ring.complete(metadata + 1, result);
   }
   ~Fixture() {
+    EXPECT_FALSE(service.has_cancel_batches());
     EXPECT_EQ(service.retained(), size_t(0));
     EXPECT_EQ(ring.personalities, 0U);
     EXPECT_EQ(allocator.allocated, allocator.freed);
   }
 };
 } // namespace
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     CancelBatchAllocationFailureIsTransactional) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(3)));
+  NotificationState notification;
+  int cb = 0, unknown = 0;
+  ASSERT_TRUE(bool(f.admit(&cb, notification)));
+  f.allocator.fail = true;
+  EXPECT_EQ(f.service.prepare_cancels(7).error(), ENOMEM);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+  EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
+  f.allocator.fail = false;
+  EXPECT_EQ(f.service.prepare_cancels(7, &unknown).error(), EINVAL);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+  auto batch = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(batch));
+  EXPECT_EQ(f.service.cancel_status(**batch).error(), EINVAL);
+  ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
+  EXPECT_EQ(f.service.attempt_cancels(**batch), EINVAL);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::Canceled);
+  ASSERT_EQ(f.service.finish_cancels(**batch), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+  EXPECT_EQ(*f.service.error(&cb), ECANCELED);
+  ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  EXPECT_EQ(f.service.maintain(), 0);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     EmptyCancelBatchStillHasExplicitOwnership) {
+  Fixture f, other;
+  ASSERT_TRUE(bool(f.service.initialize(3)));
+  auto batch = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(batch));
+  EXPECT_TRUE(f.service.has_cancel_batches());
+  EXPECT_EQ(f.service.retained(), size_t(0));
+  EXPECT_EQ(other.service.attempt_cancels(**batch), EINVAL);
+  EXPECT_EQ(other.service.finish_cancels(**batch), EINVAL);
+  ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::AllDone);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_TRUE(f.service.has_cancel_batches());
+  ASSERT_EQ(f.service.finish_cancels(**batch), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+}
+
+TEST(LlvmLibcAioServiceRegistryTest, CancelBatchSizingRaceKeepsRequestsIntact) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(5)));
+  NotificationState first, second;
+  int cb[2]{};
+  ASSERT_TRUE(bool(f.admit(&cb[0], first)));
+  struct Context {
+    Fixture &fixture;
+    NotificationState &notification;
+    int *key;
+  } context{f, second, &cb[1]};
+  f.allocator.context = &context;
+  f.allocator.on_allocate = [](void *p) {
+    auto &c = *static_cast<Context *>(p);
+    EXPECT_TRUE(bool(c.fixture.admit(c.key, c.notification)));
+  };
+  EXPECT_EQ(f.service.prepare_cancels(7).error(), ERANGE);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+  EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
+  EXPECT_EQ(*f.service.error(&cb[1]), EINPROGRESS);
+  auto retry = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(retry));
+  ASSERT_EQ(f.service.attempt_cancels(**retry), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**retry) ==
+              Service::CancelStatus::Canceled);
+  ASSERT_EQ(f.service.finish_cancels(**retry), 0);
+  for (int &key : cb)
+    ASSERT_TRUE(bool(f.service.take_result(&key)));
+  EXPECT_EQ(f.service.maintain(), 0);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     CancelBatchCreditFailureKeepsOtherControls) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(5)));
+  NotificationState notifications[2];
+  int cb[2]{};
+  for (unsigned i = 0; i < 2; ++i)
+    ASSERT_TRUE(bool(f.admit(&cb[i], notifications[i])));
+  ASSERT_EQ(f.service.submit(), 0);
+  auto batch = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(batch));
+  EXPECT_EQ(f.service.attempt_cancels(**batch), EAGAIN);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::NotCanceled);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_EQ(f.ring.sq[4].opcode, uint8_t(IORING_OP_ASYNC_CANCEL));
+  f.finish(0, -ECANCELED);
+  f.finish(2, 5);
+  ASSERT_EQ(f.service.submit(), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::Canceled);
+  for (int &key : cb)
+    ASSERT_TRUE(bool(f.service.take_result(&key)));
+  ASSERT_EQ(f.service.finish_cancels(**batch), 0);
+  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_TRUE(f.service.has_cancel_batches());
+  f.ring.complete(4, -ENOENT);
+  ASSERT_EQ(f.service.submit(), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+}
+
+TEST(LlvmLibcAioServiceRegistryTest, CancelBatchSizingMayShrinkToEmpty) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(3)));
+  NotificationState notification;
+  int cb = 0;
+  ASSERT_TRUE(bool(f.admit(&cb, notification)));
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(0);
+  ASSERT_EQ(f.service.submit(), 0);
+  struct Context {
+    Fixture &fixture;
+    int *key;
+  } context{f, &cb};
+  f.allocator.context = &context;
+  f.allocator.on_allocate = [](void *p) {
+    auto &c = *static_cast<Context *>(p);
+    EXPECT_TRUE(bool(c.fixture.service.take_result(c.key)));
+  };
+  auto batch = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(batch));
+  ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::AllDone);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.service.retained(), size_t(0));
+  EXPECT_TRUE(f.service.has_cancel_batches());
+  ASSERT_EQ(f.service.finish_cancels(**batch), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+}
+
+TEST(LlvmLibcAioServiceRegistryTest, CancelBatchReclaimsWithdrawnControl) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(3)));
+  NotificationState notification;
+  int cb = 0;
+  ASSERT_TRUE(bool(f.admit(&cb, notification)));
+  ASSERT_EQ(f.service.submit(), 0);
+  auto batch = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(batch));
+  ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
+  f.ring.submit_error = EIO;
+  EXPECT_EQ(f.service.submit(), EIO);
+  EXPECT_EQ(f.ring.tail, 2U);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::NotCanceled);
+  ASSERT_EQ(f.service.finish_cancels(**batch), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+  EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
+  EXPECT_EQ(f.resources.closed, 0U);
+  f.ring.submit_error = 0;
+  f.finish(0);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  EXPECT_EQ(f.service.maintain(), 0);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     CancelBatchReleaseMayPrecedeBothCompletions) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(3)));
+  NotificationState notification;
+  int cb = 0;
+  ASSERT_TRUE(bool(f.admit(&cb, notification)));
+  ASSERT_EQ(f.service.submit(), 0);
+  auto batch = f.service.prepare_cancels(7, &cb);
+  ASSERT_TRUE(bool(batch));
+  ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::NotCanceled);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_EQ(f.ring.sq[2].opcode, uint8_t(IORING_OP_ASYNC_CANCEL));
+  ASSERT_EQ(f.service.finish_cancels(**batch), 0);
+  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_TRUE(f.service.has_cancel_batches());
+  f.ring.complete(2, 0);
+  ASSERT_EQ(f.service.submit(), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+  EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
+  EXPECT_EQ(f.resources.closed, 0U);
+  f.finish(0, -ECANCELED);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  EXPECT_EQ(f.service.maintain(), 0);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest, CancelBatchOriginalWinsBeforeControl) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(3)));
+  NotificationState notification;
+  int cb = 0;
+  ASSERT_TRUE(bool(f.admit(&cb, notification)));
+  ASSERT_EQ(f.service.submit(), 0);
+  auto batch = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(batch));
+  ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(0, -ECANCELED);
+  ASSERT_EQ(f.service.submit(), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::Canceled);
+  ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  ASSERT_EQ(f.service.finish_cancels(**batch), 0);
+  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.service.retained(), size_t(1));
+  f.ring.complete(2, 0);
+  ASSERT_EQ(f.service.submit(), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_FALSE(f.service.has_cancel_batches());
+  EXPECT_EQ(f.service.retained(), size_t(0));
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     CancelBatchSuccessfulControlIsNotOriginal) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(3)));
+  NotificationState notification;
+  int cb = 0;
+  ASSERT_TRUE(bool(f.admit(&cb, notification)));
+  ASSERT_EQ(f.service.submit(), 0);
+  auto batch = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(batch));
+  ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
+  ASSERT_EQ(f.service.submit(), 0);
+  f.ring.complete(2, 0);
+  ASSERT_EQ(f.service.submit(), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::NotCanceled);
+  f.finish(0, 6);
+  ASSERT_EQ(f.service.submit(), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**batch) ==
+              Service::CancelStatus::AllDone);
+  ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.service.retained(), size_t(1));
+  ASSERT_EQ(f.service.finish_cancels(**batch), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     CancelBatchAggregatesOnlyCapturedOriginals) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(6)));
+  NotificationState old, pending, fresh;
+  int cb[2]{};
+  ASSERT_TRUE(bool(f.admit(&cb[0], old)));
+  auto earlier = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(earlier));
+  ASSERT_EQ(f.service.attempt_cancels(**earlier), 0);
+  ASSERT_EQ(f.service.finish_cancels(**earlier), 0);
+  ASSERT_EQ(f.service.maintain(), 0);
+  // A previously canceled but unconsumed operation is already done, not a
+  // new cancellation attributed to this next call.
+  auto completed = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(completed));
+  ASSERT_EQ(f.service.attempt_cancels(**completed), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**completed) ==
+              Service::CancelStatus::AllDone);
+  ASSERT_EQ(f.service.finish_cancels(**completed), 0);
+  ASSERT_TRUE(bool(f.admit(&cb[1], pending)));
+  auto mixed = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(mixed));
+  ASSERT_EQ(f.service.attempt_cancels(**mixed), 0);
+  EXPECT_TRUE(*f.service.cancel_status(**mixed) ==
+              Service::CancelStatus::Canceled);
+  ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
+  ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
+  ASSERT_TRUE(bool(f.admit(&cb[0], fresh)));
+  EXPECT_TRUE(*f.service.cancel_status(**mixed) ==
+              Service::CancelStatus::Canceled);
+  EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
+  ASSERT_EQ(f.service.finish_cancels(**mixed), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  auto last = f.service.prepare_cancels(7);
+  ASSERT_TRUE(bool(last));
+  // A prepared snapshot may be abandoned without attempting cancellation.
+  ASSERT_EQ(f.service.finish_cancels(**last), 0);
+  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(0);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
+  EXPECT_EQ(f.service.maintain(), 0);
+}
 
 TEST(LlvmLibcAioServiceRegistryTest, GrowthOomAndResultsBeyondCreditCount) {
   Fixture f;
@@ -773,5 +1081,127 @@ TEST(LlvmLibcAioServiceRegistryTest, WaitAfterCompletionAndBeforeAddressReuse) {
   f.finish(2);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  ASSERT_EQ(f.service.maintain(), 0);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest, TypedWaitListPreservesPointerArrayType) {
+  struct ControlBlock {
+    unsigned sentinel;
+  } cb{17}, invalid{23};
+  using TypedService =
+      LIBC_NAMESPACE::mmix::AioServiceRegistry<Allocator, 2, FakeRing,
+                                               ResourceOps, Notification,
+                                               CheckedGate, ControlBlock>;
+  FakeRing ring;
+  Allocator allocator;
+  ResourceState resources;
+  uint64_t watermark = 0;
+  TypedService service{ring, allocator, {&resources}, watermark, 17, classify};
+  ASSERT_TRUE(bool(service.initialize(3)));
+  NotificationState notification;
+  ASSERT_TRUE(bool(service.admit(
+      input(&cb), [&](Notification &n) { return n.prepare(notification); })));
+  LIBC_NAMESPACE::mmix::JumpCleanupStack::Node *head = nullptr;
+  auto rejected = service.make_wait(head);
+  const ControlBlock *bad[] = {&cb, nullptr, &invalid};
+  EXPECT_EQ(service.begin_wait(rejected, bad, 3), EINVAL);
+  EXPECT_EQ(head, nullptr);
+  auto wait = service.make_wait(head);
+  const ControlBlock *list[] = {nullptr, &cb, &cb};
+  ASSERT_EQ(service.begin_wait(wait, list, 3), 0);
+  ASSERT_EQ(service.submit(), 0);
+  ring.identify(0);
+  ring.complete(1, 8);
+  ASSERT_EQ(service.submit(), 0);
+  ASSERT_TRUE(wait.completion().ready());
+  ASSERT_TRUE(bool(service.take_result(&cb)));
+  ASSERT_EQ(service.maintain(), 0);
+  EXPECT_EQ(service.retained(), size_t(0));
+  EXPECT_EQ(wait.finish(), 0);
+  EXPECT_EQ(head, nullptr);
+  EXPECT_EQ(cb.sentinel, 17U);
+  EXPECT_EQ(invalid.sentinel, 23U);
+  EXPECT_EQ(allocator.allocated, allocator.freed);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     DescriptorSnapshotPinsOnlyOriginalBindings) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(7)));
+  int cb[3]{};
+  NotificationState notifications[4];
+  for (unsigned i = 0; i < 3; ++i) {
+    auto request = input(&cb[i]);
+    request.descriptor = i == 1 ? 8 : 7;
+    ASSERT_TRUE(bool(f.service.admit(request, [&](Notification &n) {
+      return n.prepare(notifications[i]);
+    })));
+  }
+  EXPECT_EQ(*f.service.cancel_count(7), size_t(2));
+  EXPECT_EQ(*f.service.cancel_count(8), size_t(1));
+  EXPECT_EQ(*f.service.cancel_count(9), size_t(0));
+  Service::CancelObservation snapshot[2];
+  EXPECT_EQ(f.service.retain_cancels(7, snapshot, 1).error(), ERANGE);
+  EXPECT_EQ(f.service.retain_cancels(7, nullptr, 2).error(), EINVAL);
+  EXPECT_EQ(*f.service.retain_cancels(9, nullptr, 0), size_t(0));
+  auto selected = f.service.retain_cancels(7, snapshot, 2);
+  ASSERT_TRUE(bool(selected));
+  ASSERT_EQ(*selected, size_t(2));
+  EXPECT_EQ(f.service.retain_cancels(7, snapshot, 2).error(), EINVAL);
+  for (auto &observation : snapshot) {
+    ASSERT_EQ(f.service.request_cancel(observation), 0);
+    auto original = f.service.original_cancel_result(observation);
+    ASSERT_TRUE(bool(original));
+    EXPECT_EQ(original->error, ECANCELED);
+  }
+  EXPECT_EQ(*f.service.error(&cb[1]), EINPROGRESS);
+  ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
+  ASSERT_TRUE(bool(f.service.take_result(&cb[2])));
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.service.retained(), size_t(3));
+  ASSERT_TRUE(bool(f.admit(&cb[0], notifications[3])));
+  EXPECT_EQ(*f.service.cancel_count(7), size_t(1));
+  for (auto &observation : snapshot) {
+    EXPECT_EQ(f.service.original_cancel_result(observation)->error, ECANCELED);
+    ASSERT_EQ(f.service.release_cancel(observation), 0);
+  }
+  EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.service.retained(), size_t(2));
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(0);
+  f.finish(2);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
+  ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
+  ASSERT_EQ(f.service.maintain(), 0);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     SnapshotIncludesOnlyUnconsumedCompletions) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(3)));
+  int cb[2]{};
+  NotificationState notifications[2];
+  for (unsigned i = 0; i < 2; ++i) {
+    ASSERT_TRUE(bool(f.admit(&cb[i], notifications[i])));
+    ASSERT_EQ(f.service.submit(), 0);
+    f.finish(i * 2, int(i + 1));
+    ASSERT_EQ(f.service.submit(), 0);
+  }
+  ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
+  Service::CancelObservation observation;
+  ASSERT_EQ(*f.service.cancel_count(7), size_t(1));
+  ASSERT_EQ(*f.service.retain_cancels(7, &observation, 1), size_t(1));
+  ASSERT_EQ(f.service.request_cancel(observation), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
+  ASSERT_EQ(*f.service.cancel_count(7), size_t(0));
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.service.retained(), size_t(1));
+  auto original = f.service.original_cancel_result(observation);
+  ASSERT_TRUE(bool(original));
+  EXPECT_EQ(original->error, 0);
+  EXPECT_EQ(original->value, ptrdiff_t(2));
+  ASSERT_EQ(f.service.release_cancel(observation), 0);
   ASSERT_EQ(f.service.maintain(), 0);
 }

@@ -310,6 +310,15 @@ public:
         return request;
     return nullptr;
   }
+  // Under the service gate. The visitor may retain state references but must
+  // not change engine bindings, allocate, call application code or reenter.
+  // Selection is the original submission descriptor, not its private dup.
+  template <class Visitor>
+  LIBC_INLINE void visit_bound(int descriptor, Visitor visitor) {
+    for (auto *request = requests; request; request = request->next)
+      if (request->bound && request->input.descriptor == descriptor)
+        visitor(*request);
+  }
   LIBC_INLINE ErrorOr<int> error(const void *control_block) {
     auto *request = find(control_block);
     if (!request)

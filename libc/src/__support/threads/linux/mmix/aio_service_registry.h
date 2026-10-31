@@ -50,21 +50,21 @@ namespace mmix {
 // capacity or a new resource policy. No public capability or limit is selected.
 // Notification/thread admission policy remains with the external runtime.
 //
-// Deferred owners: descriptor-wide cancellation still needs snapshot selection;
-// the per-request observation below only supplies stable ownership. List
-// groups, public wait cancellation, lazy worker startup and process
+// Deferred owners: public cancellation wrappers, list groups,
+// public wait cancellation, lazy worker startup and process
 // transition/quarantine hooks are not implemented here. In particular, do not
 // use a copied service in a fork child, or destroy outstanding records to
 // implement teardown.
 template <class Allocator, size_t SlotsPerBlock,
           class RingLike = io_uring::Ring<>,
           class ResourceOps = aio_submission_resources::LinuxOperations,
-          class Notification = AioNotification, class Gate = AioGate>
+          class Notification = AioNotification, class Gate = AioGate,
+          class ControlBlock = void>
 class AioServiceRegistry {
 public:
   using Engine = AioEngine<RingLike, ResourceOps>;
   using Input = typename Engine::Input;
-  using Wait = AioSuspendRegistration<void, Gate>;
+  using Wait = AioSuspendRegistration<ControlBlock, Gate>;
 
   // A private, single-use observation, owned by the service until release.
   // Its independent reference survives result consumption, address reuse and
@@ -79,6 +79,7 @@ public:
     bool attempted = false;
     bool controlled = false;
     bool used = false;
+    bool completed_at_capture = false;
 
   public:
     CancelObservation() = default;
@@ -88,6 +89,31 @@ public:
       if (owner)
         __builtin_trap();
     }
+  };
+
+  enum class CancelStatus { AllDone, Canceled, NotCanceled };
+
+  // Service-allocated storage with one caller (never concurrently shared).
+  // finish_cancels drops that caller's access, not pending kernel ownership.
+  // Only maintain() may subsequently destroy it.
+  class alignas(CancelObservation) CancelBatch {
+    friend class AioServiceRegistry;
+    AioServiceRegistry *owner;
+    CancelBatch *next = nullptr;
+    size_t capacity;
+    size_t count = 0;
+    bool released = false;
+    bool attempted = false;
+
+    CancelBatch(AioServiceRegistry *owner, size_t capacity)
+        : owner(owner), capacity(capacity) {}
+    CancelObservation *items() {
+      return reinterpret_cast<CancelObservation *>(this + 1);
+    }
+
+  public:
+    CancelBatch(const CancelBatch &) = delete;
+    CancelBatch &operator=(const CancelBatch &) = delete;
   };
 
 private:
@@ -115,12 +141,13 @@ private:
   struct alignas(8) {
     RawMutex value;
   } ring_operations;
-  AioSuspendObservers<void> observers;
+  AioSuspendObservers<ControlBlock> observers;
   typename Engine::Completion completion;
   void *completion_context;
   Engine engine;
   Storage storage;
   Record *records = nullptr;
+  CancelBatch *cancel_batches = nullptr;
   bool maintaining = false;
 
   static void publish_completion(void *context, const void *control_block) {
@@ -202,6 +229,56 @@ private:
   LIBC_INLINE int finish_submit(ErrorOr<unsigned> result) {
     StateGuard guard(gate);
     return engine.finish_submit(result);
+  }
+
+  LIBC_INLINE int retain(typename Engine::Request &request,
+                         CancelObservation &observation) {
+    if (observation.used)
+      return EINVAL;
+    auto retained = request.state().retain(observation.reference);
+    if (!retained)
+      return retained.error();
+    observation.owner = this;
+    observation.request = &request;
+    observation.used = true;
+    observation.completed_at_capture = request.complete();
+    return 0;
+  }
+
+  LIBC_INLINE void dispose_batch(CancelBatch &batch) {
+    for (size_t i = 0; i < batch.capacity; ++i)
+      batch.items()[i].~CancelObservation();
+    batch.~CancelBatch();
+    allocator.deallocate(&batch);
+  }
+
+  // Sole maintainer, after the caller has relinquished all batch access.
+  LIBC_INLINE int maintain_batch(CancelBatch &batch) {
+    {
+      StateGuard guard(gate);
+      if (!batch.released)
+        return 0;
+    }
+    int error = 0;
+    for (size_t i = 0; i < batch.count; ++i) {
+      auto &item = batch.items()[i];
+      if (!item.owner)
+        continue;
+      int result = release_cancel(item);
+      if (!error)
+        error = result;
+    }
+    if (error)
+      return error;
+    {
+      StateGuard guard(gate);
+      CancelBatch **link = &cancel_batches;
+      while (*link != &batch)
+        link = &(*link)->next;
+      *link = batch.next;
+    }
+    dispose_batch(batch);
+    return 0;
   }
 
   // Called with the sole maintainer claim, not a held mutex. Preparing records
@@ -294,7 +371,7 @@ public:
   AioServiceRegistry(const AioServiceRegistry &) = delete;
   AioServiceRegistry &operator=(const AioServiceRegistry &) = delete;
   ~AioServiceRegistry() {
-    if (records || storage.size() || maintaining)
+    if (records || cancel_batches || storage.size() || maintaining)
       __builtin_trap();
   }
 
@@ -377,18 +454,63 @@ public:
     typename Gate::Guard guard(gate);
     if (!guard)
       return guard.error();
-    if (observation.used)
-      return EINVAL;
     auto *request = engine.find(key);
     if (!request)
       return EINVAL;
-    auto retained = request->state().retain(observation.reference);
-    if (!retained)
-      return retained.error();
-    observation.owner = this;
-    observation.request = request;
-    observation.used = true;
-    return 0;
+    return retain(*request, observation);
+  }
+
+  // Sizing is advisory: allocation happens outside the gate, so snapshot
+  // admission must recheck capacity. The service owns that stable allocation
+  // until EVERY original/control observation has been explicitly released.
+  LIBC_INLINE ErrorOr<size_t> cancel_count(int descriptor) {
+    typename Gate::Guard guard(gate);
+    if (!guard)
+      return Error(guard.error());
+    size_t count = 0;
+    engine.visit_bound(descriptor, [&](auto &) { ++count; });
+    return count;
+  }
+
+  // All-or-none reference acquisition at one gate epoch, with no syscalls or
+  // allocation. ERANGE means capacity changed/was insufficient, not a partial
+  // snapshot. Later bindings are excluded even if their address/fd is reused.
+  // Completed but unconsumed results are included; unbound results are not.
+  LIBC_INLINE ErrorOr<size_t>
+  retain_cancels(int descriptor, CancelObservation *output, size_t capacity) {
+    typename Gate::Guard guard(gate);
+    if (!guard)
+      return Error(guard.error());
+    size_t count = 0;
+    engine.visit_bound(descriptor, [&](auto &) { ++count; });
+    if (count > capacity)
+      return Error(ERANGE);
+    if (count && !output)
+      return Error(EINVAL);
+    for (size_t i = 0; i < count; ++i)
+      if (output[i].used)
+        return Error(EINVAL);
+    size_t acquired = 0;
+    int error = 0;
+    engine.visit_bound(descriptor, [&](auto &request) {
+      if (!error) {
+        error = retain(request, output[acquired]);
+        if (!error)
+          ++acquired;
+      }
+    });
+    if (error) {
+      for (size_t i = 0; i < acquired; ++i) {
+        auto &observation = output[i];
+        if (!observation.request->state().release(observation.reference))
+          __builtin_trap();
+        observation.owner = nullptr;
+        observation.request = nullptr;
+        observation.used = false;
+      }
+      return Error(error);
+    }
+    return acquired;
   }
 
   // Zero means the attempt was recorded, NOT that the original I/O has been
@@ -429,6 +551,107 @@ public:
     return engine.cancel_result(observation.control);
   }
 
+  // Ordinary service transaction only. A null key snapshots this descriptor's
+  // bindings; otherwise it captures exactly the supplied binding. The public
+  // wrapper must validate the descriptor itself (an empty snapshot is not an
+  // EBADF check). Growth between sizing and capture returns ERANGE with no
+  // partial snapshot or cancel attempt; do not spin under the state gate.
+  LIBC_INLINE ErrorOr<CancelBatch *>
+  prepare_cancels(int descriptor, const void *key = nullptr) {
+    auto size = key ? ErrorOr<size_t>(size_t(1)) : cancel_count(descriptor);
+    if (!size)
+      return Error(size.error());
+    if (*size > (SIZE_MAX - sizeof(CancelBatch)) / sizeof(CancelObservation))
+      return Error(ENOMEM);
+    void *memory = allocator.allocate(sizeof(CancelBatch) +
+                                          *size * sizeof(CancelObservation),
+                                      alignof(CancelBatch));
+    if (!memory)
+      return Error(ENOMEM);
+    auto *batch = new (memory) CancelBatch(this, *size);
+    for (size_t i = 0; i < *size; ++i)
+      new (&batch->items()[i]) CancelObservation;
+    ErrorOr<size_t> captured = size_t(0);
+    if (key) {
+      int error = retain_cancel(key, batch->items()[0]);
+      captured =
+          error ? ErrorOr<size_t>(Error(error)) : ErrorOr<size_t>(size_t(1));
+    } else {
+      captured = retain_cancels(descriptor, batch->items(), *size);
+    }
+    if (!captured) {
+      dispose_batch(*batch);
+      return Error(captured.error());
+    }
+    batch->count = *captured;
+    {
+      StateGuard guard(gate);
+      batch->next = cancel_batches;
+      cancel_batches = batch;
+    }
+    return batch;
+  }
+
+  // All members are attempted even if a control reservation fails. The first
+  // positive errno is diagnostic, not evidence of original completion. The
+  // caller must finish_cancels on EVERY return path, including failure.
+  LIBC_INLINE int attempt_cancels(CancelBatch &batch) {
+    {
+      StateGuard guard(gate);
+      if (batch.owner != this || batch.released || batch.attempted)
+        return EINVAL;
+      batch.attempted = true;
+    }
+    int error = 0;
+    for (size_t i = 0; i < batch.count; ++i) {
+      int result = request_cancel(batch.items()[i]);
+      if (!error)
+        error = result;
+    }
+    return error;
+  }
+
+  // One state epoch. A successful cancel-control CQE never means Canceled;
+  // only an original ECANCELED result newly observed by this snapshot does.
+  // Pending originals dominate canceled/completed members. An empty batch,
+  // or one consisting solely of already completed requests, is AllDone.
+  LIBC_INLINE ErrorOr<CancelStatus> cancel_status(CancelBatch &batch) {
+    typename Gate::Guard guard(gate);
+    if (!guard)
+      return Error(guard.error());
+    if (batch.owner != this || batch.released || !batch.attempted)
+      return Error(EINVAL);
+    bool canceled = false;
+    for (size_t i = 0; i < batch.count; ++i) {
+      auto &item = batch.items()[i];
+      auto result = item.request->state().result(item.reference);
+      if (!result) {
+        if (result.error() == EINPROGRESS)
+          return CancelStatus::NotCanceled;
+        return Error(result.error());
+      }
+      canceled |= !item.completed_at_capture && result->error == ECANCELED;
+    }
+    return canceled ? CancelStatus::Canceled : CancelStatus::AllDone;
+  }
+
+  // No use of batch is permitted after success; the worker may free it before
+  // this function returns. Does not consume the application's I/O result.
+  LIBC_INLINE int finish_cancels(CancelBatch &batch) {
+    typename Gate::Guard guard(gate);
+    if (!guard)
+      return guard.error();
+    if (batch.owner != this || batch.released)
+      return EINVAL;
+    batch.released = true;
+    return 0;
+  }
+
+  LIBC_INLINE bool has_cancel_batches() {
+    StateGuard guard(gate);
+    return cancel_batches != nullptr;
+  }
+
   // EBUSY retains BOTH owners until the worker consumes/withdraws the control.
   // This can succeed before original completion: the original operation's own
   // kernel/public-result ownership remains untouched. No physical cleanup here.
@@ -454,7 +677,8 @@ public:
   LIBC_INLINE Wait make_wait(JumpCleanupStack::Node *&head) {
     return Wait(observers, gate, head);
   }
-  LIBC_INLINE int begin_wait(Wait &wait, const void *const *list,
+  // Preserve the actual pointer element type: aiocb** is not a void** array.
+  LIBC_INLINE int begin_wait(Wait &wait, const ControlBlock *const *list,
                              size_t count) {
     if (!wait.belongs_to(observers, gate))
       return EINVAL;
@@ -485,14 +709,27 @@ public:
   // nonempty service. Call again for retained notification/release errors.
   LIBC_INLINE int maintain() {
     Record *record;
+    CancelBatch *batch;
     {
       StateGuard guard(gate);
       if (maintaining)
         return EBUSY;
       maintaining = true;
       record = records;
+      batch = cancel_batches;
     }
     int error = 0;
+    while (batch) {
+      CancelBatch *next;
+      {
+        StateGuard guard(gate);
+        next = batch->next;
+      }
+      int result = maintain_batch(*batch);
+      if (!error)
+        error = result;
+      batch = next;
+    }
     while (record) {
       Record *next;
       {
