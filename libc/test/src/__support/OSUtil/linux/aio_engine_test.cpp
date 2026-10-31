@@ -140,6 +140,52 @@ TEST(LlvmLibcAioEngineTest, AdmissionDoesNotSubmitAndUsesTrustedBinding) {
   EXPECT_EQ(f.ring.personalities, 0U);
 }
 
+TEST(LlvmLibcAioEngineTest, TransportsOnlyReviewedAppendFlags) {
+  const unsigned flags[] = {0, RWF_APPEND, RWF_NOAPPEND};
+  for (unsigned flag : flags) {
+    Fixture f;
+    ASSERT_TRUE(bool(f.engine.initialize(2)));
+    auto request = f.make_request();
+    int cb = 0;
+    auto value = input(&cb, Op::Write);
+    value.transfer_flags = flag;
+    ASSERT_TRUE(bool(request.resources.capture(value.descriptor)));
+    ASSERT_TRUE(bool(f.engine.admit(request, value)));
+    ASSERT_EQ(f.engine.progress(), 0);
+    ASSERT_EQ(f.ring.tail, 1U);
+    EXPECT_EQ(unsigned(f.ring.sq[0].rw_flags), flag);
+    // Unsupported kernel flags are terminal errors, never retried without them.
+    f.ring.complete(0, -EOPNOTSUPP);
+    ASSERT_EQ(f.engine.progress(), 0);
+    EXPECT_EQ(f.ring.tail, 1U);
+    EXPECT_EQ(f.engine.take_result(&cb)->error, EOPNOTSUPP);
+    ASSERT_TRUE(bool(f.engine.retire(request)));
+  }
+}
+
+TEST(LlvmLibcAioEngineTest, RejectsInvalidOrMisappliedTransferFlags) {
+  const Op operations[] = {Op::Read, Op::Write, Op::Sync, Op::DataSync};
+  const unsigned flags[] = {RWF_APPEND, RWF_NOAPPEND, RWF_APPEND | RWF_NOAPPEND,
+                            RWF_NOWAIT, ~0U};
+  for (Op op : operations) {
+    for (unsigned flag : flags) {
+      if (op == Op::Write && (flag == RWF_APPEND || flag == RWF_NOAPPEND))
+        continue;
+      Fixture f;
+      ASSERT_TRUE(bool(f.engine.initialize(2)));
+      auto request = f.make_request();
+      int cb = 0;
+      auto value = input(&cb, op);
+      value.transfer_flags = flag;
+      ASSERT_TRUE(bool(request.resources.capture(value.descriptor)));
+      EXPECT_EQ(f.engine.admit(request, value).error(), EINVAL);
+      EXPECT_EQ(f.ring.tail, 0U);
+      EXPECT_EQ(f.watermark, uint64_t(0));
+      ASSERT_TRUE(bool(request.resources.release()));
+    }
+  }
+}
+
 TEST(LlvmLibcAioEngineTest, DuplicateAddressAndReuseAfterResult) {
   Fixture f;
   ASSERT_TRUE(bool(f.engine.initialize(8)));

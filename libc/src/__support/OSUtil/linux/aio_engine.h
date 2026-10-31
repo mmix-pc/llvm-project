@@ -14,6 +14,7 @@
 #include "src/__support/OSUtil/linux/aio_submission_resources.h"
 #include "src/__support/threads/aio_file_dependencies.h"
 #include "src/__support/threads/aio_request.h"
+#include <linux/fs.h>
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -50,7 +51,16 @@ public:
     uint32_t size;
     int64_t offset;
     bool notify;
+    unsigned transfer_flags = 0;
   };
+
+  // Only explicit append policy is transported, never arbitrary SQE flags.
+  static bool valid_transfer_flags(const Input &input) {
+    if (input.operation != Operation::Write)
+      return input.transfer_flags == 0;
+    return input.transfer_flags == 0 || input.transfer_flags == RWF_APPEND ||
+           input.transfer_flags == RWF_NOAPPEND;
+  }
 
   class Request;
   class Cancel;
@@ -199,6 +209,7 @@ private:
       sqe.addr = reinterpret_cast<uintptr_t>(request.input.buffer);
       sqe.len = request.input.size;
       sqe.off = uint64_t(request.input.offset);
+      sqe.rw_flags = request.input.transfer_flags;
     }
     auto result = ring.enqueue(sqe);
     if (!result)
@@ -334,7 +345,7 @@ public:
     if (request.owner || request.state_ptr || !request.resources.ready() ||
         (request.rejection_owner && request.rejection_owner != this) ||
         !input.control_block || input.descriptor < 0 ||
-        input.size > INT32_MAX ||
+        input.size > INT32_MAX || !valid_transfer_flags(input) ||
         (input.operation != Operation::Read &&
          input.operation != Operation::Write && !sync(input.operation)))
       return Error(EINVAL);
