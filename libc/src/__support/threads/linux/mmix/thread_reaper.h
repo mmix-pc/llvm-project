@@ -28,6 +28,13 @@ void restore_reaper_after_fork();
 // Block signals and cancellation. Call before taking loader/allocator locks.
 // A true result proves the sole application caller has no orphan helper state.
 bool retire_reaper_for_fork(ThreadControl &caller);
+// Certified normal-exit or last-thread AFTER continuation, signals blocked and
+// one fork cancellation suppression. Witness completed absence under the
+// bootstrap lock and a full registry census; never retire/release resources.
+// Safe inside a callback loader scope; loader quiescence is checked separately.
+bool reaper_absent_for_exit_fork(
+    ThreadControl &caller,
+    ForkContinuation continuation = ForkContinuation::NormalAfter);
 bool reaper_stop_requested();
 
 // Return only after an explicit stop request, outside a reclamation pass.

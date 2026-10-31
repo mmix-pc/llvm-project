@@ -20,16 +20,32 @@ void begin_process_exit(int status, bool quick = false);
 // Private coordinated-fork hooks, not a complete admission certificate. Query
 // with application signals blocked, then independently prove an ordinary active
 // unwind root and a Running, registered caller under the registry snapshot.
-// Only the process-lifetime/main owner, after its TLS/TSS drain has returned
-// and while exit_process is invoking process callbacks, yields a positive TID.
-pid_t normal_exit_fork_owner();
+// The process-lifetime/main owner yields a positive TID during normal
+// exit_process's TLS/TSS drain with main's phase Cleaning, or during its
+// process callbacks with main's phase Finished. Quick exit and thread exit do
+// not supply normal-process provenance. An ordinary worker binds its own
+// in-progress drain or returned completion to its attributes, never to main.
+// If supplied, during_cleanup is true only for a certified ThreadCallbacks
+// owner, false for ProcessCallbacks or failure. Snapshot it before clone to
+// select the child adopter; a worker adopter cannot infer phase after promotion.
+pid_t normal_exit_fork_owner(bool *during_cleanup = nullptr);
 
 // Child-only, after transport publishes the new TID and coordinated registry
 // recovery preserves the caller's CLEANUP_CLAIMED state and callback progress.
 // The snapshot must have passed the query and ordinary-root checks above.
+// Child adoption must retain the matching Cleaning or Finished main phase,
+// or establish that phase for the certified DURING/AFTER-worker survivor.
 // Does not acquire/release the process claim, restart callbacks, or repair
 // roots.
 bool rebind_normal_exit_fork_owner(pid_t previous_tid);
+
+// AFTER-only terminal continuation, entered exclusively from the fresh
+// nonreturning last-thread root. No TLS/TSS drain is invoked here. The private
+// certificate binds owner, attributes and the entire captured root identity;
+// fork must additionally prove the chain and locked sole ExitReady census.
+[[noreturn]] void exit_after_thread_cleanup();
+pid_t last_thread_exit_fork_owner();
+bool rebind_last_thread_exit_fork_owner(pid_t previous_tid);
 } // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 #endif

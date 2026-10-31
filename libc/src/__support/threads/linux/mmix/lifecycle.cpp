@@ -30,18 +30,52 @@ bool ThreadRegistry::quiescent_fork_caller(ThreadControl &caller) {
   return quiescent;
 }
 
+bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller) {
+  const auto &root = caller.unwind_root;
+  return main_registered && fork_recovery.allows_fork() &&
+         caller.fork_recovery.allows_fork() && !process_operation &&
+         process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED &&
+         !reservations && !helper_reservations && !unreaped_helpers &&
+         !unreaped_callbacks && !live && head == &caller && !caller.next &&
+         !reap_head && !reap_tail && !reap_count && caller.registry == this &&
+         caller.listed && !caller.counted && caller.lifecycle_pin &&
+         !caller.creator_pin && !caller.api_pins && !caller.leases_open &&
+         !caller.leases && !caller.queued && !caller.reap_next &&
+         caller.owner == ThreadOwner::Joinable && !caller.internal_helper &&
+         caller.callback_phase == CallbackPhase::None &&
+         caller.terminal_cleanup_finished() && root.active &&
+         root.kind == UnwindRootKind::LastThreadProcess &&
+         root.owner == &caller && root.generation && root.chain;
+}
+
 bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
                                      uint64_t suppression, bool *single_thread,
                                      bool helper_drained,
-                                     bool process_cleanup) {
+                                     ForkContinuation kind) {
   if (single_thread)
     *single_thread = false;
   mutex.value.lock();
+  if (kind == ForkContinuation::LastThreadAfter) {
+    if (!helper_drained || !terminal_fork_caller(caller) ||
+        caller.cancellation_transfer.load() ||
+        caller.cancellation_suppression.load() != suppression ||
+        caller.cancellation_point.load()) {
+      mutex.value.unlock();
+      return false;
+    }
+    if (single_thread)
+      *single_thread = true;
+    return true;
+  }
+  const bool process_cleanup = kind != ForkContinuation::Ordinary;
   // The private exit-owner certificate is checked by ForkOperation. Keep its
-  // claim and completed callback phase rather than making the caller Running
-  // again merely to pass admission.
+  // claim and certified callback continuation rather than restarting cleanup
+  // merely to pass admission.
   bool continuation =
-      process_cleanup && caller.process_lifetime && caller.callbacks_started &&
+      process_cleanup && main_registered && fork_recovery.allows_fork() &&
+      caller.callbacks_started &&
+      !caller.cancellation.terminal() && !caller.internal_helper &&
+      caller.callback_phase == CallbackPhase::None &&
       process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED;
   if ((process_cleanup && !continuation) ||
       (process_exiting() && !continuation) || reservations ||
@@ -61,7 +95,7 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
     *single_thread = (!creation_started || helper_drained) &&
                      !unreaped_helpers && !unreaped_callbacks &&
                      live == 1 && head == &caller &&
-                     !caller.next && !reap_head && !reap_count;
+                     !caller.next && !reap_head && !reap_tail && !reap_count;
   return true;
 }
 
@@ -69,12 +103,24 @@ void ThreadRegistry::release_after_fork() { mutex.value.unlock(); }
 
 void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
                                         internal::ForkRecovery recovery,
-                                        bool process_cleanup) {
+                                        ForkContinuation kind) {
   if (!recovery.is_child())
     __builtin_trap();
+  if (kind == ForkContinuation::LastThreadAfter) {
+    if (!recovery.allows_fork() || !terminal_fork_caller(survivor))
+      __builtin_trap();
+    // The frozen registry already contains exactly this terminal task. Do not
+    // recount it, reopen leases, erase cleanup, or release its live backing.
+    fork_recovery = survivor.fork_recovery = recovery;
+    event.value.store(0);
+    RawMutex::init(&mutex.value);
+    return;
+  }
+  const bool process_cleanup = kind != ForkContinuation::Ordinary;
   if (process_cleanup &&
-      (!recovery.allows_fork() || !survivor.process_lifetime ||
-       !survivor.callbacks_started ||
+      (!recovery.allows_fork() || !survivor.callbacks_started ||
+       survivor.cancellation.terminal() || survivor.internal_helper ||
+       survivor.callback_phase != CallbackPhase::None ||
        survivor.execution != ThreadExecution::Running ||
        process_exit_state.load() != CLEANUP_CLAIMED))
     __builtin_trap();
@@ -301,6 +347,7 @@ bool ThreadRegistryLock::register_main(ThreadControl &c) {
   c.execution = ThreadExecution::Running;
   c.creator_pin = false;
   c.listed = c.leases_open = c.counted = c.process_lifetime = true;
+  c.initial_thread = true;
   registry.head = &c;
   registry.live = 1;
   registry.main_registered = true;

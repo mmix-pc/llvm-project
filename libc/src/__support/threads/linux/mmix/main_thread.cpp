@@ -118,13 +118,69 @@ bool main_thread_cleanup_finished() {
 #endif
 }
 
-bool adopt_fork_survivor_after_cleanup() {
+bool main_thread_cleanup_in_progress() {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   auto *control = mmix::current_control;
-  if (!main_thread_cleanup_finished() || !control->fork_recovery.is_child() ||
+  // Do not inspect main's mutable phase from an ordinary worker.
+  return control && control->retains_resources_until_process_exit() &&
+         self.attrib == &control->attributes &&
+         self.attrib == active_attributes && phase == Phase::Cleaning;
+#else
+  return false;
+#endif
+}
+
+bool adopt_fork_survivor_after_thread_exit() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || !main_thread_cleanup_finished() ||
+      !control->terminal_cleanup_finished() ||
+      !control->fork_recovery.is_child() ||
       !control->fork_recovery.allows_fork())
     return false;
   return register_fork_child(*control, RobustInheritance::Preserve);
+#else
+  return false;
+#endif
+}
+
+bool adopt_fork_survivor_after_cleanup([[maybe_unused]] bool worker_cleanup) {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes ||
+      !control->retains_resources_until_process_exit() ||
+      !control->fork_recovery.is_child() ||
+      !control->fork_recovery.allows_fork() || control->cancellation.terminal() ||
+      (!worker_cleanup && !main_thread_cleanup_finished()))
+    return false;
+  if (!register_fork_child(*control, RobustInheritance::Preserve))
+    return false;
+  if (worker_cleanup) {
+    active_attributes = self.attrib;
+    phase = Phase::Finished;
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool adopt_fork_survivor_during_cleanup([[maybe_unused]] bool worker_cleanup) {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes ||
+      !control->retains_resources_until_process_exit() ||
+      !control->fork_recovery.is_child() ||
+      !control->fork_recovery.allows_fork() || control->cancellation.terminal() ||
+      (!worker_cleanup && !main_thread_cleanup_in_progress()))
+    return false;
+  if (!register_fork_child(*control, RobustInheritance::Preserve))
+    return false;
+  if (worker_cleanup) {
+    active_attributes = self.attrib;
+    phase = Phase::Cleaning;
+  }
+  return true;
 #else
   return false;
 #endif
@@ -210,8 +266,19 @@ void cleanup_current_thread() {
   // Only main may access the main-thread lifecycle phase and attributes.
   if (control->retains_resources_until_process_exit())
     cleanup_main_thread();
-  else
+  else {
     call_atexit_callbacks(self.attrib);
+    // A fork inside this worker drain can promote only its child. Complete
+    // that copied activation after both TLS and TSS, without draining again.
+    if (control->retains_resources_until_process_exit()) {
+      if (mmix::current_control != control ||
+          !control->fork_recovery.is_child() ||
+          !control->fork_recovery.allows_fork() ||
+          !main_thread_cleanup_in_progress())
+        __builtin_trap();
+      phase = Phase::Finished;
+    }
+  }
 #endif
 }
 

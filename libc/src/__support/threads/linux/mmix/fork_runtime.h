@@ -20,7 +20,8 @@ class ForkOperation {
   bool helper_drained = false;
   bool notifications = false;
   bool minimal = false;
-  bool process_cleanup = false;
+  ForkContinuation continuation = ForkContinuation::Ordinary;
+  UnwindRoot continuation_root;
   bool credentials = false;
   bool exit_callbacks = false;
   bool message_bindings = false, message_results = false;

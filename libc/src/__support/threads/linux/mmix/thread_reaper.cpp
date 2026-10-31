@@ -39,6 +39,23 @@ bool reaper_stop_requested() {
   return bootstrap.stopping.load(cpp::MemoryOrder::ACQUIRE);
 }
 
+bool reaper_absent_for_exit_fork(ThreadControl &caller,
+                                 ForkContinuation continuation) {
+  if (continuation == ForkContinuation::Ordinary)
+    return false;
+  if (!bootstrap.mutex.try_lock())
+    return false;
+  bool single = false;
+  // A zero registry helper count alone precedes final resource release. The
+  // bootstrap lock also excludes creation, retirement and failed rollback.
+  if (!bootstrap.attributes && !bootstrap.control &&
+      !bootstrap.stopping.load() &&
+      thread_registry.freeze_for_fork(caller, 1, &single, true, continuation))
+    thread_registry.release_after_fork();
+  bootstrap.mutex.unlock();
+  return single;
+}
+
 bool retire_reaper_for_fork(ThreadControl &caller) {
 #ifdef LIBC_MMIX_SHARED_STARTUP
   // Retirement releases loader owners. A caller already inside a loader

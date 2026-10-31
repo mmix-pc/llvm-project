@@ -43,7 +43,7 @@ uint64_t current_chain() {
 
 // The cursor must step to the caller, not infer its window from a fixed offset.
 [[gnu::noinline, clang::disable_tail_calls]] void
-capture_root(ThreadControl &control) {
+capture_root(ThreadControl &control, uintptr_t activation, UnwindRootKind kind) {
   unw_context_t context;
   unw_cursor_t cursor;
 #ifdef LIBC_MMIX_SHARED_STARTUP
@@ -57,8 +57,7 @@ capture_root(ThreadControl &control) {
       unw_get_reg(&cursor, UNW_MMIX_RO, &ro) ||
       unw_get_reg(&cursor, UNW_REG_SP, &sp) ||
       unw_get_proc_info(&cursor, &procedure) ||
-      procedure.start_ip !=
-          reinterpret_cast<uintptr_t>(&run_with_unwind_root) ||
+      procedure.start_ip != activation ||
       !ro || !sp || (ro & 7) || (sp & 7))
     __builtin_trap();
   if (!control.retains_resources_until_process_exit() &&
@@ -73,6 +72,7 @@ capture_root(ThreadControl &control) {
   root.sp = sp;
   root.procedure = procedure.start_ip;
   root.chain = current_chain();
+  root.kind = kind;
   root.active = true;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   __libunwind_mmix_cursor_end(&lifetime);
@@ -128,8 +128,8 @@ bool ordinary_fork_context(ThreadControl &control) {
 
 bool restore_fork_unwind(ThreadControl &control) {
   const auto &root = control.unwind_root;
-  // Fork copies the ordinary register-stack chain and stack addresses. Keep
-  // inherited cleanup generations, but never revive an in-progress exit.
+  // Fork copies the register-stack chain and stack addresses. Retain the
+  // selected thread/finalization root, never an in-progress forced unwind.
   if (forced.active || current_control != &control || !root.active ||
       root.owner != &control || !root.generation ||
       root.chain != current_chain())
@@ -137,11 +137,19 @@ bool restore_fork_unwind(ThreadControl &control) {
   return validate_fork_cleanup(root);
 }
 
+bool last_thread_fork_context(ThreadControl &control) {
+  return control.terminal_cleanup_finished() &&
+         control.unwind_root.kind == UnwindRootKind::LastThreadProcess &&
+         ordinary_fork_context(control) && !has_c_cleanup() &&
+         validate_fork_cleanup(control.unwind_root);
+}
+
 [[gnu::noinline, clang::disable_tail_calls]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
   if (current_control != &control || !body)
     __builtin_trap();
-  capture_root(control);
+  capture_root(control, reinterpret_cast<uintptr_t>(&run_with_unwind_root),
+               UnwindRootKind::Thread);
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   initialize_cancellation_windows(control);
 #endif
@@ -149,6 +157,23 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
   if (has_c_cleanup())
     __builtin_trap();
   control.unwind_root.active = false;
+}
+
+[[noreturn, gnu::noinline, clang::disable_tail_calls]] void
+run_with_process_exit_root(ThreadControl &control, RootBody *body,
+                           void *argument) {
+  if (current_control != &control || !body || forced.active || has_c_cleanup() ||
+      control.unwind_root.active || !control.terminal_cleanup_finished() ||
+      control.cancellation_point.load() || control.cancellation_transfer.load())
+    __builtin_trap();
+  capture_root(control, reinterpret_cast<uintptr_t>(&run_with_process_exit_root),
+               UnwindRootKind::LastThreadProcess);
+  // This also rejects an unfinished C cleanup dispatcher. Never reinitialize
+  // cancellation for this new root: terminal delivery remains disabled.
+  if (!last_thread_fork_context(control))
+    __builtin_trap();
+  body(argument);
+  __builtin_trap();
 }
 
 [[noreturn]] static void force_exit(void *result, bool cleanup_claimed,
@@ -160,6 +185,7 @@ run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument) {
     __builtin_trap();
 #endif
   if (!control || !control->unwind_root.active || forced.active ||
+      control->unwind_root.kind != UnwindRootKind::Thread ||
       control->unwind_root.owner != control ||
       control->unwind_root.chain != current_chain() ||
       (cleanup_claimed && !control->cancellation.terminal()))

@@ -99,6 +99,7 @@ extern "C" bool acquire(ThreadControl *c) {
 }
 
 #--- test.cpp
+#include "hdr/errno_macros.h"
 #include "src/__support/threads/linux/mmix/lifecycle.h"
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -396,6 +397,94 @@ static void helper_fork_admission() {
   registry.release_after_fork();
 }
 
+static void worker_exit_fork_admission() {
+  // Inject only the private normal-exit certificate. The exit-hook fixture
+  // proves worker drain provenance; ordinary-root/loader proof is separate.
+  for (unsigned blocker = 0; blocker != 10; ++blocker) {
+    event_address = 0;
+    ThreadRegistry registry;
+    ThreadControl main, worker, other;
+    main.attributes.tid = 321;
+    worker.attributes.tid = 322;
+    {
+      ThreadRegistryLock lock(registry);
+      require(lock.register_main(main) && lock.reserve());
+      if (blocker == 9)
+        require(lock.insert_callback_waiter(worker) && lock.start(worker) &&
+                lock.activate_callback(worker));
+      else
+        require(lock.insert(worker, false) && lock.start(worker));
+      require(lock.drop_creator(worker));
+      require(lock.pin(&main.attributes) == &main && lock.claim_join(main));
+      require(lock.begin_cleanup(main) && lock.close_leases(main));
+      require(lock.exit_ready(main, 0));
+      main.clear_tid.value.store(0);
+      require(lock.begin_reaping(main) && lock.unpin(main) &&
+              lock.finish_reaping(main));
+      if (blocker == 1 || blocker == 5) {
+        require(lock.reserve() && lock.insert(other, true) && lock.start(other));
+        require(lock.drop_creator(other));
+        if (blocker == 5)
+          require(lock.begin_cleanup(other) && lock.close_leases(other) &&
+                  lock.exit_ready(other, 0) && lock.queued_reclaims() == 1);
+      } else if (blocker == 2) {
+        require(lock.begin_helper_creation() && lock.insert(other, true, true));
+        require(lock.start(other) && lock.drop_creator(other));
+      } else if (blocker == 3) {
+        require(lock.begin_helper_creation());
+      } else if (blocker == 4) {
+        require(lock.reserve());
+      } else if (blocker == 6) {
+        require(lock.reserve() && lock.insert_callback_waiter(other));
+        require(lock.start(other));
+      }
+    }
+    require(!worker.retains_resources_until_process_exit());
+    bool single = true;
+    worker.cancellation_suppression.store(1);
+    require(!registry.freeze_for_fork(worker, 1, &single, true, ForkContinuation::NormalAfter) && !single);
+    require(registry.claim_process_cleanup());
+    require(!registry.freeze_for_fork(worker, 1, &single, true, ForkContinuation::NormalAfter));
+    require(worker.begin_callback_cleanup());
+    require(!registry.freeze_for_fork(worker, 1, &single, true, ForkContinuation::Ordinary));
+    require(!registry.freeze_for_fork(worker, 0, &single, true, ForkContinuation::NormalAfter));
+    if (blocker == 7)
+      require(worker.cancellation.claim(false));
+    if (blocker == 8) {
+      ThreadRegistryLock lock(registry);
+      require(lock.begin_cleanup(worker) && lock.close_leases(worker) &&
+              lock.exit_ready(worker, 0));
+    }
+    bool frozen = registry.freeze_for_fork(worker, 1, &single, true, ForkContinuation::NormalAfter);
+    require(frozen == (blocker != 3 && blocker != 4 && blocker != 7 &&
+                       blocker != 8 && blocker != 9));
+    require(single == (blocker == 0));
+    if (frozen)
+      registry.release_after_fork();
+    require(!worker.retains_resources_until_process_exit());
+    require(!worker.begin_callback_cleanup() && !registry.claim_process_cleanup());
+    {
+      ThreadRegistryLock lock(registry);
+      require(!lock.sole_fork_caller(worker) && !lock.begin_vfork(worker));
+      require(!lock.reserve() && !lock.begin_helper_creation());
+    }
+    if (blocker)
+      continue;
+    // Creation history survives rollback and requires a resource witness.
+    require(registry.freeze_for_fork(worker, 1, &single, false, ForkContinuation::NormalAfter) && !single);
+    registry.release_after_fork();
+    for (unsigned child = 0; child != 2; ++child) {
+      require(registry.freeze_for_fork(worker, 1, &single, true, ForkContinuation::NormalAfter) && single);
+      registry.restore_fork_child(worker, internal::ForkRecovery::child(true, true), ForkContinuation::NormalAfter);
+      require(worker.retains_resources_until_process_exit());
+      require(!worker.begin_callback_cleanup() && !registry.claim_process_cleanup());
+      require(worker.cancellation_suppression.load() == 1);
+      ThreadRegistryLock lock(registry);
+      require(!lock.reserve() && !lock.begin_helper_creation());
+    }
+  }
+}
+
 static void main_registration() {
   ThreadRegistry registry;
   ThreadControl main, other;
@@ -580,11 +669,103 @@ static void admission_concurrency() {
 }
 #endif
 
+static void terminal_exit_fork_admission() {
+  constexpr auto kind = ForkContinuation::LastThreadAfter;
+  for (unsigned blocker = 0; blocker != 24; ++blocker) {
+    event_address = 0;
+    ThreadRegistry process;
+    ThreadControl caller, other;
+    caller.attributes.tid = 1;
+    caller.cancellation.set_enabled(false);
+    caller.cancellation.set_async(true);
+    {
+      ThreadRegistryLock lock(process);
+      require(lock.register_main(caller));
+      if (blocker == 1 || blocker == 5 || blocker == 19) {
+        require(lock.reserve() && lock.insert(other, blocker == 5));
+        require(lock.start(other) && lock.drop_creator(other));
+        if (blocker != 1)
+          require(lock.begin_cleanup(other) && lock.close_leases(other) &&
+                  lock.exit_ready(other, 0));
+      } else if (blocker == 2) {
+        require(lock.begin_helper_creation() && lock.insert(other, true, true));
+        require(lock.start(other) && lock.drop_creator(other));
+      } else if (blocker == 3) {
+        require(lock.reserve());
+      } else if (blocker == 4) {
+        require(lock.begin_helper_creation());
+      } else if (blocker == 6) {
+        require(lock.reserve() && lock.insert_callback_waiter(other));
+        require(lock.start(other) && lock.drop_creator(other));
+      } else if (blocker == 7 || blocker == 20 || blocker == 21) {
+        require(lock.pin(&caller.attributes) == &caller);
+        if (blocker == 7)
+          require(lock.detach(caller) && lock.unpin(caller));
+        if (blocker == 21)
+          require(lock.claim_join(caller) && lock.unpin(caller));
+      } else if (blocker == 18) {
+        require(lock.begin_process_operation(caller));
+      }
+      require(lock.begin_cleanup(caller));
+      if (blocker != 9)
+        require(lock.close_leases(caller));
+      if (blocker != 8 && blocker != 9)
+        require(lock.exit_ready(caller, 17));
+    }
+    if (blocker != 10)
+      require(caller.begin_callback_cleanup());
+    if (blocker != 23)
+      require(process.claim_process_cleanup());
+    caller.unwind_root = {&caller, 8, 16, 24, 4, 6, true,
+                          UnwindRootKind::LastThreadProcess};
+    if (blocker == 11) caller.unwind_root.active = false;
+    if (blocker == 12) caller.unwind_root.generation = 0;
+    if (blocker == 13) caller.unwind_root.kind = UnwindRootKind::Thread;
+    if (blocker == 14) caller.unwind_root.owner = &other;
+    if (blocker == 15) caller.cancellation_transfer.store(1);
+    if (blocker == 16)
+      caller.cancellation_point.store(reinterpret_cast<CancellationPoint *>(8));
+    if (blocker == 22) caller.unwind_root.chain = 0;
+    caller.cancellation_suppression.store(blocker == 17 ? 0 : 1);
+    bool single = true;
+    bool frozen = process.freeze_for_fork(caller, 1, &single, true, kind);
+    require(frozen == (blocker == 0) && single == (blocker == 0));
+    if (!frozen)
+      continue;
+    process.release_after_fork(); // No-child rollback preserves all progress.
+    const auto root = caller.unwind_root;
+    for (unsigned child = 0; child != 2; ++child) {
+      require(caller.terminal_cleanup_finished());
+      require(!process.admit_signal_notification());
+      require(!caller.begin_callback_cleanup() && !process.claim_process_cleanup());
+      require(!process.freeze_for_fork(caller, 1, &single, true,
+                                       ForkContinuation::NormalAfter));
+      require(!process.freeze_for_fork(caller, 1, &single, false, kind));
+      require(process.freeze_for_fork(caller, 1, &single, true, kind) && single);
+      process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), kind);
+      require(root.matches(caller.unwind_root));
+      require(caller.terminal_cleanup_finished() && caller.cancellation.terminal());
+      require(!caller.cancellation.enabled() && !caller.cancellation.ready());
+      require(caller.cancellation.asynchronous() && !caller.cancellation.request());
+      ThreadRegistryLock lock(process);
+      require(lock.live_threads() == 0 && lock.leases_drained(caller));
+      require(!lock.reserve() && !lock.begin_helper_creation());
+      require(!lock.begin_cleanup(caller) && !lock.exit_ready(caller, 0));
+      require(lock.request_cancellation(caller, true) == ESRCH);
+      require(lock.pin(&caller.attributes) == &caller);
+      require(!lock.acquire_lease(caller) && lock.unpin(caller));
+      require(lock.owner(caller) == ThreadOwner::Joinable);
+    }
+  }
+}
+
 extern "C" int main() {
   layout_and_publication();
   ownership();
   callback_waiters();
   helper_fork_admission();
+  worker_exit_fork_admission();
+  terminal_exit_fork_admission();
   main_registration();
   detached_main();
   {
@@ -598,22 +779,22 @@ extern "C" int main() {
     }
     bool single = false;
     // A certificate cannot bypass the actual claim and completed drain state.
-    require(!process.freeze_for_fork(caller, 0, &single, false, true));
+    require(!process.freeze_for_fork(caller, 0, &single, false, ForkContinuation::NormalAfter));
     require(process.claim_process_cleanup());
-    require(!process.freeze_for_fork(caller, 0, &single, false, true));
+    require(!process.freeze_for_fork(caller, 0, &single, false, ForkContinuation::NormalAfter));
     require(caller.begin_callback_cleanup());
     require(!process.freeze_for_fork(caller));
-    require(process.freeze_for_fork(caller, 0, &single, false, true) && single);
+    require(process.freeze_for_fork(caller, 0, &single, false, ForkContinuation::NormalAfter) && single);
     process.release_after_fork(); // A failed clone must not erase parent state.
     require(!caller.begin_callback_cleanup() && !process.claim_process_cleanup());
-    require(process.freeze_for_fork(caller, 0, &single, false, true) && single);
-    process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), true);
+    require(process.freeze_for_fork(caller, 0, &single, false, ForkContinuation::NormalAfter) && single);
+    process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), ForkContinuation::NormalAfter);
     require(!caller.begin_callback_cleanup() && !process.claim_process_cleanup());
     {
       ThreadRegistryLock lock(process);
       require(!lock.reserve() && !lock.begin_helper_creation());
     }
-    require(process.freeze_for_fork(caller, 0, &single, false, true) && single);
+    require(process.freeze_for_fork(caller, 0, &single, false, ForkContinuation::NormalAfter) && single);
     process.release_after_fork();
   }
   {

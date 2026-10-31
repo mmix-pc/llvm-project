@@ -49,6 +49,12 @@ enum class ThreadTermination { ThreadOnly, WaitForCreation, Process };
 enum class ChildStatus : uint32_t { Starting, Ready, Failed };
 enum class CreatorDecision : uint32_t { Hold, Go, Abort };
 enum class CallbackPhase { None, Waiting, Active, Discarded };
+enum class ForkContinuation {
+  Ordinary,
+  NormalDuring,
+  NormalAfter,
+  LastThreadAfter
+};
 
 struct ThreadMapping {
   uintptr_t base = 0;
@@ -135,6 +141,13 @@ struct ThreadControl {
   }
 
   bool retains_resources_until_process_exit() const { return process_lifetime; }
+  // Owner-only local half of the terminal certificate. Registry-owned pins,
+  // queues, leases and ownership are inspected only under the snapshot lock.
+  bool terminal_cleanup_finished() {
+    return initial_thread && process_lifetime && callbacks_started &&
+           execution == ThreadExecution::ExitReady &&
+           cancellation.terminal();
+  }
 
   // Only the owning thread may access this guard, including recursive exit.
   bool begin_callback_cleanup() {
@@ -156,6 +169,7 @@ private:
   bool creator_pin = true, lifecycle_pin = true;
   bool listed = false, leases_open = false, counted = false;
   bool process_lifetime = false;
+  bool initial_thread = false;
   bool internal_helper = false;
   CallbackPhase callback_phase = CallbackPhase::None;
   bool callbacks_started = false;
@@ -192,6 +206,7 @@ class ThreadRegistry {
   bool creation_started = false;
   bool process_operation = false;
   internal::ForkRecovery fork_recovery;
+  bool terminal_fork_caller(ThreadControl &caller);
 
 public:
   constexpr ThreadRegistry() = default;
@@ -207,15 +222,17 @@ public:
   // is on its ordinary chain before inspecting the registry.
   bool quiescent_fork_caller(ThreadControl &caller);
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
-  bool freeze_for_fork(ThreadControl &caller, uint64_t suppression = 0,
-                       bool *single_thread = nullptr,
-                       bool helper_drained = false,
-                       bool process_cleanup = false);
+  // Non-ordinary kinds require the matching private exit-owner/root
+  // certificate. LastThreadAfter is only the completed initial-thread drain.
+  bool freeze_for_fork(
+      ThreadControl &caller, uint64_t suppression = 0,
+      bool *single_thread = nullptr, bool helper_drained = false,
+      ForkContinuation continuation = ForkContinuation::Ordinary);
   void release_after_fork();
   void restore_fork_child(
       ThreadControl &survivor,
       internal::ForkRecovery recovery = internal::ForkRecovery::child(),
-      bool process_cleanup = false);
+      ForkContinuation continuation = ForkContinuation::Ordinary);
   // Snapshot under ThreadRegistryLock; wait only after releasing it. Callers
   // supply a bounded deadline and recheck predicates even after timeout/wrap.
   ErrorOr<int> wait(uint32_t sequence, Futex::Timeout deadline) {

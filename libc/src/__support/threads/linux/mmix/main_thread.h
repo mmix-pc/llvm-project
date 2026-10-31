@@ -34,11 +34,24 @@ bool adopt_fork_survivor();
 // drain; this neither proves process-exit ownership nor validates an unwind
 // root.
 bool main_thread_cleanup_finished();
+// Owner-only Cleaning query; false for workers and before/after the drain.
+// Does not itself certify normal process exit or an ordinary unwind root.
+bool main_thread_cleanup_in_progress();
 // Certified normal-exit fork child only: retain Finished and the existing
 // attributes rather than restarting main-thread cleanup. Signals remain
 // blocked; the caller separately preserves registry progress and rebinds the
 // exit owner.
-bool adopt_fork_survivor_after_cleanup();
+// worker_cleanup is the frozen ordinary-worker AFTER normal-exit certificate:
+// after registry promotion, bind its retained attributes and establish Finished.
+bool adopt_fork_survivor_after_cleanup(bool worker_cleanup = false);
+// Same certified-child requirements, but retain Cleaning and resume the
+// existing TLS/TSS drain activation. Never restart or mark the drain finished.
+// worker_cleanup requires the DURING certificate: bind the promoted survivor
+// as Cleaning; its original cleanup_current_thread worker branch finishes it.
+bool adopt_fork_survivor_during_cleanup(bool worker_cleanup = false);
+// Sole initial-thread terminal AFTER child. Preserve Finished, closed leases
+// and terminal cancellation; only re-register clear-TID and robust state.
+bool adopt_fork_survivor_after_thread_exit();
 // The transport published the child TID and signals remain blocked. Do not
 // acquire locks or repair interrupted subsystems.
 bool restore_minimal_fork_child();

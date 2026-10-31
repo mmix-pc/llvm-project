@@ -15,6 +15,7 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 struct ThreadControl;
+enum class UnwindRootKind { Thread, LastThreadProcess };
 
 // Private runtime state, not a public pthread or kernel ABI.
 struct UnwindRoot {
@@ -22,6 +23,14 @@ struct UnwindRoot {
   uintptr_t ro = 0, procedure = 0, sp = 0;
   uint64_t chain = 0, generation = 0;
   bool active = false;
+  UnwindRootKind kind = UnwindRootKind::Thread;
+
+  bool matches(const UnwindRoot &other) const {
+    return active && other.active && owner == other.owner && ro == other.ro &&
+           procedure == other.procedure && sp == other.sp &&
+           chain == other.chain && generation == other.generation &&
+           kind == other.kind;
+  }
 };
 
 using RootBody = void(void *);
@@ -31,8 +40,13 @@ bool has_c_cleanup();
 bool validate_fork_cleanup(const UnwindRoot &root);
 bool restore_fork_unwind(ThreadControl &control);
 bool ordinary_fork_context(ThreadControl &control);
+bool last_thread_fork_context(ThreadControl &control);
 [[gnu::visibility("hidden")]] void
 run_with_unwind_root(ThreadControl &control, RootBody *body, void *argument);
+// Fresh nonreturning activation after the thread root has been consumed. This
+// does not initialize cancellation windows or resume a thread cleanup drain.
+[[noreturn, gnu::visibility("hidden")]] void
+run_with_process_exit_root(ThreadControl &control, RootBody *body, void *argument);
 
 // Shared root bridge. Only the selected forced-exit composition connects public
 // pthread_exit here; retained C-only packages keep their direct finish path.
