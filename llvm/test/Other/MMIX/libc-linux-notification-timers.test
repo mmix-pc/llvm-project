@@ -40,9 +40,9 @@ for opt in ("0", "2"):
         subprocess.run([*host, *flags, "-D__mmix__", "-O" + opt,
             "-include", str(root / "base/transport.h"), *map(str, sources),
             str(root / "test.cpp"), str(bridge), "-o", str(exe)], check=True)
-        for mode in range(12):
+        for mode in range(16):
             subprocess.run([str(exe), str(mode)], check=True, timeout=10)
-        print(f"Notification timers: 12 scenarios passed at O{opt}", flush=True)
+        print(f"Notification timers: 16 scenarios passed at O{opt}", flush=True)
 
 #--- headers/sys/syscall.h
 #define SYS_timer_create 107
@@ -70,10 +70,11 @@ extern "C" void host_free(void *);
 static void check(bool b) { if (!b) __builtin_trap(); }
 static int mode, allocations, frees, kernel_creates, kernel_deletes;
 static int set_calls, attempts, callbacks, allocation_failure;
+static int launch_error, owner_retains, owner_releases;
 static uint64_t cookie;
 static uint64_t signal_mask;
 static int timer_id = 7;
-static bool delete_failure, launch_failure, delete_on_launch;
+static bool delete_failure, rollback_owner, delete_on_launch;
 static NotificationTimers *table;
 static ThreadPreparation pending;
 static ThreadAttributes attributes;
@@ -96,9 +97,20 @@ ThreadCreationResult create_thread(const ThreadPreparation &request,
     check(table->remove(reinterpret_cast<timer_t>(long(timer_id))) == 0);
     check(!frees);
   }
-  if (launch_failure) return {-EAGAIN};
   check(!pending.resource_owner.context);
+  if (launch_error) {
+    if (rollback_owner) {
+      // Model successful partial-owner rollback, not production clone cleanup.
+      check(request.resource_owner.retain(request.resource_owner.context) == 0);
+      ++owner_retains;
+      check(request.resource_owner.release(request.resource_owner.context) == 0);
+      ++owner_releases;
+      check(!frees); // The accepted event still protects a deleted record.
+    }
+    return {-launch_error};
+  }
   check(request.resource_owner.retain(request.resource_owner.context) == 0);
+  ++owner_retains;
   pending = request;
   output = &attributes;
   return {};
@@ -151,6 +163,7 @@ static void finish_callback() {
   check(pending.resource_owner.context);
   pending.runner.posix_runner(pending.argument);
   check(pending.resource_owner.release(pending.resource_owner.context) == 0);
+  ++owner_releases;
   pending = {};
 }
 static signalfd_siginfo notification() {
@@ -162,6 +175,7 @@ static signalfd_siginfo notification() {
 extern "C" int main(int argc, char **argv) {
   check(argc == 2);
   for (char *p = argv[1]; *p; ++p) mode = mode * 10 + *p - '0';
+  check(mode >= 0 && mode < 16);
   NotificationTimers timers; table = &timers;
   sigevent event{};
   event.sigev_notify = SIGEV_THREAD;
@@ -221,19 +235,75 @@ extern "C" int main(int argc, char **argv) {
     check(timers.remove(id) == EINVAL && !timers.empty() && !frees);
     delete_failure = false;
   }
+  if (mode >= 12) {
+    // 12: ENOMEM, 13: EPERM, 14: partial-owner EPERM,
+    // 15: partial-owner EPERM after deletion during the accepted launch.
+    launch_error = mode == 12 ? ENOMEM : EPERM;
+    rollback_owner = mode >= 14;
+    delete_on_launch = mode == 15;
+    const int rolled_back = rollback_owner ? 1 : 0;
+    const uint64_t registered_cookie = cookie;
+    timers.dispatch(info);
+    check(attempts == 1 && !callbacks && !pending.resource_owner.context);
+    check(owner_retains == rolled_back && owner_releases == rolled_back);
+    check(kernel_creates == 1 && cookie == registered_cookie);
+    check(id == reinterpret_cast<timer_t>(long(timer_id)));
+    check(timers.empty() == (mode == 15));
+    check(kernel_deletes == (mode == 15 ? 1 : 0));
+    check(allocations == 2 && frees == (mode == 15 ? 2 : 0));
+
+    launch_error = 0;
+    rollback_owner = false;
+    check(timers.collect_retired());
+    check(attempts == 1 && !callbacks && !pending.resource_owner.context);
+    check(owner_retains == rolled_back && owner_releases == rolled_back);
+    check(frees == (mode == 15 ? allocations : 0));
+    if (mode == 15) {
+      timers.dispatch(info); // The deleted cookie cannot launch again.
+      check(attempts == 1 && !callbacks && !pending.resource_owner.context);
+      check(owner_retains == rolled_back && owner_releases == rolled_back);
+      check(timers.collect_retired() && frees == allocations);
+      return 0;
+    }
+
+    // This explicit dispatch is a later synthetic event, not a failure retry.
+    timers.dispatch(info);
+    check(attempts == 2 && !callbacks && pending.resource_owner.context);
+    check(owner_retains == rolled_back + 1 && owner_releases == rolled_back);
+    check(!timers.empty() && !frees && kernel_creates == 1 && !kernel_deletes);
+    check(cookie == registered_cookie);
+    finish_callback();
+    check(callbacks == 1 && !pending.resource_owner.context && !frees);
+    check(owner_retains == rolled_back + 1 && owner_releases == owner_retains);
+    check(timers.remove(id) == 0 && timers.empty() && kernel_deletes == 1);
+    check(frees == allocations);
+    timers.dispatch(info);
+    check(timers.collect_retired());
+    check(attempts == 2 && callbacks == 1 && !pending.resource_owner.context);
+    check(owner_retains == rolled_back + 1 && owner_releases == owner_retains);
+    check(frees == allocations);
+    return 0;
+  }
   if (mode == 5) {
-    launch_failure = true; timers.dispatch(info);
+    launch_error = EAGAIN; timers.dispatch(info);
     check(attempts == 1 && !frees && !timers.empty());
-    launch_failure = false;
+    check(!callbacks && !pending.resource_owner.context);
+    check(!owner_retains && !owner_releases);
+    launch_error = 0;
+    check(timers.collect_retired());
+    check(attempts == 1 && !callbacks && !pending.resource_owner.context);
+    check(!frees && !timers.empty() && !owner_retains && !owner_releases);
   }
   if (mode == 6) delete_on_launch = true;
   timers.dispatch(info);
+  if (mode == 5) check(attempts == 2);
   check(!callbacks && pending.resource_owner.context);
   if (mode != 6) check(timers.remove(id) == 0);
   check(timers.empty());
   int accepted = attempts;
   timers.dispatch(info); check(attempts == accepted);
   finish_callback(); check(callbacks == 1);
+  check(owner_retains == 1 && owner_releases == 1);
   check(frees == allocations - ((mode == 1 || mode == 2) ? 1 : 0));
   if (mode == 9) {
     event.sigev_value.sival_int = 73;
@@ -242,6 +312,7 @@ extern "C" int main(int argc, char **argv) {
     timers.dispatch(notification()); check(attempts == accepted + 1);
     finish_callback(); check(timers.remove(id) == 0);
     check(callbacks == 2 && frees == allocations && timers.empty());
+    check(owner_retains == 2 && owner_releases == 2);
   }
   return 0;
 }
