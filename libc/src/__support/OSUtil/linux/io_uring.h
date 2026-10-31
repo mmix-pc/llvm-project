@@ -360,7 +360,7 @@ public:
         fd, IORING_REGISTER_PERSONALITY, nullptr, 0);
     if (!result)
       return Error(result.error());
-    if (*result <= 0 || *result > UINT16_MAX)
+    if (*result <= 0 || unsigned(*result) > UINT16_MAX)
       return Error(EPROTO);
     return static_cast<unsigned>(*result);
   }
