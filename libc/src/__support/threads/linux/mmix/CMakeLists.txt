@@ -267,6 +267,15 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
   )
   add_object_library(
+    aio_dispatcher
+    SRCS aio_dispatcher.cpp
+    HDRS aio_dispatcher.h
+    DEPENDS .thread_create .thread_reclaim .credentials
+      libc.src.__support.OSUtil.linux.aio_dispatch_channel
+      libc.hdr.signal_macros libc.hdr.types.struct_timespec
+    COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_scheduling_options}
+  )
+  add_object_library(
     notification_dispatcher
     SRCS notification_dispatcher.cpp
     HDRS notification_dispatcher.h
