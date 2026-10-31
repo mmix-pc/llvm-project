@@ -151,6 +151,21 @@ public:
   }
 
   LIBC_INLINE bool ready() const { return captured; }
+
+  // Copied child only, after the process owner has excluded every caller and
+  // worker. Close the child's private duplicate, never unregister a personality
+  // in the parent's shared ring. The entire copied service is quarantined and
+  // must not use or destroy this object afterward. Even EINTR consumes the fd.
+  LIBC_INLINE ErrorOr<void> quarantine_child() {
+    captured = false;
+    if (fd < 0)
+      return {};
+    int closing = fd;
+    fd = -1;
+    auto result = operations.close(closing);
+    return result ? ErrorOr<void>() : ErrorOr<void>(Error(result.error()));
+  }
+
   LIBC_INLINE bool drained() const { return fd < 0 && personality_id == 0; }
   LIBC_INLINE int error() const { return admission_error; }
   LIBC_INLINE int cleanup_error() const { return release_error; }

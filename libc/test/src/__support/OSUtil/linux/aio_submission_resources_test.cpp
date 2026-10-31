@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "src/__support/CPP/new.h"
 #include "src/__support/OSUtil/linux/aio_submission_resources.h"
 #include "src/__support/libc_errno.h"
 #include "test/UnitTest/Test.h"
@@ -142,6 +143,32 @@ struct ErrnoGuard {
 };
 
 } // namespace
+
+TEST(LlvmLibcAioSubmissionResourcesTest,
+     ChildQuarantineDoesNotUnregisterParent) {
+  const int errors[] = {0, EINTR, EIO};
+  for (int error : errors) {
+    State state;
+    state.close_error = error;
+    FakeRing ring{state};
+    // Model copied process storage: quarantine intentionally forbids its
+    // destructor, because the personality still belongs to the parent ring.
+    alignas(Owner) unsigned char storage[sizeof(Owner)];
+    auto *owner = new (storage) Owner(ring, FakeOperations{state});
+    observe(state, *owner);
+    ASSERT_TRUE(bool(owner->capture(SOURCE_FD)));
+    auto result = owner->quarantine_child();
+    EXPECT_EQ(result ? 0 : result.error(), error);
+    EXPECT_FALSE(owner->ready());
+    EXPECT_FALSE(owner->drained());
+    EXPECT_FALSE(state.fd_owned);
+    EXPECT_TRUE(state.personality_owned);
+    EXPECT_EQ(state.count, 3U);
+    expect_event(state, 2, Close, unsigned(state.duplicate_fd));
+    ASSERT_TRUE(bool(owner->quarantine_child()));
+    EXPECT_EQ(state.count, 3U);
+  }
+}
 
 TEST(LlvmLibcAioSubmissionResourcesTest, EmptyReleaseAndDestructionDoNothing) {
   State state;

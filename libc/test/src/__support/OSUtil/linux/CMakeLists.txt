@@ -56,6 +56,7 @@ add_libc_test(
   SRCS aio_submission_resources_test.cpp
   DEPENDS
     libc.src.__support.OSUtil.linux.aio_submission_resources
+    libc.src.__support.CPP.new
     libc.src.errno.errno
 )
 
