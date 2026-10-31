@@ -62,6 +62,10 @@ public:
   // refused). SIGNAL queues SI_ASYNCIO once; EAGAIN retains the copied event
   // for a later iteration, without altering the completed I/O result. Other
   // delivery errors are terminal and must be handled by the service.
+  // SIGNAL also returns EBUSY after process-exit election, retaining the event
+  // for coordinated teardown. Admission is a lock-free check per attempt: one
+  // already admitted may finish, but neither a new attempt nor a retry may
+  // start after observing exit. This does not wait for or revoke queued signals.
   // Duplicate successful attempts return EALREADY.
   long activate();
 

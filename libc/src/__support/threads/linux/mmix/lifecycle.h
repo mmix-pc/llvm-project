@@ -199,6 +199,10 @@ public:
   // owner. A restricted fork child has no peers and may replace a copied claim;
   // its caller must reject recursion before requesting that override.
   bool claim_process_cleanup(bool sole_fork_child = false);
+  // Lock-free notification admission, linearized against exit election. An
+  // attempt admitted before election may finish; later attempts (including
+  // retries) must not deliver new notifications. This is not a lifetime pin.
+  bool admit_signal_notification() { return !process_exiting(); }
   // Nonblocking precheck; the caller has blocked signals and proved that it
   // is on its ordinary chain before inspecting the registry.
   bool quiescent_fork_caller(ThreadControl &caller);

@@ -110,6 +110,11 @@ long AioNotification::activate() {
     state = State::Terminal;
     return 0;
   }
+  // Every attempt, including queue-pressure retries, shares the process-exit
+  // election boundary. An already admitted syscall may finish after election;
+  // exit does not wait for it or undo signals already queued.
+  if (!thread_registry.admit_signal_notification())
+    return EBUSY;
   // Do not accidentally signal the parent if service child-reset was omitted.
   long pid = syscall_impl(SYS_getpid);
   if (pid < 0) {
