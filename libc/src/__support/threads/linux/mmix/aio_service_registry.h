@@ -695,6 +695,19 @@ public:
     return storage.size();
   }
 
+  // Exclusive copied child, with the dispatcher parked before clone. Never
+  // acquire copied locks, retire callbacks, unregister parent personalities or
+  // consume CQEs. The caller must quarantine this entire instance permanently.
+  LIBC_INLINE int quarantine_child() {
+    int error = 0;
+    for (Record *record = records; record; record = record->next) {
+      auto result = record->request.resources.quarantine_child();
+      if (!result && !error)
+        error = result.error();
+    }
+    return error;
+  }
+
   // Worker only. Queries remain available inside ring.submit(), including
   // after terminal CQ publication. Admission never calls this path.
   LIBC_INLINE int submit() {
