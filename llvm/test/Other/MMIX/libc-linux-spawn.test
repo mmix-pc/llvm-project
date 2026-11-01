@@ -69,6 +69,7 @@
 
 #--- check.py
 import pathlib
+import shlex
 import subprocess
 import sys
 
@@ -95,19 +96,20 @@ for opt in ("0", "2"):
             assert not any(x in names for x in (
                 "vdso", "clone3", "current_thread", "callbacks", "libc_errno"))
     if len(sys.argv) == 4:
+        host = shlex.split(sys.argv[3])
         exe = root / ("native" + opt)
-        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+        subprocess.run([*host, *common, "-O" + opt, "-include",
                         str(root / "native-boundary.h"), str(root / "semantics.cpp"),
                         "-o", str(exe)], check=True)
-        for mode in range(22):
+        for mode in range(25):
             subprocess.run([str(exe), str(mode)], check=True, timeout=30)
         attr_exe = root / ("attributes" + opt)
-        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+        subprocess.run([*host, *common, "-O" + opt, "-include",
                         str(root / "native-boundary.h"), str(root / "attributes.cpp"),
                         "-o", str(attr_exe)], check=True)
         subprocess.run([str(attr_exe)], check=True, timeout=30)
         sync_exe = root / ("synchronous" + opt)
-        subprocess.run([sys.argv[3], *common, "-O" + opt, "-include",
+        subprocess.run([*host, *common, "-O" + opt, "-include",
                         str(root / "native-boundary.h"), str(root / "synchronous.cpp"),
                         "-o", str(sync_exe)], check=True)
         for mode in range(9):
@@ -148,9 +150,11 @@ enum Case {
   Parent, NullPID, Again, NoMemory, NoSyscall, Interrupted, BlockFailure,
   ParentRestoreFailure, Attributes, Child, NoActions, OpenSameFD, OpenFailure,
   DupFailure, CloseFailure, GetFlagsFailure, SetFlagsFailure, QueryFailure,
-  ResetFailure, ChildRestoreFailure, ExecReturnsZero, CloseAlreadyClosed
+  ResetFailure, ChildRestoreFailure, ExecReturnsZero, CloseAlreadyClosed,
+  OpenTargetCloseFailure, OpenTemporaryCloseFailure, OpenDupAndCloseFailure
 };
 static int mode, blocks, restores, clones, queries, resets, steps, execs, terminals;
+static int close_diagnostic;
 static constexpr unsigned long ORIGINAL_MASK = 0x120UL;
 static unsigned long mask = ORIGINAL_MASK;
 static char path[] = "/tool", redirect[] = "/output", argument[] = "arg";
@@ -169,6 +173,8 @@ static long clone_result() {
   return 501;
 }
 static void terminal_checks() {
+  if (mode >= OpenTargetCloseFailure)
+    require(close_diagnostic == (mode == OpenDupAndCloseFailure ? 9 : 5));
   require((pid == -41 || mode == ParentRestoreFailure) && blocks == 1 && clones == 1);
   require(actions.__front == &open_action && actions.__back == &close_action);
   require(open_action.next == &dup_action && dup_action.next == &same_action);
@@ -193,8 +199,12 @@ static void terminal_checks() {
   if (mode == DupFailure) expected = 4;
   if (mode == GetFlagsFailure) expected = 6;
   if (mode == SetFlagsFailure) expected = 7;
+  if (mode == OpenTargetCloseFailure) expected = 1;
+  if (mode == OpenTemporaryCloseFailure || mode == OpenDupAndCloseFailure)
+    expected = 4;
   require(steps == expected);
-  bool failed_action = mode >= OpenFailure && mode <= SetFlagsFailure;
+  bool failed_action = (mode >= OpenFailure && mode <= SetFlagsFailure) ||
+                       mode >= OpenTargetCloseFailure;
   require(restores == (failed_action ? 0 : 1));
   require(execs == (failed_action || mode == ChildRestoreFailure ? 0 : 1));
   require(mask == (execs ? ORIGINAL_MASK : ~0UL));
@@ -266,15 +276,19 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
   int step = steps++;
   if (mode == OpenSameFD && step >= 2) step += 2;
   switch (step) {
-  case 0: require(nr == SYS_close && a == 7 && !b && !c && !d); return -9;
+  case 0:
+    require(nr == SYS_close && a == 7 && !b && !c && !d);
+    return mode == OpenTargetCloseFailure ? -5 : -9;
   case 1:
     require(nr == SYS_openat && a == AT_FDCWD && b == reinterpret_cast<long>(redirect));
     require(c == (O_WRONLY | O_CREAT) && d == 0600);
     return mode == OpenFailure ? -13 : mode == OpenSameFD ? 7 : 9;
   case 2:
     require(nr == SYS_dup3 && a == 9 && b == 7 && !c && !d);
-    return mode == DupFailure ? -9 : 7;
-  case 3: require(nr == SYS_close && a == 9 && !b && !c && !d); return 0;
+    return mode == DupFailure || mode == OpenDupAndCloseFailure ? -9 : 7;
+  case 3:
+    require(nr == SYS_close && a == 9 && !b && !c && !d);
+    return mode == OpenTemporaryCloseFailure || mode == OpenDupAndCloseFailure ? -5 : 0;
   case 4: require(nr == SYS_dup3 && a == 7 && b == 8 && !c && !d); return 8;
   case 5:
     require(nr == SYS_fcntl && a == 8 && b == F_GETFD && !c && !d);
@@ -298,6 +312,16 @@ extern "C" int main(int argc, char **argv) {
   BaseSpawnFileAction::add_action(&actions, &close_action);
   posix_spawnattr_t attr{};
   const char *paths[] = {path, nullptr};
+  if (mode >= OpenTargetCloseFailure) {
+    // Enter the real shared child executor with a diagnostic slot, independent
+    // of the transport. Check exact errno and absence of later actions/exec.
+    blocks = clones = 1;
+    mask = ~0UL;
+    sigset_t saved{};
+    saved.__signals[0] = ORIGINAL_MASK;
+    spawn_test::child_process(paths, &actions, nullptr, saved, args, env,
+                              &close_diagnostic);
+  }
   int result = spawn_test::spawn(mode == NullPID ? nullptr : &pid, paths,
       mode == NoActions ? nullptr : &actions, mode == Attributes ? &attr : nullptr,
       args, env, SpawnErrorPolicy::ChildStatus);

@@ -1,0 +1,7 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-host
+# RUN: split-file %S/libc-linux-fork.test %t
+# RUN: split-file %S/libc-linux-spawn.test %t
+# RUN: %python %t/check.py %S/../../../../libc %t "%mmix_host_cxx"
+
+# Execute the production child executor with deterministic syscall failures.
+# This is native error injection, not guest close-error delivery.

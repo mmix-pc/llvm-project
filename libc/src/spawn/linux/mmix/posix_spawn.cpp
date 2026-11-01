@@ -152,15 +152,19 @@ int apply_process_attributes(const posix_spawnattr_t *attr) {
     switch (action->type) {
     case BaseSpawnFileAction::OPEN: {
       auto *open = static_cast<SpawnFileOpenAction *>(action);
-      (void)linux_syscalls::close(open->fd);
+      auto closed = linux_syscalls::close(open->fd);
+      if (!closed && closed.error() != EBADF)
+        child_failure(closed.error(), diagnostic);
       auto fd = linux_syscalls::open(open->path, open->oflag, open->mode);
       if (!fd)
         child_failure(fd.error(), diagnostic);
       if (*fd != open->fd) {
         auto copied = linux_syscalls::dup2(*fd, open->fd);
-        (void)linux_syscalls::close(*fd);
+        auto temporary_closed = linux_syscalls::close(*fd);
         if (!copied)
           child_failure(copied.error(), diagnostic);
+        if (!temporary_closed)
+          child_failure(temporary_closed.error(), diagnostic);
       }
       break;
     }
