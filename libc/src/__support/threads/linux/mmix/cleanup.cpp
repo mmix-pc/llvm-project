@@ -9,6 +9,9 @@
 #include "cleanup.h"
 #include "hdr/signal_macros.h"
 #include "lifecycle.h"
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+#include "src/signal/linux/mmix/signal_entry.h"
+#endif
 #ifdef LIBC_MMIX_SHARED_STARTUP
 #include "callback_ownership.h"
 #include "mmix/CursorLifetime.h"
@@ -62,9 +65,25 @@ MmixCleanupFrame owner_frame(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
   if (!control || !control->unwind_root.active ||
       control->unwind_root.owner != control || !ro || !procedure || !sp ||
       (ro & 7) || (sp & 7) ||
-      syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) ||
-      query.chain_id != control->unwind_root.chain ||
-      ro < control->unwind_root.ro ||
+      syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)))
+    __builtin_trap();
+  if (query.chain_id != control->unwind_root.chain) {
+#if defined(LIBC_MMIX_SIGNAL_CLEANUP) && !defined(LIBC_MMIX_SHARED_STARTUP)
+    auto *entry = current_signal_entry();
+    if (!entry || !entry->cleanup_tracked ||
+        entry->point.thread != control ||
+        entry->point.child_chain != query.chain_id ||
+        ro < entry->point.wrapper.ro || sp > entry->point.wrapper.sp)
+      __builtin_trap();
+    return {control, ro, procedure, sp, 0, query.chain_id,
+            entry->point.generation};
+#else
+    // Shared callback registration still allocates and retains loader owners.
+    // Do not admit it merely because an application boundary was captured.
+    __builtin_trap();
+#endif
+  }
+  if (ro < control->unwind_root.ro ||
       (!control->retains_resources_until_process_exit() &&
        (sp < control->stack_bottom || sp >= control->stack_top)))
     __builtin_trap();
@@ -80,6 +99,27 @@ MmixCleanupFrame owner_frame(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
 bool same_frame(const MmixCleanupFrame &a, const MmixCleanupFrame &b) {
   return a.owner == b.owner && a.ro == b.ro && a.procedure == b.procedure &&
          a.sp == b.sp && a.chain == b.chain && a.generation == b.generation;
+}
+
+bool same_link(const MmixCleanupLink &a, const MmixCleanupLink &b) {
+  return a.record == b.record && a.serial == b.serial &&
+         same_frame(a.frame, b.frame) && a.frame.limit == b.frame.limit;
+}
+
+MmixCleanupLink segment_checkpoint(const MmixCleanupFrame &frame) {
+#if defined(LIBC_MMIX_SIGNAL_CLEANUP) && !defined(LIBC_MMIX_SHARED_STARTUP)
+  if (frame.chain != current_control->unwind_root.chain) {
+    auto *entry = current_signal_entry();
+    if (!entry || !entry->cleanup_tracked ||
+        frame.chain != entry->point.child_chain ||
+        frame.generation != entry->point.generation)
+      __builtin_trap();
+    return entry->parent_cleanup;
+  }
+#else
+  (void)frame;
+#endif
+  return {};
 }
 
 // Step past capture and push/pop to the lexical owner. Validate record storage
@@ -154,8 +194,7 @@ void remove(bool execute, RegistrationMask *mask = nullptr) {
 }
 void publish(MmixCleanupRecord *record, void (*callback)(void *), void *argument,
              const MmixCleanupFrame &frame, bool cpp_record) {
-  if (!callback || dispatching || serial >= UINT64_MAX - 2 ||
-      (head.record && (head.record == record || head.frame.ro > frame.ro)))
+  if (!callback || dispatching || serial >= UINT64_MAX - 2)
     __builtin_trap();
   // Async profiles tag C++ records in monotonically increasing serials without
   // changing public record layout. Synchronous unwind leaves those records to
@@ -168,7 +207,11 @@ void publish(MmixCleanupRecord *record, void (*callback)(void *), void *argument
   uint64_t next = serial + 1, identifier = next;
 #endif
   uint64_t newer = identifier;
-  for (auto link = head; link.record; link = link.record->previous) {
+  auto boundary = segment_checkpoint(frame);
+  for (auto link = head; !same_link(link, boundary);
+       link = link.record->previous) {
+    if (!link.record)
+      __builtin_trap();
     if (link.record == record || link.serial >= newer ||
         link.frame.owner != frame.owner || link.frame.chain != frame.chain ||
         link.frame.generation != frame.generation || link.frame.ro > frame.ro)
@@ -223,7 +266,10 @@ void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
   if (dispatching)
     __builtin_trap();
   dispatching = true;
-  while (head.record) {
+  auto boundary = segment_checkpoint(frame);
+  while (!same_link(head, boundary)) {
+    if (!head.record)
+      __builtin_trap();
     if (head.frame.owner != frame.owner || head.frame.chain != frame.chain ||
         head.frame.generation != frame.generation || head.frame.ro > ro)
       __builtin_trap();
@@ -241,6 +287,17 @@ void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
 }
 
 bool has_c_cleanup() { return head.record != nullptr; }
+
+bool snapshot_c_cleanup(MmixCleanupLink &checkpoint) {
+  if (dispatching)
+    return false;
+  checkpoint = head;
+  return true;
+}
+
+bool c_cleanup_at_checkpoint(const MmixCleanupLink &checkpoint) {
+  return !dispatching && same_link(head, checkpoint);
+}
 
 bool validate_fork_cleanup(const UnwindRoot &root) {
   if (dispatching || !root.ro || !root.sp || (root.ro & 7) || (root.sp & 7))

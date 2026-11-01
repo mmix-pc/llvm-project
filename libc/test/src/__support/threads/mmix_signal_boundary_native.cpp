@@ -21,6 +21,7 @@
 #include "src/__support/threads/linux/mmix/lifecycle.h"
 #include "src/__support/threads/linux/mmix/signal_boundary.h"
 #include "src/setjmp/mmix/linux/jump_cleanup_stack.h"
+#include "src/signal/linux/mmix/signal_entry_record.h"
 
 namespace M = LIBC_NAMESPACE::mmix;
 using Boundary = M::SignalBoundary;
@@ -124,7 +125,8 @@ struct Wrapper {
   uint64_t padding[2]{};
 };
 
-static Point point_for(Environment &env, Wrapper &wrapper, uint64_t child = 42,
+template <class T>
+static Point point_for(Environment &env, T &wrapper, uint64_t child = 42,
                        uint64_t parent = 41, uint64_t generation = 1) {
   uintptr_t address = reinterpret_cast<uintptr_t>(&wrapper);
   return {&env.thread,
@@ -579,6 +581,70 @@ static void jump_checkpoints() {
   assert(env.owner.generation == 2);
 }
 
+static bool count_retirement(void *counter) {
+  ++*static_cast<unsigned *>(counter);
+  return true;
+}
+
+static void entry_retirement() {
+  Environment env;
+  struct EntryWrapper {
+    M::SignalEntryRecord boundary;
+    uint64_t padding[2]{};
+  } outer;
+  M::JumpCleanupStack::Node *head = nullptr;
+  M::JumpCleanupStack::Node parent_wait;
+  unsigned parent_retired = 0, child_retired = 0;
+  assert(M::JumpCleanupStack::push(head, parent_wait, count_retirement,
+                                   &parent_retired));
+  auto outer_point = point_for(env, outer);
+  outer.boundary.saved_parent = env.context;
+  operation(env, true, [&] {
+    return outer.boundary.publish(env.owner, outer_point,
+                                   reinterpret_cast<uintptr_t>(&env.context), head);
+  });
+  auto *outer_head = head;
+  Handoff packet;
+  {
+    EntryWrapper inner;
+    inner.boundary.saved_parent = env.context;
+    auto inner_point = point_for(env, inner, 43, 42, 2);
+    operation(env, true, [&] {
+      return inner.boundary.publish(env.owner, inner_point,
+                                     reinterpret_cast<uintptr_t>(&env.context), head);
+    });
+    auto *inner_head = head;
+    Disposal disposal{&env.owner, 2, 43, outer_head, true, true, true};
+    M::JumpCleanupStack::Node child_wait;
+    assert(M::JumpCleanupStack::push(head, child_wait, count_retirement,
+                                     &child_retired));
+    operation(env, false, [&] {
+      return inner.boundary.prepare_transfer(head, inner_point, disposal, packet);
+    });
+    assert(child_wait.linked() && packet.phase == Handoff::Phase::Empty);
+    assert(env.owner.live == &inner.boundary && !child_retired && !parent_retired);
+    assert(M::JumpCleanupStack::unwind(head, inner_head));
+    assert(child_retired == 1);
+    auto incomplete = disposal;
+    incomplete.cursors_disposed = false;
+    operation(env, false, [&] {
+      return inner.boundary.prepare_transfer(head, inner_point, incomplete, packet);
+    });
+    operation(env, true, [&] {
+      return inner.boundary.prepare_transfer(head, inner_point, disposal, packet);
+    });
+    assert(head == outer_head && env.owner.live == &outer.boundary);
+    assert(!inner.boundary.owner && !parent_retired && parent_wait.linked());
+    operation(env, false, [&] { return inner.boundary.normal_return(head); });
+  }
+  // Child wrapper lifetime has ended. Only the independent packet survives.
+  operation(env, true, [&] { return env.owner.consume(packet, &env.thread, 42, 2); });
+  operation(env, true, [&] { return outer.boundary.normal_return(head); });
+  assert(head == &parent_wait && !parent_retired && !env.owner.live);
+  assert(M::JumpCleanupStack::unwind(head, nullptr));
+  assert(parent_retired == 1 && !head);
+}
+
 int main() {
   sigset_t blocked, original;
   assert(sigfillset(&blocked) == 0);
@@ -589,5 +655,6 @@ int main() {
   handoff_must_not_be_in_wrapper();
   generation_exhaustion();
   jump_checkpoints();
+  entry_retirement();
   assert(sigprocmask(SIG_SETMASK, &original, nullptr) == 0);
 }

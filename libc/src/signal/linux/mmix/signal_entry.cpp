@@ -44,11 +44,6 @@ void restore_signals(uint64_t mask) {
     __builtin_trap();
 }
 
-bool leave_boundary(void *context) {
-  auto &record = *static_cast<SignalBoundary *>(context);
-  return record.owner && record.owner->normal_return(record, record.point);
-}
-
 void capture_parent(unw_context_t &destination, const mcontext_t &context) {
   // Copy before calling application code. Never consult mutable ucontext again
   // to decide which activation or cleanup extent belongs to this record.
@@ -74,8 +69,7 @@ void __llvm_libc_mmix_application_signal_entry(int number, siginfo_t *info,
                                               void *opaque, uintptr_t handler,
                                               uintptr_t frame_limit) {
   uint64_t entry_mask = block_signals();
-  SignalBoundary record;
-  JumpCleanupStack::Node jump;
+  SignalEntryRecord record;
   auto &owner = signal_boundary_owner;
   auto *control = current_control;
   auto *context = static_cast<ucontext_t *>(opaque);
@@ -101,17 +95,22 @@ void __llvm_libc_mmix_application_signal_entry(int number, siginfo_t *info,
           owner.generation + 1,
           {ro, reinterpret_cast<uintptr_t>(
                    __llvm_libc_mmix_application_signal_entry), sp, frame_limit}};
-      entered = owner.enter(record, point, reinterpret_cast<uintptr_t>(opaque),
-                            jump_cleanup_head, record.saved_parent);
-      if (entered && !JumpCleanupStack::push(jump_cleanup_head, jump,
-                                             leave_boundary, &record))
-        __builtin_trap();
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+      record.cleanup_tracked = snapshot_c_cleanup(record.parent_cleanup);
+      if (record.cleanup_tracked)
+#endif
+      entered = record.publish(owner, point, reinterpret_cast<uintptr_t>(opaque),
+                               jump_cleanup_head);
     }
   }
   restore_signals(entry_mask);
   __llvm_libc_mmix_invoke_signal_handler(number, info, opaque, handler);
   (void)block_signals();
-  if (entered && !JumpCleanupStack::pop(jump_cleanup_head, jump))
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+  if (entered && !c_cleanup_at_checkpoint(record.parent_cleanup))
+    __builtin_trap();
+#endif
+  if (entered && !record.normal_return(jump_cleanup_head))
     __builtin_trap();
   // Stay masked through the epilogue. rt_sigreturn restores uc_sigmask; an
   // earlier unmask would expose an active child after its record was removed.

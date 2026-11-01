@@ -1,0 +1,83 @@
+//===-- MMIX signal entry retirement ----------------------------*- C++ -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef LLVM_LIBC_SRC_SIGNAL_LINUX_MMIX_SIGNAL_ENTRY_RECORD_H
+#define LLVM_LIBC_SRC_SIGNAL_LINUX_MMIX_SIGNAL_ENTRY_RECORD_H
+
+#include "src/__support/threads/linux/mmix/cleanup.h"
+#include "src/__support/threads/linux/mmix/signal_boundary.h"
+#include "src/setjmp/mmix/linux/jump_cleanup_stack.h"
+
+namespace LIBC_NAMESPACE_DECL {
+namespace mmix {
+
+// Only the default application entry publishes this derived record. Signals
+// remain blocked through all transitions. Normal and nonlocal returns share
+// the jump hook; a committed transfer must detach both lists before its stack
+// disappears. The handoff itself lives outside this wrapper activation.
+struct SignalEntryRecord : SignalBoundary {
+  // Separate from the jump-observer checkpoint. Parent C records remain live
+  // on their suspended chain and must never enter this segment's rO ordering.
+  MmixCleanupLink parent_cleanup{};
+  bool cleanup_tracked = false;
+
+private:
+  JumpCleanupStack::Node jump;
+  SignalParentHandoff *transfer = nullptr;
+
+  static bool retire(void *opaque) {
+    auto &record = *static_cast<SignalEntryRecord *>(opaque);
+    if (!record.owner)
+      return false;
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+    if (record.cleanup_tracked &&
+        !c_cleanup_at_checkpoint(record.parent_cleanup))
+      return false;
+#endif
+    return record.transfer
+               ? record.owner->detach(record, record.point, *record.transfer)
+               : record.owner->normal_return(record, record.point);
+  }
+
+public:
+  bool publish(SignalBoundaryOwner &owner, const SignalBoundaryPoint &point,
+               uintptr_t context, JumpCleanupStack::Node *&head) {
+    if (transfer || jump.linked() ||
+        !point.wrapper.contains(this, sizeof(*this)) ||
+        !owner.enter(*this, point, context, head, saved_parent))
+      return false;
+    if (!JumpCleanupStack::push(head, jump, retire, this))
+      __builtin_trap();
+    return true;
+  }
+
+  bool normal_return(JumpCleanupStack::Node *&head) {
+    return !transfer && JumpCleanupStack::pop(head, jump);
+  }
+
+  bool prepare_transfer(JumpCleanupStack::Node *&head,
+                        const SignalBoundaryPoint &point,
+                        const SignalBoundaryDisposal &disposal,
+                        SignalParentHandoff &handoff) {
+    // Do not discard active waits or guess that a callback flag proves their
+    // removal. The live entry node must already be at the top of the stack.
+    if (head != &jump || transfer || !owner ||
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+        (cleanup_tracked && !c_cleanup_at_checkpoint(parent_cleanup)) ||
+#endif
+        !owner->prepare_handoff(*this, point, disposal, handoff))
+      return false;
+    transfer = &handoff;
+    if (!JumpCleanupStack::pop(head, jump) || head != cleanup_boundary)
+      __builtin_trap();
+    return true;
+  }
+};
+} // namespace mmix
+} // namespace LIBC_NAMESPACE_DECL
+#endif

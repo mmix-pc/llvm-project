@@ -29,7 +29,7 @@ if(LIBC_MMIX_BUILD_UNWIND_ROOTS AND LIBC_MMIX_ENABLE_STATIC_TLS)
   add_object_library(
     signal_entry
     SRCS signal_entry.cpp signal_entry.S
-    HDRS signal_entry.h
+    HDRS signal_entry.h signal_entry_record.h
       ${LIBC_SOURCE_DIR}/src/__support/threads/linux/mmix/signal_boundary.h
     DEPENDS
       .signal_trampoline

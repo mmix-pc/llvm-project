@@ -9,7 +9,7 @@
 #ifndef LLVM_LIBC_SRC_SIGNAL_LINUX_MMIX_SIGNAL_ENTRY_H
 #define LLVM_LIBC_SRC_SIGNAL_LINUX_MMIX_SIGNAL_ENTRY_H
 
-#include "src/__support/threads/linux/mmix/signal_boundary.h"
+#include "signal_entry_record.h"
 #include "src/__support/macros/attributes.h"
 
 extern "C" __attribute__((visibility("hidden"))) void
@@ -22,6 +22,11 @@ namespace mmix {
 // and cursors, and acquire terminal ownership. Custom restorers publish none.
 extern LIBC_CONSTINIT LIBC_THREAD_LOCAL SignalBoundaryOwner signal_boundary_owner
     __attribute__((tls_model("initial-exec"), visibility("hidden")));
+// This owner is populated only by the production default entry, never by the
+// standalone metadata helper. Call with signals blocked and a verified chain.
+LIBC_INLINE SignalEntryRecord *current_signal_entry() {
+  return static_cast<SignalEntryRecord *>(signal_boundary_owner.live);
+}
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif
