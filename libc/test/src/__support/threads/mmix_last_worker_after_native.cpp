@@ -33,6 +33,7 @@ static uint64_t signal_mask = 0x1234;
 static int registered_tid;
 static bool detached;
 static bool managed;
+static bool mq;
 static void *managed_runner(void *) { __builtin_trap(); }
 static long owner_hook(void *) { __builtin_trap(); }
 static M::ThreadResourceOwner managed_owner() {
@@ -61,6 +62,8 @@ static void retained_worker() {
   assert(worker.cancellation_identity == 9 && worker.cancellation_generation == 7);
   assert(initial_callbacks == 1 && worker_callbacks == 1 && roots == 1);
   M::ThreadRegistryLock lock(M::thread_registry);
+  assert(lock.callback_phase(worker) ==
+         (mq ? M::CallbackPhase::Active : M::CallbackPhase::None));
   assert(lock.owner(worker) == (detached ? M::ThreadOwner::Detached
                                         : M::ThreadOwner::Joinable));
   assert(lock.live_threads() == 0 && lock.process_exiting());
@@ -178,8 +181,8 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
     assert(attributes == &worker.attributes && !worker_callbacks++);
     assert(!worker.last_worker_cleanup_finished());
     if (managed) {
-      assert(!worker.worker_cleanup_pending());
-      assert(!worker.worker_cleanup_in_progress());
+      assert(worker.worker_cleanup_pending());
+      assert(worker.worker_cleanup_in_progress());
     }
     assert(!main_thread_cleanup_finished() && !main_thread_cleanup_in_progress());
     assert(!adopt_fork_survivor_after_worker_exit());
@@ -222,6 +225,10 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
   assert(!single);
   worker.resource_owner = {};
   if (managed) {
+    if (mq) {
+      assert(!worker.last_worker_cleanup_finished());
+      assert(!M::thread_registry.freeze_for_fork(worker, 1, &single, true, kind));
+    }
     worker.resource_owner = managed_owner();
     worker.resource_owner.terminal_runner = nullptr;
     assert(!M::thread_registry.freeze_for_fork(worker, 1, &single, true, kind));
@@ -319,7 +326,15 @@ static void run_case(bool cancel) {
   }
   {
     M::ThreadRegistryLock lock(M::thread_registry);
-    assert(lock.reserve() && lock.insert(worker, false) && lock.start(worker));
+    assert(lock.reserve());
+    if (mq) {
+      assert(lock.insert_callback_waiter(worker) && lock.start(worker));
+      assert(lock.callback_phase(worker) == M::CallbackPhase::Waiting);
+      assert(lock.activate_callback(worker));
+      worker.cancellation.set_enabled(true);
+    } else {
+      assert(lock.insert(worker, false) && lock.start(worker));
+    }
     assert(lock.drop_creator(worker) && lock.begin_cleanup(initial));
   }
   I::cleanup_current_thread();
@@ -332,7 +347,7 @@ static void run_case(bool cancel) {
   }
   M::current_control = &worker;
   I::self.attrib = &worker.attributes;
-  if (detached) {
+  if (detached && !mq) {
     M::ThreadRegistryLock lock(M::thread_registry);
     assert(lock.pin(&worker.attributes) == &worker && lock.detach(worker));
     assert(lock.unpin(worker) && !lock.queued_reclaims());
@@ -361,12 +376,13 @@ int main(int argc, char **argv) {
   assert(argc == 2 && (argv[1][0] == '0' || argv[1][0] == '1'));
   // Host isolation preserves production's one-shot registry/initial phase.
   // These subprocesses are not MMIX fork-continuation evidence.
-  for (unsigned owner = 0; owner != 3; ++owner) {
+  for (unsigned owner = 0; owner != 4; ++owner) {
     pid_t child = ::fork();
     assert(child >= 0);
     if (!child) {
       detached = owner != 0;
-      managed = owner == 2;
+      managed = owner >= 2;
+      mq = owner == 3;
       run_case(argv[1][0] == '1');
       ::_exit(0);
     }

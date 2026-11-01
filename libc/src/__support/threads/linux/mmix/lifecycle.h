@@ -75,10 +75,10 @@ struct ThreadResourceOwner {
   long (*retain)(void *) = nullptr;
   long (*release)(void *) = nullptr;
 
-  // Opt-in for a process-private retained invocation after its complete
-  // TLS/TSS drain. The thread reference and any image pin survive a copied
-  // terminal continuation without running ownership hooks. This is not DURING
-  // admission; registry census, leases and reclamation guards still apply.
+  // Opt-in for a process-private invocation retained through post-stack
+  // TLS/TSS drain and process finalization. Copying terminal continuations
+  // preserves the thread reference and image pin without ownership hooks.
+  // Registry census, drain/root, leases and reclamation guards still apply.
   ThreadRunnerPosix *terminal_runner = nullptr;
 
   bool valid() const {
@@ -157,14 +157,28 @@ struct ThreadControl {
   bool terminal_cleanup_in_progress() {
     return terminal_cleanup_pending() && callbacks_started;
   }
+  bool terminal_resources_retained() const {
+    return resource_owner.valid() &&
+           (!resource_owner.context ||
+            (resource_owner.terminal_runner &&
+             attributes.style == ThreadStyle::POSIX &&
+             runner.posix_runner == resource_owner.terminal_runner &&
+             argument == resource_owner.context));
+  }
+  bool retained_active_callback() const {
+    return callback_phase == CallbackPhase::Active &&
+           owner == ThreadOwner::Detached && !initial_thread &&
+           !process_lifetime && !internal_helper && resource_owner.context &&
+           terminal_resources_retained();
+  }
   // Original worker only. Snapshot ownership/census checks remain under the
   // registry lock; this predicate does not elect a last thread or close leases.
   bool worker_cleanup_pending() {
     return !initial_thread && !process_lifetime && !internal_helper &&
-           callback_phase == CallbackPhase::None &&
+           (callback_phase == CallbackPhase::None || retained_active_callback()) &&
            execution == ThreadExecution::Cleaning && cancellation.terminal() &&
            !completed_worker_callback_mgr && !last_worker_exit_elected &&
-           resource_owner.valid() && !resource_owner.context;
+           terminal_resources_retained();
   }
   bool worker_cleanup_in_progress() {
     return worker_cleanup_pending() && callbacks_started;
@@ -181,7 +195,7 @@ struct ThreadControl {
   // returns. Starting callbacks is not a completed-drain certificate.
   bool record_worker_cleanup_finished() {
     if (initial_thread || process_lifetime || internal_helper ||
-        callback_phase != CallbackPhase::None ||
+        (callback_phase != CallbackPhase::None && !retained_active_callback()) ||
         execution != ThreadExecution::Cleaning || !callbacks_started ||
         !cancellation.terminal() || !attributes.atexit_callback_mgr ||
         completed_worker_callback_mgr)
@@ -194,17 +208,13 @@ struct ThreadControl {
   // sole-task census still require the registry snapshot lock.
   bool last_worker_cleanup_finished() {
     return !initial_thread && !process_lifetime && !internal_helper &&
-           callback_phase == CallbackPhase::None && callbacks_started &&
+           (callback_phase == CallbackPhase::None || retained_active_callback()) &&
+           callbacks_started &&
            completed_worker_callback_mgr &&
            completed_worker_callback_mgr == attributes.atexit_callback_mgr &&
            last_worker_exit_elected &&
            execution == ThreadExecution::ExitReady && cancellation.terminal() &&
-           resource_owner.valid() &&
-           (!resource_owner.context ||
-            (resource_owner.terminal_runner &&
-             attributes.style == ThreadStyle::POSIX &&
-             runner.posix_runner == resource_owner.terminal_runner &&
-             argument == resource_owner.context));
+           terminal_resources_retained();
   }
 
   // Only the owning thread may access this guard, including recursive exit.
@@ -266,6 +276,13 @@ class ThreadRegistry {
   bool creation_started = false;
   bool process_operation = false;
   internal::ForkRecovery fork_recovery;
+  // A retained active invocation owns exactly one unreaped callback slot.
+  // Other dormant/discarded callbacks may be absent from the application list.
+  bool terminal_callback_census(const ThreadControl &caller) const {
+    return (caller.callback_phase == CallbackPhase::None &&
+            !unreaped_callbacks) ||
+           (caller.retained_active_callback() && unreaped_callbacks == 1);
+  }
   bool terminal_fork_caller(ThreadControl &caller, ForkContinuation kind);
   bool terminal_during_fork_caller(ThreadControl &caller, ForkContinuation kind);
 

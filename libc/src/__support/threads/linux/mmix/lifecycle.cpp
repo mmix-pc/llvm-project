@@ -52,13 +52,12 @@ bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller,
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED &&
          !reservations && !helper_reservations && !unreaped_helpers &&
-         !unreaped_callbacks && !live && head == &caller && !caller.next &&
+         terminal_callback_census(caller) && !live && head == &caller &&
+         !caller.next &&
          owner_queue && caller.registry == this &&
          caller.listed && !caller.counted && caller.lifecycle_pin &&
          !caller.creator_pin && !caller.api_pins && !caller.leases_open &&
-         !caller.leases && !caller.internal_helper &&
-         caller.callback_phase == CallbackPhase::None &&
-         completed && root.active &&
+         !caller.leases && !caller.internal_helper && completed && root.active &&
          root.kind == UnwindRootKind::LastThreadProcess &&
          root.owner == &caller && root.generation && root.chain;
 }
@@ -82,14 +81,13 @@ bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == RUNNING &&
          !reservations && !helper_reservations && !unreaped_helpers &&
-         !unreaped_callbacks && live == 1 && head == &caller && !caller.next &&
+         terminal_callback_census(caller) && live == 1 && head == &caller &&
+         !caller.next &&
          !reap_head && !reap_tail && !reap_count && caller.registry == this &&
          caller.listed && caller.counted && caller.lifecycle_pin &&
          !caller.creator_pin && !caller.api_pins && caller.leases_open &&
          !caller.leases && !caller.queued && !caller.reap_next &&
-         owner && !caller.internal_helper &&
-         caller.callback_phase == CallbackPhase::None &&
-         draining && root.active &&
+         owner && !caller.internal_helper && draining && root.active &&
          root.kind == UnwindRootKind::TerminalThreadCleanup &&
          root.owner == &caller && root.generation && root.chain;
 }
@@ -263,12 +261,18 @@ bool ThreadRegistryLock::begin_helper_creation() {
 bool ThreadRegistryLock::sole_fork_caller(const ThreadControl &caller) const {
   // Reaper retirement uses this predicate while that helper still exists.
   // Pending helpers must settle first; final admission checks unreaped helpers.
+  // Allow the certified callback's own slot, not ordinary child recovery.
+  const bool callback = caller.retained_active_callback();
   return registry.main_registered && !registry.process_exiting() &&
          !registry.process_operation && !registry.reservations &&
          !registry.helper_reservations &&
-         !registry.unreaped_callbacks &&
+         registry.terminal_callback_census(caller) &&
+         (!callback || (belongs(caller) && caller.listed && caller.counted &&
+                        !caller.creator_pin && !caller.api_pins &&
+                        caller.leases_open && !caller.leases &&
+                        !caller.queued && !caller.reap_next)) &&
          registry.live == 1 && registry.head == &caller && !caller.next &&
-         !registry.reap_head && !registry.reap_count &&
+         !registry.reap_head && !registry.reap_tail && !registry.reap_count &&
          caller.execution == ThreadExecution::Running &&
          !caller.callbacks_started && caller.fork_recovery.allows_fork();
 }
