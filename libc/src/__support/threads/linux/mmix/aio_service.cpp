@@ -90,6 +90,7 @@ bool checkpoint = false;
 bool checkpoint_empty = false;
 bool helpers_parked = false;
 bool queries_frozen = false;
+bool serializer_frozen = false;
 bool quarantined = false;
 
 class Call {
@@ -687,18 +688,30 @@ int prepare_aio_fork(bool minimal, bool *drained) {
 }
 
 int freeze_aio_fork() {
-  if (!checkpoint || queries_frozen)
+  if (!checkpoint || queries_frozen || serializer_frozen)
     __builtin_trap();
+  // Rejected submitters still briefly acquire this lock after early prepare.
+  // Keep it owned by the fork caller across clone, including an absent service.
+  if (!serializer.mutex.try_lock())
+    return EAGAIN;
+  serializer_frozen = true;
   if (!service)
     return 0;
   if (!helpers_parked) {
-    if (!service->try_park())
+    if (!service->try_park()) {
+      serializer_frozen = false;
+      if (!serializer.mutex.unlock())
+        __builtin_trap();
       return EAGAIN;
+    }
     helpers_parked = true;
   }
   if (!service->registry.try_freeze()) {
     service->resume();
     helpers_parked = false;
+    serializer_frozen = false;
+    if (!serializer.mutex.unlock())
+      __builtin_trap();
     return EAGAIN;
   }
   queries_frozen = true;
@@ -721,7 +734,7 @@ void thaw_aio_fork(bool child) {
 }
 
 void finish_aio_fork(bool child) {
-  if (!checkpoint)
+  if (!checkpoint || (child && !serializer_frozen))
     __builtin_trap();
   thaw_aio_fork(child);
   // The checkpoint excludes startup and all transactions. Do not acquire
@@ -745,13 +758,18 @@ void finish_aio_fork(bool child) {
       quarantined = true;
     }
   }
-  if (!serializer.mutex.lock())
+  if (!serializer_frozen && !serializer.mutex.lock())
     __builtin_trap();
   if (child)
     closed.store(0, cpp::MemoryOrder::RELEASE);
   checkpoint = false;
   helpers_parked = false;
-  if (!serializer.mutex.unlock())
+  serializer_frozen = false;
+  // A successful final freeze proves the survivor owned this lock. Copied
+  // waiter state refers to vanished threads and must not issue a child wake.
+  if (child)
+    serializer.mutex.reset();
+  else if (!serializer.mutex.unlock())
     __builtin_trap();
 }
 
