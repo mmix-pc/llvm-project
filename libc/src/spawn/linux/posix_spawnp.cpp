@@ -16,6 +16,19 @@
 #include "src/stdlib/getenv.h"
 
 namespace LIBC_NAMESPACE_DECL {
+namespace {
+struct SpawnPaths {
+  int saved_errno = libc_errno;
+  void *storage;
+  explicit SpawnPaths(size_t size) : storage(::malloc(size)) {}
+  ~SpawnPaths() {
+    ::free(storage);
+    libc_errno = saved_errno;
+  }
+  SpawnPaths(const SpawnPaths &) = delete;
+  SpawnPaths &operator=(const SpawnPaths &) = delete;
+};
+} // namespace
 
 LLVM_LIBC_FUNCTION(int, posix_spawnp,
                    (pid_t *__restrict pid, const char *__restrict file,
@@ -48,12 +61,10 @@ LLVM_LIBC_FUNCTION(int, posix_spawnp,
       __builtin_add_overflow(pointers_size, strings_size, &total))
     return ENAMETOOLONG;
 
-  int saved_errno = libc_errno;
-  auto **paths = static_cast<const char **>(::malloc(total));
-  if (!paths) {
-    libc_errno = saved_errno;
+  SpawnPaths buffer(total);
+  auto **paths = static_cast<const char **>(buffer.storage);
+  if (!paths)
     return ENOMEM;
-  }
   char *next = reinterpret_cast<char *>(paths) + pointers_size;
   for (size_t i = 0; i < count; ++i) {
     size_t separator = path.find_first_of(':');
@@ -71,10 +82,7 @@ LLVM_LIBC_FUNCTION(int, posix_spawnp,
       path.remove_prefix(separator + 1);
   }
   paths[count] = nullptr;
-  int result = spawn(pid, paths, actions, attr, argv, envp);
-  ::free(paths);
-  libc_errno = saved_errno;
-  return result;
+  return spawn(pid, paths, actions, attr, argv, envp);
 }
 
 } // namespace LIBC_NAMESPACE_DECL

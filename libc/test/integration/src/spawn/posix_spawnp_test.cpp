@@ -7,6 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/errno_macros.h"
+#include "hdr/func/free.h"
+#include "hdr/func/malloc.h"
 #include "src/__support/CPP/stringstream.h"
 #include "src/__support/libc_errno.h"
 #include "src/fcntl/open.h"
@@ -37,7 +39,28 @@
 namespace {
 const char *const *expected_paths;
 unsigned spawn_calls;
+unsigned allocations, releases;
+bool fail_allocation;
+void *owned_paths;
 } // namespace
+
+void *capture_malloc(size_t size) {
+  ++allocations;
+  if (fail_allocation) {
+    libc_errno = ENOMEM;
+    return nullptr;
+  }
+  owned_paths = ::malloc(size);
+  return owned_paths;
+}
+
+void capture_free(void *storage) {
+  ASSERT_EQ(storage, owned_paths);
+  ++releases;
+  ::free(storage);
+  owned_paths = nullptr;
+  libc_errno = EINTR;
+}
 
 namespace LIBC_NAMESPACE_DECL {
 int capture_spawn(pid_t *, const char *const *paths,
@@ -49,6 +72,8 @@ int capture_spawn(pid_t *, const char *const *paths,
   for (; expected_paths[i]; ++i)
     ASSERT_STREQ(paths[i], expected_paths[i]);
   ASSERT_EQ(paths[i], nullptr);
+  ASSERT_EQ(releases, 0U);
+  libc_errno = EBUSY;
   return ENOENT;
 }
 } // namespace LIBC_NAMESPACE_DECL
@@ -57,7 +82,11 @@ int capture_spawn(pid_t *, const char *const *paths,
 // and /usr/bin directories or changing the real spawn integration below.
 #define spawn capture_spawn
 #define posix_spawnp injected_posix_spawnp
+#define malloc capture_malloc
+#define free capture_free
 #include "src/spawn/linux/posix_spawnp.cpp"
+#undef free
+#undef malloc
 #undef posix_spawnp
 #undef spawn
 
@@ -65,14 +94,20 @@ namespace {
 void check_candidates(const char *const *expected) {
   expected_paths = expected;
   spawn_calls = 0;
+  allocations = releases = 0;
   char zero[] = "tool", path[] = "PATH=/not-the-caller-path";
   char *args[] = {zero, nullptr};
   char *env[] = {path, nullptr};
   pid_t pid = -1;
+  libc_errno = EDOM;
   ASSERT_EQ(LIBC_NAMESPACE::injected_posix_spawnp(&pid, "tool", nullptr,
                                                 nullptr, args, env),
             ENOENT);
   ASSERT_EQ(spawn_calls, 1U);
+  ASSERT_EQ(allocations, 1U);
+  ASSERT_EQ(releases, 1U);
+  ASSERT_EQ(owned_paths, nullptr);
+  ASSERT_EQ(libc_errno, EDOM);
 }
 
 void check_default_and_empty_path() {
@@ -87,6 +122,22 @@ void check_default_and_empty_path() {
   ASSERT_EQ(LIBC_NAMESPACE::setenv("PATH", "/usr/bin:/bin", 1), 0);
   const char *explicit_path[] = {"/usr/bin/tool", "/bin/tool", nullptr};
   check_candidates(explicit_path);
+
+  fail_allocation = true;
+  allocations = releases = spawn_calls = 0;
+  pid_t pid = -1;
+  char name[] = "tool";
+  char *args[] = {name, nullptr};
+  libc_errno = EDOM;
+  ASSERT_EQ(LIBC_NAMESPACE::injected_posix_spawnp(&pid, name, nullptr, nullptr,
+                                                  args, nullptr),
+            ENOMEM);
+  ASSERT_EQ(pid, -1);
+  ASSERT_EQ(spawn_calls, 0U);
+  ASSERT_EQ(allocations, 1U);
+  ASSERT_EQ(releases, 1U);
+  ASSERT_EQ(libc_errno, EDOM);
+  fail_allocation = false;
 }
 
 void join(char (&buffer)[512], const char *dir, const char *name) {
