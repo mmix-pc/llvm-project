@@ -16,6 +16,12 @@
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/rt_sigprocmask.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/wait4.h"
+#ifdef LIBC_MMIX_SPAWN_EVENT
+#include "spawn_event.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
+#include "src/__support/threads/linux/mmix/lifecycle.h"
+#include <sys/wait.h>
+#endif
 #ifdef LIBC_MMIX_SPAWN_COORDINATED
 #include "coordinated_spawn.h"
 #else
@@ -180,12 +186,127 @@ int apply_process_attributes(const posix_spawnattr_t *attr) {
   child_failure(spawn_exec(paths, argv, envp), diagnostic);
 }
 
+#ifdef LIBC_MMIX_SPAWN_EVENT
+// Selected only by the isolated spawn-event acceptance build until both
+// progress cycles and the public lifecycle matrix have been qualified.
+class SpawnParent {
+  mmix::ThreadControl *caller = nullptr;
+  bool masked = false, suppressed = false;
+
+public:
+  sigset_t saved{};
+  int error = 0;
+
+  SpawnParent() {
+    caller = mmix::current_control;
+    if (!caller || !caller->fork_recovery.allows_fork() ||
+        !caller->credential_registered) {
+      error = ENOTSUP;
+      return;
+    }
+    sigset_t mask{{UINT64_MAX & ~mmix::CREDENTIAL_MASK}};
+    auto result = linux_syscalls::rt_sigprocmask(SIG_SETMASK, &mask, &saved);
+    if (!result) {
+      error = result.error();
+      return;
+    }
+    masked = true;
+    if (caller->cancellation_transfer.load() ||
+        caller->cancellation_point.load() ||
+        caller->cancellation_suppression.load() ||
+        caller->cancellation.terminal()) {
+      error = EAGAIN;
+      return;
+    }
+    caller->cancellation_suppression.fetch_add(1);
+    suppressed = true;
+  }
+
+  ~SpawnParent() {
+    if (suppressed && caller->cancellation_suppression.fetch_sub(1) != 1)
+      __builtin_trap();
+    // Pending asynchronous delivery is restored only after result publication
+    // and all parent-owned mappings/descriptors have been consumed.
+    if (masked &&
+        !linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
+      __builtin_trap();
+  }
+};
+
+int event_spawn(pid_t *pid, const char *const *paths,
+                const posix_spawn_file_actions_t *actions,
+                const posix_spawnattr_t *attr, char *const *argv,
+                char *const *envp) {
+  SpawnParent parent;
+  if (parent.error)
+    return parent.error;
+  long capability = mmix::spawn_event_capability();
+  if (capability == -ENOSYS ||
+      (capability >= 0 && !(capability & MMIX_SPAWN_CAP_V1)))
+    return ENOTSUP;
+  if (capability < 0)
+    return int(-capability);
+  long mapping = syscall_impl<long>(SYS_mmap, 0, sizeof(int),
+                                    PROT_READ | PROT_WRITE,
+                                    MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  if (mapping < 0 && mapping >= -4095)
+    return int(-mapping);
+  auto *diagnostic = reinterpret_cast<int *>(mapping);
+  mmix::SpawnEventHandles handles;
+  long result;
+  {
+    // No allocator, stream, registry, loader or fork snapshot locks. The
+    // copied child never destroys this guard or touches copied runtime state.
+    mmix::CredentialGate credentials;
+    result = mmix::create_spawn_event(handles);
+    if (!result)
+      child_process(paths, actions, attr, parent.saved, argv, envp, diagnostic);
+  }
+  int error = result < 0 ? int(-result) : 0;
+  if (result > 0) {
+    long observed;
+    do {
+      observed = mmix::wait_spawn_event(handles.event_fd);
+    } while (observed == -EINTR);
+    // The v1 contract admits only success/EINTR for a valid owned event.
+    // Invalid/replaced private fds or syscall-policy sabotage violate that
+    // contract; do not turn them into an ordinary error abandoning a child.
+    if (observed)
+      __builtin_trap();
+    error = __atomic_load_n(diagnostic, __ATOMIC_ACQUIRE);
+    if (error) {
+      siginfo_t info{};
+      long reaped;
+      do {
+        reaped = syscall_impl<long>(SYS_waitid, P_PIDFD, handles.pidfd, &info,
+                                    WEXITED, nullptr);
+      } while (reaped == -EINTR);
+      if (reaped && reaped != -ECHILD)
+        __builtin_trap();
+    }
+    // Linux close consumes even on EINTR. Failed CREATE did not grant either
+    // descriptor, including any numbers written to its private scratch slots.
+    (void)linux_syscalls::close(handles.event_fd);
+    (void)linux_syscalls::close(handles.pidfd);
+  }
+  if (syscall_impl<long>(SYS_munmap, diagnostic, sizeof(int)))
+    __builtin_trap();
+  if (!error && pid)
+    *pid = static_cast<pid_t>(result);
+  return error;
+}
+#endif
+
 } // namespace
 
 int spawn(pid_t *pid, const char *const *paths,
           const posix_spawn_file_actions_t *actions,
           const posix_spawnattr_t *attr, char *const *argv, char *const *envp,
           SpawnErrorPolicy policy) {
+#ifdef LIBC_MMIX_SPAWN_EVENT
+  if (policy == SpawnErrorPolicy::ProviderDefault)
+    return event_spawn(pid, paths, actions, attr, argv, envp);
+#endif
 #ifndef LIBC_MMIX_SPAWN_COORDINATED
   mmix::ProcessOperation operation;
   if (operation.error())
