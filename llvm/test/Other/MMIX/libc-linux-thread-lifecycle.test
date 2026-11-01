@@ -1129,6 +1129,8 @@ static void last_worker_after_fork_admission() {
   };
   for (unsigned cancel = 0; cancel != 2; ++cancel) {
     for (unsigned blocker = None; blocker != BlockerCount; ++blocker) {
+      const bool detached = blocker == Detached;
+      const bool admitted = blocker == None || detached;
       event_address = 0;
       ThreadRegistry process;
       ThreadControl initial, caller, other;
@@ -1215,7 +1217,7 @@ static void last_worker_after_fork_admission() {
           require(!caller.last_worker_cleanup_finished());
           if (blocker != NoElection) {
             auto action = lock.termination_action(caller);
-            if (blocker == None) require(action == ThreadTermination::Process);
+            if (admitted) require(action == ThreadTermination::Process);
           }
         }
       }
@@ -1241,7 +1243,7 @@ static void last_worker_after_fork_admission() {
       bool single = true;
       bool frozen = process.freeze_for_fork(caller, 1, &single,
                                              blocker != NoHelperWitness, kind);
-      require(frozen == (blocker == None) && single == (blocker == None));
+      require(frozen == admitted && single == admitted);
       require(!caller.terminal_cleanup_finished());
       require(caller.retains_resources_until_process_exit() ==
               (blocker == PromotedWorker));
@@ -1250,12 +1252,22 @@ static void last_worker_after_fork_admission() {
       if (!frozen) continue;
       const auto root = caller.unwind_root;
       process.release_after_fork(); // Failed-clone rollback is not restoration.
+      {
+        ThreadRegistryLock lock(process);
+        require(lock.owner(caller) == (detached ? ThreadOwner::Detached
+                                               : ThreadOwner::Joinable));
+        require(lock.queued_reclaims() == unsigned(detached));
+        require(lock.live_threads() == 0 && lock.process_exiting());
+        require(lock.leases_drained(caller) && !lock.begin_reaping(caller));
+      }
       for (unsigned child = 0; child != 2; ++child) {
         require(caller.last_worker_cleanup_finished());
         require(!process.freeze_for_fork(caller, 1, nullptr, true,
                                          ForkContinuation::LastThreadAfter));
         require(!process.freeze_for_fork(caller, 1, nullptr, true,
                                          ForkContinuation::InitialThreadDuring));
+        require(!process.freeze_for_fork(caller, 1, nullptr, true,
+                                         ForkContinuation::WorkerThreadDuring));
         require(process.freeze_for_fork(caller, 1, &single, true, kind) && single);
         process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), kind);
         require(root.matches(caller.unwind_root));
@@ -1271,8 +1283,15 @@ static void last_worker_after_fork_admission() {
         require(!caller.begin_callback_cleanup() && !process.claim_process_cleanup());
         ThreadRegistryLock lock(process);
         require(lock.live_threads() == 0 && lock.process_exiting());
-        require(lock.owner(caller) == ThreadOwner::Joinable &&
-                !lock.queued_reclaims() && !lock.begin_reaping(caller));
+        require(lock.owner(caller) == (detached ? ThreadOwner::Detached
+                                               : ThreadOwner::Joinable));
+        require(lock.queued_reclaims() == unsigned(detached));
+        require(!lock.begin_reaping(caller));
+        if (detached) {
+          require(lock.take_reap_candidate() == &caller);
+          require(!lock.queued_reclaims() && !lock.take_reap_candidate());
+          require(lock.requeue_candidate(caller) && lock.queued_reclaims() == 1);
+        }
         require(!lock.pin(&initial.attributes));
         require(lock.pin(&caller.attributes) == &caller);
         require(!lock.acquire_lease(caller) && lock.unpin(caller));
@@ -1298,6 +1317,8 @@ static void worker_during_fork_admission() {
   };
   for (unsigned cancel = 0; cancel != 2; ++cancel) {
     for (unsigned blocker = None; blocker != BlockerCount; ++blocker) {
+      const bool detached = blocker == Detached;
+      const bool admitted = blocker == None || detached;
       event_address = 0;
       ThreadRegistry process;
       ThreadControl initial, caller, other;
@@ -1307,6 +1328,8 @@ static void worker_during_fork_admission() {
           reinterpret_cast<ThreadAtExitCallbackMgr *>(0x1000);
       caller.control_mapping = {0x2000, 8192};
       caller.stack_mapping = {0x4000, 8192};
+      caller.stack_bottom = 0x4000;
+      caller.stack_top = 0x6000;
       caller.tls = {8192, 0x6000, 0x7000};
       caller.owns_stack = true;
       {
@@ -1393,44 +1416,54 @@ static void worker_during_fork_admission() {
       bool single = true;
       bool frozen = process.freeze_for_fork(caller, 1, &single,
                                              blocker != NoHelperWitness, kind);
-      require(frozen == (blocker == None) && single == (blocker == None));
-      if (blocker == Detached) {
-        require(caller.worker_cleanup_in_progress() &&
-                !caller.retains_resources_until_process_exit());
-        require(!process.freeze_for_fork(caller, 1, &single, true,
-                                         ForkContinuation::InitialThreadDuring));
-        require(!single);
-      }
+      require(frozen == admitted && single == admitted);
       if (!frozen) continue;
       const auto root = caller.unwind_root;
+      auto *manager = caller.attributes.atexit_callback_mgr;
       process.release_after_fork(); // Failed clone must not elect or finish.
-      for (unsigned child = 0; child != 2; ++child) {
-        require(caller.worker_cleanup_in_progress() &&
-                !caller.last_worker_cleanup_finished());
-        require(process.admit_signal_notification());
-        require(!process.freeze_for_fork(caller, 1, nullptr, true,
-                                         ForkContinuation::InitialThreadDuring));
-        require(!process.freeze_for_fork(caller, 1, nullptr, true,
-                                         ForkContinuation::LastWorkerAfter));
-        require(process.freeze_for_fork(caller, 1, &single, true, kind) && single);
-        process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), kind);
+      auto during = [&] {
         require(root.matches(caller.unwind_root));
+        require(caller.attributes.atexit_callback_mgr == manager);
         require(caller.worker_cleanup_in_progress() &&
+                !caller.last_worker_cleanup_finished() &&
                 !caller.retains_resources_until_process_exit() &&
-                !caller.terminal_cleanup_pending());
+                !caller.terminal_cleanup_pending() &&
+                !caller.terminal_cleanup_finished());
         require(caller.cancellation.terminal() && !caller.cancellation.ready());
-        require(caller.control_mapping.base == 0x2000 &&
-                caller.stack_mapping.base == 0x4000 && caller.tls.addr == 0x6000 &&
-                caller.tls.tp == 0x7000 && caller.owns_stack);
+        require(caller.control_mapping.base == 0x2000 && caller.control_mapping.size == 8192 &&
+                caller.stack_mapping.base == 0x4000 && caller.stack_mapping.size == 8192 &&
+                caller.stack_bottom == 0x4000 && caller.stack_top == 0x6000 &&
+                caller.tls.addr == 0x6000 && caller.tls.tp == 0x7000 &&
+                caller.tls.size == 8192 && caller.owns_stack);
+        require(caller.resource_owner.valid() && !caller.resource_owner.context);
+        require(process.admit_signal_notification());
         ThreadRegistryLock lock(process);
         require(lock.live_threads() == 1 && !lock.process_exiting());
-        require(lock.owner(caller) == ThreadOwner::Joinable && !lock.queued_reclaims());
+        require(lock.owner(caller) == (detached ? ThreadOwner::Detached
+                                               : ThreadOwner::Joinable));
+        require(!lock.queued_reclaims() && !lock.leases_drained(caller));
         require(!lock.begin_reaping(caller) && !lock.pin(&initial.attributes));
         require(lock.pin(&caller.attributes) == &caller);
         require(lock.acquire_lease(caller) && lock.release_lease(caller) && lock.unpin(caller));
         require(!lock.exit_ready(caller, 99) && !caller.begin_callback_cleanup());
         // termination_action is only valid after ExitReady. Live census and
         // process_exiting above establish that DURING did not elect exit.
+      };
+      require(!caller.fork_recovery.is_child());
+      during();
+      for (unsigned child = 0; child != 2; ++child) {
+        single = true;
+        require(!process.freeze_for_fork(caller, 1, &single, true,
+                                         ForkContinuation::InitialThreadDuring));
+        require(!single);
+        single = true;
+        require(!process.freeze_for_fork(caller, 1, &single, true,
+                                         ForkContinuation::LastWorkerAfter));
+        require(!single);
+        require(process.freeze_for_fork(caller, 1, &single, true, kind) && single);
+        process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), kind);
+        require(caller.fork_recovery.is_child() && caller.fork_recovery.allows_fork());
+        during();
       }
       caller.unwind_root.active = false;
       require(caller.record_worker_cleanup_finished());
@@ -1438,6 +1471,10 @@ static void worker_during_fork_admission() {
       {
         ThreadRegistryLock lock(process);
         require(lock.close_leases(caller) && lock.exit_ready(caller, 17));
+        require(lock.live_threads() == 0 && !lock.process_exiting());
+        require(lock.owner(caller) == (detached ? ThreadOwner::Detached
+                                               : ThreadOwner::Joinable));
+        require(lock.queued_reclaims() == unsigned(detached));
         require(lock.termination_action(caller) == ThreadTermination::Process);
         require(lock.claim_process_cleanup() && caller.last_worker_cleanup_finished());
       }
@@ -1447,6 +1484,24 @@ static void worker_during_fork_admission() {
       require(process.freeze_for_fork(caller, 1, &single, true,
                                       ForkContinuation::LastWorkerAfter) && single);
       process.release_after_fork();
+      require(caller.attributes.atexit_callback_mgr == manager &&
+              caller.last_worker_cleanup_finished());
+      ThreadRegistryLock lock(process);
+      require(lock.live_threads() == 0 && lock.process_exiting());
+      require(lock.owner(caller) == (detached ? ThreadOwner::Detached
+                                             : ThreadOwner::Joinable));
+      require(lock.queued_reclaims() == unsigned(detached));
+      require(lock.leases_drained(caller) && !lock.begin_reaping(caller));
+      require(lock.pin(&caller.attributes) == &caller);
+      require(!lock.acquire_lease(caller) && lock.unpin(caller));
+      require(!lock.reserve() && !lock.begin_helper_creation());
+      require(!lock.claim_process_cleanup() && !caller.begin_callback_cleanup());
+      require(caller.attributes.retval.stdc_retval == 17);
+      if (detached) {
+        require(lock.take_reap_candidate() == &caller);
+        require(!lock.queued_reclaims() && !lock.take_reap_candidate());
+        require(lock.requeue_candidate(caller) && lock.queued_reclaims() == 1);
+      }
     }
   }
 }

@@ -22,8 +22,8 @@ static void finalize_last_thread(void *) {
   // Initial completion and elected ordinary-worker completion have distinct
   // certificates. A worker never consults the initial thread's phase.
   // Fork still requires the locked sole-task certificate: joinable/unqueued,
-  // or an initial detached carrier with exactly its own completed queue entry.
-  // Merely entering finalization does not grant detached workers recovery.
+  // or a detached AFTER owner with exactly its own completed queue entry.
+  // A fresh root alone grants neither recovery nor detached DURING admission.
   if (current_control &&
       ((current_control->terminal_cleanup_finished() &&
         internal::main_thread_cleanup_finished()) ||

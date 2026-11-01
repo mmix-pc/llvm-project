@@ -11,6 +11,8 @@
 #include <cassert>
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_X86_64_SYSCALL_H
 #define LIBC_MMIX_UNWIND_ROOTS
@@ -29,6 +31,7 @@ static M::ThreadControl initial, worker;
 static unsigned initial_callbacks, worker_callbacks, roots, registrations;
 static uint64_t signal_mask = 0x1234;
 static int registered_tid;
+static bool detached;
 struct Completed {};
 
 static void retained_worker() {
@@ -42,6 +45,76 @@ static void retained_worker() {
   assert(worker.cancellation.terminal() && !worker.cancellation.ready());
   assert(worker.cancellation_identity == 9 && worker.cancellation_generation == 7);
   assert(initial_callbacks == 1 && worker_callbacks == 1 && roots == 1);
+  M::ThreadRegistryLock lock(M::thread_registry);
+  assert(lock.owner(worker) == (detached ? M::ThreadOwner::Detached
+                                        : M::ThreadOwner::Joinable));
+  assert(lock.live_threads() == 0 && lock.process_exiting());
+  assert(lock.leases_drained(worker) && !lock.begin_reaping(worker));
+  assert(worker.clear_tid.value.load() == UINT32_MAX);
+  assert(lock.queued_reclaims() == unsigned(detached));
+  if (detached) {
+    assert(lock.take_reap_candidate() == &worker);
+    assert(!lock.take_reap_candidate() && !lock.queued_reclaims());
+    assert(lock.requeue_candidate(worker));
+  }
+}
+
+static void detached_queue_admission(bool cancel) {
+  enum Queue { Self, Missing, Foreign, ForeignThenSelf, SelfThenForeign };
+  for (unsigned queue = Self; queue <= SelfThenForeign; ++queue) {
+    M::ThreadRegistry process;
+    M::ThreadControl main, caller, other;
+    main.attributes.tid = 1;
+    caller.attributes.atexit_callback_mgr =
+        reinterpret_cast<LIBC_NAMESPACE::ThreadAtExitCallbackMgr *>(0x1800);
+    {
+      M::ThreadRegistryLock lock(process);
+      assert(lock.register_main(main));
+      assert(lock.reserve() && lock.insert(caller, false) && lock.start(caller));
+      assert(lock.drop_creator(caller));
+      assert(lock.pin(&caller.attributes) == &caller && lock.detach(caller));
+      assert(lock.unpin(caller) && !lock.queued_reclaims());
+      assert(lock.begin_cleanup(main) && lock.close_leases(main) &&
+             lock.exit_ready(main, 0));
+      main.clear_tid.value.store(0);
+      assert(lock.pin(&main.attributes) == &main && lock.claim_join(main));
+      assert(lock.begin_reaping(main) && lock.unpin(main) && lock.finish_reaping(main));
+      if (queue >= Foreign) {
+        assert(lock.reserve() && lock.insert(other, true) && lock.start(other));
+        assert(lock.drop_creator(other) && lock.begin_cleanup(other));
+        assert(lock.close_leases(other) && lock.exit_ready(other, 0));
+        other.clear_tid.value.store(0);
+        // An outstanding reclaim, not a listed peer masking the queue guard.
+        assert(lock.begin_reaping(other) && lock.requeue_candidate(other));
+      }
+      if (cancel) assert(!lock.request_cancellation(caller, true));
+      assert(lock.begin_cleanup(caller, cancel) && caller.begin_callback_cleanup());
+      assert(caller.record_worker_cleanup_finished());
+      assert(lock.close_leases(caller) && lock.exit_ready(caller, 17));
+      assert(lock.termination_action(caller) == M::ThreadTermination::Process);
+      assert(caller.last_worker_cleanup_finished() && lock.claim_process_cleanup());
+      if (queue == Missing) {
+        assert(lock.take_reap_candidate() == &caller);
+      } else if (queue == Foreign) {
+        assert(lock.take_reap_candidate() == &other);
+        assert(lock.take_reap_candidate() == &caller && lock.requeue_candidate(other));
+      } else if (queue == SelfThenForeign) {
+        assert(lock.take_reap_candidate() == &other && lock.requeue_candidate(other));
+      }
+    }
+    caller.unwind_root = {&caller, 8, 16, 24, 4, 2, true,
+                         M::UnwindRootKind::LastThreadProcess};
+    caller.cancellation_suppression.store(1);
+    bool single = true;
+    bool frozen = process.freeze_for_fork(
+        caller, 1, &single, true, M::ForkContinuation::LastWorkerAfter);
+    assert(frozen == (queue == Self) && single == (queue == Self));
+    if (frozen) process.release_after_fork();
+    M::ThreadRegistryLock lock(process);
+    assert(lock.owner(caller) == M::ThreadOwner::Detached && !lock.live_threads());
+    assert(lock.leases_drained(caller) && !lock.begin_reaping(caller));
+    assert(lock.queued_reclaims() == (queue == Missing ? 0u : queue <= Foreign ? 1u : 2u));
+  }
 }
 
 namespace LIBC_NAMESPACE_DECL {
@@ -104,6 +177,32 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
   worker.cancellation_suppression.store(1);
   constexpr auto kind = M::ForkContinuation::LastWorkerAfter;
   bool single = false;
+  assert(!M::thread_registry.freeze_for_fork(worker, 1, &single, false, kind));
+  assert(!single);
+  constexpr M::ForkContinuation wrong_kinds[] = {
+      M::ForkContinuation::LastThreadAfter,
+      M::ForkContinuation::InitialThreadDuring,
+      M::ForkContinuation::WorkerThreadDuring};
+  for (auto wrong : wrong_kinds) {
+    single = true;
+    assert(!M::thread_registry.freeze_for_fork(worker, 1, &single, true, wrong));
+    assert(!single);
+  }
+  auto *manager = worker.attributes.atexit_callback_mgr;
+  worker.attributes.atexit_callback_mgr = nullptr;
+  assert(!M::thread_registry.freeze_for_fork(worker, 1, &single, true, kind));
+  assert(!single);
+  worker.attributes.atexit_callback_mgr = manager;
+  worker.unwind_root.kind = M::UnwindRootKind::Thread;
+  assert(!M::thread_registry.freeze_for_fork(worker, 1, &single, true, kind));
+  assert(!single);
+  worker.unwind_root = root;
+  worker.resource_owner = {&worker, +[](void *) -> long { return 0; },
+                          +[](void *) -> long { return 0; }};
+  assert(!M::thread_registry.freeze_for_fork(worker, 1, &single, true, kind));
+  assert(!single);
+  worker.resource_owner = {};
+  retained_worker();
   assert(M::thread_registry.freeze_for_fork(worker, 1, &single, true, kind) && single);
   M::thread_registry.release_after_fork(); // Failed clone leaves the owner intact.
   retained_worker();
@@ -133,7 +232,9 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
     assert(!lock.pin(&initial.attributes));
     assert(lock.pin(&worker.attributes) == &worker);
     assert(!lock.acquire_lease(worker) && lock.unpin(worker));
-    assert(lock.owner(worker) == M::ThreadOwner::Joinable && !lock.queued_reclaims());
+    assert(lock.owner(worker) == (detached ? M::ThreadOwner::Detached
+                                          : M::ThreadOwner::Joinable));
+    assert(lock.queued_reclaims() == unsigned(detached));
     assert(!lock.begin_reaping(worker) && !lock.claim_process_cleanup());
     assert(worker.attributes.retval.posix_retval == &worker);
   }
@@ -161,9 +262,8 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
   return 0;
 }
 
-int main(int argc, char **argv) {
-  assert(argc == 2 && (argv[1][0] == '0' || argv[1][0] == '1'));
-  bool cancel = argv[1][0] == '1';
+static void run_case(bool cancel) {
+  if (detached) detached_queue_admission(cancel);
   initial.attributes.tid = registered_tid = 1;
   assert(I::activate_main_thread(initial));
   worker.attributes.tid = 2;
@@ -188,6 +288,11 @@ int main(int argc, char **argv) {
   }
   M::current_control = &worker;
   I::self.attrib = &worker.attributes;
+  if (detached) {
+    M::ThreadRegistryLock lock(M::thread_registry);
+    assert(lock.pin(&worker.attributes) == &worker && lock.detach(worker));
+    assert(lock.unpin(worker) && !lock.queued_reclaims());
+  }
   worker.cancellation_identity = 9;
   worker.cancellation_generation = 7;
   if (cancel) {
@@ -203,7 +308,25 @@ int main(int argc, char **argv) {
   } catch (Completed &) {
     retained_worker();
     assert(registrations == 3);
-    return 0;
+    return;
   }
   __builtin_trap();
+}
+
+int main(int argc, char **argv) {
+  assert(argc == 2 && (argv[1][0] == '0' || argv[1][0] == '1'));
+  // Host isolation preserves production's one-shot registry/initial phase.
+  // These subprocesses are not MMIX fork-continuation evidence.
+  for (unsigned owner = 0; owner != 2; ++owner) {
+    pid_t child = ::fork();
+    assert(child >= 0);
+    if (!child) {
+      detached = owner != 0;
+      run_case(argv[1][0] == '1');
+      ::_exit(0);
+    }
+    int status;
+    assert(::waitpid(child, &status, 0) == child);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  }
 }

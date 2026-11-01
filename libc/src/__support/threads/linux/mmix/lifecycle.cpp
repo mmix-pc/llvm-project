@@ -39,11 +39,14 @@ bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller,
   const bool owner_queue =
       (caller.owner == ThreadOwner::Joinable && !caller.queued &&
        !caller.reap_next && !reap_head && !reap_tail && !reap_count) ||
-      (kind == ForkContinuation::LastThreadAfter && caller.initial_thread &&
-       caller.process_lifetime && caller.owner == ThreadOwner::Detached &&
+      (((kind == ForkContinuation::LastThreadAfter && caller.initial_thread &&
+         caller.process_lifetime) ||
+        (kind == ForkContinuation::LastWorkerAfter && !caller.initial_thread &&
+         !caller.process_lifetime)) &&
+       caller.owner == ThreadOwner::Detached &&
        caller.queued && !caller.reap_next && reap_head == &caller &&
        reap_tail == &caller && reap_count == 1);
-  // A detached initial carrier may retain only its own completed queue entry.
+  // A certified detached AFTER owner retains only its own completed queue entry.
   // The helper absence and closed process admission leave no live reclaimer.
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
@@ -66,12 +69,15 @@ bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
   const bool draining = kind == ForkContinuation::WorkerThreadDuring
                             ? caller.worker_cleanup_in_progress()
                             : caller.terminal_cleanup_in_progress();
-  // Detaching the initial carrier does not enqueue it until ExitReady. Its
-  // process-lifetime backing remains owned throughout the certified drain.
+  // A detached carrier is not queued until ExitReady. A certified original
+  // worker, like the initial carrier, still owns its backing during this drain.
   const bool owner =
       caller.owner == ThreadOwner::Joinable ||
-      (kind == ForkContinuation::InitialThreadDuring && caller.initial_thread &&
-       caller.process_lifetime && caller.owner == ThreadOwner::Detached);
+      (caller.owner == ThreadOwner::Detached &&
+       ((kind == ForkContinuation::InitialThreadDuring && caller.initial_thread &&
+         caller.process_lifetime) ||
+        (kind == ForkContinuation::WorkerThreadDuring && !caller.initial_thread &&
+         !caller.process_lifetime)));
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == RUNNING &&
@@ -709,7 +715,8 @@ ThreadRegistryLock::termination_action(ThreadControl &c) {
   if (!claim_process_exit())
     return ThreadTermination::ThreadOnly;
   c.last_worker_exit_elected = !c.initial_thread && !c.process_lifetime &&
-                              c.owner == ThreadOwner::Joinable;
+                              (c.owner == ThreadOwner::Joinable ||
+                               c.owner == ThreadOwner::Detached);
   return ThreadTermination::Process;
 }
 

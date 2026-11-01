@@ -11,6 +11,8 @@
 #include <cassert>
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_X86_64_SYSCALL_H
 #define LIBC_MMIX_UNWIND_ROOTS
@@ -30,6 +32,7 @@ static unsigned initial_callbacks, worker_callbacks, drain_roots, after_roots;
 static unsigned registrations, callback_progress;
 static uint64_t signal_mask = 0x1234;
 static int registered_tid;
+static bool detached;
 struct Completed {};
 
 static void backing() {
@@ -59,7 +62,9 @@ static void during() {
   assert(M::thread_registry.admit_signal_notification());
   M::ThreadRegistryLock lock(M::thread_registry);
   assert(lock.live_threads() == 1 && !lock.process_exiting());
-  assert(lock.owner(worker) == M::ThreadOwner::Joinable && !lock.queued_reclaims());
+  assert(lock.owner(worker) == (detached ? M::ThreadOwner::Detached
+                                        : M::ThreadOwner::Joinable));
+  assert(!lock.queued_reclaims());
   assert(!lock.begin_reaping(worker) && !lock.pin(&initial.attributes));
   assert(lock.pin(&worker.attributes) == &worker);
   assert(lock.acquire_lease(worker) && lock.release_lease(worker) && lock.unpin(worker));
@@ -85,8 +90,19 @@ static void copied_drain() {
   I::self.attrib = &worker.attributes;
   worker.cancellation_suppression.store(1);
   bool single = false;
+  constexpr M::ForkContinuation rejected_kinds[] = {
+      M::ForkContinuation::InitialThreadDuring,
+      M::ForkContinuation::LastWorkerAfter};
+  for (auto rejected : rejected_kinds) {
+    single = true;
+    assert(!M::thread_registry.freeze_for_fork(worker, 1, &single, true, rejected));
+    assert(!single);
+  }
   assert(M::thread_registry.freeze_for_fork(worker, 1, &single, true, kind) && single);
   M::thread_registry.release_after_fork(); // No-child rollback, no adoption/rebind.
+  assert(root.matches(worker.unwind_root));
+  assert(worker.attributes.atexit_callback_mgr == manager && callback_progress == 1);
+  assert(!worker.fork_recovery.is_child() && registrations == 1);
   during();
   for (unsigned child = 0; child != 2; ++child) {
     const auto previous = worker.attributes.tid;
@@ -99,6 +115,8 @@ static void copied_drain() {
     assert(!I::adopt_fork_survivor_during_thread_exit());
     assert(!I::adopt_fork_survivor_after_worker_exit());
     assert(I::adopt_fork_survivor_during_worker_exit());
+    assert(registrations == child + 2);
+    assert(worker.clear_tid.value.load() == UINT32_MAX);
     assert(M::rebind_worker_thread_during_fork_owner(previous));
     assert(!M::rebind_worker_thread_during_fork_owner(previous));
     assert(root.matches(worker.unwind_root));
@@ -171,6 +189,15 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
 [[noreturn]] void exit_after_thread_cleanup() {
   backing();
   assert(after_roots == 1 && callback_progress == 4 && worker.last_worker_cleanup_finished());
+  assert(registrations == 3);
+  {
+    M::ThreadRegistryLock lock(M::thread_registry);
+    assert(lock.live_threads() == 0 && lock.process_exiting());
+    assert(lock.owner(worker) == (detached ? M::ThreadOwner::Detached
+                                          : M::ThreadOwner::Joinable));
+    assert(lock.queued_reclaims() == unsigned(detached));
+    assert(lock.leases_drained(worker) && !lock.begin_reaping(worker));
+  }
   assert(M::thread_registry.claim_process_cleanup());
   constexpr auto kind = M::ForkContinuation::LastWorkerAfter;
   const auto root = worker.unwind_root;
@@ -182,11 +209,20 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
   assert(!adopt_fork_survivor_during_worker_exit());
   assert(!M::rebind_worker_thread_during_fork_owner(worker.attributes.tid - 1));
   assert(adopt_fork_survivor_after_worker_exit());
+  assert(registrations == 4);
   assert(root.matches(worker.unwind_root));
   backing();
   {
     M::ThreadRegistryLock lock(M::thread_registry);
     assert(lock.live_threads() == 0 && lock.process_exiting());
+    assert(lock.owner(worker) == (detached ? M::ThreadOwner::Detached
+                                          : M::ThreadOwner::Joinable));
+    assert(lock.queued_reclaims() == unsigned(detached));
+    if (detached) {
+      assert(lock.take_reap_candidate() == &worker && !lock.take_reap_candidate());
+      assert(!lock.queued_reclaims());
+      assert(lock.requeue_candidate(worker) && lock.queued_reclaims() == 1);
+    }
     assert(lock.pin(&worker.attributes) == &worker);
     assert(!lock.acquire_lease(worker) && lock.unpin(worker));
     assert(!lock.reserve() && !lock.begin_helper_creation());
@@ -217,9 +253,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
   return 0;
 }
 
-int main(int argc, char **argv) {
-  assert(argc == 2 && (argv[1][0] == '0' || argv[1][0] == '1'));
-  bool cancel = argv[1][0] == '1';
+static void run_case(bool cancel) {
   initial.attributes.tid = registered_tid = 1;
   assert(I::activate_main_thread(initial));
   worker.attributes.tid = 2;
@@ -246,6 +280,11 @@ int main(int argc, char **argv) {
   }
   M::current_control = &worker;
   I::self.attrib = &worker.attributes;
+  if (detached) {
+    M::ThreadRegistryLock lock(M::thread_registry);
+    assert(lock.pin(&worker.attributes) == &worker && lock.detach(worker));
+    assert(lock.unpin(worker) && !lock.queued_reclaims());
+  }
   worker.cancellation_identity = 9;
   worker.cancellation_generation = 7;
   assert(!M::worker_thread_during_fork_owner());
@@ -261,8 +300,27 @@ int main(int argc, char **argv) {
     M::complete_thread_cleanup(worker, LIBC_NAMESPACE::ThreadReturnValue(&worker));
   } catch (Completed &) {
     backing();
-    assert(registrations == 4 && callback_progress == 4 && after_roots == 1);
-    return 0;
+    // Initial registration, two DURING adoptions, then one AFTER adoption.
+    assert(registrations == 4);
+    assert(callback_progress == 4 && after_roots == 1);
+    return;
   }
   __builtin_trap();
+}
+
+int main(int argc, char **argv) {
+  assert(argc == 2 && (argv[1][0] == '0' || argv[1][0] == '1'));
+  // Each ownership case starts with untouched production registry/phase state.
+  for (unsigned owner = 0; owner != 2; ++owner) {
+    pid_t child = ::fork();
+    assert(child >= 0);
+    if (!child) {
+      detached = owner != 0;
+      run_case(argv[1][0] == '1');
+      ::_exit(0);
+    }
+    int status;
+    assert(::waitpid(child, &status, 0) == child);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  }
 }
