@@ -90,7 +90,7 @@ long NotificationCallback::create(const sigevent &event, const TLSImage &image,
   callback->value = event.sigev_value;
   request.runner.posix_runner = invoke;
   request.argument = callback;
-  request.resource_owner = {callback, retain_owner, release_owner};
+  request.resource_owner = {callback, retain_owner, release_owner, invoke};
   callback->preparation = request;
   output = callback;
   return 0;

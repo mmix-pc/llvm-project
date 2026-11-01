@@ -287,7 +287,8 @@ void begin_thread_cleanup(ThreadControl &control) {
 #endif
     internal::cleanup_current_thread();
   // Keep this separate from callbacks_started, which is published before the
-  // first callback. Initial and managed threads do not gain worker provenance.
+  // first callback. Registry and retained-owner checks independently decide
+  // whether a completed original worker may carry terminal continuations.
   control.record_worker_cleanup_finished();
   finish_thread(control, result);
 }

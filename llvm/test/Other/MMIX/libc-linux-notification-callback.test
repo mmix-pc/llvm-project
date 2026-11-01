@@ -158,6 +158,8 @@ extern "C" int main() {
   check(request.stack_size == 65536 && request.guard_size == 8192);
   check(request.apply_scheduling && request.scheduling_policy == 1 && request.scheduling_priority == 8);
   check(request.resource_owner.context == out && request.resource_owner.valid());
+  check(request.resource_owner.terminal_runner == request.runner.posix_runner);
+  check(request.argument == out);
   check(!request.resource_owner.retain(out)); // Thread preparation reference.
   check(!out->release() && allocated); // Registration removed before callback return.
   check(request.runner.posix_runner(request.argument) == nullptr && invocations == 1);

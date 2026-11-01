@@ -75,8 +75,14 @@ struct ThreadResourceOwner {
   long (*retain)(void *) = nullptr;
   long (*release)(void *) = nullptr;
 
+  // Opt-in for a process-private retained invocation after its complete
+  // TLS/TSS drain. The thread reference and any image pin survive a copied
+  // terminal continuation without running ownership hooks. This is not DURING
+  // admission; registry census, leases and reclamation guards still apply.
+  ThreadRunnerPosix *terminal_runner = nullptr;
+
   bool valid() const {
-    return context ? retain && release : !retain && !release;
+    return context ? retain && release : !retain && !release && !terminal_runner;
   }
 };
 
@@ -193,7 +199,12 @@ struct ThreadControl {
            completed_worker_callback_mgr == attributes.atexit_callback_mgr &&
            last_worker_exit_elected &&
            execution == ThreadExecution::ExitReady && cancellation.terminal() &&
-           resource_owner.valid() && !resource_owner.context;
+           resource_owner.valid() &&
+           (!resource_owner.context ||
+            (resource_owner.terminal_runner &&
+             attributes.style == ThreadStyle::POSIX &&
+             runner.posix_runner == resource_owner.terminal_runner &&
+             argument == resource_owner.context));
   }
 
   // Only the owning thread may access this guard, including recursive exit.
