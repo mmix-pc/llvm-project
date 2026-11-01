@@ -1,5 +1,4 @@
-//===-- MMIX private cursor ownership ----------------------------*- C++
-//-*-===//
+//===-- MMIX private cursor ownership ----------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -21,6 +20,15 @@ struct MMIXCursorLifetime {
   struct MMIXCursorLifetime *previous;
 };
 
+// A borrowed checkpoint in a still-live, suspended parent. Capture with signals
+// blocked and retain it only until that activation returns or is abandoned.
+// It does not retain an image or authenticate an arbitrary copied pointer.
+struct MMIXCursorCheckpoint {
+  uintptr_t thread;
+  struct MMIXCursorLifetime *owners;
+  void *query;
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,6 +37,13 @@ extern "C" {
 void __libunwind_mmix_cursor_begin(struct MMIXCursorLifetime *, void *);
 void __libunwind_mmix_cursor_end(struct MMIXCursorLifetime *);
 void __libunwind_mmix_cursor_finish(void *);
+void __libunwind_mmix_cursor_checkpoint(struct MMIXCursorCheckpoint *);
+int __libunwind_mmix_cursor_at_checkpoint(const struct MMIXCursorCheckpoint *);
+// Only retire the one managed child cursor above the captured parent. Reject
+// an active query, extra child owners, a public/untracked cursor or a foreign
+// checkpoint without mutation. Success releases, never escape-pins, its lease.
+// The caller must not read cursor metadata again before the ancestor transfer.
+int __libunwind_mmix_cursor_finish_at(void *, const struct MMIXCursorCheckpoint *);
 void __libunwind_mmix_set_managed_stop(uintptr_t);
 __attribute__((visibility("hidden"))) void
 __libunwind_mmix_cursor_begin_with_stop(struct MMIXCursorLifetime *, void *,

@@ -75,6 +75,30 @@ __libunwind_mmix_cursor_finish(void *cursor) {
   if (auto *owner = find(cursor))
     __libunwind_mmix_cursor_end(owner);
 }
+extern "C" __attribute__((visibility("protected"))) void
+__libunwind_mmix_cursor_checkpoint(MMIXCursorCheckpoint *checkpoint) {
+  if (!checkpoint)
+    __builtin_trap();
+  *checkpoint = {reinterpret_cast<uintptr_t>(&owners), owners, query};
+}
+extern "C" __attribute__((visibility("protected"))) int
+__libunwind_mmix_cursor_at_checkpoint(const MMIXCursorCheckpoint *checkpoint) {
+  return checkpoint && checkpoint->thread == reinterpret_cast<uintptr_t>(&owners) &&
+         checkpoint->owners == owners && checkpoint->query == query;
+}
+extern "C" __attribute__((visibility("protected"))) int
+__libunwind_mmix_cursor_finish_at(void *cursor,
+                                 const MMIXCursorCheckpoint *checkpoint) {
+  if (!checkpoint || checkpoint->thread != reinterpret_cast<uintptr_t>(&owners) ||
+      !cursor || !owners || owners->cursor != cursor ||
+      owners->previous != checkpoint->owners || query != checkpoint->query ||
+      query == cursor)
+    return 0;
+  __libunwind_mmix_cursor_end(owners);
+  if (!__libunwind_mmix_cursor_at_checkpoint(checkpoint))
+    __builtin_trap();
+  return 1;
+}
 extern "C" void __libunwind_mmix_cursor_escape(void *cursor) {
   if (auto *owner = find(cursor)) {
     // A raw resume/escaping metadata pointer has no observable final owner.
