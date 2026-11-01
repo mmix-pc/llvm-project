@@ -30,6 +30,13 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     list(APPEND spawn_signal_deps
       libc.src.__support.threads.linux.mmix.fork_runtime)
     list(APPEND spawn_options -DLIBC_MMIX_SPAWN_COORDINATED -fno-lto)
+    if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
+      list(APPEND spawn_options -DLIBC_MMIX_UNWIND_ROOTS)
+      list(APPEND spawn_signal_deps
+        libc.src.__support.threads.linux.mmix.unwind_root
+        libc.src.__support.threads.linux.mmix.thread_finish
+        libc.src.__support.threads.linux.mmix.thread_create)
+    endif()
   endif()
   if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
     list(APPEND spawn_options -DLIBC_MMIX_CANCELLATION_WINDOWS)

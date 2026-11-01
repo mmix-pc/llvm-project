@@ -20,6 +20,9 @@
 #ifdef LIBC_MMIX_SPAWN_EVENT
 #include "spawn_event.h"
 #include "src/__support/threads/linux/mmix/lifecycle.h"
+#include "src/__support/threads/linux/mmix/thread_finish.h"
+#include "src/__support/threads/linux/mmix/thread_reaper.h"
+#include "src/__support/threads/linux/mmix/unwind_root.h"
 #include <sys/wait.h>
 #endif
 #ifdef LIBC_MMIX_SPAWN_COORDINATED
@@ -39,6 +42,12 @@
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
+
+#ifdef LIBC_MMIX_SPAWN_EVENT
+namespace internal {
+pid_t last_thread_exit_fork_owner() __attribute__((weak));
+}
+#endif
 
 SpawnSignalMask::SpawnSignalMask() {
   // PATH preparation has no cancellation points or application callbacks.
@@ -207,6 +216,34 @@ int apply_process_attributes(const posix_spawnattr_t *attr) {
 }
 
 #ifdef LIBC_MMIX_SPAWN_EVENT
+bool terminal_spawn_admitted(mmix::ThreadControl &caller) {
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+  auto continuation = mmix::ForkContinuation::Ordinary;
+  if (internal::last_thread_exit_fork_owner &&
+      internal::last_thread_exit_fork_owner() == caller.attributes.tid) {
+    if (mmix::last_thread_fork_context(caller))
+      continuation = mmix::ForkContinuation::LastThreadAfter;
+    else if (mmix::last_worker_fork_context(caller))
+      continuation = mmix::ForkContinuation::LastWorkerAfter;
+  } else if (mmix::initial_thread_during_fork_owner() ==
+                 caller.attributes.tid &&
+             mmix::terminal_thread_fork_context(caller)) {
+    continuation = mmix::ForkContinuation::InitialThreadDuring;
+  } else if (mmix::worker_thread_during_fork_owner() == caller.attributes.tid &&
+             mmix::terminal_worker_fork_context(caller)) {
+    continuation = mmix::ForkContinuation::WorkerThreadDuring;
+  }
+  // Preserve the already-certified fork continuation subset. This is only a
+  // nonblocking census: release its locks before creating or waiting for the
+  // raw exec-only child. Do not retire helpers or restore the copied runtime.
+  return continuation != mmix::ForkContinuation::Ordinary &&
+         mmix::reaper_absent_for_exit_fork(caller, continuation);
+#else
+  (void)caller;
+  return false;
+#endif
+}
+
 // Selected only by the isolated spawn-event acceptance build until both
 // progress cycles and the public lifecycle matrix have been qualified.
 class SpawnParent {
@@ -233,13 +270,14 @@ public:
     masked = true;
     if (caller->cancellation_transfer.load() ||
         caller->cancellation_point.load() ||
-        caller->cancellation_suppression.load() ||
-        caller->cancellation.terminal()) {
+        caller->cancellation_suppression.load()) {
       error = EAGAIN;
       return;
     }
     caller->cancellation_suppression.fetch_add(1);
     suppressed = true;
+    if (caller->cancellation.terminal() && !terminal_spawn_admitted(*caller))
+      error = EAGAIN;
   }
 
   ~SpawnParent() {
