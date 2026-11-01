@@ -302,8 +302,8 @@ struct ListFrame {
     return true;
   }
   // Preparation and publication run with application/cancellation signals off.
-  int begin(Service &service) {
-    owner = &service;
+  int begin(Service &instance) {
+    owner = &instance;
     operation = new (operation_storage) Operation(owner->dispatcher);
     if (!*operation) {
       operation->~Operation();
