@@ -24,11 +24,11 @@ namespace mmix {
 // the ring is initialized separately and must never be reset while it is live.
 // No engine/ring operations may bypass this registry after publication.
 //
-// REQUIRED EXTERNAL GUARDS: every ordinary admit/submit/maintain call holds a
-// service lifetime pin, excludes fork/exec/exit transitions, and suppresses
-// application signals AND cancellation for its ENTIRE duration, including
-// allocation, notification preparation, lock waits and rollback. AioGate only
-// protects short state regions; it does not supply these outer guards. Queries
+// REQUIRED EXTERNAL GUARDS: every admit/submit/dispatch_notifications/maintain
+// call holds a service lifetime pin and excludes fork/exec/exit transitions.
+// It suppresses application signals AND cancellation for its ENTIRE duration,
+// including allocation, notification preparation, lock waits and rollback.
+// AioGate only protects short state regions, not these outer guards. Queries
 // need the stable service lifetime but only use AioGate, never the ring lock.
 // Neither preparation nor maintenance is an application-handler entrypoint.
 // The credential handler must not enter this service. Destruction requires
@@ -142,6 +142,8 @@ public:
     int error = 0;
     bool complete = false;
     bool released = false;
+    // Gate-protected handoff: busy pins dispatch; terminal permits cleanup.
+    bool notification_busy = false;
     bool notification_terminal = false;
 
     ListGroup(AioServiceRegistry *owner, size_t count)
@@ -218,6 +220,8 @@ private:
     void *lease;
     Phase phase = Phase::Preparing;
     bool notification_claimed = false;
+    // Gate-protected handoff: busy pins dispatch; terminal permits cleanup.
+    bool notification_busy = false;
     bool notification_terminal = false;
     bool notification_released = false;
 
@@ -245,6 +249,11 @@ private:
   CancelBatch *cancel_batches = nullptr;
   ListGroup *list_groups = nullptr;
   bool maintaining = false;
+  bool dispatching = false;
+  // Gate-protected next candidates, repaired by the sole maintainer on unlink.
+  // Only a busy notification owner may escape the gate in the dispatch pass.
+  Record *notification_record = nullptr;
+  ListGroup *notification_group = nullptr;
 
   static void publish_completion(void *context, const void *control_block) {
     auto &self = *static_cast<AioServiceRegistry *>(context);
@@ -308,6 +317,8 @@ private:
       Record **link = &records;
       while (*link != &record)
         link = &(*link)->next;
+      if (notification_record == &record)
+        notification_record = record.next;
       *link = record.next;
     }
     record.~Record();
@@ -440,8 +451,8 @@ private:
       group.completion.publish();
   }
 
-  // Gate held. Wake list waiters in the completion path even if the sole
-  // maintainer is blocked in another record's notification or reclamation.
+  // Gate held. Wake list waiters in the completion path even if the notifier
+  // or maintainer is blocked in another record's notification work.
   LIBC_INLINE void update_lists() {
     for (ListGroup *group = list_groups; group; group = group->next)
       if (group->phase == ListGroup::Phase::Active)
@@ -449,16 +460,15 @@ private:
   }
 
   LIBC_INLINE int maintain_list(ListGroup &group) {
-    bool rollback;
     {
       StateGuard guard(gate);
       if (group.phase == ListGroup::Phase::Preparing)
         return 0;
-      rollback = group.phase == ListGroup::Phase::Rollback;
-      if (!rollback) {
-        update_list(group);
+      if (group.phase != ListGroup::Phase::Rollback) {
         if (!group.complete)
           return 0;
+        // Result observations can drain even while group delivery retries or
+        // is in flight; notification methods never access these references.
         for (size_t i = 0; i < group.count; ++i) {
           auto &observation = group.items()[i].observation;
           if (!observation.owner)
@@ -469,21 +479,10 @@ private:
           observation.request = nullptr;
         }
       }
+      if (group.notification_busy || !group.notification_terminal)
+        return 0;
     }
-    int error = 0;
-    if (!group.notification_terminal) {
-      if (rollback)
-        group.notification.discard();
-      else {
-        error = int(group.notification.activate());
-        if (error == EAGAIN || error == EBUSY)
-          return error;
-      }
-      group.notification_terminal = true;
-    }
-    int cleanup_error = int(group.notification.cleanup());
-    if (!error)
-      error = cleanup_error;
+    int error = int(group.notification.cleanup());
     if (!group.notification.drained())
       return error;
     {
@@ -493,6 +492,8 @@ private:
       ListGroup **link = &list_groups;
       while (*link != &group)
         link = &(*link)->next;
+      if (notification_group == &group)
+        notification_group = group.next;
       *link = group.next;
     }
     dispose_list(group);
@@ -530,37 +531,19 @@ private:
 
   // Called with the sole maintainer claim, not a held mutex. Preparing records
   // are pinned by their submitting caller; only this maintainer may destroy
-  // accepted/rollback records. Notification calls may reenter admission.
+  // accepted/rollback records. A terminal notification has been handed off by
+  // the notifier and will never be accessed by it again.
   LIBC_INLINE int maintain_record(Record &record) {
     bool rollback, rejected;
     {
       StateGuard guard(gate);
-      if (record.phase == Phase::Preparing)
+      if (record.phase == Phase::Preparing || record.notification_busy ||
+          !record.notification_terminal)
         return 0;
       rollback = record.phase == Phase::Rollback;
       rejected = record.phase == Phase::Rejected;
-      if (!rollback && !rejected && !record.notification_claimed) {
-        if (!record.request.complete())
-          return 0;
-        if (!record.request.state().take_notification())
-          __builtin_trap();
-        record.notification_claimed = true;
-      }
     }
-    int error = 0;
-    if (!record.notification_terminal) {
-      if (rollback || rejected) {
-        record.notification.discard();
-      } else {
-        error = int(record.notification.activate());
-        if (error == EAGAIN || error == EBUSY)
-          return error;
-      }
-      record.notification_terminal = true;
-    }
-    int cleanup_error = int(record.notification.cleanup());
-    if (!error)
-      error = cleanup_error;
+    int error = int(record.notification.cleanup());
     bool drained = record.notification.drained();
     if (rollback) {
       // Independent rollback owners: a callback cleanup failure must not lose
@@ -618,7 +601,7 @@ public:
   AioServiceRegistry &operator=(const AioServiceRegistry &) = delete;
   ~AioServiceRegistry() {
     if (records || cancel_batches || list_groups || storage.size() ||
-        maintaining)
+        maintaining || dispatching)
       __builtin_trap();
   }
 
@@ -637,7 +620,8 @@ public:
   // prepare may own callback rollback/reaping resources independently of the
   // requested delivery mode. Only drained() releases that claim. Input.notify
   // is ignored here; the prepared Notification selects delivery, not this bit.
-  // Failure retains rollback in this service; maintain() must keep running.
+  // Failure retains rollback; dispatch_notifications() and maintain() must
+  // keep running.
   // Optional normalize(int retained_fd, Input &) runs after successful capture,
   // before prepare/admission, outside BOTH locks on the submitting thread.
   // It returns zero or positive errno (not EINPROGRESS); invalid status or
@@ -1203,7 +1187,7 @@ public:
     return storage.size();
   }
 
-  // All preparation, completion and maintenance actors must already be
+  // All preparation, completion, notification and maintenance actors must be
   // parked. Queries use only this short gate; a live stack waiter prevents
   // the snapshot even if its request has already completed and retired.
   LIBC_INLINE bool try_freeze() {
@@ -1237,10 +1221,101 @@ public:
     return error ? error : finish_submit(ring.submit());
   }
 
-  // One pass, no waiting for callbacks or retry-until-success loops. A second
+  // One notification attempt per eligible owner, without resource cleanup,
+  // allocation or release. Original results are still published by submit().
+  // A second (including reentrant) notifier returns EBUSY without waiting;
+  // maintenance may run concurrently, including inside notification methods.
+  // Gate-owned cursors follow only the initial chains, with unlink repairing
+  // them before storage can disappear. EAGAIN/EBUSY retries wait for a new pass.
+  LIBC_INLINE int dispatch_notifications() {
+    {
+      StateGuard guard(gate);
+      if (dispatching)
+        return EBUSY;
+      dispatching = true;
+      notification_group = list_groups;
+      notification_record = records;
+    }
+    int error = 0;
+    for (;;) {
+      ListGroup *group;
+      bool rollback;
+      {
+        StateGuard guard(gate);
+        group = notification_group;
+        if (!group)
+          break;
+        notification_group = group->next;
+        if (group->phase == ListGroup::Phase::Preparing ||
+            group->notification_terminal || group->notification_busy)
+          continue;
+        rollback = group->phase == ListGroup::Phase::Rollback;
+        if (!rollback && !group->complete)
+          continue;
+        group->notification_busy = true;
+      }
+      int result = 0;
+      if (rollback)
+        group->notification.discard();
+      else
+        result = int(group->notification.activate());
+      {
+        StateGuard guard(gate);
+        group->notification_terminal = result != EAGAIN && result != EBUSY;
+        group->notification_busy = false;
+      }
+      // The owner may already have been destroyed after releasing the gate.
+      if (!error)
+        error = result;
+    }
+    for (;;) {
+      Record *record;
+      bool discard;
+      {
+        StateGuard guard(gate);
+        record = notification_record;
+        if (!record)
+          break;
+        notification_record = record->next;
+        if (record->phase == Phase::Preparing ||
+            record->notification_terminal || record->notification_busy)
+          continue;
+        discard = record->phase == Phase::Rollback ||
+                  record->phase == Phase::Rejected;
+        if (!discard && !record->notification_claimed) {
+          if (!record->request.complete())
+            continue;
+          if (!record->request.state().take_notification())
+            __builtin_trap();
+          record->notification_claimed = true;
+        }
+        record->notification_busy = true;
+      }
+      int result = 0;
+      if (discard)
+        record->notification.discard();
+      else
+        result = int(record->notification.activate());
+      {
+        StateGuard guard(gate);
+        record->notification_terminal = result != EAGAIN && result != EBUSY;
+        record->notification_busy = false;
+      }
+      if (!error)
+        error = result;
+    }
+    {
+      StateGuard guard(gate);
+      dispatching = false;
+    }
+    return error;
+  }
+
+  // Reclamation only: never activate or discard a notification. One pass, no
+  // waiting for callbacks or retry-until-success loops. A second
   // (including reentrant) maintainer returns EBUSY without waiting. Returns the
   // first diagnostic; neither success nor failure authorizes destruction of a
-  // nonempty service. Call again for retained notification/release errors.
+  // nonempty service. Call again for retained cleanup/release errors.
   LIBC_INLINE int maintain() {
     Record *record;
     CancelBatch *batch;

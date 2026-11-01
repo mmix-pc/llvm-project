@@ -39,6 +39,7 @@ struct Service {
   uint64_t watermark = 0;
   Registry registry;
   AioDispatcher dispatcher;
+  AioDispatcher notifications;
   AioDispatcher maintenance;
   bool initialized = false;
   bool running = false;
@@ -56,20 +57,38 @@ struct Service {
   static int maintain(void *context) {
     return static_cast<Service *>(context)->registry.maintain();
   }
+  static int notify(void *context) {
+    return static_cast<Service *>(context)->registry.dispatch_notifications();
+  }
   bool try_park() {
     if (!dispatcher.try_park())
       return false;
-    if (maintenance.try_park())
-      return true;
+    if (notifications.try_park()) {
+      if (maintenance.try_park())
+        return true;
+      notifications.resume();
+    }
     dispatcher.resume();
     return false;
   }
   void resume() {
     maintenance.resume();
+    notifications.resume();
     dispatcher.resume();
   }
   bool helpers_drained() const {
-    return dispatcher.drained() && maintenance.drained();
+    return dispatcher.drained() && notifications.drained() &&
+           maintenance.drained();
+  }
+  int stop(bool parked = false) {
+    int error = 0;
+    AioDispatcher *helpers[] = {&dispatcher, &notifications, &maintenance};
+    for (auto *helper : helpers) {
+      int result = parked ? helper->stop_parked() : helper->stop();
+      if (!error)
+        error = result;
+    }
+    return error;
   }
 };
 
@@ -178,10 +197,7 @@ int ensure_service(Call &call) {
   auto &owner = *service;
   // Failed startup retains cleanup ownership. Retry it before starting again,
   // without holding the publication mutex over loader/thread operations.
-  int error = owner.maintenance.stop();
-  int completion_error = owner.dispatcher.stop();
-  if (!error)
-    error = completion_error;
+  int error = owner.stop();
   if (!error && !owner.initialized) {
     auto reset = owner.ring.reset();
     if (!reset)
@@ -204,11 +220,14 @@ int ensure_service(Call &call) {
         owner.maintenance.start(app.tls, app.page_size, -1,
                                 {&owner, Service::maintain, Service::drained});
   if (!error)
+    error = owner.notifications.start(
+        app.tls, app.page_size, -1, {&owner, Service::notify, Service::drained});
+  if (!error)
     error =
         owner.dispatcher.start(app.tls, app.page_size, owner.ring.descriptor(),
                                {&owner, Service::progress, Service::drained});
   if (error)
-    (void)owner.maintenance.stop();
+    (void)owner.stop();
   call.lock();
   starting = false;
   if (!error) {
@@ -662,10 +681,7 @@ int prepare_aio_fork(bool minimal, bool *drained) {
       error = EAGAIN;
     else {
       service->running = false;
-      error = service->maintenance.stop_parked();
-      int completion_error = service->dispatcher.stop_parked();
-      if (!error)
-        error = completion_error;
+      error = service->stop(true);
     }
     // Complete empty-block disposal before snapshotting allocator state. The
     // parked worker and excluded submitters cannot attach new storage here.
@@ -745,6 +761,7 @@ void finish_aio_fork(bool child) {
     bool empty = checkpoint_empty;
     if (!empty) {
       service->dispatcher.quarantine_parked_child();
+      service->notifications.quarantine_parked_child();
       service->maintenance.quarantine_parked_child();
       (void)service->registry.quarantine_child();
     }

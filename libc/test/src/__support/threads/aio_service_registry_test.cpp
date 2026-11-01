@@ -161,7 +161,10 @@ struct NotificationState {
   unsigned prepared = 0, activated = 0, discarded = 0, cleaned = 0;
   unsigned destroyed = 0;
   bool callback_resources = false;
+  bool busy = false;
   void *owner = nullptr;
+  void (*on_activate)(void *) = nullptr;
+  void (*on_discard)(void *) = nullptr;
   void (*on_cleanup)(void *) = nullptr;
   void *context = nullptr;
 };
@@ -182,24 +185,38 @@ struct Notification {
     EXPECT_FALSE(CheckedGate::held);
     EXPECT_EQ(state->owner, static_cast<void *>(this));
     EXPECT_TRUE(prepared);
+    EXPECT_FALSE(state->busy);
+    state->busy = true;
     ++state->activated;
+    if (state->on_activate)
+      state->on_activate(state->context);
     if (state->activate_error != EAGAIN && state->activate_error != EBUSY)
       prepared = false;
+    state->busy = false;
     return state->activate_error;
   }
   void discard() {
     EXPECT_FALSE(CheckedGate::held);
-    if (state)
+    if (state) {
+      EXPECT_FALSE(state->busy);
+      state->busy = true;
       ++state->discarded;
+      if (state->on_discard)
+        state->on_discard(state->context);
+      state->busy = false;
+    }
     prepared = false;
   }
   long cleanup() {
     EXPECT_FALSE(CheckedGate::held);
     if (!state)
       return 0;
+    EXPECT_FALSE(state->busy);
+    state->busy = true;
     ++state->cleaned;
     if (state->on_cleanup)
       state->on_cleanup(state->context);
+    state->busy = false;
     if (prepared || state->callback_resources)
       return EBUSY;
     if (state->cleanup_error)
@@ -208,6 +225,8 @@ struct Notification {
     return 0;
   }
   bool drained() {
+    if (state)
+      EXPECT_FALSE(state->busy);
     return !prepared && !resources && (!state || !state->callback_resources);
   }
   ~Notification() {
@@ -238,6 +257,12 @@ struct Fixture {
     });
   }
   void finish(unsigned index, int result = 8) { ring.complete(index, result); }
+  // Existing scenarios drive both workers; production maintain only reclaims.
+  int maintain() {
+    int notification_error = service.dispatch_notifications();
+    int cleanup_error = service.maintain();
+    return notification_error ? notification_error : cleanup_error;
+  }
   ~Fixture() {
     EXPECT_FALSE(service.has_cancel_batches());
     EXPECT_FALSE(service.has_list_groups());
@@ -274,7 +299,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
         EXPECT_EQ(f.service.error(&cb[0]).error(), EINVAL);
         // Maintenance must leave this Preparing record pinned. Nested capture
         // takes ring_operations, proving the hook does not hold that lock.
-        EXPECT_EQ(f.service.maintain(), 0);
+        EXPECT_EQ(f.maintain(), 0);
         EXPECT_TRUE(bool(f.admit(&cb[1], nested, Op::Read, 8)));
         value.buffer = &buffer;
         value.size = 4;
@@ -298,7 +323,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_EQ(f.service.take_result(&cb[0])->value, ptrdiff_t(4));
   ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notification.activated, 1U);
 }
 
@@ -319,7 +344,7 @@ TEST(LlvmLibcAioServiceRegistryTest, FailedCaptureSkipsNormalization) {
       });
   EXPECT_EQ(admitted.error(), EMFILE);
   EXPECT_EQ(f.service.error(&cb).error(), EINVAL);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.resources.closed, 0U);
 }
 
@@ -345,14 +370,14 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(f.ring.unregisters, 0U);
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_EQ(f.ring.tail, 0U);
-  EXPECT_EQ(f.service.maintain(), EBUSY);
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.ring.unregisters, 2U);
   EXPECT_EQ(f.ring.personalities, 1U);
   EXPECT_EQ(f.service.retained(), size_t(1));
   f.ring.unregister_error = 0;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.ring.unregisters, 3U);
   EXPECT_EQ(notification.activated, 0U);
@@ -385,15 +410,15 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(result->error, EOVERFLOW);
   EXPECT_EQ(result->value, ptrdiff_t(-1));
   EXPECT_EQ(f.service.member_result(observation)->error, EOVERFLOW);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.resources.closed, 0U); // Observation still pins the request.
   ASSERT_EQ(f.service.release_member(observation), 0);
   f.ring.unregister_error = EBUSY;
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.service.retained(), size_t(1));
   f.ring.unregister_error = 0;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.ring.tail, 0U);
 }
@@ -428,7 +453,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
                     EXPECT_EQ(descriptor, f.resources.next_descriptor);
                     EXPECT_EQ(members[i].prepared, 0U);
                     EXPECT_EQ(f.service.error(&cb[i]).error(), EINVAL);
-                    EXPECT_EQ(f.service.maintain(), 0);
+                    EXPECT_EQ(f.maintain(), 0);
                     if (i == 1)
                       return failure;
                     retained_fd = descriptor;
@@ -457,7 +482,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
     for (auto &key : cb)
       ASSERT_TRUE(bool(f.service.take_result(&key)));
     ASSERT_EQ(f.service.finish_list(**list), 0);
-    ASSERT_EQ(f.service.maintain(), 0);
+    ASSERT_EQ(f.maintain(), 0);
     EXPECT_EQ(group.activated, 1U);
     EXPECT_EQ(members[0].activated, 1U);
     EXPECT_EQ(members[1].activated, 0U);
@@ -515,7 +540,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
         EXPECT_EQ(f.service.error(&cb[1]).error(), EINVAL);
         EXPECT_EQ(notification.prepared, 0U);
         EXPECT_EQ(f.ring.tail, 0U);
-        ASSERT_EQ(f.service.maintain(), 0);
+        ASSERT_EQ(f.maintain(), 0);
         EXPECT_EQ(f.resources.closed, 1U);
       }
     }
@@ -541,7 +566,7 @@ TEST(LlvmLibcAioServiceRegistryTest, InvalidNormalizationStatusIsRejected) {
                   .error(),
               EINVAL);
     EXPECT_EQ(f.service.take_result(&cb)->error, EINVAL);
-    ASSERT_EQ(f.service.maintain(), 0);
+    ASSERT_EQ(f.maintain(), 0);
   }
 }
 
@@ -564,7 +589,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ListPreparationFailureStartsNothing) {
   for (auto &key : cb)
     EXPECT_EQ(f.service.error(&key).error(), EINVAL);
   EXPECT_TRUE(f.service.has_list_groups());
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, ListGroupNotificationFailureRollsBack) {
@@ -580,11 +605,11 @@ TEST(LlvmLibcAioServiceRegistryTest, ListGroupNotificationFailureRollsBack) {
   EXPECT_EQ(list.error(), EAGAIN);
   EXPECT_EQ(f.resources.duplicated, 0U);
   EXPECT_EQ(f.ring.tail, 0U);
-  ASSERT_EQ(f.service.maintain(), EIO);
+  ASSERT_EQ(f.maintain(), EIO);
   EXPECT_TRUE(f.service.has_list_groups());
   EXPECT_EQ(group.activated, 0U);
   group.cleanup_error = 0;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(group.discarded, 1U);
   EXPECT_EQ(group.destroyed, 1U);
 }
@@ -613,14 +638,14 @@ TEST(LlvmLibcAioServiceRegistryTest, ListPartialFailureRetainsAllResults) {
   EXPECT_EQ(f.service.list_result(**list).error(), EINPROGRESS);
   EXPECT_EQ(f.service.take_result(&cb[1])->error, EINVAL);
   EXPECT_EQ(f.service.take_result(&cb[2])->error, EAGAIN);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(group.activated, 0U);
   ASSERT_EQ(f.service.submit(), 0);
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_EQ(*f.service.list_result(**list), EAGAIN);
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(group.activated, 1U);
   EXPECT_EQ(members[0].activated, 1U);
   EXPECT_EQ(members[2].activated, 0U);
@@ -628,7 +653,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ListPartialFailureRetainsAllResults) {
   EXPECT_EQ(f.service.retained(), size_t(0));
   EXPECT_EQ(*f.service.list_result(**list), EAGAIN);
   ASSERT_EQ(f.service.finish_list(**list), 0);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, ReleasedListWaitsForAllOriginalResults) {
@@ -652,20 +677,20 @@ TEST(LlvmLibcAioServiceRegistryTest, ReleasedListWaitsForAllOriginalResults) {
   ASSERT_TRUE(bool(f.admit(&cb[0], members[2]))); // New binding stays pending.
   EXPECT_EQ(f.service.list_result(**list).error(), EINPROGRESS);
   ASSERT_EQ(f.service.finish_list(**list), 0);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(group.activated, 0U);
   EXPECT_TRUE(f.service.has_list_groups());
   f.finish(1);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_FALSE(f.service.has_list_groups());
   EXPECT_EQ(group.activated, 1U);
   EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
   f.finish(2);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, ListCompletionSurvivesNotificationRetry) {
@@ -683,15 +708,15 @@ TEST(LlvmLibcAioServiceRegistryTest, ListCompletionSurvivesNotificationRetry) {
                                  }),
             0);
   EXPECT_EQ(*f.service.list_result(**list), 0);
-  ASSERT_EQ(f.service.maintain(), EAGAIN);
+  ASSERT_EQ(f.maintain(), EAGAIN);
   EXPECT_EQ(*f.service.list_result(**list), 0);
   ASSERT_EQ(f.service.finish_list(**list), 0);
   group.activate_error = 0;
   group.callback_resources = true;
-  ASSERT_EQ(f.service.maintain(), EBUSY);
+  ASSERT_EQ(f.maintain(), EBUSY);
   EXPECT_TRUE(f.service.has_list_groups());
   group.callback_resources = false;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(group.activated, 2U);
   EXPECT_EQ(group.destroyed, 1U);
 }
@@ -748,7 +773,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ListWaitReleasesGateAndLatchesCompletion) {
     auto &f = *static_cast<Fixture *>(context);
     f.finish(0, -EIO);
     EXPECT_EQ(f.service.submit(), 0);
-    EXPECT_EQ(f.service.maintain(), EAGAIN);
+    EXPECT_EQ(f.maintain(), EAGAIN);
     return -EINTR; // Observed original completion wins over interruption.
   };
   EXPECT_EQ(f.service.wait_list(**list, nullptr, complete, &f), 0);
@@ -757,7 +782,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ListWaitReleasesGateAndLatchesCompletion) {
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
   ASSERT_EQ(f.service.finish_list(**list), 0);
   group.activate_error = 0;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, ListWakeDoesNotRequireMaintenance) {
@@ -803,7 +828,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ListWakeDoesNotRequireMaintenance) {
     EXPECT_EQ(*f.service.list_result(**list), EIO);
     ASSERT_TRUE(bool(f.service.take_result(&cb)));
     ASSERT_EQ(f.service.finish_list(**list), 0);
-    ASSERT_EQ(f.service.maintain(), 0);
+    ASSERT_EQ(f.maintain(), 0);
   }
 }
 
@@ -822,13 +847,13 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
   EXPECT_EQ(*f.service.error(&cb[1]), EBADF);
   EXPECT_EQ(*f.service.error(&cb[2]), EAGAIN);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(3));
   auto result = f.service.take_result(&cb[1]);
   ASSERT_TRUE(bool(result));
   EXPECT_EQ(result->error, EBADF);
   EXPECT_EQ(result->value, ssize_t(-1));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(2));
   EXPECT_EQ(f.resources.closed, 0U);
   ASSERT_TRUE(bool(f.service.take_result(&cb[2])));
@@ -837,7 +862,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notification.activated, 1U);
   EXPECT_EQ(f.resources.closed, 1U);
 }
@@ -854,7 +879,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(f.service.retained(), size_t(2));
   EXPECT_EQ(f.resources.duplicated, 0U);
   EXPECT_EQ(f.service.error(&cb[0]).error(), EINVAL);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   f.allocator.fail = true;
   ASSERT_TRUE(bool(f.service.start_member(members[0], [&](Notification &n) {
     return n.prepare(notifications[0]);
@@ -868,7 +893,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
             EAGAIN);
   EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
   EXPECT_EQ(*f.service.error(&cb[1]), EAGAIN);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notifications[1].discarded, 1U);
   EXPECT_EQ(notifications[1].activated, 0U);
   EXPECT_EQ(f.service.take_result(&cb[1])->error, EAGAIN);
@@ -877,7 +902,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_EQ(f.service.take_result(&cb[0])->value, ptrdiff_t(8));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notifications[0].activated, 1U);
 }
 
@@ -897,7 +922,7 @@ TEST(LlvmLibcAioServiceRegistryTest, PreparationFailureStartsNoMembers) {
   ASSERT_EQ(f.service.abandon_member(members[0]), 0);
   ASSERT_EQ(f.service.abandon_member(members[1]), 0);
   EXPECT_EQ(f.service.abandon_member(members[0]), EINVAL);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, MemberObservationSurvivesResultAndReuse) {
@@ -919,7 +944,7 @@ TEST(LlvmLibcAioServiceRegistryTest, MemberObservationSurvivesResultAndReuse) {
   f.finish(0, 3);
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_EQ(f.service.take_result(&cb)->value, ptrdiff_t(3));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   ASSERT_TRUE(bool(f.service.prepare_member(member, input(&cb))));
   EXPECT_EQ(f.service
@@ -936,13 +961,13 @@ TEST(LlvmLibcAioServiceRegistryTest, MemberObservationSurvivesResultAndReuse) {
   ASSERT_EQ(f.service.release_member(observation), 0);
   EXPECT_EQ(f.service.release_member(observation), EINVAL);
   EXPECT_EQ(f.service.member_result(observation).error(), EINVAL);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   ASSERT_EQ(f.service.submit(), 0);
   f.finish(1, 7);
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_EQ(f.service.take_result(&cb)->value, ptrdiff_t(7));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -960,11 +985,11 @@ TEST(LlvmLibcAioServiceRegistryTest,
                 .error(),
             EBADF);
   EXPECT_EQ(f.service.take_result(&cb)->error, EBADF);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   EXPECT_EQ(f.service.member_result(observation)->error, EBADF);
   ASSERT_EQ(f.service.release_member(observation), 0);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, EarlyMemberReleaseDoesNotCancelIo) {
@@ -984,7 +1009,7 @@ TEST(LlvmLibcAioServiceRegistryTest, EarlyMemberReleaseDoesNotCancelIo) {
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_EQ(f.service.take_result(&cb)->value, ptrdiff_t(8));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notification.activated, 1U);
 }
 
@@ -1017,7 +1042,7 @@ TEST(LlvmLibcAioServiceRegistryTest, PreparedMemberRetainsPreparationErrors) {
   EXPECT_EQ(f.ring.tail, 0U);
   EXPECT_EQ(f.service.take_result(&cb[0])->error, EBADF);
   EXPECT_EQ(f.service.take_result(&cb[1])->error, ENOMEM);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notifications[1].discarded, 1U);
   EXPECT_EQ(notifications[1].destroyed, 1U);
   EXPECT_EQ(f.resources.closed, 1U);
@@ -1038,7 +1063,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
             EINVAL);
   EXPECT_EQ(f.service.retained(), size_t(1));
   ASSERT_EQ(f.service.abandon_member(member), 0);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -1056,7 +1081,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
                         [&](Notification &n) { return n.prepare(conflicting); })
           .error(),
       EBUSY);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
   EXPECT_EQ(conflicting.discarded, 1U);
@@ -1064,7 +1089,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, PreparedErrorsSurviveTokenExhaustion) {
@@ -1090,6 +1115,7 @@ TEST(LlvmLibcAioServiceRegistryTest, PreparedErrorsSurviveTokenExhaustion) {
               EOVERFLOW);
     EXPECT_EQ(service.take_result(&cb[i])->error, EOVERFLOW);
   }
+  ASSERT_EQ(service.dispatch_notifications(), 0);
   ASSERT_EQ(service.maintain(), 0);
   EXPECT_EQ(ring.tail, 0U);
   EXPECT_EQ(ring.personalities, 0U);
@@ -1108,14 +1134,14 @@ TEST(LlvmLibcAioServiceRegistryTest,
   f.allocator.fail = false;
   ASSERT_TRUE(bool(f.service.admit_rejected(input(&cb[0]), EAGAIN)));
   EXPECT_EQ(f.service.admit_rejected(input(&cb[0]), EBADF).error(), EBUSY);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(*f.service.error(&cb[0]), EAGAIN);
   EXPECT_EQ(f.service.retained(), size_t(1));
   EXPECT_EQ(f.service.admit_rejected(input(&cb[1]), EINPROGRESS).error(),
             EINVAL);
   EXPECT_EQ(f.service.retained(), size_t(1));
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.ring.personalities, 0U);
   EXPECT_EQ(f.resources.closed, 0U);
 }
@@ -1145,7 +1171,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(*f.service.error(&cb[1]), EINPROGRESS);
   EXPECT_EQ(*f.service.error(&cb[3]), EINPROGRESS);
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notifications[0].destroyed, 1U);
   f.finish(2, 0);
   f.finish(1);
@@ -1157,7 +1183,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(*f.service.error(&cb[2]), 0);
   for (unsigned i = 1; i < 4; ++i)
     ASSERT_TRUE(bool(f.service.take_result(&cb[i])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -1179,7 +1205,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
     ASSERT_EQ(f.ring.tail, 2U);
     ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
     // The pending same-fd predecessor prevents an early final decision.
-    ASSERT_EQ(f.service.maintain(), 0);
+    ASSERT_EQ(f.maintain(), 0);
     EXPECT_EQ(notifications[0].activated, 1U);
     EXPECT_EQ(notifications[0].destroyed, 0U);
     EXPECT_EQ(f.service.retained(), size_t(3));
@@ -1194,7 +1220,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
     EXPECT_EQ(sync_result->error, first_error);
     EXPECT_EQ(sync_result->value, ssize_t(-1));
     ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
-    ASSERT_EQ(f.service.maintain(), 0);
+    ASSERT_EQ(f.maintain(), 0);
     EXPECT_EQ(f.service.retained(), size_t(0));
     EXPECT_EQ(f.resources.closed, 3U);
     for (auto &notification : notifications) {
@@ -1218,7 +1244,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   f.finish(1, -EIO);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notifications[1].destroyed, 1U);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.service.retained(), size_t(2));
@@ -1232,7 +1258,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(*f.service.error(&cb[2]), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
   ASSERT_TRUE(bool(f.service.take_result(&cb[2])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -1266,11 +1292,11 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(*f.service.error(&cb[2]), 0);
   EXPECT_EQ(*f.service.error(&cb[3]), EIO);
   ASSERT_TRUE(bool(f.service.take_result(&cb[3])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notifications[3].destroyed, 1U);
   for (unsigned i = 0; i < 3; ++i)
     ASSERT_TRUE(bool(f.service.take_result(&cb[i])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, ConstructorPreservesCompletionCallback) {
@@ -1304,6 +1330,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ConstructorPreservesCompletionCallback) {
   EXPECT_EQ(completed.calls, 1U);
   EXPECT_EQ(completed.key, static_cast<const void *>(&cb));
   ASSERT_TRUE(bool(service.take_result(&cb)));
+  ASSERT_EQ(service.dispatch_notifications(), 0);
   ASSERT_EQ(service.maintain(), 0);
   EXPECT_EQ(completed.calls, 1U);
   EXPECT_EQ(service.retained(), size_t(0));
@@ -1334,11 +1361,11 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_TRUE(*f.service.cancel_status(**batch) ==
               Service::CancelStatus::Canceled);
   ASSERT_EQ(f.service.finish_cancels(**batch), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_FALSE(f.service.has_cancel_batches());
   EXPECT_EQ(*f.service.error(&cb), ECANCELED);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -1354,10 +1381,10 @@ TEST(LlvmLibcAioServiceRegistryTest,
   ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
   EXPECT_TRUE(*f.service.cancel_status(**batch) ==
               Service::CancelStatus::AllDone);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_TRUE(f.service.has_cancel_batches());
   ASSERT_EQ(f.service.finish_cancels(**batch), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_FALSE(f.service.has_cancel_batches());
 }
 
@@ -1389,7 +1416,7 @@ TEST(LlvmLibcAioServiceRegistryTest, CancelBatchSizingRaceKeepsRequestsIntact) {
   ASSERT_EQ(f.service.finish_cancels(**retry), 0);
   for (int &key : cb)
     ASSERT_TRUE(bool(f.service.take_result(&key)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -1425,11 +1452,11 @@ TEST(LlvmLibcAioServiceRegistryTest,
     ASSERT_TRUE(bool(f.service.take_result(&key)));
   ASSERT_EQ(f.service.finish_cancels(**batch), 0);
   ASSERT_EQ(f.service.finish_cancels(**other), 0);
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_TRUE(f.service.has_cancel_batches());
   f.ring.complete(2, -ENOENT);
   ASSERT_EQ(f.service.submit(), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_FALSE(f.service.has_cancel_batches());
 }
 
@@ -1456,11 +1483,11 @@ TEST(LlvmLibcAioServiceRegistryTest, CancelBatchSizingMayShrinkToEmpty) {
   ASSERT_EQ(f.service.attempt_cancels(**batch), 0);
   EXPECT_TRUE(*f.service.cancel_status(**batch) ==
               Service::CancelStatus::AllDone);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(0));
   EXPECT_TRUE(f.service.has_cancel_batches());
   ASSERT_EQ(f.service.finish_cancels(**batch), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_FALSE(f.service.has_cancel_batches());
 }
 
@@ -1480,7 +1507,7 @@ TEST(LlvmLibcAioServiceRegistryTest, CancelBatchReclaimsWithdrawnControl) {
   EXPECT_TRUE(*f.service.cancel_status(**batch) ==
               Service::CancelStatus::NotCanceled);
   ASSERT_EQ(f.service.finish_cancels(**batch), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_FALSE(f.service.has_cancel_batches());
   EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
   EXPECT_EQ(f.resources.closed, 0U);
@@ -1488,7 +1515,7 @@ TEST(LlvmLibcAioServiceRegistryTest, CancelBatchReclaimsWithdrawnControl) {
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -1507,18 +1534,18 @@ TEST(LlvmLibcAioServiceRegistryTest,
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_EQ(f.ring.sq[1].opcode, uint8_t(IORING_OP_ASYNC_CANCEL));
   ASSERT_EQ(f.service.finish_cancels(**batch), 0);
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_TRUE(f.service.has_cancel_batches());
   f.ring.complete(1, 0);
   ASSERT_EQ(f.service.submit(), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_FALSE(f.service.has_cancel_batches());
   EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
   EXPECT_EQ(f.resources.closed, 0U);
   f.finish(0, -ECANCELED);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, CancelBatchOriginalWinsBeforeControl) {
@@ -1538,11 +1565,11 @@ TEST(LlvmLibcAioServiceRegistryTest, CancelBatchOriginalWinsBeforeControl) {
               Service::CancelStatus::Canceled);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
   ASSERT_EQ(f.service.finish_cancels(**batch), 0);
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(f.service.retained(), size_t(1));
   f.ring.complete(1, 0);
   ASSERT_EQ(f.service.submit(), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_FALSE(f.service.has_cancel_batches());
   EXPECT_EQ(f.service.retained(), size_t(0));
 }
@@ -1568,10 +1595,10 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_TRUE(*f.service.cancel_status(**batch) ==
               Service::CancelStatus::AllDone);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   ASSERT_EQ(f.service.finish_cancels(**batch), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -1585,7 +1612,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   ASSERT_TRUE(bool(earlier));
   ASSERT_EQ(f.service.attempt_cancels(**earlier), 0);
   ASSERT_EQ(f.service.finish_cancels(**earlier), 0);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   // A previously canceled but unconsumed operation is already done, not a
   // new cancellation attributed to this next call.
   auto completed = f.service.prepare_cancels(7);
@@ -1607,18 +1634,18 @@ TEST(LlvmLibcAioServiceRegistryTest,
               Service::CancelStatus::Canceled);
   EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
   ASSERT_EQ(f.service.finish_cancels(**mixed), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   auto last = f.service.prepare_cancels(7);
   ASSERT_TRUE(bool(last));
   // A prepared snapshot may be abandoned without attempting cancellation.
   ASSERT_EQ(f.service.finish_cancels(**last), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
   ASSERT_EQ(f.service.submit(), 0);
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, GrowthOomAndResultsBeyondCreditCount) {
@@ -1644,7 +1671,7 @@ TEST(LlvmLibcAioServiceRegistryTest, GrowthOomAndResultsBeyondCreditCount) {
     ASSERT_EQ(f.service.submit(), 0);
     f.finish(i, int(i));
     ASSERT_EQ(f.service.submit(), 0);
-    ASSERT_EQ(f.service.maintain(), 0);
+    ASSERT_EQ(f.maintain(), 0);
     EXPECT_EQ(f.service.retained(), size_t(i + 1));
     EXPECT_EQ(notifications[i].destroyed, 0U);
   }
@@ -1655,7 +1682,7 @@ TEST(LlvmLibcAioServiceRegistryTest, GrowthOomAndResultsBeyondCreditCount) {
     EXPECT_EQ(result->value, ssize_t(i));
   }
   EXPECT_EQ(f.resources.closed, 0U); // Queries do not physically retire.
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.resources.closed, 6U);
 }
 
@@ -1671,13 +1698,13 @@ TEST(LlvmLibcAioServiceRegistryTest, FailedCaptureRetainsUnregisterForRetry) {
   EXPECT_EQ(f.service.error(&cb).error(), EINVAL);
   EXPECT_EQ(f.service.retained(), size_t(1));
   EXPECT_EQ(f.ring.unregisters, 1U); // Capture's first rollback failed.
-  EXPECT_EQ(f.service.maintain(), EBUSY);
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(f.ring.unregisters, 3U);
   EXPECT_EQ(f.ring.personalities, 1U);
   EXPECT_EQ(f.resources.closed, 0U);
   f.ring.unregister_error = 0;
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.ring.submits, 0U);
 }
 
@@ -1697,7 +1724,7 @@ TEST(LlvmLibcAioServiceRegistryTest, LocalCancelPinsConsumedOriginal) {
   ASSERT_TRUE(bool(result));
   EXPECT_EQ(result->error, ECANCELED);
   EXPECT_EQ(f.ring.tail, 0U);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   result = f.service.original_cancel_result(observation);
   ASSERT_TRUE(bool(result));
@@ -1706,7 +1733,7 @@ TEST(LlvmLibcAioServiceRegistryTest, LocalCancelPinsConsumedOriginal) {
   EXPECT_EQ(f.service.release_cancel(observation), 0);
   EXPECT_EQ(f.service.release_cancel(observation), EINVAL);
   EXPECT_EQ(f.service.retain_cancel(&cb, observation), EINVAL);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, SuccessfulControlDoesNotCompleteOriginal) {
@@ -1737,7 +1764,7 @@ TEST(LlvmLibcAioServiceRegistryTest, SuccessfulControlDoesNotCompleteOriginal) {
   EXPECT_EQ(original->error, ECANCELED);
   EXPECT_EQ(f.service.release_cancel(observation), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, FailedControlKeepsSnapshotAcrossReuse) {
@@ -1761,20 +1788,20 @@ TEST(LlvmLibcAioServiceRegistryTest, FailedControlKeepsSnapshotAcrossReuse) {
   EXPECT_EQ(f.service.cancel_control_result(observation).error(), EALREADY);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
   ASSERT_TRUE(bool(f.admit(&cb, fresh)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(2));
   EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
   auto original = f.service.original_cancel_result(observation);
   ASSERT_TRUE(bool(original));
   EXPECT_EQ(original->value, ssize_t(6));
   EXPECT_EQ(f.service.release_cancel(observation), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(old.destroyed, 1U);
   ASSERT_EQ(f.service.submit(), 0);
   f.finish(1, 4);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, WithdrawnCancelRetainsOriginalOwnership) {
@@ -1793,13 +1820,13 @@ TEST(LlvmLibcAioServiceRegistryTest, WithdrawnCancelRetainsOriginalOwnership) {
   EXPECT_EQ(f.service.cancel_control_result(observation).error(), EIO);
   EXPECT_EQ(f.service.original_cancel_result(observation).error(), EINPROGRESS);
   EXPECT_EQ(f.service.release_cancel(observation), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.resources.closed, 0U);
   f.ring.submit_error = 0;
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, CancelCreditFailureKeepsIndependentPin) {
@@ -1819,13 +1846,13 @@ TEST(LlvmLibcAioServiceRegistryTest, CancelCreditFailureKeepsIndependentPin) {
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
   ASSERT_EQ(f.service.release_cancel(first), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   auto result = f.service.original_cancel_result(second);
   ASSERT_TRUE(bool(result));
   EXPECT_EQ(result->value, ssize_t(8));
   EXPECT_EQ(f.service.release_cancel(second), 0);
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, PreparationRollbackHasIndependentOwners) {
@@ -1839,8 +1866,8 @@ TEST(LlvmLibcAioServiceRegistryTest, PreparationRollbackHasIndependentOwners) {
   f.resources.close_error = EINTR;
   EXPECT_EQ(f.admit(&cb, notification).error(), ENOTSUP);
   EXPECT_EQ(f.service.complete(&cb).error(), EINVAL);
-  EXPECT_EQ(f.service.maintain(), EIO);
-  EXPECT_EQ(f.service.maintain(), EIO);
+  EXPECT_EQ(f.maintain(), EIO);
+  EXPECT_EQ(f.maintain(), EIO);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.ring.personalities, 1U);
   EXPECT_EQ(notification.discarded, 1U);
@@ -1849,11 +1876,11 @@ TEST(LlvmLibcAioServiceRegistryTest, PreparationRollbackHasIndependentOwners) {
   notification.cleanup_error = 0;
   notification.callback_resources = true;
   f.ring.unregister_error = 0;
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(f.ring.personalities, 0U);
   EXPECT_EQ(f.service.retained(), size_t(1));
   notification.callback_resources = false;
-  EXPECT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(notification.destroyed, 1U);
   EXPECT_EQ(f.resources.closed, 1U);
 }
@@ -1866,7 +1893,7 @@ TEST(LlvmLibcAioServiceRegistryTest, DuplicateRevalidatedAfterPreparation) {
   auto result = f.service.admit(input(&cb), [&](Notification &n) {
     EXPECT_EQ(f.service.retained(), size_t(1));
     EXPECT_EQ(f.service.error(&cb).error(), EINVAL);
-    EXPECT_EQ(f.service.maintain(), 0); // Preparing record stays pinned.
+    EXPECT_EQ(f.maintain(), 0); // Preparing record stays pinned.
     EXPECT_TRUE(bool(f.admit(&cb, second)));
     return n.prepare(first);
   });
@@ -1874,7 +1901,7 @@ TEST(LlvmLibcAioServiceRegistryTest, DuplicateRevalidatedAfterPreparation) {
   EXPECT_EQ(f.service.retained(), size_t(2));
   EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
   EXPECT_EQ(f.ring.tail, 0U);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(first.discarded, 1U);
   EXPECT_EQ(first.destroyed, 1U);
   EXPECT_EQ(second.discarded, 0U);
@@ -1883,7 +1910,7 @@ TEST(LlvmLibcAioServiceRegistryTest, DuplicateRevalidatedAfterPreparation) {
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, CreditRevalidationRejectsPreparedRecord) {
@@ -1898,13 +1925,13 @@ TEST(LlvmLibcAioServiceRegistryTest, CreditRevalidationRejectsPreparedRecord) {
   EXPECT_EQ(result.error(), EAGAIN);
   EXPECT_EQ(f.service.error(&a).error(), EINVAL);
   EXPECT_EQ(*f.service.error(&b), EINPROGRESS);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(first.destroyed, 1U);
   ASSERT_EQ(f.service.submit(), 0);
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&b)));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, ReuseKeepsOldCallbackResources) {
@@ -1932,7 +1959,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ReuseKeepsOldCallbackResources) {
   EXPECT_EQ(f.service.error(cb).error(), EINVAL);
   ASSERT_TRUE(bool(f.admit(cb, fresh)));
   EXPECT_EQ(*f.service.error(cb), EINPROGRESS);
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(old.activated, 1U);
   EXPECT_EQ(old.destroyed, 0U);
   EXPECT_EQ(f.resources.closed, 0U);
@@ -1943,10 +1970,10 @@ TEST(LlvmLibcAioServiceRegistryTest, ReuseKeepsOldCallbackResources) {
   result = f.service.take_result(cb);
   ASSERT_TRUE(bool(result));
   EXPECT_EQ(result->value, ssize_t(4));
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(fresh.destroyed, 1U);
   old.callback_resources = false;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(old.destroyed, 1U);
   EXPECT_EQ(f.resources.closed, 2U);
   EXPECT_EQ(old.activated, 1U);
@@ -1965,13 +1992,13 @@ TEST(LlvmLibcAioServiceRegistryTest, NotificationRetryDoesNotChangeResult) {
   auto result = f.service.take_result(&cb);
   ASSERT_TRUE(bool(result));
   EXPECT_EQ(result->value, ssize_t(6));
-  EXPECT_EQ(f.service.maintain(), EAGAIN);
+  EXPECT_EQ(f.maintain(), EAGAIN);
   notification.activate_error = EBUSY;
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(notification.cleaned, 0U);
   EXPECT_EQ(f.resources.closed, 0U);
   notification.activate_error = EIO; // Terminal delivery error, not I/O error.
-  EXPECT_EQ(f.service.maintain(), EIO);
+  EXPECT_EQ(f.maintain(), EIO);
   EXPECT_EQ(notification.activated, 3U);
   EXPECT_EQ(notification.destroyed, 1U);
 }
@@ -2012,14 +2039,14 @@ TEST(LlvmLibcAioServiceRegistryTest, QueriesInsideSubmitAndFailedRelease) {
   f.resources.on_close = Probe::check;
   f.resources.context = &probe;
   f.ring.unregister_error = EBUSY;
-  EXPECT_EQ(f.service.maintain(), EBUSY);
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(probe.calls, 2U);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.service.retained(), size_t(1));
   EXPECT_EQ(notification.destroyed, 0U);
   f.ring.unregister_error = 0;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notification.destroyed, 1U);
 }
 
@@ -2037,7 +2064,7 @@ TEST(LlvmLibcAioServiceRegistryTest, FailedSubmitUsesSplitWithdrawal) {
   ASSERT_TRUE(bool(result));
   EXPECT_EQ(result->error, EIO);
   EXPECT_EQ(f.resources.closed, 0U);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(notification.activated, 1U);
 }
 
@@ -2070,7 +2097,7 @@ TEST(LlvmLibcAioServiceRegistryTest, CleanupReentersAdmissionWithoutRingLock) {
   } reenter{&f, &second, &cb};
   first.on_cleanup = Reenter::cleanup;
   first.context = &reenter;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(reenter.calls, 1U);
   EXPECT_EQ(first.destroyed, 1U);
   EXPECT_EQ(second.cleaned, 0U); // Concurrent prepended head waits one pass.
@@ -2080,12 +2107,12 @@ TEST(LlvmLibcAioServiceRegistryTest, CleanupReentersAdmissionWithoutRingLock) {
   f.finish(1);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(second.destroyed, 1U);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
-     CompletionAdvancesDuringNotificationCleanup) {
+     CompletionAndNotificationAdvanceDuringNotificationCleanup) {
   Fixture f;
   ASSERT_TRUE(bool(f.service.initialize(4)));
   NotificationState first, second;
@@ -2109,6 +2136,8 @@ TEST(LlvmLibcAioServiceRegistryTest,
     Fixture *fixture;
     Service::Wait *wait;
     const void *key;
+    NotificationState *cleanup;
+    NotificationState *later;
     unsigned calls = 0;
     static void run(void *context) {
       auto &self = *static_cast<Progress *>(context);
@@ -2126,17 +2155,29 @@ TEST(LlvmLibcAioServiceRegistryTest,
       ASSERT_TRUE(bool(result));
       EXPECT_EQ(result->value, ssize_t(3));
       EXPECT_EQ(f.service.take_result(self.key).error(), EINVAL);
+      unsigned allocated = f.allocator.allocated, freed = f.allocator.freed;
+      unsigned closed = f.resources.closed, unregisters = f.ring.unregisters;
+      EXPECT_EQ(self.later->activated, 0U);
+      EXPECT_EQ(f.service.dispatch_notifications(), 0);
+      EXPECT_EQ(self.later->activated, 1U);
+      EXPECT_EQ(self.later->cleaned, 0U);
+      EXPECT_EQ(self.cleanup->destroyed, 0U);
+      EXPECT_TRUE(self.cleanup->busy);
+      EXPECT_EQ(f.allocator.allocated, allocated);
+      EXPECT_EQ(f.allocator.freed, freed);
+      EXPECT_EQ(f.resources.closed, closed);
+      EXPECT_EQ(f.ring.unregisters, unregisters);
     }
-  } progress{&f, &wait, waiting};
+  } progress{&f, &wait, waiting, &cleanup, &later};
   cleanup.on_cleanup = Progress::run;
   cleanup.context = &progress;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(progress.calls, 1U);
   EXPECT_EQ(wait.finish(), 0);
   EXPECT_EQ(head, nullptr);
   // The other record may have preceded the scripted completion in this pass.
   cleanup.on_cleanup = nullptr;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(cleanup.destroyed, 1U);
   EXPECT_EQ(later.destroyed, 1U);
 }
@@ -2179,16 +2220,267 @@ TEST(LlvmLibcAioServiceRegistryTest, QueueProgressDuringDescriptorClose) {
   f.resources.on_close = Progress::close;
   f.resources.context = &progress;
   f.ring.unregister_error = EBUSY;
-  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(progress.calls, 1U);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.ring.personalities, 2U);
   EXPECT_EQ(f.service.take_result(&cb[1]).error(), EINVAL);
   f.ring.unregister_error = 0;
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.resources.closed, 2U);
   EXPECT_EQ(first.destroyed, 1U);
   EXPECT_EQ(second.destroyed, 1U);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     ListNotificationAdvancesDuringListCleanup) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(2)));
+  NotificationState cleanup, group, member;
+  auto old = f.service.prepare_list(
+      nullptr, 0, [&](Notification &n) { return n.prepare(cleanup); });
+  ASSERT_TRUE(bool(old));
+  ASSERT_EQ(f.service.start_list(**old,
+                                 [](size_t, Notification &) { return EINVAL; }),
+            0);
+  ASSERT_EQ(f.service.finish_list(**old), 0);
+  int cb{};
+  Service::ListInput inputs[] = {{input(&cb)}};
+  auto list = f.service.prepare_list(
+      inputs, 1, [&](Notification &n) { return n.prepare(group); });
+  ASSERT_TRUE(bool(list));
+  ASSERT_EQ(
+      f.service.start_list(
+          **list, [&](size_t, Notification &n) { return n.prepare(member); }),
+      0);
+  ASSERT_EQ(f.service.finish_list(**list), 0);
+  ASSERT_EQ(f.service.submit(), 0);
+
+  struct Progress {
+    Fixture *fixture;
+    const void *key;
+    NotificationState *cleanup, *group, *member;
+    unsigned calls = 0;
+    static void run(void *context) {
+      auto &self = *static_cast<Progress *>(context);
+      auto &f = *self.fixture;
+      ++self.calls;
+      EXPECT_TRUE(self.cleanup->busy);
+      EXPECT_EQ(f.service.maintain(), EBUSY);
+      f.finish(0, 3);
+      EXPECT_EQ(f.service.submit(), 0);
+      auto result = f.service.take_result(self.key);
+      ASSERT_TRUE(bool(result));
+      EXPECT_EQ(result->value, ptrdiff_t(3));
+      unsigned allocated = f.allocator.allocated, freed = f.allocator.freed;
+      unsigned closed = f.resources.closed, unregisters = f.ring.unregisters;
+      EXPECT_EQ(self.group->activated, 0U);
+      EXPECT_EQ(f.service.dispatch_notifications(), 0);
+      EXPECT_EQ(self.group->activated, 1U);
+      EXPECT_EQ(self.member->activated, 1U);
+      EXPECT_EQ(self.group->cleaned, 0U);
+      EXPECT_EQ(self.member->cleaned, 0U);
+      EXPECT_EQ(self.cleanup->destroyed, 0U);
+      EXPECT_EQ(f.allocator.allocated, allocated);
+      EXPECT_EQ(f.allocator.freed, freed);
+      EXPECT_EQ(f.resources.closed, closed);
+      EXPECT_EQ(f.ring.unregisters, unregisters);
+    }
+  } progress{&f, &cb, &cleanup, &group, &member};
+  cleanup.on_cleanup = Progress::run;
+  cleanup.context = &progress;
+  ASSERT_EQ(f.maintain(), 0);
+  EXPECT_EQ(progress.calls, 1U);
+  EXPECT_EQ(cleanup.destroyed, 1U);
+  ASSERT_EQ(f.maintain(), 0);
+  EXPECT_EQ(group.destroyed, 1U);
+  EXPECT_EQ(member.destroyed, 1U);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     InFlightRecordNotificationPinsOwnerAndRepairsTraversal) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(4)));
+  int cb[3]{};
+  NotificationState old[2], current;
+  for (unsigned i = 0; i < 2; ++i) {
+    ASSERT_TRUE(bool(f.admit(&cb[i], old[i])));
+    ASSERT_EQ(f.service.submit(), 0);
+    f.finish(i);
+    ASSERT_EQ(f.service.submit(), 0);
+    ASSERT_TRUE(bool(f.service.take_result(&cb[i])));
+  }
+  // Reclamation alone cannot deliver a notification.
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(old[0].activated, 0U);
+  EXPECT_EQ(old[1].activated, 0U);
+  ASSERT_EQ(f.service.dispatch_notifications(), 0);
+  EXPECT_EQ(old[0].cleaned, 0U);
+  EXPECT_EQ(old[1].cleaned, 0U);
+  EXPECT_EQ(f.resources.closed, 0U);
+  EXPECT_EQ(f.allocator.freed, 0U);
+  ASSERT_TRUE(bool(f.admit(&cb[2], current)));
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(2);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb[2])));
+  struct Reclaim {
+    Fixture *fixture;
+    NotificationState *old, *current;
+    unsigned calls = 0;
+    static void run(void *context) {
+      auto &self = *static_cast<Reclaim *>(context);
+      auto &f = *self.fixture;
+      ++self.calls;
+      EXPECT_EQ(f.service.dispatch_notifications(), EBUSY);
+      EXPECT_EQ(f.service.maintain(), 0);
+      EXPECT_TRUE(self.current->busy);
+      EXPECT_EQ(self.current->cleaned, 0U);
+      EXPECT_EQ(self.current->destroyed, 0U);
+      EXPECT_EQ(self.old[0].destroyed, 1U);
+      EXPECT_EQ(self.old[1].destroyed, 1U);
+      EXPECT_EQ(f.service.retained(), size_t(1));
+      // Both next candidates and their entire storage block are gone.
+      EXPECT_EQ(f.allocator.freed, 1U);
+    }
+  } reclaim{&f, old, &current};
+  current.on_activate = Reclaim::run;
+  current.context = &reclaim;
+  ASSERT_EQ(f.service.dispatch_notifications(), 0);
+  EXPECT_EQ(reclaim.calls, 1U);
+  EXPECT_EQ(current.destroyed, 0U);
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(current.destroyed, 1U);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     InFlightListNotificationPinsOwnerAndRepairsBothTraversals) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(2)));
+  int cb{};
+  NotificationState record, old, current;
+  ASSERT_TRUE(bool(f.admit(&cb, record)));
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(0);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  auto first = f.service.prepare_list(
+      nullptr, 0, [&](Notification &n) { return n.prepare(old); });
+  ASSERT_TRUE(bool(first));
+  auto no_members = [](size_t, Notification &) { return EINVAL; };
+  ASSERT_EQ(f.service.start_list(**first, no_members), 0);
+  ASSERT_EQ(f.service.finish_list(**first), 0);
+  ASSERT_EQ(f.service.dispatch_notifications(), 0);
+  auto second = f.service.prepare_list(
+      nullptr, 0, [&](Notification &n) { return n.prepare(current); });
+  ASSERT_TRUE(bool(second));
+  ASSERT_EQ(f.service.start_list(**second, no_members), 0);
+  ASSERT_EQ(f.service.finish_list(**second), 0);
+  struct Reclaim {
+    Fixture *fixture;
+    NotificationState *record, *old, *current;
+    unsigned calls = 0;
+    static void run(void *context) {
+      auto &self = *static_cast<Reclaim *>(context);
+      auto &f = *self.fixture;
+      ++self.calls;
+      EXPECT_EQ(f.service.dispatch_notifications(), EBUSY);
+      EXPECT_EQ(f.service.maintain(), 0);
+      EXPECT_TRUE(self.current->busy);
+      EXPECT_EQ(self.current->cleaned, 0U);
+      EXPECT_EQ(self.current->destroyed, 0U);
+      EXPECT_TRUE(f.service.has_list_groups());
+      EXPECT_EQ(self.old->destroyed, 1U);
+      EXPECT_EQ(self.record->destroyed, 1U);
+      EXPECT_EQ(f.service.retained(), size_t(0));
+      EXPECT_EQ(f.allocator.freed, 2U);
+    }
+  } reclaim{&f, &record, &old, &current};
+  current.on_activate = Reclaim::run;
+  current.context = &reclaim;
+  ASSERT_EQ(f.service.dispatch_notifications(), 0);
+  EXPECT_EQ(reclaim.calls, 1U);
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(current.destroyed, 1U);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest, InFlightDiscardPinsRecordAndList) {
+  for (unsigned list = 0; list < 2; ++list) {
+    Fixture f;
+    ASSERT_TRUE(bool(f.service.initialize(2)));
+    int cb{};
+    NotificationState notification;
+    notification.prepare_error = EINVAL;
+    if (list) {
+      auto group = f.service.prepare_list(
+          nullptr, 0, [&](Notification &n) { return n.prepare(notification); });
+      ASSERT_EQ(group.error(), EINVAL);
+    } else {
+      ASSERT_EQ(f.admit(&cb, notification).error(), EINVAL);
+    }
+    struct Reclaim {
+      Fixture *fixture;
+      NotificationState *notification;
+      unsigned calls = 0;
+      static void run(void *context) {
+        auto &self = *static_cast<Reclaim *>(context);
+        ++self.calls;
+        EXPECT_EQ(self.fixture->service.dispatch_notifications(), EBUSY);
+        EXPECT_EQ(self.fixture->service.maintain(), 0);
+        EXPECT_EQ(self.notification->cleaned, 0U);
+        EXPECT_EQ(self.notification->destroyed, 0U);
+        EXPECT_TRUE(self.notification->busy);
+        EXPECT_EQ(self.fixture->resources.closed, 0U);
+        EXPECT_EQ(self.fixture->allocator.freed, 0U);
+      }
+    } reclaim{&f, &notification};
+    notification.on_discard = Reclaim::run;
+    notification.context = &reclaim;
+    ASSERT_EQ(f.service.maintain(), 0);
+    EXPECT_EQ(notification.discarded, 0U);
+    ASSERT_EQ(f.service.dispatch_notifications(), 0);
+    EXPECT_EQ(reclaim.calls, 1U);
+    EXPECT_EQ(notification.discarded, 1U);
+    EXPECT_EQ(notification.activated, 0U);
+    ASSERT_EQ(f.service.maintain(), 0);
+    EXPECT_EQ(notification.destroyed, 1U);
+  }
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     ListNotificationRetryDoesNotRetainCompletedMembers) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(2)));
+  int cb{};
+  Service::ListInput inputs[] = {{input(&cb)}};
+  NotificationState group, member;
+  group.activate_error = EAGAIN;
+  auto list = f.service.prepare_list(
+      inputs, 1, [&](Notification &n) { return n.prepare(group); });
+  ASSERT_TRUE(bool(list));
+  ASSERT_EQ(
+      f.service.start_list(
+          **list, [&](size_t, Notification &n) { return n.prepare(member); }),
+      0);
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(0);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  ASSERT_EQ(f.maintain(), EAGAIN);
+  EXPECT_EQ(group.activated, 1U);
+  EXPECT_EQ(group.cleaned, 0U);
+  EXPECT_EQ(member.destroyed, 1U);
+  EXPECT_EQ(f.service.retained(), size_t(0));
+  EXPECT_EQ(*f.service.list_result(**list), 0);
+  ASSERT_EQ(f.service.finish_list(**list), 0);
+  group.activate_error = EBUSY;
+  ASSERT_EQ(f.maintain(), EBUSY);
+  EXPECT_EQ(group.activated, 2U);
+  EXPECT_EQ(group.cleaned, 0U);
+  group.activate_error = EIO;
+  ASSERT_EQ(f.maintain(), EIO);
+  EXPECT_EQ(group.activated, 3U);
+  EXPECT_EQ(group.destroyed, 1U);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, OriginalCompletionLatchesServiceWait) {
@@ -2208,7 +2500,7 @@ TEST(LlvmLibcAioServiceRegistryTest, OriginalCompletionLatchesServiceWait) {
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_TRUE(wait.completion().ready());
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(0));
   // The latched waiter neither owns nor rereads the retired result record.
   EXPECT_EQ(wait.completion().wait(), 0);
@@ -2246,7 +2538,7 @@ TEST(LlvmLibcAioServiceRegistryTest, WaitAfterCompletionAndBeforeAddressReuse) {
   ASSERT_EQ(f.service.begin_wait(wait, list, 1), 0);
   EXPECT_TRUE(wait.completion().ready());
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   ASSERT_TRUE(bool(f.admit(&cb, second)));
   EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
   EXPECT_EQ(wait.completion().wait(), 0);
@@ -2255,7 +2547,7 @@ TEST(LlvmLibcAioServiceRegistryTest, WaitAfterCompletionAndBeforeAddressReuse) {
   f.finish(1);
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, TypedWaitListPreservesPointerArrayType) {
@@ -2288,6 +2580,7 @@ TEST(LlvmLibcAioServiceRegistryTest, TypedWaitListPreservesPointerArrayType) {
   ASSERT_EQ(service.submit(), 0);
   ASSERT_TRUE(wait.completion().ready());
   ASSERT_TRUE(bool(service.take_result(&cb)));
+  ASSERT_EQ(service.dispatch_notifications(), 0);
   ASSERT_EQ(service.maintain(), 0);
   EXPECT_EQ(service.retained(), size_t(0));
   EXPECT_EQ(wait.finish(), 0);
@@ -2330,7 +2623,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(*f.service.error(&cb[1]), EINPROGRESS);
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
   ASSERT_TRUE(bool(f.service.take_result(&cb[2])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(3));
   ASSERT_TRUE(bool(f.admit(&cb[0], notifications[3])));
   EXPECT_EQ(*f.service.cancel_count(7), size_t(1));
@@ -2339,7 +2632,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
     ASSERT_EQ(f.service.release_cancel(observation), 0);
   }
   EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(2));
   ASSERT_EQ(f.service.submit(), 0);
   f.finish(0);
@@ -2347,7 +2640,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
   ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest,
@@ -2369,14 +2662,14 @@ TEST(LlvmLibcAioServiceRegistryTest,
   ASSERT_EQ(f.service.request_cancel(observation), 0);
   ASSERT_TRUE(bool(f.service.take_result(&cb[1])));
   ASSERT_EQ(*f.service.cancel_count(7), size_t(0));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   auto original = f.service.original_cancel_result(observation);
   ASSERT_TRUE(bool(original));
   EXPECT_EQ(original->error, 0);
   EXPECT_EQ(original->value, ptrdiff_t(2));
   ASSERT_EQ(f.service.release_cancel(observation), 0);
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, ForkFreezeExcludesLiveWaitRegistration) {
@@ -2399,7 +2692,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ForkFreezeExcludesLiveWaitRegistration) {
   ASSERT_EQ(f.service.submit(), 0);
   ASSERT_TRUE(wait.completion().ready());
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
-  ASSERT_EQ(f.service.maintain(), 0);
+  ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(0));
   // The completed request can retire, but the caller's stack is still live.
   EXPECT_FALSE(f.service.try_freeze());
