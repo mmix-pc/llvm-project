@@ -65,8 +65,7 @@ void capture_free(void *storage) {
 namespace LIBC_NAMESPACE_DECL {
 int capture_spawn(pid_t *, const char *const *paths,
                   const posix_spawn_file_actions_t *, const posix_spawnattr_t *,
-                  char *const *, char *const *,
-                  SpawnErrorPolicy = SpawnErrorPolicy::ProviderDefault) {
+                  char *const *, char *const *, const SpawnSignalMask &) {
   ++spawn_calls;
   size_t i = 0;
   for (; expected_paths[i]; ++i)

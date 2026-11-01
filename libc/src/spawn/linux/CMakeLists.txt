@@ -16,6 +16,7 @@ set(spawn_signal_deps libc.src.signal.linux.signal_utils)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(spawn_source mmix/posix_spawn.cpp)
   set(spawn_signal_deps
+    libc.src.__support.threads.linux.mmix.credentials_h
     libc.src.__support.threads.linux.mmix.process_operation_h
     libc.hdr.errno_macros
     libc.hdr.types.struct_sched_param

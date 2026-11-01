@@ -11,6 +11,7 @@
 #include "hdr/errno_macros.h"
 #include "src/__support/OSUtil/syscall.h"
 #include "src/__support/macros/config.h"
+#include "src/__support/macros/properties/architectures.h"
 #include <spawn.h>
 #include <sys/syscall.h>
 
@@ -27,6 +28,41 @@ int spawn(pid_t *pid, const char *const *paths,
           const posix_spawn_file_actions_t *actions,
           const posix_spawnattr_t *attr, char *const *argv, char *const *envp,
           SpawnErrorPolicy policy = SpawnErrorPolicy::ProviderDefault);
+
+// Protect wrapper-owned storage as well as the inner spawn transaction. The
+// saved mask is also the child's inherited mask, not the temporary parent mask.
+class SpawnSignalMask {
+#ifdef LIBC_TARGET_ARCH_IS_MMIX
+  sigset_t saved{};
+  int error_code = 0;
+
+public:
+  SpawnSignalMask();
+  ~SpawnSignalMask() noexcept(false);
+  int error() const { return error_code; }
+  const sigset_t &original() const { return saved; }
+#else
+public:
+  SpawnSignalMask() = default;
+  int error() const { return 0; }
+#endif
+  SpawnSignalMask(const SpawnSignalMask &) = delete;
+  SpawnSignalMask &operator=(const SpawnSignalMask &) = delete;
+};
+
+#ifdef LIBC_TARGET_ARCH_IS_MMIX
+int spawn(pid_t *pid, const char *const *paths,
+          const posix_spawn_file_actions_t *actions,
+          const posix_spawnattr_t *attr, char *const *argv, char *const *envp,
+          const SpawnSignalMask &mask);
+#else
+inline int spawn(pid_t *pid, const char *const *paths,
+                 const posix_spawn_file_actions_t *actions,
+                 const posix_spawnattr_t *attr, char *const *argv,
+                 char *const *envp, const SpawnSignalMask &) {
+  return spawn(pid, paths, actions, attr, argv, envp);
+}
+#endif
 
 inline int spawn_exec(const char *const *paths, char *const *argv,
                       char *const *envp) {

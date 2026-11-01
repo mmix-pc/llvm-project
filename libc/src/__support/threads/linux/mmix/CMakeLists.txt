@@ -1,4 +1,10 @@
 add_header_library(
+  credentials_h
+  HDRS credentials.h
+  DEPENDS libc.src.__support.macros.config libc.hdr.stdint_proxy
+)
+
+add_header_library(
   aio_transfer
   HDRS aio_transfer.h
   DEPENDS .aio_input libc.hdr.sys_socket_macros libc.hdr.sys_stat_macros

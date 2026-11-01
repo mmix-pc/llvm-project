@@ -16,9 +16,9 @@
 #include "src/__support/OSUtil/linux/syscall_wrappers/open.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/rt_sigprocmask.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/wait4.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #ifdef LIBC_MMIX_SPAWN_EVENT
 #include "spawn_event.h"
-#include "src/__support/threads/linux/mmix/credentials.h"
 #include "src/__support/threads/linux/mmix/lifecycle.h"
 #include <sys/wait.h>
 #endif
@@ -39,6 +39,26 @@
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
+
+SpawnSignalMask::SpawnSignalMask() {
+  // PATH preparation has no cancellation points or application callbacks.
+  // Blocking delivery protects allocation without adding suppression nesting
+  // that would violate the inner provider's independent admission checks.
+  sigset_t mask{{UINT64_MAX}};
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  mask.__signals[0] &= ~mmix::CREDENTIAL_MASK;
+#endif
+  auto result = linux_syscalls::rt_sigprocmask(SIG_SETMASK, &mask, &saved);
+  if (!result)
+    error_code = result.error();
+}
+
+SpawnSignalMask::~SpawnSignalMask() noexcept(false) {
+  if (!error_code &&
+      !linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
+    __builtin_trap();
+}
+
 namespace {
 
 [[noreturn]] void child_failure(int error, int *diagnostic) {
@@ -236,7 +256,7 @@ public:
 int event_spawn(pid_t *pid, const char *const *paths,
                 const posix_spawn_file_actions_t *actions,
                 const posix_spawnattr_t *attr, char *const *argv,
-                char *const *envp) {
+                char *const *envp, const sigset_t *child_mask) {
   SpawnParent parent;
   if (parent.error)
     return parent.error;
@@ -260,7 +280,9 @@ int event_spawn(pid_t *pid, const char *const *paths,
     mmix::CredentialGate credentials;
     result = mmix::create_spawn_event(handles);
     if (!result)
-      child_process(paths, actions, attr, parent.saved, argv, envp, diagnostic);
+      child_process(paths, actions, attr,
+                    child_mask ? *child_mask : parent.saved, argv, envp,
+                    diagnostic);
   }
   int error = result < 0 ? int(-result) : 0;
   if (result > 0) {
@@ -297,15 +319,14 @@ int event_spawn(pid_t *pid, const char *const *paths,
 }
 #endif
 
-} // namespace
-
-int spawn(pid_t *pid, const char *const *paths,
-          const posix_spawn_file_actions_t *actions,
-          const posix_spawnattr_t *attr, char *const *argv, char *const *envp,
-          SpawnErrorPolicy policy) {
+int spawn_impl(pid_t *pid, const char *const *paths,
+               const posix_spawn_file_actions_t *actions,
+               const posix_spawnattr_t *attr, char *const *argv,
+               char *const *envp, SpawnErrorPolicy policy,
+               const sigset_t *child_mask) {
 #ifdef LIBC_MMIX_SPAWN_EVENT
   if (policy == SpawnErrorPolicy::ProviderDefault)
-    return event_spawn(pid, paths, actions, attr, argv, envp);
+    return event_spawn(pid, paths, actions, attr, argv, envp, child_mask);
 #endif
 #ifndef LIBC_MMIX_SPAWN_COORDINATED
   mmix::ProcessOperation operation;
@@ -342,7 +363,8 @@ int spawn(pid_t *pid, const char *const *paths,
                                  0, 0, 0);
 #endif
   if (result == 0)
-    child_process(paths, actions, attr, saved, argv, envp, diagnostic);
+    child_process(paths, actions, attr, child_mask ? *child_mask : saved, argv,
+                  envp, diagnostic);
   if (result < 0)
     error = static_cast<int>(-result);
   else if (diagnostic)
@@ -369,6 +391,23 @@ int spawn(pid_t *pid, const char *const *paths,
   if (!linux_syscalls::rt_sigprocmask(SIG_SETMASK, &saved, nullptr))
     internal::exit(127);
   return error;
+}
+
+} // namespace
+
+int spawn(pid_t *pid, const char *const *paths,
+          const posix_spawn_file_actions_t *actions,
+          const posix_spawnattr_t *attr, char *const *argv, char *const *envp,
+          SpawnErrorPolicy policy) {
+  return spawn_impl(pid, paths, actions, attr, argv, envp, policy, nullptr);
+}
+
+int spawn(pid_t *pid, const char *const *paths,
+          const posix_spawn_file_actions_t *actions,
+          const posix_spawnattr_t *attr, char *const *argv, char *const *envp,
+          const SpawnSignalMask &mask) {
+  return spawn_impl(pid, paths, actions, attr, argv, envp,
+                    SpawnErrorPolicy::ProviderDefault, &mask.original());
 }
 
 LLVM_LIBC_FUNCTION(int, posix_spawn,

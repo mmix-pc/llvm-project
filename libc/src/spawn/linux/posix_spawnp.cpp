@@ -39,9 +39,12 @@ LLVM_LIBC_FUNCTION(int, posix_spawnp,
   cpp::string_view name(file);
   if (name.empty())
     return ENOENT;
+  SpawnSignalMask mask;
+  if (mask.error())
+    return mask.error();
   if (name.contains('/')) {
     const char *paths[] = {file, nullptr};
-    return spawn(pid, paths, actions, attr, argv, envp);
+    return spawn(pid, paths, actions, attr, argv, envp, mask);
   }
 
   // Search the caller's PATH, not envp. Copy all candidates before cloning;
@@ -61,6 +64,9 @@ LLVM_LIBC_FUNCTION(int, posix_spawnp,
       __builtin_add_overflow(pointers_size, strings_size, &total))
     return ENAMETOOLONG;
 
+  // Destroy the buffer and restore errno before the outer mask permits pending
+  // asynchronous delivery. Ownership alone cannot protect malloc/free
+  // internals.
   SpawnPaths buffer(total);
   auto **paths = static_cast<const char **>(buffer.storage);
   if (!paths)
@@ -82,7 +88,7 @@ LLVM_LIBC_FUNCTION(int, posix_spawnp,
       path.remove_prefix(separator + 1);
   }
   paths[count] = nullptr;
-  return spawn(pid, paths, actions, attr, argv, envp);
+  return spawn(pid, paths, actions, attr, argv, envp, mask);
 }
 
 } // namespace LIBC_NAMESPACE_DECL
