@@ -62,6 +62,7 @@ public:
     if (head)
       __builtin_trap();
   }
+  LIBC_INLINE bool empty() const { return head == nullptr; }
 
   // Query returns ErrorOr<bool>: true means an authenticated bound request
   // already completed, including I/O error or cancellation. It must not mutate

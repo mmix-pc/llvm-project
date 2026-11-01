@@ -52,6 +52,8 @@ int prepare_notification_fork(bool, bool *) __attribute__((weak));
 void finish_notification_fork(bool) __attribute__((weak));
 void close_notification_admission() __attribute__((weak));
 int prepare_aio_fork(bool, bool *) __attribute__((weak));
+int freeze_aio_fork() __attribute__((weak));
+void thaw_aio_fork(bool) __attribute__((weak));
 void finish_aio_fork(bool) __attribute__((weak));
 void close_aio_admission() __attribute__((weak));
 namespace {
@@ -300,11 +302,10 @@ int ForkOperation::freeze_registry() {
 #else
   child_recovery = internal::ForkRecovery::child(single_thread, true);
 #endif
-  return registry &&
-                 (!(minimal || continuation != ForkContinuation::Ordinary) ||
-                  child_recovery.allows_fork())
-             ? 0
-             : EAGAIN;
+  if (!registry || ((minimal || continuation != ForkContinuation::Ordinary) &&
+                    !child_recovery.allows_fork()))
+    return EAGAIN;
+  return aio ? freeze_aio_fork() : 0;
 }
 
 long ForkOperation::create_child(bool wait_for_exec) {
@@ -316,6 +317,10 @@ long ForkOperation::create_child(bool wait_for_exec) {
 }
 
 void ForkOperation::restore_runtime(bool child) {
+  // Release completion/query exclusion before ordinary restoration; admission
+  // stays closed until its late finish hook. The child first unpublishes state.
+  if (aio)
+    thaw_aio_fork(child);
   const bool initial_during =
       continuation == ForkContinuation::InitialThreadDuring;
   const bool worker_during =

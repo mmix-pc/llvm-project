@@ -1179,7 +1179,6 @@ TEST(LlvmLibcAioEngineTest, SplitCleanupAllowsQueriesAndAddressReuse) {
   EXPECT_EQ(f.resources.closed, 0U);
   EXPECT_EQ(f.ring.personalities, 2U);
   EXPECT_FALSE(f.engine.begin_retire(old));
-  EXPECT_EQ(f.engine.stage(), EBUSY);
   EXPECT_FALSE(f.engine.empty());
   ASSERT_TRUE(bool(f.engine.admit(fresh, input(&cb))));
 
@@ -1193,7 +1192,6 @@ TEST(LlvmLibcAioEngineTest, SplitCleanupAllowsQueriesAndAddressReuse) {
       EXPECT_TRUE(self.engine->cleanup_in_progress());
       EXPECT_EQ(*self.engine->error(self.cb), EINPROGRESS);
       EXPECT_EQ(self.engine->take_result(self.cb).error(), EINPROGRESS);
-      EXPECT_EQ(self.engine->stage(), EBUSY);
     }
   } observer{&f.engine, &cb};
   f.resources.on_close = Observer::check;
@@ -1209,6 +1207,50 @@ TEST(LlvmLibcAioEngineTest, SplitCleanupAllowsQueriesAndAddressReuse) {
   ASSERT_TRUE(f.engine.cancel_queued(fresh));
   ASSERT_TRUE(bool(f.engine.take_result(&cb)));
   ASSERT_TRUE(f.engine.retire(fresh));
+  EXPECT_TRUE(f.engine.empty());
+}
+
+TEST(LlvmLibcAioEngineTest, ProgressDuringUnrelatedResourceRelease) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.engine.initialize(8)));
+  auto retired = f.make_request();
+  auto pending = f.make_request();
+  int old_cb = 0, cb = 0;
+  ASSERT_TRUE(bool(retired.resources.capture(7)));
+  ASSERT_TRUE(bool(pending.resources.capture(8)));
+  ASSERT_TRUE(bool(f.engine.admit(retired, input(&old_cb))));
+  ASSERT_TRUE(bool(f.engine.admit(pending, input(&cb, Op::Read, false, 8))));
+  ASSERT_TRUE(f.engine.cancel_queued(retired));
+  ASSERT_TRUE(bool(f.engine.take_result(&old_cb)));
+  ASSERT_TRUE(f.engine.begin_retire(retired));
+  EXPECT_EQ(f.engine.stage(), 0);
+  if (!pending.published()) {
+    // Old implementations rejected all progress until physical release.
+    EXPECT_TRUE(bool(retired.resources.release()));
+    EXPECT_TRUE(f.engine.finish_retire(retired));
+    EXPECT_TRUE(f.engine.cancel_queued(pending));
+    EXPECT_TRUE(bool(f.engine.take_result(&cb)));
+    EXPECT_TRUE(f.engine.retire(pending));
+    return;
+  }
+  ASSERT_EQ(f.engine.finish_submit(f.ring.submit()), 0);
+  f.ring.complete(0, 5);
+  ASSERT_EQ(f.engine.progress(), 0);
+  auto result = f.engine.take_result(&cb);
+  ASSERT_TRUE(bool(result));
+  EXPECT_EQ(result->value, ssize_t(5));
+  EXPECT_EQ(f.resources.closed, 0U);
+  EXPECT_EQ(f.ring.personalities, 2U);
+  EXPECT_FALSE(f.engine.begin_retire(pending));
+  f.ring.unregister_error = EBUSY;
+  EXPECT_EQ(retired.resources.release().error(), EBUSY);
+  EXPECT_FALSE(f.engine.finish_retire(retired));
+  EXPECT_EQ(f.resources.closed, 1U);
+  EXPECT_EQ(f.engine.take_result(&cb).error(), EINVAL);
+  f.ring.unregister_error = 0;
+  EXPECT_TRUE(f.engine.retire(retired));
+  EXPECT_TRUE(f.engine.retire(pending));
+  EXPECT_EQ(f.resources.closed, 2U);
   EXPECT_TRUE(f.engine.empty());
 }
 

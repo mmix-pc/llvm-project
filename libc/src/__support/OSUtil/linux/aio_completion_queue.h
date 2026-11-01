@@ -166,7 +166,7 @@ public:
 
   // Recovery after an enter failure, never a substitute for polling consumed
   // requests. RingLike must implement Ring::withdraw_last under exclusive
-  // access to ALL ring operations. Removal and credit retirement form one
+  // access to queue operations. Removal and credit retirement form one
   // transaction with cancellation/application handlers suppressed. The caller
   // still owns the request and must publish its explicit failure separately.
   LIBC_INLINE ErrorOr<void> withdraw(Entry &entry) {

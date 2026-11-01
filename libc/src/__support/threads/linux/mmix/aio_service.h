@@ -97,10 +97,15 @@ LIBC_INLINE int wait_relative(AioWaitEvent &event, const timespec *timeout,
 } // namespace aio_service_detail
 
 // Called with application/cancellation signals excluded by ForkOperation,
-// before allocator/loader/registry snapshot locks. Every successful prepare
-// needs exactly one finish, including failed clone rollback. A copied active
-// service is quarantined, never drained by the child.
+// before allocator/loader/registry snapshot locks. Early prepare closes only
+// admission, except that a drained service may retire its helpers. Final freeze
+// is nonblocking and runs after all other locks/census. Thaw precedes ordinary
+// restoration; finish reopens admission afterwards. Every successful prepare
+// needs exactly one finish, including rollback before freeze or failed clone.
+// A copied active service is quarantined, never drained by the child.
 int prepare_aio_fork(bool minimal, bool *drained);
+int freeze_aio_fork();
+void thaw_aio_fork(bool child);
 void finish_aio_fork(bool child);
 void close_aio_admission();
 

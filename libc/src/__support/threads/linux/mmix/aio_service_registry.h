@@ -34,11 +34,14 @@ namespace mmix {
 // The credential handler must not enter this service. Destruction requires
 // exclusive lifetime ownership, no calls in flight and fully drained records.
 //
-// Lock order is ring_operations -> gate, never the reverse. Allocation,
+// Queue and resource operations have independent locks, each before gate,
+// never the reverse. Do not nest the two operation locks. Allocation,
 // notification methods and resource syscalls run OUTSIDE gate. Notification
-// and allocator methods also run without the ring lock: their loader/runtime
-// locks may be held by a concurrent admission caller. The separate ring lock
-// excludes capture/release across the split submit/retire intervals.
+// and allocator methods also run without either operation lock: their
+// loader/runtime locks may be held by a concurrent admission caller. Closing
+// a terminal request's resources must not prevent other requests from being
+// submitted or completed. Personality registration/release does not access
+// user queue indices and the kernel serializes its own personality table.
 // Notification methods never synchronously invoke application code; a launched
 // callback may use the service on its own thread. Preparation must not wait for
 // accepted I/O. Allocator follows AioStorage's concurrent detached-block
@@ -230,6 +233,9 @@ private:
   struct alignas(8) {
     RawMutex value;
   } ring_operations;
+  struct alignas(8) {
+    RawMutex value;
+  } resource_operations;
   AioSuspendObservers<ControlBlock> observers;
   typename Engine::Completion completion;
   void *completion_context;
@@ -332,7 +338,7 @@ private:
                MemberObservation *observation = nullptr) {
     int error = 0;
     {
-      RingGuard lock(ring_operations.value);
+      RingGuard lock(resource_operations.value);
       auto captured = record.request.resources.capture(input.descriptor);
       if (!captured)
         error = captured.error();
@@ -561,7 +567,7 @@ private:
       // the personality, and failed unregister must not lose the callback.
       bool resources_drained;
       {
-        RingGuard lock(ring_operations.value);
+        RingGuard lock(resource_operations.value);
         auto released = record.request.resources.release();
         if (!error && !released)
           error = released.error();
@@ -575,7 +581,7 @@ private:
       return error;
     bool retired;
     {
-      RingGuard lock(ring_operations.value);
+      RingGuard lock(resource_operations.value);
       {
         StateGuard guard(gate);
         if (!rejected && !record.notification_released) {
@@ -1196,6 +1202,19 @@ public:
     StateGuard guard(gate);
     return storage.size();
   }
+
+  // All preparation, completion and maintenance actors must already be
+  // parked. Queries use only this short gate; a live stack waiter prevents
+  // the snapshot even if its request has already completed and retired.
+  LIBC_INLINE bool try_freeze() {
+    if (!gate.try_freeze())
+      return false;
+    if (observers.empty())
+      return true;
+    gate.thaw();
+    return false;
+  }
+  LIBC_INLINE void thaw() { gate.thaw(); }
 
   // Exclusive copied child, with the dispatcher parked before clone. Never
   // acquire copied locks, retire callbacks, unregister parent personalities or

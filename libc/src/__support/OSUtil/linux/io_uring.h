@@ -353,6 +353,9 @@ public:
   // have completed, and serializes release against reuse. Zero selects default
   // credentials in an SQE and must never be returned as a successful capture.
   // Kernel policy can reject later credential override independently.
+  // With ring lifetime pinned, registration/release may overlap queue work:
+  // they change no userspace queue state. The owner must not release an ID
+  // while an SQE using it can still be submitted or processed.
   LIBC_INLINE ErrorOr<unsigned> register_personality() {
     if (!ready)
       return Error(EBADF);
@@ -420,8 +423,10 @@ public:
     return {};
   }
 
-  // Requires exclusive access to ALL ring operations, after every enter has
-  // returned, with no external submitter or registered BPF loop. Setup rejects
+  // Requires exclusive access to queue operations, after every enter has
+  // returned, with no external submitter or registered BPF loop. Personality
+  // registration/release for independently owned requests may overlap; it
+  // changes neither queue nor consumes SQEs. Setup rejects
   // SQPOLL and all other flags. In this mode Linux commits SQ head before
   // returning from submission; asynchronous workers only own consumed SQEs.
   // Remove only the last unconsumed entry, identified by its trusted token.

@@ -19,6 +19,17 @@ namespace {
 struct CheckedGate {
   LIBC_NAMESPACE::mmix::AioGate gate;
   static inline bool held = false;
+  bool try_freeze() {
+    if (!gate.try_freeze())
+      return false;
+    held = true;
+    return true;
+  }
+  void thaw() {
+    EXPECT_TRUE(held);
+    held = false;
+    gate.thaw();
+  }
   struct Guard {
     LIBC_NAMESPACE::mmix::AioGate::Guard guard;
     explicit Guard(CheckedGate &gate) : guard(gate.gate) {
@@ -2130,6 +2141,56 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(later.destroyed, 1U);
 }
 
+TEST(LlvmLibcAioServiceRegistryTest, QueueProgressDuringDescriptorClose) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(4)));
+  NotificationState first, second;
+  int cb[2]{};
+  ASSERT_TRUE(bool(f.admit(&cb[0], first)));
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(0);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(bool(f.service.take_result(&cb[0])));
+  ASSERT_TRUE(bool(f.admit(&cb[1], second)));
+  struct Progress {
+    Fixture *fixture;
+    const void *key;
+    unsigned calls = 0;
+    static void close(void *context) {
+      auto &self = *static_cast<Progress *>(context);
+      auto &f = *self.fixture;
+      ++self.calls;
+      f.resources.on_close = nullptr;
+      EXPECT_FALSE(CheckedGate::held);
+      EXPECT_EQ(f.service.maintain(), EBUSY);
+      // The retiring request owns the resource lock, not the queue lock.
+      // Its close has not returned; another accepted request can still run.
+      EXPECT_EQ(f.ring.tail, 1U);
+      EXPECT_EQ(f.service.submit(), 0);
+      EXPECT_EQ(f.ring.tail, 2U);
+      f.finish(1, 3);
+      EXPECT_EQ(f.service.submit(), 0);
+      auto result = f.service.take_result(self.key);
+      ASSERT_TRUE(bool(result));
+      EXPECT_EQ(result->value, ssize_t(3));
+      EXPECT_EQ(f.ring.personalities, 2U);
+    }
+  } progress{&f, &cb[1]};
+  f.resources.on_close = Progress::close;
+  f.resources.context = &progress;
+  f.ring.unregister_error = EBUSY;
+  EXPECT_EQ(f.service.maintain(), EBUSY);
+  EXPECT_EQ(progress.calls, 1U);
+  EXPECT_EQ(f.resources.closed, 1U);
+  EXPECT_EQ(f.ring.personalities, 2U);
+  EXPECT_EQ(f.service.take_result(&cb[1]).error(), EINVAL);
+  f.ring.unregister_error = 0;
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.resources.closed, 2U);
+  EXPECT_EQ(first.destroyed, 1U);
+  EXPECT_EQ(second.destroyed, 1U);
+}
+
 TEST(LlvmLibcAioServiceRegistryTest, OriginalCompletionLatchesServiceWait) {
   Fixture f;
   ASSERT_TRUE(bool(f.service.initialize(2)));
@@ -2316,4 +2377,35 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(original->value, ptrdiff_t(2));
   ASSERT_EQ(f.service.release_cancel(observation), 0);
   ASSERT_EQ(f.service.maintain(), 0);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest, ForkFreezeExcludesLiveWaitRegistration) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(2)));
+  int cb = 0;
+  NotificationState notification;
+  ASSERT_TRUE(bool(f.admit(&cb, notification)));
+  ASSERT_TRUE(f.service.try_freeze());
+  EXPECT_FALSE(f.service.try_freeze());
+  f.service.thaw();
+  EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
+  LIBC_NAMESPACE::mmix::JumpCleanupStack::Node *head = nullptr;
+  auto wait = f.service.make_wait(head);
+  const void *list[] = {&cb};
+  ASSERT_EQ(f.service.begin_wait(wait, list, 1), 0);
+  EXPECT_FALSE(f.service.try_freeze());
+  ASSERT_EQ(f.service.submit(), 0);
+  f.finish(0);
+  ASSERT_EQ(f.service.submit(), 0);
+  ASSERT_TRUE(wait.completion().ready());
+  ASSERT_TRUE(bool(f.service.take_result(&cb)));
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(f.service.retained(), size_t(0));
+  // The completed request can retire, but the caller's stack is still live.
+  EXPECT_FALSE(f.service.try_freeze());
+  ASSERT_EQ(wait.finish(), 0);
+  ASSERT_TRUE(f.service.try_freeze());
+  f.service.thaw();
+  EXPECT_EQ(head, nullptr);
+  EXPECT_EQ(f.service.error(&cb).error(), EINVAL);
 }

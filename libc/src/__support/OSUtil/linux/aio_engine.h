@@ -496,9 +496,10 @@ public:
   // finish_submit(). No other enqueue/poll/withdraw/submit/reset is permitted
   // between those calls. Status/result queries and local queued cancellation
   // remain usable, including from handlers, while enter is in progress.
-  // Resource capture/release must also be excluded during that interval.
+  // Resource capture/release for other requests may run concurrently outside
+  // the gate. A retiring request is terminal and has no future SQE users.
   LIBC_INLINE int stage() {
-    if (submitting || cleaning)
+    if (submitting)
       return EBUSY;
     int error = stage_work();
     if (!error)
@@ -592,10 +593,11 @@ private:
 public:
   // Begin under the service gate. No kernel users, application result,
   // observer or notification owner may remain. Then release the gate and call
-  // request.resources.release() under exclusive ring ownership. Queries,
-  // already-captured admission and queued cancellation remain available, but
-  // no submit, capture, other release, reset or destruction may intervene.
-  // This keeps resource syscalls out of the signal-safe short state lock.
+  // request.resources.release() under exclusive resource-operation ownership.
+  // Queries, submission and completion of other requests remain available.
+  // This request stays linked and terminal until finish_retire; the worker
+  // must not inspect its changing resources. No other retirement, reset or
+  // destruction may intervene. Keep resource syscalls outside the state gate.
   LIBC_INLINE bool begin_retire(Request &request) {
     if (submitting || cleaning || request.owner != this ||
         !request.state().reclaimable() || !request.original.entry.reclaimable())

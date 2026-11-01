@@ -37,6 +37,14 @@ public:
   AioGate(const AioGate &) = delete;
   AioGate &operator=(const AioGate &) = delete;
 
+  // Fork has already blocked application/cancellation signals. Never wait
+  // while holding other runtime snapshot locks; thaw before releasing them.
+  bool try_freeze() { return lock.value.try_lock(); }
+  void thaw() {
+    if (!lock.value.unlock())
+      __builtin_trap();
+  }
+
   class Guard {
     AioGate &gate;
     uint64_t saved_mask = 0;

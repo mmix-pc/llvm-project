@@ -39,6 +39,7 @@ struct Service {
   uint64_t watermark = 0;
   Registry registry;
   AioDispatcher dispatcher;
+  AioDispatcher maintenance;
   bool initialized = false;
   bool running = false;
   explicit Service(long pid)
@@ -50,9 +51,25 @@ struct Service {
   }
   static int progress(void *context) {
     auto &self = *static_cast<Service *>(context);
-    int error = self.registry.submit();
-    int cleanup = self.registry.maintain();
-    return error ? error : cleanup;
+    return self.registry.submit();
+  }
+  static int maintain(void *context) {
+    return static_cast<Service *>(context)->registry.maintain();
+  }
+  bool try_park() {
+    if (!dispatcher.try_park())
+      return false;
+    if (maintenance.try_park())
+      return true;
+    dispatcher.resume();
+    return false;
+  }
+  void resume() {
+    maintenance.resume();
+    dispatcher.resume();
+  }
+  bool helpers_drained() const {
+    return dispatcher.drained() && maintenance.drained();
   }
 };
 
@@ -71,6 +88,8 @@ LIBC_CONSTINIT cpp::Atomic<uint64_t> closed{0};
 bool starting = false;
 bool checkpoint = false;
 bool checkpoint_empty = false;
+bool helpers_parked = false;
+bool queries_frozen = false;
 bool quarantined = false;
 
 class Call {
@@ -158,7 +177,10 @@ int ensure_service(Call &call) {
   auto &owner = *service;
   // Failed startup retains cleanup ownership. Retry it before starting again,
   // without holding the publication mutex over loader/thread operations.
-  int error = owner.dispatcher.stop();
+  int error = owner.maintenance.stop();
+  int completion_error = owner.dispatcher.stop();
+  if (!error)
+    error = completion_error;
   if (!error && !owner.initialized) {
     auto reset = owner.ring.reset();
     if (!reset)
@@ -178,8 +200,14 @@ int ensure_service(Call &call) {
   }
   if (!error)
     error =
+        owner.maintenance.start(app.tls, app.page_size, -1,
+                                {&owner, Service::maintain, Service::drained});
+  if (!error)
+    error =
         owner.dispatcher.start(app.tls, app.page_size, owner.ring.descriptor(),
                                {&owner, Service::progress, Service::drained});
+  if (error)
+    (void)owner.maintenance.stop();
   call.lock();
   starting = false;
   if (!error) {
@@ -195,10 +223,8 @@ Service *query_service() {
                                                                : nullptr;
 }
 
-// Protect the operation pin too, not only the registry's inner state gate.
-// A handler longjmp between pin acquisition and gate entry must not strand a
-// permanent activity count, and a handler-side _Fork must not resume a query
-// whose process identity was checked only in its parent.
+// Keep PID authentication and state access in one signal-masked region. A
+// handler-side _Fork must not resume a query authenticated only in its parent.
 class QueryMask {
   uint64_t saved = 0;
   int error_code = 0;
@@ -223,37 +249,15 @@ public:
 // A compiler cleanup supplies the exception landing; paired jump hooks handle
 // legal nonlocal exits without requiring a C++ destructor or catch runtime.
 struct WaitFrame {
-  using Operation = AioDispatcher::Operation;
-  using Node = JumpCleanupStack::Node;
   Service &owner;
   Registry::Wait wait;
-  alignas(Operation) unsigned char operation_storage[sizeof(Operation)];
-  alignas(Node) unsigned char pin_storage[sizeof(Node)];
-  Operation *operation = nullptr;
-  Node *pin = nullptr;
   bool waiting = false;
 
   explicit WaitFrame(Service &owner)
       : owner(owner), wait(owner.registry.make_wait(jump_cleanup_head)) {}
-  static bool release_pin(void *context) {
-    auto &self = *static_cast<WaitFrame *>(context);
-    if (!self.operation)
-      return false;
-    self.operation->~Operation();
-    self.operation = nullptr;
-    return true;
-  }
-  // Caller blocks application/cancellation signals until both nodes are live.
+  // Publication lives for the process. The registered observer itself excludes
+  // final fork freeze, including after completion and before jump cleanup.
   int begin(const aiocb *const *list, size_t count) {
-    operation = new (operation_storage) Operation(owner.dispatcher);
-    if (!*operation) {
-      operation->~Operation();
-      operation = nullptr;
-      return EAGAIN;
-    }
-    pin = new (pin_storage) Node;
-    if (!JumpCleanupStack::push(jump_cleanup_head, *pin, release_pin, this))
-      __builtin_trap();
     int error = owner.registry.begin_wait(wait, list, count);
     waiting = !error;
     return error;
@@ -266,12 +270,6 @@ struct WaitFrame {
       if (self->wait.finish())
         __builtin_trap();
       self->waiting = false;
-    }
-    if (self->pin) {
-      if (!JumpCleanupStack::pop(jump_cleanup_head, *self->pin))
-        __builtin_trap();
-      self->pin->~Node();
-      self->pin = nullptr;
     }
   }
 };
@@ -527,8 +525,7 @@ ErrorOr<int> query_aio_error(const aiocb *cb) {
   auto *owner = query_service();
   if (!owner || !cb)
     return Error(EINVAL);
-  AioDispatcher::Operation operation(owner->dispatcher);
-  return operation ? owner->registry.error(cb) : ErrorOr<int>(Error(EAGAIN));
+  return owner->registry.error(cb);
 }
 
 ErrorOr<AioRequest::Result> take_aio_result(const aiocb *cb) {
@@ -538,9 +535,6 @@ ErrorOr<AioRequest::Result> take_aio_result(const aiocb *cb) {
   auto *owner = query_service();
   if (!owner || !cb)
     return Error(EINVAL);
-  AioDispatcher::Operation operation(owner->dispatcher);
-  if (!operation)
-    return Error(EAGAIN);
   // No wake syscall is required here. The helper's periodic pass reclaims the
   // released record; result retrieval remains allocation/loader/ring-lock free.
   return owner->registry.take_result(cb);
@@ -657,65 +651,106 @@ int prepare_aio_fork(bool minimal, bool *drained) {
     serializer.mutex.unlock();
     return EAGAIN;
   }
-  if (service && !service->dispatcher.try_park()) {
-    serializer.mutex.unlock();
-    return EAGAIN;
-  }
   checkpoint = true;
   checkpoint_empty = false;
+  helpers_parked = service && service->try_park();
   serializer.mutex.unlock();
   int error = 0;
-  if (service && Service::drained(service)) {
-    if (minimal && !service->dispatcher.drained())
+  if (helpers_parked && Service::drained(service)) {
+    if (minimal && !service->helpers_drained())
       error = EAGAIN;
-    else
-      error = service->dispatcher.stop_parked();
-    if (!error)
+    else {
       service->running = false;
+      error = service->maintenance.stop_parked();
+      int completion_error = service->dispatcher.stop_parked();
+      if (!error)
+        error = completion_error;
+    }
     // Complete empty-block disposal before snapshotting allocator state. The
     // parked worker and excluded submitters cannot attach new storage here.
     if (!error)
       error = service->registry.maintain();
     if (!error)
       checkpoint_empty = true;
+  } else if (helpers_parked) {
+    // Early admission exclusion must not stall accepted requests while fork
+    // attempts allocator/loader locks held by a handler's interrupted frame.
+    service->resume();
+    helpers_parked = false;
   }
   if (error) {
     finish_aio_fork(false);
     return error;
   }
-  *drained = !service || service->dispatcher.drained();
+  *drained = !service || checkpoint_empty;
   return 0;
+}
+
+int freeze_aio_fork() {
+  if (!checkpoint || queries_frozen)
+    __builtin_trap();
+  if (!service)
+    return 0;
+  if (!helpers_parked) {
+    if (!service->try_park())
+      return EAGAIN;
+    helpers_parked = true;
+  }
+  if (!service->registry.try_freeze()) {
+    service->resume();
+    helpers_parked = false;
+    return EAGAIN;
+  }
+  queries_frozen = true;
+  return 0;
+}
+
+void thaw_aio_fork(bool child) {
+  if (!checkpoint)
+    __builtin_trap();
+  if (child)
+    published.store(nullptr, cpp::MemoryOrder::RELEASE);
+  if (queries_frozen) {
+    service->registry.thaw();
+    queries_frozen = false;
+  }
+  if (!child && helpers_parked) {
+    service->resume();
+    helpers_parked = false;
+  }
 }
 
 void finish_aio_fork(bool child) {
   if (!checkpoint)
     __builtin_trap();
+  thaw_aio_fork(child);
   // The checkpoint excludes startup and all transactions. Do not acquire
   // copied registry/ring gates or invoke notification/allocator teardown.
   if (child && service) {
-    published.store(nullptr, cpp::MemoryOrder::RELEASE);
+    if (!helpers_parked)
+      __builtin_trap();
     bool empty = checkpoint_empty;
     if (!empty) {
       service->dispatcher.quarantine_parked_child();
+      service->maintenance.quarantine_parked_child();
       (void)service->registry.quarantine_child();
     }
     auto reset = service->ring.reset();
     if (empty && reset) {
-      service->dispatcher.resume();
+      service->resume();
       service->~Service();
       service = nullptr;
       owner_pid.store(0, cpp::MemoryOrder::RELEASE);
     } else {
       quarantined = true;
     }
-  } else if (service) {
-    service->dispatcher.resume();
   }
   if (!serializer.mutex.lock())
     __builtin_trap();
   if (child)
     closed.store(0, cpp::MemoryOrder::RELEASE);
   checkpoint = false;
+  helpers_parked = false;
   if (!serializer.mutex.unlock())
     __builtin_trap();
 }
