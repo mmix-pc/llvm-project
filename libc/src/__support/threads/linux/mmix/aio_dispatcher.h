@@ -78,6 +78,7 @@ public:
 
   // No requests may be admitted until start succeeds. Failures can retain
   // helper or failed-release ownership; call stop() before retry/destruction.
+  // Descriptor -1 selects control-only maintenance, without polling the CQ.
   int start(const TLSImage &, uintptr_t page_size, int descriptor,
             AioDispatchHandlers);
   // Signal a previously accepted transaction. A wake failure does not revoke

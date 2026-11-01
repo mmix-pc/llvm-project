@@ -83,7 +83,7 @@ int AioDispatcher::start(const TLSImage &image, uintptr_t page_size,
     return EAGAIN;
   if (!drained())
     return EBUSY;
-  if (descriptor < 0 || page_size != 8192 || !input.progress || !input.drained)
+  if (descriptor < -1 || page_size != 8192 || !input.progress || !input.drained)
     return EINVAL;
 #ifndef LIBC_MMIX_PTHREAD_SCHEDULING
   (void)image;
@@ -211,7 +211,8 @@ void AioDispatcher::run() {
       continue;
     }
     const timespec interval{0, 100000000};
-    auto result = channel.wait(ring_fd, &interval);
+    auto result = ring_fd < 0 ? channel.wait_control(&interval)
+                              : channel.wait(ring_fd, &interval);
     if (!result && result.error() != EINTR) {
       if (result.error() != EAGAIN && result.error() != ENOMEM)
         dispatch_failure();

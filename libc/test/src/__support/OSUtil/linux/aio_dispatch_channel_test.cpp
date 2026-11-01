@@ -23,6 +23,7 @@ struct State {
   int eventfd_error = 0, close_error = 0, read_error = 0, write_error = 0;
   int ppoll_error = 0;
   int eventfd_result = CONTROL_FD, ppoll_result = 0;
+  nfds_t expected_count = 2;
   size_t read_size = sizeof(uint64_t), write_size = sizeof(uint64_t);
   short control_events = 0, ring_events = 0;
   bool live = false, saw_timeout = false;
@@ -78,10 +79,11 @@ struct FakeOperations {
   ErrorOr<int> ppoll(pollfd *fds, nfds_t count, timespec *timeout) {
     ++state->ppoll_calls;
     EXPECT_TRUE(state->live);
-    EXPECT_EQ(count, nfds_t(2));
+    EXPECT_EQ(count, state->expected_count);
     EXPECT_EQ(fds[0].fd, CONTROL_FD);
-    EXPECT_EQ(fds[1].fd, RING_FD);
-    for (int i = 0; i < 2; ++i) {
+    if (count == 2)
+      EXPECT_EQ(fds[1].fd, RING_FD);
+    for (nfds_t i = 0; i < count; ++i) {
       EXPECT_EQ(int(fds[i].events), POLLIN);
       EXPECT_EQ(int(fds[i].revents), 0);
     }
@@ -91,7 +93,8 @@ struct FakeOperations {
       *timeout = {}; // Model the raw syscall's timeout writeback.
     }
     fds[0].revents = state->control_events;
-    fds[1].revents = state->ring_events;
+    if (count == 2)
+      fds[1].revents = state->ring_events;
     if (state->ppoll_error)
       return Error(state->ppoll_error);
     return state->ppoll_result;
@@ -105,6 +108,31 @@ void expect_error(const ErrorOr<void> &result, int error) {
   EXPECT_EQ(result.error(), error);
 }
 } // namespace
+
+TEST(LlvmLibcAioDispatchChannelTest, ControlOnlyMaintenanceWait) {
+  State state;
+  Channel channel({&state});
+  expect_error(channel.wait_control(nullptr), EBADF);
+  ASSERT_TRUE(channel.initialize().has_value());
+  state.expected_count = 1;
+  timespec timeout{0, 100000000};
+  EXPECT_TRUE(channel.wait_control(&timeout).has_value());
+  EXPECT_EQ(state.read_calls, 0);
+  EXPECT_EQ(timeout.tv_nsec, 100000000L);
+  state.ppoll_result = 1;
+  state.control_events = POLLIN;
+  EXPECT_TRUE(channel.wait_control(&timeout).has_value());
+  EXPECT_EQ(state.read_calls, 1);
+  state.ppoll_error = EINTR;
+  expect_error(channel.wait_control(&timeout), EINTR);
+  state.ppoll_error = 0;
+  state.ppoll_result = 2;
+  expect_error(channel.wait_control(&timeout), EPROTO);
+  state.ppoll_result = 1;
+  state.control_events = POLLNVAL;
+  expect_error(channel.wait_control(&timeout), EBADF);
+  EXPECT_EQ(state.read_calls, 1);
+}
 
 TEST(LlvmLibcAioDispatchChannelTest, ClosedOperationsHaveNoSideEffects) {
   State state;

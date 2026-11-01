@@ -141,14 +141,28 @@ public:
                                  const timespec *timeout) {
     if (control < 0 || borrowed_ring_fd < 0 || borrowed_ring_fd == control)
       return Error(EBADF);
+    return wait_impl(borrowed_ring_fd, timeout);
+  }
+
+  // Maintenance workers need control/timeout wakeups, never CQ readiness.
+  LIBC_INLINE ErrorOr<void> wait_control(const timespec *timeout) {
+    if (control < 0)
+      return Error(EBADF);
+    return wait_impl(-1, timeout);
+  }
+
+private:
+  LIBC_INLINE ErrorOr<void> wait_impl(int borrowed_ring_fd,
+                                      const timespec *timeout) {
     timespec copy = {};
     if (timeout)
       copy = *timeout;
     pollfd fds[2] = {{control, POLLIN, 0}, {borrowed_ring_fd, POLLIN, 0}};
-    auto result = operations.ppoll(fds, nfds_t(2), timeout ? &copy : nullptr);
+    const nfds_t count = borrowed_ring_fd < 0 ? 1 : 2;
+    auto result = operations.ppoll(fds, count, timeout ? &copy : nullptr);
     if (!result)
       return Error(result.error());
-    if (*result < 0 || *result > 2)
+    if (*result < 0 || nfds_t(*result) > count)
       return Error(EPROTO);
     const int events = fds[0].revents | fds[1].revents;
     if (events & POLLNVAL)
