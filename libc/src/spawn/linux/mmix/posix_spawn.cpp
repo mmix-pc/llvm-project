@@ -19,6 +19,7 @@
 #include "src/__support/threads/linux/mmix/credentials.h"
 #ifdef LIBC_MMIX_SPAWN_EVENT
 #include "spawn_event.h"
+#include "src/__support/threads/linux/mmix/fork_runtime.h"
 #include "src/__support/threads/linux/mmix/lifecycle.h"
 #include "src/__support/threads/linux/mmix/thread_finish.h"
 #include "src/__support/threads/linux/mmix/thread_reaper.h"
@@ -244,8 +245,8 @@ bool terminal_spawn_admitted(mmix::ThreadControl &caller) {
 #endif
 }
 
-// Selected only by the isolated spawn-event acceptance build until both
-// progress cycles and the public lifecycle matrix have been qualified.
+// Coordinated public spawn waits on an event without runtime snapshot locks.
+// ChildStatus keeps the asynchronous path used by popen.
 class SpawnParent {
   mmix::ThreadControl *caller = nullptr;
   bool masked = false, suppressed = false;
@@ -255,6 +256,10 @@ public:
   int error = 0;
 
   SpawnParent() {
+    if (mmix::ForkOperation::active_on_this_thread()) {
+      error = EDEADLK;
+      return;
+    }
     caller = mmix::current_control;
     if (!caller || !caller->fork_recovery.allows_fork() ||
         !caller->credential_registered) {
@@ -280,7 +285,7 @@ public:
       error = EAGAIN;
   }
 
-  ~SpawnParent() {
+  ~SpawnParent() noexcept(false) {
     if (suppressed && caller->cancellation_suppression.fetch_sub(1) != 1)
       __builtin_trap();
     // Pending asynchronous delivery is restored only after result publication

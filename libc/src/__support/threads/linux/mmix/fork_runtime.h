@@ -40,6 +40,7 @@ class ForkOperation {
   bool standard_locked[3]{};
 
 public:
+  static bool active_on_this_thread();
   explicit ForkOperation(bool minimal = false);
   ~ForkOperation();
   ForkOperation(const ForkOperation &) = delete;

@@ -1,0 +1,70 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+function(add_header_library)
+endfunction()
+function(add_entrypoint_object name)
+  if(name STREQUAL "posix_spawn")
+    cmake_parse_arguments(ENTRY "" "" "SRCS;HDRS;DEPENDS;COMPILE_OPTIONS" ${ARGN})
+    file(WRITE "${OUTPUT}" "${ENTRY_SRCS}\n${ENTRY_HDRS}\n${ENTRY_COMPILE_OPTIONS}\n${ENTRY_DEPENDS}\n")
+  endif()
+endfunction()
+include("${LIBC}/src/spawn/linux/CMakeLists.txt")
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, out = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+root = out / "sysroot"
+headers = root / "usr/include/asm"
+headers.mkdir(parents=True)
+for name in ("spawn.h", "unistd.h"):
+    (headers / name).write_text("// Configuration fixture, not an ABI provider.\n")
+
+def configure(arch, coordinated, roots=False):
+    return subprocess.run([
+        "cmake", f"-DLIBC={libc}", f"-DOUTPUT={out / 'selected.txt'}",
+        f"-DLIBC_TARGET_ARCHITECTURE={arch}",
+        f"-DLIBC_MMIX_BUILD_COORDINATED_FORK={'ON' if coordinated else 'OFF'}",
+        f"-DLIBC_MMIX_BUILD_UNWIND_ROOTS={'ON' if roots else 'OFF'}",
+        f"-DCMAKE_SYSROOT={root}", "-DLIBC_KERNEL_HEADERS=/usr/include",
+        "-P", str(out / "selection.cmake")], capture_output=True, text=True)
+
+for arch, coordinated, roots in (("mmix", True, True), ("mmix", True, False),
+                                  ("mmix", False, False), ("x86_64", False, False)):
+    result = configure(arch, coordinated, roots)
+    assert result.returncode == 0, result.stderr
+    srcs, hdrs, options, deps = (out / "selected.txt").read_text().splitlines()
+    if arch == "mmix" and coordinated:
+        assert srcs.split(";") == ["mmix/posix_spawn.cpp", "mmix/coordinated_spawn.cpp",
+                                   "mmix/spawn_event.cpp", "mmix/spawn_event.S"]
+        assert "mmix/spawn_event.h" in hdrs.split(";")
+        assert "-DLIBC_MMIX_SPAWN_EVENT" in options.split(";")
+        assert "-DLIBC_MMIX_SPAWN_COORDINATED" in options.split(";")
+        assert "-fno-lto" in options.split(";")
+        assert "libc.src.__support.threads.linux.mmix.fork_runtime" in deps.split(";")
+        assert ("-DLIBC_MMIX_UNWIND_ROOTS" in options.split(";")) == roots
+    else:
+        assert srcs == ("mmix/posix_spawn.cpp" if arch == "mmix" else "posix_spawn.cpp")
+        assert "SPAWN_EVENT" not in options and "spawn_event" not in hdrs
+
+for name in ("spawn.h", "unistd.h"):
+    path = headers / name
+    contents = path.read_bytes()
+    path.unlink()
+    missing = configure("mmix", True)
+    assert missing.returncode and f"requires in-sysroot asm/{name}" in missing.stderr
+    assert configure("mmix", False).returncode == 0
+    assert configure("x86_64", False).returncode == 0
+    outside = out / ("foreign-" + name)
+    outside.write_bytes(contents)
+    path.symlink_to(outside)
+    escaped = configure("mmix", True)
+    assert escaped.returncode and f"requires in-sysroot asm/{name}" in escaped.stderr
+    path.unlink()
+    path.write_bytes(contents)

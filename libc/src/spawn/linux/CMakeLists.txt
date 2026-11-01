@@ -25,11 +25,21 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     libc.src.__support.OSUtil.linux.syscall_wrappers.rt_sigprocmask
     libc.src.__support.OSUtil.linux.syscall_wrappers.wait4)
   if(LIBC_MMIX_BUILD_COORDINATED_FORK)
-    list(APPEND spawn_source mmix/coordinated_spawn.cpp)
-    list(APPEND spawn_extra_headers mmix/coordinated_spawn.h)
+    foreach(header asm/spawn.h asm/unistd.h)
+      get_filename_component(root "${CMAKE_SYSROOT}" REALPATH)
+      get_filename_component(path "${CMAKE_SYSROOT}${LIBC_KERNEL_HEADERS}/${header}" REALPATH)
+      string(FIND "${path}" "${root}/" inside)
+      if(NOT inside EQUAL 0 OR NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+        message(FATAL_ERROR "MMIX coordinated spawn requires in-sysroot ${header}")
+      endif()
+    endforeach()
+    list(APPEND spawn_source mmix/coordinated_spawn.cpp
+      mmix/spawn_event.cpp mmix/spawn_event.S)
+    list(APPEND spawn_extra_headers mmix/coordinated_spawn.h mmix/spawn_event.h)
     list(APPEND spawn_signal_deps
       libc.src.__support.threads.linux.mmix.fork_runtime)
-    list(APPEND spawn_options -DLIBC_MMIX_SPAWN_COORDINATED -fno-lto)
+    list(APPEND spawn_options -DLIBC_MMIX_SPAWN_COORDINATED
+      -DLIBC_MMIX_SPAWN_EVENT -fno-lto)
     if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
       list(APPEND spawn_options -DLIBC_MMIX_UNWIND_ROOTS)
       list(APPEND spawn_signal_deps

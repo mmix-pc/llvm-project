@@ -1,0 +1,203 @@
+# REQUIRES: mmix-registered-target, mmix-spawn-event-uapi, mmix-spawn-event-sysroot
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+# Opt-in native injection with explicit matching target headers. This compiles
+# the real parent transaction but does not model child register-stack execution,
+# terminal continuations, signal-handler safety or concurrent credentials.
+
+#--- run.py
+import argparse
+import hashlib
+import json
+import os
+import pathlib
+import shlex
+import shutil
+import subprocess
+
+parser = argparse.ArgumentParser()
+parser.add_argument("libc", type=pathlib.Path)
+parser.add_argument("root", type=pathlib.Path)
+parser.add_argument("--uapi", default=os.environ.get("MMIX_SPAWN_UAPI"))
+parser.add_argument("--sysroot", default=os.environ.get("MMIX_SPAWN_SYSROOT"))
+parser.add_argument("--host-cxx", default="clang++")
+args = parser.parse_args()
+if not args.uapi or not args.sysroot:
+    parser.error("explicit delivered UAPI and matching libc sysroot required")
+libc, root = args.libc.resolve(), args.root.resolve()
+uapi, sysroot = pathlib.Path(args.uapi).resolve(), pathlib.Path(args.sysroot).resolve()
+for path in (uapi / "asm/spawn.h", sysroot / "usr/include/spawn.h"):
+    if not path.is_file():
+        parser.error("missing input: " + str(path))
+cxx = shlex.split(args.host_cxx)
+resource = subprocess.check_output([*cxx, "-print-resource-dir"], text=True).strip()
+flags = ["-std=c++17", "-nostdinc", "-fno-builtin", "-fno-exceptions", "-fno-rtti",
+         "-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections",
+         "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=spawn_parent_test", "-DLIBC_ERRNO_MODE=3",
+         "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM", "-DLIBC_MMIX_SPAWN_EVENT",
+         "-DLIBC_MMIX_SPAWN_COORDINATED", "-I", str(libc), "-isystem", str(uapi),
+         "-isystem", str(sysroot / "usr/include"), "-isystem", resource + "/include"]
+inputs = {pathlib.Path(__file__).resolve(), root / "parent.cpp",
+          pathlib.Path(shutil.which(cxx[0])).resolve()}
+commands, artifacts = [], []
+for opt in ("0", "2"):
+    exe, dep = root / ("native-O" + opt), root / ("native-O" + opt + ".d")
+    command = [*cxx, *flags, "-O" + opt, "-MD", "-MF", str(dep),
+               str(root / "parent.cpp"), "-o", str(exe)]
+    subprocess.run(command, check=True)
+    commands.append(command)
+    for name in shlex.split(dep.read_text().replace("\\\n", " ").split(":", 1)[1]):
+        inputs.add(pathlib.Path(name).resolve())
+    for mode in range(15):
+        command = [str(exe), str(mode)]
+        subprocess.run(command, check=True, timeout=10)
+        commands.append(command)
+    artifacts.append(exe)
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+(root / "report.json").write_text(json.dumps(dict(
+    passed=True, native_cases=30, guest_qualified=False, commands=commands,
+    inputs={str(path): digest(path) for path in sorted(inputs)},
+    artifacts={str(path): digest(path) for path in artifacts}), indent=2) + "\n")
+print("30 native parent-transaction cases passed; no guest qualification")
+
+#--- parent.cpp
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+#include "src/spawn/linux/mmix/posix_spawn.cpp"
+
+using namespace spawn_parent_test;
+using namespace spawn_parent_test::mmix;
+extern "C" int dprintf(int, const char *, ...);
+static void check(bool condition, int line = __builtin_LINE()) {
+  if (!condition) {
+    dprintf(2, "spawn parent injection failed at line %d\n", line);
+    __builtin_trap();
+  }
+}
+static int mode, diagnostic, masks, maps, creates, waits, reaps, closes, unmaps;
+static bool credential_gate;
+static ThreadControl control;
+static pid_t output = -41;
+static constexpr uint64_t original_mask = 0x120;
+
+namespace spawn_parent_test {
+namespace internal {
+[[noreturn]] void exit(int) { __builtin_trap(); }
+}
+namespace mmix {
+LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control = nullptr;
+bool ForkOperation::active_on_this_thread() { return mode == 11; }
+CredentialGate::CredentialGate() {
+  check(!credential_gate && masks == 1 && maps == 1);
+  check(control.cancellation_suppression.load() == 1);
+  credential_gate = true;
+}
+CredentialGate::~CredentialGate() {
+  check(credential_gate && creates == 1 && !waits && !closes);
+  credential_gate = false;
+}
+long coordinated_spawn_clone(bool) { __builtin_trap(); }
+long spawn_event_capability() {
+  check(masks == 1 && !maps && !credential_gate);
+  if (mode == 1) return -ENOSYS;
+  if (mode == 2) return 0;
+  if (mode == 3) return -EIO;
+  return MMIX_SPAWN_CAP_V1;
+}
+[[gnu::returns_twice, gnu::noinline]] long
+create_spawn_event(SpawnEventHandles &handles) {
+  check(credential_gate && maps == 1 && !waits && !creates++);
+  handles.event_fd = 0;
+  handles.pidfd = 42;
+  // Even dirty outputs on failure do not grant the parent ownership.
+  if (mode == 5) return -EAGAIN;
+  return 777;
+}
+long wait_spawn_event(int descriptor) {
+  check(descriptor == 0 && !credential_gate && !closes && output == -41);
+  check(control.cancellation_suppression.load() == 1);
+  ++waits;
+  if (waits < 3) return -EINTR;
+  // The diagnostic becomes available only at event release.
+  diagnostic = mode == 6 ? ENOENT : mode == 7 ? EACCES : 0;
+  return 0;
+}
+}
+}
+
+extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
+                                         long c, long d, long e, long f) {
+  if (number == SYS_rt_sigprocmask) {
+    check(a == SIG_SETMASK && d == 8);
+    auto mask = reinterpret_cast<const uint64_t *>(b);
+    if (!masks++) {
+      check(c && *mask == (UINT64_MAX & ~CREDENTIAL_MASK));
+      if (mode == 10) return -EINVAL;
+      *reinterpret_cast<uint64_t *>(c) = original_mask;
+    } else {
+      check(masks == 2 && !c && *mask == original_mask && !credential_gate);
+      check(control.cancellation_suppression.load() == (mode == 13 ? 1 : 0));
+      check(unmaps == (maps && mode != 4 ? 1 : 0));
+      const bool success = mode == 0 || mode == 8;
+      check(output == (success ? 777 : -41));
+    }
+    return 0;
+  }
+  if (number == SYS_mmap) {
+    check(!maps++ && !a && b == sizeof(int) && c == (PROT_READ | PROT_WRITE));
+    check(d == (MAP_SHARED | MAP_ANONYMOUS) && e == -1 && !f);
+    return mode == 4 ? -ENOMEM : reinterpret_cast<long>(&diagnostic);
+  }
+  if (number == SYS_waitid) {
+    check(a == P_PIDFD && b == 42 && c && d == WEXITED && !e);
+    check(waits == 3 && !closes && !credential_gate && diagnostic && output == -41);
+    check(mode == 6 || mode == 7);
+    if (!reaps++) return -EINTR;
+    return mode == 7 ? -ECHILD : 0;
+  }
+  if (number == SYS_close) {
+    check(waits == 3 && !credential_gate && !unmaps && output == -41);
+    check(a == (closes == 0 ? 0 : 42) && closes < 2);
+    check(reaps == ((mode == 6 || mode == 7) ? 2 : 0));
+    ++closes;
+    return mode == 8 ? -EINTR : 0;
+  }
+  if (number == SYS_munmap) {
+    check(a == reinterpret_cast<long>(&diagnostic) && b == sizeof(int));
+    check(!unmaps++ && !credential_gate && output == -41);
+    check(closes == (mode == 5 ? 0 : 2));
+    return 0;
+  }
+  __builtin_trap();
+}
+
+int main(int argc, char **argv) {
+  check(argc == 2);
+  for (const char *p = argv[1]; *p; ++p) mode = mode * 10 + *p - '0';
+  check(mode >= 0 && mode < 15);
+  current_control = &control;
+  control.credential_registered = mode != 12;
+  if (mode == 13) control.cancellation_suppression.store(1);
+  if (mode == 14) current_control = nullptr;
+  const char *paths[] = {"/unused", nullptr};
+  char *args[] = {nullptr};
+  int error = event_spawn(mode == 9 ? nullptr : &output, paths, nullptr,
+                          nullptr, args, args, nullptr);
+  const int expected[] = {0, ENOTSUP, ENOTSUP, EIO, ENOMEM, EAGAIN, ENOENT,
+                           EACCES, 0, 0, EINVAL, EDEADLK, ENOTSUP, EAGAIN, ENOTSUP};
+  check(error == expected[mode]);
+  check(!credential_gate);
+  check(masks == ((mode == 11 || mode == 12 || mode == 14) ? 0 : mode == 10 ? 1 : 2));
+  check(maps == (mode == 0 || (mode >= 4 && mode <= 9) ? 1 : 0));
+  check(creates == (mode == 0 || (mode >= 5 && mode <= 9) ? 1 : 0));
+  return 0;
+}

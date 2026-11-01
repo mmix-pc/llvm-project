@@ -64,6 +64,8 @@ LIBC_CONSTINIT Serializer serializer;
 LIBC_CONSTINIT LIBC_THREAD_LOCAL bool active_fork = false;
 } // namespace
 
+bool ForkOperation::active_on_this_thread() { return active_fork; }
+
 ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
   if (active_fork) {
     error_code = EDEADLK;
