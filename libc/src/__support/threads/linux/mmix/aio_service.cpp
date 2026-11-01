@@ -628,6 +628,9 @@ int suspend_aio_requests_impl(const aiocb *const *list, size_t count,
     __builtin_trap();
   if (error)
     return error;
+  // Keep the registered observer protected even if an already-ready result
+  // takes the nonblocking path through this cancellation point.
+  test_cancel();
   auto &event = frame.wait.completion();
   auto wait = wait_syscall ? wait_syscall : cancel_wait;
   if (relative) {
