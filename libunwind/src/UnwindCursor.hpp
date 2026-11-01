@@ -61,6 +61,7 @@
 #endif
 #include "RWMutex.hpp"
 #include "Unwind-EHABI.h"
+#include "UnwindMetadataPolicy.h"
 
 #if defined(_LIBUNWIND_SUPPORT_SEH_UNWIND)
 // Provide a definition for the DISPATCHER_CONTEXT struct for old (Win7 and
@@ -1395,6 +1396,9 @@ private:
   // Share the old missing-info flag byte; do not grow public cursor storage.
   bool             _unwindInfoMissing : 1;
   bool             _isIPBeforeInstruction : 1;
+  bool             _metadataRestricted : 1;
+  bool             _metadataTerminal : 1;
+  bool             _metadataLookupFailed : 1;
   bool             _isSignalFrame;
 #if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \
     defined(_LIBUNWIND_CHECK_HAIKU_SIGRETURN)
@@ -1409,6 +1413,27 @@ private:
   // Virtual API.
   bool _isKnownVapiNotActive;
 #endif
+
+  void updateMetadataPolicy() {
+    unsigned policy = currentUnwindMetadataPolicy();
+    if (policy == UNW_METADATA_TERMINAL)
+      _metadataTerminal = true;
+    if (policy != UNW_METADATA_ORDINARY && !_metadataRestricted) {
+      // A cursor initialized before admission may contain unowned dynamic
+      // metadata. Reinitialize it inside the scope instead of trusting it.
+      _metadataRestricted = true;
+      metadataLookupFailed();
+    }
+    if (_metadataLookupFailed && _metadataTerminal)
+      __builtin_trap();
+  }
+
+  void metadataLookupFailed() {
+    _metadataLookupFailed = true;
+    _unwindInfoMissing = true;
+    if (_metadataTerminal)
+      __builtin_trap();
+  }
 };
 
 template <typename A, typename R>
@@ -1416,12 +1441,17 @@ UnwindCursor<A, R>::UnwindCursor(unw_context_t *context, A &as,
                                 bool ipBeforeInstruction)
     : _addressSpace(as), _registers(context), _unwindInfoMissing(false),
       _isIPBeforeInstruction(ipBeforeInstruction),
+      _metadataRestricted(false), _metadataTerminal(false),
+      _metadataLookupFailed(false),
       _isSignalFrame(false)
 #if defined(_LIBUNWIND_SUPPORT_TBTAB_UNWIND)
       ,
       _isKnownVapiNotActive(false)
 #endif
 {
+  unsigned policy = currentUnwindMetadataPolicy();
+  _metadataRestricted = policy != UNW_METADATA_ORDINARY;
+  _metadataTerminal = policy == UNW_METADATA_TERMINAL;
   static_assert((check_fit<UnwindCursor<A, R>, unw_cursor_t>::does_fit),
                 "UnwindCursor<> does not fit in unw_cursor_t");
   static_assert((alignof(UnwindCursor<A, R>) <= alignof(unw_cursor_t)),
@@ -1432,12 +1462,17 @@ UnwindCursor<A, R>::UnwindCursor(unw_context_t *context, A &as,
 template <typename A, typename R>
 UnwindCursor<A, R>::UnwindCursor(A &as, void *)
     : _addressSpace(as), _unwindInfoMissing(false),
-      _isIPBeforeInstruction(false), _isSignalFrame(false)
+      _isIPBeforeInstruction(false),
+      _metadataRestricted(false), _metadataTerminal(false),
+      _metadataLookupFailed(false), _isSignalFrame(false)
 #if defined(_LIBUNWIND_SUPPORT_TBTAB_UNWIND)
       ,
       _isKnownVapiNotActive(false)
 #endif
 {
+  unsigned policy = currentUnwindMetadataPolicy();
+  _metadataRestricted = policy != UNW_METADATA_ORDINARY;
+  _metadataTerminal = policy == UNW_METADATA_TERMINAL;
   memset(static_cast<void *>(&_info), 0, sizeof(_info));
   // FIXME
   // fill in _registers from thread arg
@@ -1476,6 +1511,13 @@ void UnwindCursor<A, R>::setFloatReg(int regNum, unw_fpreg_t value) {
 }
 
 template <typename A, typename R> void UnwindCursor<A, R>::jumpto() {
+  updateMetadataPolicy();
+  // A fresh cursor created by _Unwind_Resume must inherit the same policy.
+  // Never resume a restricted cursor after its target scope has been ended,
+  // or from a preflight which has not acquired terminal ownership.
+  if (_metadataRestricted &&
+      currentUnwindMetadataPolicy() != UNW_METADATA_TERMINAL)
+    __builtin_trap();
 #ifdef _LIBUNWIND_TRACE_RET_INJECT
   /*
 
@@ -1850,6 +1892,13 @@ bool UnwindCursor<A, R>::getInfoFromDwarfSection(
         (uint32_t)sects.dwarf_index_section_length, &fdeInfo, &cieInfo);
   }
 #endif
+  if (!foundFDE && _metadataRestricted) {
+    // Only the owned section's direct hint/index is admitted. In particular,
+    // do not read the locking cache, scan and populate it, or try a registered
+    // FDE when an index is absent, malformed or has no entry for this PC.
+    metadataLookupFailed();
+    return false;
+  }
   if (!foundFDE) {
     // otherwise, search cache of previously found FDEs.
     pint_t cachedFDE =
@@ -1871,7 +1920,8 @@ bool UnwindCursor<A, R>::getInfoFromDwarfSection(
     if (getInfoFromFdeCie(fdeInfo, cieInfo, pc, sects.dso_base)) {
       // Add to cache (to make next lookup faster) if we had no hint
       // and there was no index.
-      if (!foundInCache && (fdeSectionOffsetHint == 0)) {
+      if (!_metadataRestricted && !foundInCache &&
+          (fdeSectionOffsetHint == 0)) {
   #if defined(_LIBUNWIND_SUPPORT_DWARF_INDEX)
         if (sects.dwarf_index_section == 0)
   #endif
@@ -2917,6 +2967,9 @@ int UnwindCursor<A, R>::stepWithTBTable(pint_t pc, tbtable *TBTable,
 
 template <typename A, typename R>
 void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
+  updateMetadataPolicy();
+  if (_metadataLookupFailed)
+    return;
 #if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES)
   MMIXCursorQuery query(this);
 #endif
@@ -3028,6 +3081,10 @@ void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
 #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
   // There is no static unwind info for this pc. Look to see if an FDE was
   // dynamically registered for it.
+  if (_metadataRestricted) {
+    metadataLookupFailed();
+    return;
+  }
   pint_t cachedFDE =
       DwarfFDECache<A>::template findFDE<R>(DwarfFDECache<A>::kSearchAll, pc);
   if (cachedFDE != 0) {
@@ -3452,6 +3509,9 @@ int UnwindCursor<A, R>::stepThroughSigReturn() {
 
 template <typename A, typename R> int UnwindCursor<A, R>::step(bool stage2) {
   (void)stage2;
+  updateMetadataPolicy();
+  if (_metadataLookupFailed)
+    return UNW_EBADFRAME;
   // Bottom of stack is defined when unwind info cannot be found.
   if (_unwindInfoMissing)
     return UNW_STEP_END;
@@ -3484,9 +3544,13 @@ template <typename A, typename R> int UnwindCursor<A, R>::step(bool stage2) {
   }
 
   // update info based on new PC
+  if (result < 0 && _metadataTerminal)
+    __builtin_trap();
   if (result == UNW_STEP_SUCCESS) {
     _isIPBeforeInstruction = false;
     this->setInfoBasedOnIPRegister(true);
+    if (_metadataLookupFailed)
+      return UNW_EBADFRAME;
     if (_unwindInfoMissing)
       return UNW_STEP_END;
   }
@@ -3496,6 +3560,7 @@ template <typename A, typename R> int UnwindCursor<A, R>::step(bool stage2) {
 
 template <typename A, typename R>
 void UnwindCursor<A, R>::getInfo(unw_proc_info_t *info) {
+  updateMetadataPolicy();
   if (_unwindInfoMissing)
     memset(static_cast<void *>(info), 0, sizeof(*info));
   else
