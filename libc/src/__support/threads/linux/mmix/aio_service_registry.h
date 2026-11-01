@@ -314,11 +314,15 @@ private:
 
   LIBC_INLINE int begin_submit() {
     StateGuard guard(gate);
-    return engine.stage();
+    int error = engine.stage();
+    update_lists();
+    return error;
   }
   LIBC_INLINE int finish_submit(ErrorOr<unsigned> result) {
     StateGuard guard(gate);
-    return engine.finish_submit(result);
+    int error = engine.finish_submit(result);
+    update_lists();
+    return error;
   }
 
   template <class Prepare, class Normalize>
@@ -428,6 +432,14 @@ private:
     group.complete = complete;
     if (complete)
       group.completion.publish();
+  }
+
+  // Gate held. Wake list waiters in the completion path even if the sole
+  // maintainer is blocked in another record's notification or reclamation.
+  LIBC_INLINE void update_lists() {
+    for (ListGroup *group = list_groups; group; group = group->next)
+      if (group->phase == ListGroup::Phase::Active)
+        update_list(*group);
   }
 
   LIBC_INLINE int maintain_list(ListGroup &group) {
@@ -817,6 +829,7 @@ public:
     StateGuard guard(gate);
     group.error = error;
     group.phase = ListGroup::Phase::Active;
+    update_list(group);
     return error;
   }
 
@@ -1011,8 +1024,10 @@ public:
       return EINVAL;
     observation.attempted = true;
     auto &request = *observation.request;
-    if (request.complete() || engine.cancel_queued(request))
+    if (request.complete() || engine.cancel_queued(request)) {
+      update_lists();
       return 0;
+    }
     auto prepared = engine.cancel_published(request, observation.control);
     observation.controlled = bool(prepared);
     return prepared ? 0 : prepared.error();

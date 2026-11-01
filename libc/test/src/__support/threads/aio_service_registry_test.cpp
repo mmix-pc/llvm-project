@@ -749,6 +749,53 @@ TEST(LlvmLibcAioServiceRegistryTest, ListWaitReleasesGateAndLatchesCompletion) {
   ASSERT_EQ(f.service.maintain(), 0);
 }
 
+TEST(LlvmLibcAioServiceRegistryTest, ListWakeDoesNotRequireMaintenance) {
+  const bool modes[] = {false, true};
+  for (bool fail_submit : modes) {
+    Fixture f;
+    ASSERT_TRUE(bool(f.service.initialize(2)));
+    int cb = 0;
+    Service::ListInput inputs[] = {{input(&cb)}};
+    NotificationState group, member;
+    auto list = f.service.prepare_list(
+        inputs, 1, [&](Notification &n) { return n.prepare(group); });
+    ASSERT_TRUE(bool(list));
+    ASSERT_EQ(
+        f.service.start_list(
+            **list, [&](size_t, Notification &n) { return n.prepare(member); }),
+        0);
+    if (!fail_submit)
+      ASSERT_EQ(f.service.submit(), 0);
+    struct Completion {
+      Fixture *fixture;
+      bool fail_submit;
+      unsigned calls = 0;
+    } completion{&f, fail_submit};
+    auto progress = [](void *context, LIBC_NAMESPACE::Futex *, int,
+                       LIBC_NAMESPACE::FutexWordType, const void *, unsigned) {
+      auto &state = *static_cast<Completion *>(context);
+      auto &f = *state.fixture;
+      ++state.calls;
+      EXPECT_FALSE(CheckedGate::held);
+      if (state.fail_submit)
+        f.ring.submit_error = EIO;
+      else
+        f.finish(0, -EIO);
+      EXPECT_EQ(f.service.submit(), state.fail_submit ? EIO : 0);
+      // No maintenance or list_result query may supply the missing wakeup.
+      return -EINTR;
+    };
+    EXPECT_EQ(f.service.wait_list(**list, nullptr, progress, &completion), 0);
+    EXPECT_EQ(completion.calls, 1U);
+    EXPECT_EQ(group.activated, 0U);
+    EXPECT_EQ(member.cleaned, 0U);
+    EXPECT_EQ(*f.service.list_result(**list), EIO);
+    ASSERT_TRUE(bool(f.service.take_result(&cb)));
+    ASSERT_EQ(f.service.finish_list(**list), 0);
+    ASSERT_EQ(f.service.maintain(), 0);
+  }
+}
+
 TEST(LlvmLibcAioServiceRegistryTest,
      RejectedListMembersRetainOnlyResultOwnership) {
   Fixture f;
@@ -2024,6 +2071,63 @@ TEST(LlvmLibcAioServiceRegistryTest, CleanupReentersAdmissionWithoutRingLock) {
   ASSERT_TRUE(bool(f.service.take_result(&cb)));
   ASSERT_EQ(f.service.maintain(), 0);
   EXPECT_EQ(second.destroyed, 1U);
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     CompletionAdvancesDuringNotificationCleanup) {
+  Fixture f;
+  ASSERT_TRUE(bool(f.service.initialize(4)));
+  NotificationState first, second;
+  int cb[2]{};
+  ASSERT_TRUE(bool(f.admit(&cb[0], first)));
+  ASSERT_TRUE(bool(f.admit(&cb[1], second)));
+  ASSERT_EQ(f.service.submit(), 0);
+  // Admission prepends records; use their keys to find the completed request.
+  f.finish(0);
+  ASSERT_EQ(f.service.submit(), 0);
+  const void *done = *f.service.complete(&cb[0]) ? &cb[0] : &cb[1];
+  const void *waiting = done == &cb[0] ? &cb[1] : &cb[0];
+  auto &cleanup = done == &cb[0] ? first : second;
+  auto &later = done == &cb[0] ? second : first;
+  ASSERT_TRUE(bool(f.service.take_result(done)));
+  LIBC_NAMESPACE::mmix::JumpCleanupStack::Node *head = nullptr;
+  auto wait = f.service.make_wait(head);
+  const void *list[] = {waiting};
+  ASSERT_EQ(f.service.begin_wait(wait, list, 1), 0);
+  struct Progress {
+    Fixture *fixture;
+    Service::Wait *wait;
+    const void *key;
+    unsigned calls = 0;
+    static void run(void *context) {
+      auto &self = *static_cast<Progress *>(context);
+      auto &f = *self.fixture;
+      ++self.calls;
+      EXPECT_FALSE(CheckedGate::held);
+      EXPECT_EQ(f.service.maintain(), EBUSY);
+      EXPECT_FALSE(self.wait->completion().ready());
+      // Script a separate completion worker while cleanup has not returned.
+      f.finish(1, 3);
+      EXPECT_EQ(f.service.submit(), 0);
+      EXPECT_TRUE(self.wait->completion().ready());
+      EXPECT_EQ(*f.service.error(self.key), 0);
+      auto result = f.service.take_result(self.key);
+      ASSERT_TRUE(bool(result));
+      EXPECT_EQ(result->value, ssize_t(3));
+      EXPECT_EQ(f.service.take_result(self.key).error(), EINVAL);
+    }
+  } progress{&f, &wait, waiting};
+  cleanup.on_cleanup = Progress::run;
+  cleanup.context = &progress;
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(progress.calls, 1U);
+  EXPECT_EQ(wait.finish(), 0);
+  EXPECT_EQ(head, nullptr);
+  // The other record may have preceded the scripted completion in this pass.
+  cleanup.on_cleanup = nullptr;
+  ASSERT_EQ(f.service.maintain(), 0);
+  EXPECT_EQ(cleanup.destroyed, 1U);
+  EXPECT_EQ(later.destroyed, 1U);
 }
 
 TEST(LlvmLibcAioServiceRegistryTest, OriginalCompletionLatchesServiceWait) {
