@@ -23,6 +23,29 @@ add_object_library(
     libc.src.setjmp.mmix.jump_fail
 )
 
+# Buildable preparation component, not yet selected by public sigaction.
+# The entry and the jump providers must use the same private checkpoint ABI.
+if(LIBC_MMIX_BUILD_UNWIND_ROOTS AND LIBC_MMIX_ENABLE_STATIC_TLS)
+  add_object_library(
+    signal_entry
+    SRCS signal_entry.cpp signal_entry.S
+    HDRS signal_entry.h
+      ${LIBC_SOURCE_DIR}/src/__support/threads/linux/mmix/signal_boundary.h
+    DEPENDS
+      .signal_trampoline
+      libc.include.signal libc.include.ucontext libc.include.sys_syscall
+      libc.src.__support.macros.attributes
+      libc.src.__support.threads.linux.mmix.lifecycle
+      libc.src.__support.OSUtil.linux.mmix.syscall
+      libc.src.setjmp.mmix.jump_cleanup
+    COMPILE_OPTIONS
+      -DLIBC_MMIX_JUMP_CLEANUP -fno-lto -funwind-tables
+      -fno-optimize-sibling-calls -D_LIBUNWIND_IS_NATIVE_ONLY
+      -I${LIBC_SOURCE_DIR}/../libunwind/include
+      -I${LIBC_SOURCE_DIR}/../libunwind/src
+  )
+endif()
+
 add_header_library(
   kernel_sigaction
   HDRS

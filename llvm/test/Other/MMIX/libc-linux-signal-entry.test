@@ -1,0 +1,48 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+# Machine-entry contract only. Live kernel return, nested delivery and jump
+# cleanup require the separately recorded production-entry guest observers.
+#--- check.py
+import pathlib
+import re
+import subprocess
+import sys
+
+libc, out = map(pathlib.Path, sys.argv[1:3])
+source = libc / "src/signal/linux/mmix/signal_entry.S"
+entry = "__llvm_libc_mmix_application_signal_trampoline"
+body = "__llvm_libc_mmix_application_signal_entry"
+invoke = "__llvm_libc_mmix_invoke_signal_handler"
+ret = "__llvm_libc_mmix_signal_return"
+
+def run(command):
+    return subprocess.check_output(list(map(str, command)), text=True)
+
+for pic in (False, True):
+    obj = out / ("entry-pic.o" if pic else "entry-static.o")
+    run(["clang", "--no-default-config", "--target=mmix-unknown-linux",
+         "-fPIC" if pic else "-fno-pie", "-fstack-protector-all",
+         "-finstrument-functions", "-c", source, "-o", obj])
+    code = []
+    for line in run(["llvm-objdump", "-d", obj]).splitlines():
+        match = re.match(r"\s*([0-9a-f]+):\s+(?:[0-9a-f]{2}\s+){4}\s*([A-Z]+)\s+(.*)", line)
+        if match:
+            code.append((int(match[1], 16), match[2], match[3].strip()))
+    assert code == [(0, "JMP", "0x2"), (4, "JMP", "0x0"),
+                    (8, "OR", "r235, r254, 0x0"), (12, "JMP", "0x0"),
+                    (0, "GO", "r255, r234, 0x0")], code
+    info = run(["llvm-readobj", "--symbols", "--relocations", "--sections", obj])
+    assert "0x4 R_MMIX_ADDR27 " + ret in info
+    assert "0xC R_MMIX_ADDR27 " + body in info
+    assert info.count("STV_HIDDEN") == 4
+    assert ".init_array" not in info and ".eh_frame" not in info
+    assert set(run(["llvm-nm", "-u", obj]).split()) == {"U", body, ret}
+    names = {line.split()[-1] for line in run(["llvm-nm", "--defined-only", obj]).splitlines()}
+    assert names == {entry, invoke}, names
+
+wrong = subprocess.run(["clang", "--no-default-config", "--target=mmix-unknown-unknown",
+                        "-c", str(source), "-o", str(out / "wrong.o")],
+                       capture_output=True, text=True)
+assert wrong.returncode and "requires MMIX Linux" in wrong.stderr

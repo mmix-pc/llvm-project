@@ -22,9 +22,10 @@ namespace mmix {
 // head nor linked nodes may be moved, copied, destroyed or otherwise modified.
 //
 // Hooks and their contexts must remain resident and valid until removal. Hooks
-// must acquire the service gate to detach the actual observer, cannot allocate
-// or call application code, and must never reenter this stack. The caller must
-// not hold that gate. Success means no observer can still use the context.
+// cannot allocate or call application code, and must never reenter this stack.
+// Observer hooks acquire their service gate, which the caller must not hold;
+// thread-owned signal boundary hooks only unlink their private record. Success
+// means no observer or boundary owner can still use the context.
 // Checkpoints are live node identities, not lifetime/generation authentication:
 // callers must not retain them across removal and reuse of their target node.
 class JumpCleanupStack {

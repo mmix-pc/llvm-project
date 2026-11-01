@@ -10,6 +10,9 @@
 #include "private_signals.h"
 #include "rt_sigaction.h"
 #include "signal_trampoline.h"
+#ifdef LIBC_MMIX_SIGNAL_BOUNDARIES
+#include "signal_entry.h"
+#endif
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
 #include "src/__support/common.h"
@@ -39,7 +42,11 @@ LLVM_LIBC_FUNCTION(int, sigaction,
 #endif
     if (!(prepared.sa_flags & SA_RESTORER)) {
       prepared.sa_flags |= SA_RESTORER;
+#ifdef LIBC_MMIX_SIGNAL_BOUNDARIES
+      prepared.sa_restorer = __llvm_libc_mmix_application_signal_trampoline;
+#else
       prepared.sa_restorer = __llvm_libc_mmix_signal_trampoline;
+#endif
     }
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
