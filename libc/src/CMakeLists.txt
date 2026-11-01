@@ -36,6 +36,7 @@ add_subdirectory(locale)
 add_subdirectory(wordexp)
 
 if(${LIBC_TARGET_OS} STREQUAL "linux")
+  add_subdirectory(aio)
   add_subdirectory(dirent)
   add_subdirectory(glob)
   add_subdirectory(fts)

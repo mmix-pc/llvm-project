@@ -19,7 +19,7 @@ namespace mmix {
 
 // Private integration surface, not exported AIO entrypoints. Submission runs
 // only on an admitted ordinary thread; queries allocate nothing and never
-// initialize a service. Errors are positive internal codes; eventual public
+// initialize a service. Errors are positive internal codes; public
 // wrappers own errno translation. No aiocb private pointer is trusted or updated.
 int submit_aio_transfer(const AioInput &);
 int submit_aio_sync(const AioSyncInput &);
@@ -47,9 +47,10 @@ int suspend_aio_requests(const aiocb *const *, size_t count,
                          AioWaitEvent::WaitSyscall = nullptr, void * = nullptr);
 // Same registration, ready-first and cleanup rules, with a relative interval.
 // Null is unbounded. Negative seconds or invalid nanoseconds yield EINVAL;
-// an unrepresentable absolute deadline yields private ERANGE, not a selected
-// public aio_suspend overflow policy. Empty/all-null lists retain the absolute
-// wait's behavior. This does not add a ready-path cancellation point.
+// an unrepresentable absolute deadline yields private ERANGE, translated by
+// the public wrapper to EOVERFLOW. Empty/all-null lists retain the absolute
+// wait's behavior; the public wrapper selects its own empty-list policy.
+// Registered waits check cancellation before taking an already-ready result.
 int suspend_aio_requests_relative(const aiocb *const *, size_t count,
                                   const timespec *timeout,
                                   AioWaitEvent::WaitSyscall = nullptr,
