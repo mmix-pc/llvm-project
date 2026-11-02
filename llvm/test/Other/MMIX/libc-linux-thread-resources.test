@@ -46,7 +46,7 @@ for opt in ("0", "2"):
         # Interpreter-only adaptation; target objects retain actual atomics.
         # O2 semantics use the native delegate below because lli cannot execute
         # the min/max intrinsics introduced by optimization of TLS geometry.
-        subprocess.run(["opt", "-passes=function(sroa,instcombine,lower-atomic)",
+        subprocess.run(["opt", "-passes=function(sroa,instcombine<max-iterations=2>,lower-atomic)",
                         linked, "-o", lowered], check=True)
         subprocess.run(["lli", "-force-interpreter=true", lowered], check=True)
     if len(sys.argv) == 4:

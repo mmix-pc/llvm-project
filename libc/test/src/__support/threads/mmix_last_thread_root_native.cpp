@@ -35,6 +35,20 @@ namespace mmix {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control;
 bool has_c_cleanup() { return cleanup_pending; }
 bool validate_fork_cleanup(const UnwindRoot &) { return !dispatch_pending; }
+// Active stack-cleanup witnesses are outside this terminal-root fixture.
+bool snapshot_active_c_cleanup(const UnwindRoot &, ActiveCleanupWitness &) {
+  __builtin_trap();
+}
+bool validate_active_c_cleanup(const UnwindRoot &,
+                              const ActiveCleanupWitness &) {
+  __builtin_trap();
+}
+bool snapshot_pending_cleanup(const UnwindRoot &, PendingCleanupWitness &) {
+  __builtin_trap();
+}
+bool validate_pending_cleanup(const UnwindRoot &, const PendingCleanupWitness &) {
+  __builtin_trap();
+}
 void dispatch_c_cleanup(uintptr_t, uintptr_t, uintptr_t) { __builtin_trap(); }
 void initialize_cancellation_windows(ThreadControl &) {
   ++window_initializations;

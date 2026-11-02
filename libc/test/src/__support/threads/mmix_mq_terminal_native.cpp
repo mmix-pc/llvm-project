@@ -152,10 +152,11 @@ static void extra_terminal_census(unsigned mode) {
                                   M::ForkContinuation::WorkerThreadDuring));
   assert(!single);
   single = true;
-  assert(!registry.freeze_for_fork(
+  assert(registry.freeze_for_fork(
       caller, 1, &single, false, M::ForkContinuation::WorkerThreadDuring,
       M::ForkSnapshot::TerminalExecOnly));
   assert(!single);
+  registry.release_after_fork();
   // Record completion does not consume either unreaped callback contribution.
   assert(caller.record_worker_cleanup_finished());
   {
@@ -327,7 +328,15 @@ static void terminal_exec_only_registry(bool initial_owner, bool with_helpers,
     assert(lock.reserve() && lock.insert(peer, false) && lock.start(peer));
     assert(lock.drop_creator(peer));
   }
-  rejected(kind);
+  // Restricted children keep copied backing until exec; live peers prohibit
+  // resumable recovery, not creation of an exec-only child.
+  bool single_with_peer = true;
+  assert(registry.freeze_for_fork(caller, 1, &single_with_peer, false, kind,
+                                 snapshot));
+  assert(!single_with_peer);
+  registry.release_after_fork();
+  assert(!registry.freeze_for_fork(caller, 1, &single_with_peer, true, kind,
+                                  M::ForkSnapshot::Recoverable));
   {
     M::ThreadRegistryLock lock(registry);
     assert(lock.begin_cleanup(peer) && lock.close_leases(peer));
@@ -520,11 +529,15 @@ static void run(unsigned mode) {
   assert(!M::reaper_stop_requested());
   callback.cancellation_suppression.store(1);
   bool single = true;
-  assert(M::thread_registry.freeze_for_fork(callback, 1, &single, true));
-  assert(!single); // Retirement does not grant ordinary full child recovery.
+  assert(M::thread_registry.freeze_for_fork(callback, 1, &single, false));
+  assert(!single); // The census alone does not prove helper resource release.
   assert(!I::ForkRecovery::child(single, single).allows_fork());
   M::thread_registry.release_after_fork();
-  assert(!M::thread_registry.quiescent_fork_caller(callback));
+  assert(M::thread_registry.freeze_for_fork(callback, 1, &single, true));
+  assert(single); // The sole retained callback and its backing remain owned.
+  assert(I::ForkRecovery::child(single, single).allows_fork());
+  M::thread_registry.release_after_fork();
+  assert(M::thread_registry.quiescent_fork_caller(callback));
   {
     M::ThreadRegistryLock lock(M::thread_registry);
     assert(lock.begin_cleanup(callback) && callback.begin_callback_cleanup());

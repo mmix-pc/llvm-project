@@ -19,6 +19,7 @@ for opt in ("0", "2"):
     exe = root / ("native-O" + opt)
     subprocess.run([*host, "-std=c++17", "-fexceptions", "-UNDEBUG", "-O" + opt,
                     "-I", str(root), "-I", str(libc),
+                    "-I", str(libc.parent / "libunwind/src"),
                     "-DLIBC_NAMESPACE=last_thread_root_test",
                     "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
                     "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
