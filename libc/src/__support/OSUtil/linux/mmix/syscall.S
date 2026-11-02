@@ -20,6 +20,10 @@
 .hidden __llvm_libc_mmix_syscall
 .type __llvm_libc_mmix_syscall,@function
 __llvm_libc_mmix_syscall:
+  .cfi_startproc
+  // A handler can cancel after interrupting this cancellation-disabled leaf.
+  .cfi_def_cfa 30, 0
+  .cfi_same_value 35
   OR r255, r231, 0
   OR r231, r232, 0
   OR r232, r233, 0
@@ -30,6 +34,7 @@ __llvm_libc_mmix_syscall:
   OR r237, r255, 0
   TRAP 1, 0, 0
   POP 0, 0
+  .cfi_endproc
 .size __llvm_libc_mmix_syscall, .-__llvm_libc_mmix_syscall
 
 .section .note.GNU-stack,"",@progbits
