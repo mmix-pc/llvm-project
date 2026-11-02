@@ -30,6 +30,13 @@ bool activate_main_thread(MainThreadState &state);
 // Pre-creation fork only, after publishing the child's TID with signals blocked.
 bool restore_main_thread_after_fork();
 bool adopt_fork_survivor();
+bool adopt_quick_exit_fork_survivor();
+// ForkOperation-only, after active-stack child recovery with signals blocked.
+// Preserve the original Thread root, terminal claim, callback manager and
+// carrier phase; never promote a worker or restart TLS/TSS cleanup. The caller
+// separately authenticates/preserves forced cleanup and registry ownership.
+bool adopt_active_cleanup_fork_survivor();
+bool adopt_active_cleanup_exec_only_survivor();
 // Terminal snapshot with live helpers: retain backing only until exec/_exit.
 // Registry isolation has invalidated roots and forbidden cleanup replay.
 bool adopt_terminal_exec_only_survivor();

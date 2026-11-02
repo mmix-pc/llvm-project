@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "active_cleanup.h"
 #include "cleanup.h"
 #include "hdr/signal_macros.h"
 #include "lifecycle.h"
@@ -34,6 +35,16 @@ namespace {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL MmixCleanupLink head{};
 LIBC_CONSTINIT LIBC_THREAD_LOCAL uint64_t serial = 0;
 LIBC_CONSTINIT LIBC_THREAD_LOCAL bool dispatching = false;
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+// Observation only: async callbacks do not publish CleanupActivations.
+LIBC_CONSTINIT LIBC_THREAD_LOCAL bool async_dispatching = false;
+#endif
+struct CleanupActivation {
+  ActiveCleanupWitness entry{};
+  const CleanupActivation *previous = nullptr;
+};
+LIBC_CONSTINIT LIBC_THREAD_LOCAL const CleanupActivation *active_dispatch =
+    nullptr;
 #ifdef LIBC_MMIX_SHARED_STARTUP
 LIBC_CONSTINIT LIBC_THREAD_LOCAL CleanupOwners callback_owners;
 static_assert(sizeof(CleanupOwners::Node) <= sizeof(MmixCleanupOwner));
@@ -235,11 +246,12 @@ public:
 };
 #endif
 
-void remove(bool execute, RegistrationMask *mask = nullptr) {
-#ifdef LIBC_MMIX_SHARED_STARTUP
+void remove(bool execute, RegistrationMask *mask = nullptr,
+            bool synchronous_dispatch = false) {
   // Forced dispatch has no pop mask. Serialize both ownership lists even when
   // application signals are enabled for cleanup callbacks.
   RegistrationMask ownership_mask;
+#ifdef LIBC_MMIX_SHARED_STARTUP
   // Async cancellation does not unwind this detached invocation. Keep the
   // existing cancellation suppression until its transient lease is released.
   validate_link(head);
@@ -251,29 +263,63 @@ void remove(bool execute, RegistrationMask *mask = nullptr) {
 #endif
   CleanupOwners::Invocation owner;
 #endif
+  CleanupActivation activation;
+  auto &witness = activation.entry;
   validate_link(head);
   auto *record = head.record;
   if (record->previous.record && record->previous.serial >= head.serial)
     __builtin_trap();
   auto callback = record->callback;
   auto argument = record->argument;
+  auto executing = head;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (!callback_owners.detach(record, head.serial, owner))
     __builtin_trap();
 #endif
   head = record->previous;
   record->serial = 0;
+  const bool observe = synchronous_dispatch || (execute && mask);
+  if (observe) {
+    if (synchronous_dispatch && (!dispatching || !execute || mask))
+      __builtin_trap();
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  ownership_mask.restore();
+    if (!callback_owners.snapshot(owner, witness.ownership))
+      __builtin_trap();
 #endif
+    witness.kind = synchronous_dispatch ? ActiveCleanupKind::CDispatch
+                                        : ActiveCleanupKind::NormalPop;
+    witness.dispatch = &activation;
+    witness.root = current_control->unwind_root;
+    witness.executing = executing;
+    witness.remaining = head;
+    witness.registration_serial = serial;
+    witness.callback = callback;
+    witness.argument = argument;
+    // Publish after consuming the record, before restoring callback signals.
+    // Shared dispatch also has a consistent owner list and stack Invocation;
+    // non-image-owning dispatch leaves the ownership observation empty.
+    activation.previous = active_dispatch;
+    active_dispatch = &activation;
+  }
+  ownership_mask.restore();
   if (mask)
     mask->restore();
   if (execute)
     invoke_callback(callback, argument);
-#ifdef LIBC_MMIX_SHARED_STARTUP
   // Normal pop restores its caller's mask before invocation. Mask again for
   // the owner-thread lease transition; detached code stayed held throughout.
   RegistrationMask release_mask;
+  if (observe && current_control && current_control->cancellation.terminal() &&
+      current_control->fork_recovery.is_child() &&
+      !current_control->fork_recovery.allows_fork())
+    __builtin_trap();
+  if (observe) {
+    if (active_dispatch != &activation)
+      __builtin_trap();
+    // No observer may borrow the Invocation while its lease is being released.
+    active_dispatch = activation.previous;
+  }
+#ifdef LIBC_MMIX_SHARED_STARTUP
   owner.release();
 #endif
 }
@@ -378,7 +424,7 @@ void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
     if (head.serial & 1)
       break;
 #endif
-    remove(true);
+    remove(true, nullptr, true);
   }
   dispatching = false;
 }
@@ -394,6 +440,245 @@ bool snapshot_c_cleanup(MmixCleanupLink &checkpoint) {
 
 bool c_cleanup_at_checkpoint(const MmixCleanupLink &checkpoint) {
   return !dispatching && same_link(head, checkpoint);
+}
+
+bool snapshot_active_c_cleanup(const UnwindRoot &root,
+                               ActiveCleanupWitness &out) {
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  if (async_dispatching)
+    return false;
+#endif
+  const auto *active = active_dispatch;
+  if (!active || !current_control ||
+      !root.matches(current_control->unwind_root) ||
+      root.owner != current_control || root.kind != UnwindRootKind::Thread ||
+      !root.chain || !root.generation || !root.ro || !root.sp ||
+      !root.procedure || (root.ro & 7) || (root.sp & 7))
+    return false;
+  const bool c_dispatch = active->entry.kind == ActiveCleanupKind::CDispatch;
+  if (c_dispatch ? (!dispatching || active->previous ||
+                    active->entry.registration_serial != serial ||
+                    !same_link(head, active->entry.remaining))
+                 : (dispatching ||
+                    active->entry.kind != ActiveCleanupKind::NormalPop))
+    return false;
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+  if (current_signal_entry())
+    return false;
+#endif
+  mmix_rstack_query query{};
+  if (syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) ||
+      query.chain_id != root.chain)
+    return false;
+
+  // Validate frame bounds before reading consumed or pending record storage.
+  auto frame_valid = [&](const MmixCleanupLink &link) {
+    auto address = reinterpret_cast<uintptr_t>(link.record);
+    const auto &frame = link.frame;
+    return link.record && link.serial && !(address & 7) &&
+           frame.owner == root.owner && frame.chain == root.chain &&
+           frame.generation == root.generation && frame.ro >= root.ro &&
+           !(frame.ro & 7) && frame.sp && !(frame.sp & 7) &&
+           frame.procedure && address >= frame.sp && address <= frame.limit &&
+           frame.limit - address >= sizeof(*link.record);
+  };
+  auto outside = [](const MmixCleanupFrame &outer,
+                    const MmixCleanupFrame &inner) {
+    return outer.ro <= inner.ro && outer.sp >= inner.sp &&
+           (outer.ro != inner.ro ||
+            (same_frame(outer, inner) && outer.limit == inner.limit));
+  };
+
+  ActiveCleanupWitness now = active->entry;
+  now.remaining = head;
+  now.registration_serial = serial;
+  now.invocation_depth = 0;
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  const uint64_t last_identifier = serial | 1;
+#else
+  const uint64_t last_identifier = serial;
+#endif
+  uint64_t newer = UINT64_MAX;
+  auto inner = active->entry.executing.frame;
+  for (auto *entry = active; entry; entry = entry->previous) {
+    const auto &saved = entry->entry;
+    const auto &executing = saved.executing;
+    if (saved.kind != now.kind || saved.dispatch != entry ||
+        !root.matches(saved.root) || saved.registration_serial > serial ||
+        !frame_valid(executing) || executing.serial > last_identifier ||
+        executing.serial >= newer ||
+        !outside(executing.frame, inner) || executing.record->serial ||
+        executing.record->callback != saved.callback ||
+        executing.record->argument != saved.argument ||
+        !same_link(executing.record->previous, saved.remaining))
+      return false;
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+    if (c_dispatch && (executing.serial & 1))
+      return false;
+#endif
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    CleanupOwners::Witness ownership;
+    if (!saved.ownership.invocation ||
+        !callback_owners.snapshot(*saved.ownership.invocation, ownership) ||
+        !CleanupOwners::same_invocation(ownership, saved.ownership) ||
+        ownership.record != executing.record ||
+        ownership.serial != executing.serial)
+      return false;
+    if (entry == active)
+      now.ownership = ownership;
+#else
+    if (!CleanupOwners::same_witness(saved.ownership, CleanupOwners::Witness{}))
+      return false;
+#endif
+    ++now.invocation_depth;
+    newer = executing.serial;
+    inner = executing.frame;
+  }
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (now.ownership.invocations != now.invocation_depth)
+    return false;
+  auto *node = now.ownership.remaining;
+#endif
+  // Nested pop callbacks may have newer pending registrations. Each suspended
+  // callback's original remaining list must still be a suffix of the live list.
+  // The immutable activation chain comes from TLS, never from a saved witness.
+  const auto *boundary = active;
+  newer = UINT64_MAX;
+  inner = head.frame;
+  auto link = head;
+  while (link.record) {
+    if (!frame_valid(link) || link.serial > last_identifier ||
+        link.serial >= newer || !outside(link.frame, inner))
+      return false;
+    while (boundary && same_link(link, boundary->entry.remaining)) {
+      if (link.serial >= boundary->entry.executing.serial ||
+          !outside(link.frame, boundary->entry.executing.frame))
+        return false;
+      boundary = boundary->previous;
+    }
+    if ((boundary &&
+         (link.serial <= boundary->entry.executing.serial ||
+          !outside(boundary->entry.executing.frame, link.frame))) ||
+#ifdef LIBC_MMIX_SHARED_STARTUP
+        !CleanupOwners::match_record(node, link.record, link.serial) ||
+#endif
+        link.record->serial != link.serial || !link.record->callback)
+      return false;
+    newer = link.serial;
+    inner = link.frame;
+    link = link.record->previous;
+  }
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (node)
+    return false;
+#endif
+  if (!same_link(link, MmixCleanupLink{}))
+    return false;
+  while (boundary && same_link(link, boundary->entry.remaining))
+    boundary = boundary->previous;
+  if (boundary)
+    return false;
+  out = now;
+  return true;
+}
+
+bool validate_active_c_cleanup(const UnwindRoot &root,
+                               const ActiveCleanupWitness &witness) {
+  ActiveCleanupWitness now;
+  return snapshot_active_c_cleanup(root, now) && now.kind == witness.kind &&
+         now.dispatch == witness.dispatch && now.root.matches(witness.root) &&
+         same_link(now.executing, witness.executing) &&
+         same_link(now.remaining, witness.remaining) &&
+         now.registration_serial == witness.registration_serial &&
+         now.invocation_depth == witness.invocation_depth &&
+         now.callback == witness.callback && now.argument == witness.argument &&
+         CleanupOwners::same_witness(now.ownership, witness.ownership);
+}
+
+bool snapshot_pending_cleanup(const UnwindRoot &root,
+                              PendingCleanupWitness &out) {
+  // Do not infer absence from snapshot_active_c_cleanup: a malformed active
+  // callback or detached owner must not become a pending-only observation.
+  if (active_dispatch || dispatching || !current_control ||
+      !root.matches(current_control->unwind_root) ||
+      root.owner != current_control || root.kind != UnwindRootKind::Thread ||
+      !root.chain || !root.generation || !root.ro || !root.sp ||
+      !root.procedure || (root.ro & 7) || (root.sp & 7))
+    return false;
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  if (async_dispatching)
+    return false;
+#endif
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+  if (current_signal_entry())
+    return false;
+#endif
+  mmix_rstack_query query{};
+  if (syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) ||
+      query.chain_id != root.chain)
+    return false;
+
+  PendingCleanupWitness now;
+  now.root = root;
+  now.remaining = head;
+  now.registration_serial = serial;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (!callback_owners.snapshot_pending(now.ownership))
+    return false;
+  auto *node = now.ownership.remaining;
+#endif
+#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+  const uint64_t last_identifier = serial | 1;
+#else
+  const uint64_t last_identifier = serial;
+#endif
+  uint64_t newer = UINT64_MAX;
+  auto inner = head.frame;
+  auto link = head;
+  while (link.record) {
+    auto address = reinterpret_cast<uintptr_t>(link.record);
+    const auto &frame = link.frame;
+    // Check storage and frame ordering before dereferencing any record.
+    if (!link.serial || link.serial > last_identifier || link.serial >= newer ||
+        (address & 7) || frame.owner != root.owner ||
+        frame.chain != root.chain || frame.generation != root.generation ||
+        frame.ro < root.ro || (frame.ro & 7) || !frame.sp || (frame.sp & 7) ||
+        !frame.procedure || address < frame.sp || address > frame.limit ||
+        frame.limit - address < sizeof(*link.record) || frame.limit > root.sp ||
+        (!current_control->retains_resources_until_process_exit() &&
+         (frame.sp < current_control->stack_bottom ||
+          frame.limit > current_control->stack_top)) ||
+        frame.ro > inner.ro || frame.sp < inner.sp ||
+        (frame.ro == inner.ro &&
+         (!same_frame(frame, inner) || frame.limit != inner.limit)))
+      return false;
+    if (
+#ifdef LIBC_MMIX_SHARED_STARTUP
+        !CleanupOwners::match_record(node, link.record, link.serial) ||
+#endif
+        link.record->serial != link.serial || !link.record->callback)
+      return false;
+    newer = link.serial;
+    inner = frame;
+    link = link.record->previous;
+  }
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (node)
+    return false;
+#endif
+  if (!same_link(link, MmixCleanupLink{}))
+    return false;
+  out = now;
+  return true;
+}
+
+bool validate_pending_cleanup(const UnwindRoot &root,
+                              const PendingCleanupWitness &witness) {
+  PendingCleanupWitness now;
+  return snapshot_pending_cleanup(root, now) && now.root.matches(witness.root) &&
+         same_link(now.remaining, witness.remaining) &&
+         now.registration_serial == witness.registration_serial &&
+         CleanupOwners::same_pending_witness(now.ownership, witness.ownership);
 }
 
 bool validate_fork_cleanup(const UnwindRoot &root) {
@@ -454,6 +739,7 @@ void dispatch_async_cleanup(uintptr_t interrupted_ro,
       query.chain_id != control->unwind_root.chain)
     __builtin_trap();
   dispatching = true;
+  async_dispatching = true;
   uint64_t newer = UINT64_MAX;
   uintptr_t inner_ro = interrupted_ro;
   while (head.record) {
@@ -467,6 +753,7 @@ void dispatch_async_cleanup(uintptr_t interrupted_ro,
     inner_ro = head.frame.ro;
     remove(true);
   }
+  async_dispatching = false;
   dispatching = false;
 }
 #endif

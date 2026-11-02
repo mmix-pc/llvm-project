@@ -51,6 +51,8 @@ enum class CreatorDecision : uint32_t { Hold, Go, Abort };
 enum class CallbackPhase { None, Waiting, Active, Discarded };
 enum class ForkContinuation {
   Ordinary,
+  ActiveStackCleanup,
+  QuickCallback,
   NormalDuring,
   NormalAfter,
   InitialThreadDuring,
@@ -163,6 +165,10 @@ struct ThreadControl {
     // process cleanup owner without changing its original thread identity.
     return process_lifetime && execution == ThreadExecution::Cleaning &&
            cancellation.terminal();
+  }
+  bool quick_cleanup_running() {
+    return execution == ThreadExecution::Running && !callbacks_started &&
+           !cancellation.terminal();
   }
   bool terminal_cleanup_in_progress() {
     return terminal_cleanup_pending() && callbacks_started;
@@ -300,6 +306,8 @@ class ThreadRegistry {
              !caller.reap_next));
   }
   bool normal_cleanup_fork_caller(ThreadControl &caller, ForkContinuation kind);
+  bool quick_cleanup_fork_caller(ThreadControl &caller);
+  bool active_cleanup_fork_caller(ThreadControl &caller, ForkSnapshot snapshot);
   bool terminal_fork_caller(
       ThreadControl &caller, ForkContinuation kind,
       ForkSnapshot snapshot = ForkSnapshot::Recoverable);
@@ -348,6 +356,18 @@ public:
   void release_after_fork();
   // Inspect, then release before event CREATE/wait. Never a fork snapshot.
   bool active_cleanup_spawn_caller(ThreadControl &caller);
+  // Active-stack snapshot. The caller independently authenticates
+  // the forced exception, callback/cursor owners and ordinary signal chain,
+  // and excludes signals. Success retains the registry lock; failure does not.
+  // Unlike ordinary restore, this preserves the original worker identity,
+  // Cleaning phase, terminal claim, callback manager and all owning storage.
+  // Restricted snapshots preserve copied peers and owners inert, with no
+  // helper retirement; the caller must quarantine the forced continuation.
+  bool freeze_active_cleanup_for_fork(
+      ThreadControl &caller, ForkSnapshot snapshot = ForkSnapshot::Recoverable);
+  void restore_active_cleanup_fork_child(ThreadControl &caller,
+                                         internal::ForkRecovery recovery,
+                                         ForkSnapshot snapshot = ForkSnapshot::Recoverable);
   // TerminalExecOnly requires ExecOnly recovery and preserves the active fork
   // guard's suppression while invalidating copied terminal execution state.
   void restore_fork_child(

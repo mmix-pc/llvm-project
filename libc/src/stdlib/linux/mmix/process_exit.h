@@ -23,6 +23,7 @@ void begin_process_exit(int status, bool quick = false);
 void publish_quick_exit_callback(const void *token);
 void finish_quick_exit_callback();
 pid_t quick_exit_fork_owner();
+bool rebind_quick_exit_fork_owner(pid_t previous_tid);
 
 // Private coordinated-fork hooks, not a complete admission certificate. Query
 // with application signals blocked, then independently prove an ordinary active

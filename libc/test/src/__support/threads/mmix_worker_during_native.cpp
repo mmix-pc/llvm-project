@@ -35,6 +35,9 @@ static int registered_tid;
 static bool detached;
 static bool managed;
 static bool mq;
+static bool active_adopter_case;
+static unsigned robust_registrations;
+static int robust_error;
 static void *managed_runner(void *) { __builtin_trap(); }
 static long owner_hook(void *) { __builtin_trap(); }
 static M::ThreadResourceOwner managed_owner() {
@@ -172,6 +175,18 @@ static void copied_drain() {
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+int register_robust_list(bool force) {
+  assert(active_adopter_case && force == (registrations != 0));
+  ++robust_registrations;
+  return robust_error;
+}
+int reset_robust_list_after_fork() {
+  assert(active_adopter_case);
+  ++robust_registrations;
+  return robust_error;
+}
+#endif
 bool has_c_cleanup() { return false; }
 void run_with_unwind_root(ThreadControl &, RootBody *, void *) { __builtin_trap(); }
 void run_with_terminal_cleanup_root(ThreadControl &control, RootBody *body,
@@ -289,6 +304,12 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
     return 0;
   }
   if (number == SYS_set_tid_address) {
+    if (active_adopter_case) {
+      auto *control = M::current_control ? M::current_control : &initial;
+      assert(a == reinterpret_cast<long>(&control->clear_tid.value.val));
+      ++registrations;
+      return registered_tid;
+    }
     auto &control = registrations++ ? worker : initial;
     assert(a == reinterpret_cast<long>(&control.clear_tid.value.val));
     return registered_tid;
@@ -365,13 +386,223 @@ static void run_case(bool cancel) {
   __builtin_trap();
 }
 
+// Actual adopter and registry, with only child TID/robust registration injected.
+// The caller's forced exception and active callback proof are outside this test.
+static void active_adopter(unsigned owner) {
+  initial.attributes.tid = registered_tid = 1;
+  assert(I::activate_main_thread(initial));
+  auto &control = owner ? worker : initial;
+  if (owner) {
+    worker.attributes.tid = 2;
+    worker.attributes.atexit_callback_mgr =
+        reinterpret_cast<LIBC_NAMESPACE::ThreadAtExitCallbackMgr *>(0x1800);
+    worker.resource_owner = managed_owner();
+    worker.runner.posix_runner = managed_runner;
+    worker.argument = &worker;
+    worker.control_mapping = {0x2000, 8192};
+    worker.stack_mapping = {0x4000, 8192};
+    worker.stack_bottom = 0x4000;
+    worker.stack_top = 0x6000;
+    worker.tls = {8192, 0x6000, 0x7000};
+    worker.owns_stack = true;
+    {
+      M::ThreadRegistryLock lock(M::thread_registry);
+      assert(lock.reserve() && lock.insert(worker, owner == 2));
+      assert(lock.start(worker) && lock.drop_creator(worker));
+      assert(lock.begin_cleanup(initial));
+    }
+    I::cleanup_current_thread();
+    {
+      M::ThreadRegistryLock lock(M::thread_registry);
+      assert(lock.close_leases(initial) && lock.exit_ready(initial, 0));
+      initial.clear_tid.value.store(0);
+      assert(lock.pin(&initial.attributes) == &initial && lock.claim_join(initial));
+      assert(lock.begin_reaping(initial) && lock.unpin(initial));
+      assert(lock.finish_reaping(initial));
+    }
+    M::current_control = &worker;
+    I::self.attrib = &worker.attributes;
+    assert(I::phase == I::Phase::Finished);
+  }
+  control.unwind_root = {&control, 8, 16, 24, 4, 2, true,
+                         M::UnwindRootKind::Thread};
+  const auto root = control.unwind_root;
+  auto *manager = control.attributes.atexit_callback_mgr;
+  auto *active = I::active_attributes;
+  control.cancellation_identity = 9;
+  control.cancellation_generation = 7;
+  control.cancellation_suppression.store(1);
+  auto preserved = [&] {
+    assert(M::current_control == &control && I::self.attrib == &control.attributes);
+    assert(I::active_attributes == active);
+    assert(control.attributes.atexit_callback_mgr == manager);
+    assert(control.retains_resources_until_process_exit() == !owner);
+    assert(control.cancellation_identity == 9 &&
+           control.cancellation_generation == 7);
+    assert(control.cancellation_suppression.load() == 1);
+    assert(!control.cancellation_transfer.load() &&
+           !control.cancellation_point.load());
+    assert(initial_callbacks == unsigned(owner != 0) && !worker_callbacks);
+    assert(!drain_roots && !after_roots);
+    if (owner) {
+      assert(control.resource_owner.context == &worker);
+      assert(control.resource_owner.retain == owner_hook &&
+             control.resource_owner.release == owner_hook &&
+             control.resource_owner.terminal_runner == managed_runner);
+      assert(control.runner.posix_runner == managed_runner &&
+             control.argument == &worker);
+      assert(control.control_mapping.base == 0x2000 &&
+             control.control_mapping.size == 8192);
+      assert(control.stack_mapping.base == 0x4000 &&
+             control.stack_mapping.size == 8192);
+      assert(control.stack_bottom == 0x4000 && control.stack_top == 0x6000);
+      assert(control.tls.addr == 0x6000 && control.tls.tp == 0x7000 &&
+             control.tls.size == 8192);
+      assert(control.owns_stack);
+    }
+    M::ThreadRegistryLock lock(M::thread_registry);
+    assert(lock.live_threads() == 1 && !lock.process_exiting());
+    assert(!lock.queued_reclaims() && !lock.pending_creations());
+    assert(lock.owner(control) == (owner == 2 ? M::ThreadOwner::Detached
+                                            : M::ThreadOwner::Joinable));
+    assert(lock.pin(&control.attributes) == &control);
+    assert(lock.acquire_lease(control) && lock.release_lease(control));
+    assert(lock.unpin(control));
+  };
+  auto rejected = [&] {
+    const auto before = registrations, robust_before = robust_registrations;
+    const auto phase = I::phase;
+    auto *attributes = I::active_attributes;
+    const auto clear_tid = control.clear_tid.value.load();
+    assert(!I::adopt_active_cleanup_fork_survivor());
+    assert(registrations == before && robust_registrations == robust_before);
+    assert(control.clear_tid.value.load() == clear_tid && I::phase == phase);
+    assert(I::active_attributes == attributes);
+    assert(control.attributes.atexit_callback_mgr == manager);
+  };
+  control.fork_recovery = I::ForkRecovery::child(true, true);
+  rejected(); // Running, not terminal.
+  assert(control.cancellation.claim(false));
+  rejected(); // A terminal bit alone cannot authorize Running execution.
+  control.cancellation.restore_after_fork();
+  {
+    M::ThreadRegistryLock lock(M::thread_registry);
+    assert(lock.begin_cleanup(control));
+  }
+  control.fork_recovery = {};
+  rejected(); // Original process, not a child.
+  assert(M::thread_registry.freeze_active_cleanup_for_fork(control));
+  registered_tid = ++control.attributes.tid;
+  M::thread_registry.restore_active_cleanup_fork_child(
+      control, I::ForkRecovery::child(true, true));
+  control.fork_recovery = I::ForkRecovery::child();
+  rejected(); // Exec-only child cannot resume stack cleanup.
+  control.fork_recovery = I::ForkRecovery::child(true, true);
+  M::current_control = nullptr;
+  rejected();
+  M::current_control = &control;
+  I::self.attrib = nullptr;
+  rejected();
+  I::self.attrib = owner ? &initial.attributes : &worker.attributes;
+  rejected();
+  I::self.attrib = &control.attributes;
+  control.cancellation.restore_after_fork();
+  rejected(); // Cleaning without a terminal cancellation claim.
+  assert(control.cancellation.claim(false));
+  for (unsigned bad = 0; bad != 6; ++bad) {
+    switch (bad) {
+    case 0: control.unwind_root.active = false; break;
+    case 1: control.unwind_root.owner = owner ? &initial : &worker; break;
+    case 2: control.unwind_root.generation = 0; break;
+    case 3: control.unwind_root.chain = 0; break;
+    case 4:
+      control.unwind_root.kind = M::UnwindRootKind::TerminalThreadCleanup;
+      break;
+    case 5:
+      control.unwind_root.kind = M::UnwindRootKind::LastThreadProcess;
+      break;
+    }
+    rejected();
+    control.unwind_root = root;
+    preserved();
+  }
+  const auto original_phase = I::phase;
+  constexpr I::Phase phases[] = {I::Phase::Uninitialized, I::Phase::Cleaning,
+                                I::Phase::Finished, I::Phase::Active};
+  for (auto phase : phases) {
+    I::phase = phase;
+    if (!owner && phase != I::Phase::Active) {
+      rejected();
+      continue;
+    }
+    const auto before = registrations, robust_before = robust_registrations;
+    assert(I::adopt_active_cleanup_fork_survivor());
+    assert(registrations == before + 1 &&
+           robust_registrations == robust_before + 1);
+    assert(control.clear_tid.value.load() == UINT32_MAX && I::phase == phase);
+    assert(root.matches(control.unwind_root) && control.cancellation.terminal());
+    preserved();
+  }
+  I::phase = original_phase;
+  if (!owner) {
+    I::active_attributes = &worker.attributes;
+    rejected();
+    I::active_attributes = active;
+  }
+  // Repeated child recovery must retain the same carrier and original root.
+  assert(M::thread_registry.freeze_active_cleanup_for_fork(control));
+  registered_tid = ++control.attributes.tid;
+  M::thread_registry.restore_active_cleanup_fork_child(
+      control, I::ForkRecovery::child(true, true));
+  const auto before = registrations;
+  robust_error = 22;
+  assert(!I::adopt_active_cleanup_fork_survivor() && registrations == before);
+  assert(I::phase == original_phase && root.matches(control.unwind_root));
+  assert(control.cancellation.terminal());
+  preserved();
+  robust_error = 0;
+  ++registered_tid;
+  assert(!I::adopt_active_cleanup_fork_survivor()); // Kernel TID mismatch.
+  assert(I::phase == original_phase && root.matches(control.unwind_root));
+  assert(control.cancellation.terminal());
+  preserved();
+  --registered_tid;
+  assert(I::adopt_active_cleanup_fork_survivor());
+  assert(registrations == before + 2 && I::phase == original_phase);
+  assert(root.matches(control.unwind_root) && control.cancellation.terminal());
+  preserved();
+  assert(!I::adopt_active_cleanup_exec_only_survivor());
+  control.fork_recovery = I::ForkRecovery::child();
+  const auto restricted_before = registrations;
+  assert(I::adopt_active_cleanup_exec_only_survivor());
+  assert(registrations == restricted_before + 1 && I::phase == original_phase);
+  assert(root.matches(control.unwind_root) && control.cancellation.terminal());
+  preserved();
+  assert(control.begin_callback_cleanup());
+  assert(!I::adopt_active_cleanup_exec_only_survivor());
+  rejected(); // TLS/TSS has started: no longer active stack cleanup.
+  preserved();
+  {
+    M::ThreadRegistryLock lock(M::thread_registry);
+    assert(lock.close_leases(control) && lock.exit_ready(control, 0));
+  }
+  rejected(); // ExitReady is never an active stack continuation.
+}
+
 int main(int argc, char **argv) {
-  assert(argc == 2 && (argv[1][0] == '0' || argv[1][0] == '1'));
+  assert(argc == 2);
+  active_adopter_case = argv[1][0] == 'a';
+  assert(active_adopter_case || argv[1][0] == '0' || argv[1][0] == '1');
   // Each ownership case starts with untouched production registry/phase state.
-  for (unsigned owner = 0; owner != 4; ++owner) {
+  const unsigned cases = active_adopter_case ? 3 : 4;
+  for (unsigned owner = 0; owner != cases; ++owner) {
     pid_t child = ::fork();
     assert(child >= 0);
     if (!child) {
+      if (active_adopter_case) {
+        active_adopter(owner);
+        ::_exit(0);
+      }
       detached = owner != 0;
       managed = owner >= 2;
       mq = owner == 3;

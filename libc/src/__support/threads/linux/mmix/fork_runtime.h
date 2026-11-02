@@ -16,6 +16,7 @@ class ForkOperation {
   ThreadControl *caller = nullptr;
   uint64_t saved_mask = 0;
   bool serial = false, masked = false, suppressed = false;
+  uint64_t suppression_baseline = 0;
   bool priority = false, streams = false, allocator = false, registry = false;
   bool helper_drained = false;
   bool notifications = false;

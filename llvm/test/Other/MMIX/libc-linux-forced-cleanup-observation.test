@@ -1,0 +1,97 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../.. %t %mmix_host_cxx
+
+# Production force_exit/stop/snapshot/validate and CursorLifetime helpers with
+# injected kernel, phase-2 transport and image services. No builds/runs of this
+# native test imply MMIX execution, copied continuation or fork admission.
+#--- run.py
+import pathlib
+import shlex
+import subprocess
+import sys
+
+source, out = map(pathlib.Path, sys.argv[1:3])
+threads = source / "libc/src/__support/threads/linux/mmix"
+production = (threads / "unwind_root.cpp").read_text()
+# Signal-transfer assembly is not a host service. Leave every binding and
+# ordinary forced-exit function unchanged; trap if the excluded path is entered.
+instruction = 'asm volatile("OR %0, r254, 0" : "=r"(sp));'
+assert production.count(instruction) == 1
+(out / "native-unwind-root.cpp").write_text(
+    production.replace(instruction, "__builtin_trap(); sp = 0;"))
+
+shared = ["LIBC_MMIX_SHARED_STARTUP", "_LIBUNWIND_MMIX_STARTUP_IMAGES"]
+static = ["_LIBUNWIND_MMIX_CURSOR_LIFETIME"]
+policy = ["_LIBUNWIND_USE_METADATA_POLICY"]
+signal = policy + ["LIBC_MMIX_SIGNAL_UNWIND", "LIBC_MMIX_SIGNAL_CLEANUP"]
+profiles = {
+    "untracked": [],
+    "static": static,
+    "shared": shared,
+    "static-policy": static + policy,
+    "shared-policy": shared + policy,
+    "static-signal": static + signal,
+    "shared-signal": shared + signal,
+}
+for name, macros in profiles.items():
+    for opt in ("0", "2"):
+        exe = out / (name + "-O" + opt)
+        subprocess.run([
+            *shlex.split(sys.argv[3]), "-std=c++17", "-fexceptions", "-UNDEBUG",
+            "-O" + opt, "-I", str(out), "-I", str(threads),
+            "-I", str(source / "libc"), "-I", str(source / "libunwind/src"),
+            "-DLIBC_NAMESPACE=forced_cleanup_observation_test",
+            "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+            "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
+            *["-D" + macro for macro in macros],
+            str(source / "libc/test/src/__support/threads/forced-cleanup-observation-native.cpp"),
+            "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
+
+# The checkpoint is now a base import even without signal cancellation. Keep
+# the two allowlists disjoint, with private provider symbols exported once.
+config = source / "libc/config/linux/mmix"
+ordinary = (config / "shared-unwind-imports.txt").read_text().splitlines()
+signals = (config / "shared-signal-unwind-imports.txt").read_text().splitlines()
+assert len(ordinary) == len(set(ordinary))
+assert len(signals) == len(set(signals))
+assert not set(ordinary) & set(signals)
+exports = (source / "libunwind/src/mmix/Shared.cmake").read_text()
+for symbol in ("__libunwind_mmix_cursor_checkpoint",
+               "__libunwind_mmix_forced_capture",
+               "__libunwind_mmix_forced_validate"):
+    assert symbol in ordinary
+    assert exports.count(symbol + ";") == 1
+
+#--- asm/rstack.h
+#ifndef TEST_FORCED_CLEANUP_RSTACK_H
+#define TEST_FORCED_CLEANUP_RSTACK_H
+#include <stdint.h>
+#define __NR_mmix_rstack_query 10000
+#define __NR_mmix_rstack_jump 10001
+#define MMIX_RSTACK_JUMP_SETMASK 1
+struct mmix_rstack_query { uint64_t chain_id, sigmask; };
+struct mmix_rstack_jump {
+  uint64_t chain, pc, argument, value, flags, sigmask;
+};
+#endif
+
+#--- libunwind.h
+#ifndef TEST_FORCED_CLEANUP_LIBUNWIND_H
+#define TEST_FORCED_CLEANUP_LIBUNWIND_H
+#include <stdint.h>
+typedef uintptr_t unw_word_t;
+struct unw_context_t { uintptr_t unused; };
+struct unw_cursor_t { uintptr_t unused; };
+struct unw_proc_info_t { uintptr_t start_ip; };
+enum { UNW_MMIX_RO = 0, UNW_REG_SP = 1 };
+extern "C" {
+int unw_getcontext(unw_context_t *);
+int unw_init_local(unw_cursor_t *, unw_context_t *);
+int unw_step(unw_cursor_t *);
+int unw_is_signal_frame(unw_cursor_t *);
+int unw_get_reg(unw_cursor_t *, int, unw_word_t *);
+int unw_get_proc_info(unw_cursor_t *, unw_proc_info_t *);
+}
+#endif

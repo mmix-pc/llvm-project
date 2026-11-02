@@ -49,9 +49,16 @@ bool reaper_absent_for_exit_fork(ThreadControl &caller,
   // A zero registry helper count alone precedes final resource release. The
   // bootstrap lock also excludes creation, retirement and failed rollback.
   if (!bootstrap.attributes && !bootstrap.control &&
-      !bootstrap.stopping.load() &&
-      thread_registry.freeze_for_fork(caller, 1, &single, true, continuation))
-    thread_registry.release_after_fork();
+      !bootstrap.stopping.load()) {
+    if (continuation == ForkContinuation::ActiveStackCleanup) {
+      single = thread_registry.freeze_active_cleanup_for_fork(caller);
+      if (single)
+        thread_registry.release_after_fork();
+    } else if (thread_registry.freeze_for_fork(
+          caller, continuation == ForkContinuation::QuickCallback ? 2 : 1,
+          &single, true, continuation))
+      thread_registry.release_after_fork();
+  }
   bootstrap.mutex.unlock();
   return single;
 }

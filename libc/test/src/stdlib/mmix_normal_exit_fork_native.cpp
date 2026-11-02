@@ -22,6 +22,8 @@
 // tests.
 // Helper DURING rows use production ForkOperation, registry and adoption, but
 // only injected helper snapshots: no service actors, pending I/O or guest proof.
+// Active cleanup rollback uses a mocked authenticated witness and parent-only
+// transport: no actual forced unwinder, cleanup dispatch or child adoption.
 
 #include <cassert>
 #include <csignal>
@@ -68,6 +70,7 @@ enum class Case {
   RecursiveTLSExit,
   Terminal,
   Quick,
+  ActiveCleanup,
   DuringReturn,
   RecursiveDuringChild,
   TerminalDuring,
@@ -108,6 +111,7 @@ unsigned main_drains;
 unsigned worker_drain_returns;
 bool registration_failure;
 bool clone_failure, loader_snapshot, notification_snapshot, allocator_snapshot;
+bool credential_snapshot;
 unsigned notification_prepares, drain_roots, after_roots, drain_returns;
 unsigned pending_tls, pending_tss, callback_returns;
 unsigned clone_attempts;
@@ -115,9 +119,36 @@ unsigned once_restores, root_restores, owner_retains, owner_releases;
 unsigned aio_prepares, aio_freezes, aio_thaws, aio_finishes;
 unsigned aio_child_thaws, aio_child_finishes, notification_child_finishes;
 bool aio_snapshot, aio_frozen, helpers_report_drained, restricted_checkpoint;
-enum class SnapshotFailure { None, Notification, AIO, Loader, Freeze };
+enum class SnapshotFailure { None, Notification, AIO, Loader, Priority, Allocator, Freeze };
 SnapshotFailure snapshot_failure;
 M::ThreadControl *snapshot_helper;
+
+// Model the authentication boundary, not the unwinder or cleanup-list provider.
+// The live mock survives rollback; only the operation-scoped borrow is cleared.
+struct MockCleanupRecord {
+  const MockCleanupRecord *next;
+  uint64_t serial;
+};
+enum class MockForcedPhase { Stopped, Landing };
+struct MockActiveWitness {
+  M::UnwindRoot root{};
+  MockForcedPhase phase = MockForcedPhase::Stopped;
+  uint64_t forced_token = 0;
+  const MockCleanupRecord *executing = nullptr, *remaining = nullptr;
+  uint64_t registration_serial = 0;
+};
+MockActiveWitness mock_active, mock_borrow;
+bool mock_authenticated;
+const void *mock_operation;
+unsigned active_captures, active_validations, active_ends;
+constexpr long MockParentResult = 4242;
+
+bool same_mock_witness(const MockActiveWitness &a, const MockActiveWitness &b) {
+  return a.root.matches(b.root) && a.root.active == b.root.active &&
+         a.phase == b.phase && a.forced_token == b.forced_token &&
+         a.executing == b.executing && a.remaining == b.remaining &&
+         a.registration_serial == b.registration_serial;
+}
 
 bool helper_worker_case() {
   return selected == Case::HelperWorkerTLS ||
@@ -327,7 +358,8 @@ void fork_with_helper_snapshot() {
   }
 
   for (auto failure : {SnapshotFailure::Notification, SnapshotFailure::AIO,
-                       SnapshotFailure::Loader, SnapshotFailure::Freeze}) {
+                       SnapshotFailure::Loader, SnapshotFailure::Priority,
+                       SnapshotFailure::Allocator, SnapshotFailure::Freeze}) {
     const auto cloned = clone_attempts;
     const auto prepared = aio_prepares;
     const auto frozen = aio_freezes, thawed = aio_thaws, finished = aio_finishes;
@@ -343,9 +375,12 @@ void fork_with_helper_snapshot() {
       }
     }
     snapshot_failure = SnapshotFailure::None;
+    assert(!credential_snapshot);
     assert(clone_attempts == cloned);
     assert(aio_prepares == prepared + (failure != SnapshotFailure::Notification));
     const bool prepared_aio = failure == SnapshotFailure::Loader ||
+                              failure == SnapshotFailure::Priority ||
+                              failure == SnapshotFailure::Allocator ||
                               failure == SnapshotFailure::Freeze;
     assert(aio_finishes == finished + prepared_aio &&
            aio_thaws == thawed + prepared_aio);
@@ -1286,7 +1321,9 @@ namespace mmix {
 MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
                                bool try_only) {
   assert(this == &current_control->priority_protection.guard);
-  assert(!timeout && !try_only && !lock_count);
+  assert(!timeout && try_only && !lock_count && credential_snapshot);
+  if (snapshot_failure == SnapshotFailure::Priority)
+    return MutexError::BUSY;
   lock_count = 1;
   return MutexError::NONE;
 }
@@ -1300,16 +1337,26 @@ void close_notification_admission() { notifications_closed = true; }
 CredentialGate::CredentialGate() { __builtin_trap(); }
 CredentialGate::~CredentialGate() { __builtin_trap(); }
 void unregister_credentials(ThreadControl &) { __builtin_trap(); }
-bool prepare_credentials_fork() { return true; }
-void finish_credentials_fork() {}
+bool prepare_credentials_fork() {
+  assert(!credential_snapshot);
+  credential_snapshot = true;
+  return true;
+}
+void finish_credentials_fork() {
+  assert(credential_snapshot);
+  credential_snapshot = false;
+}
 void restore_credentials_after_fork(ThreadControl &) {}
 void once_after_fork(bool quiescent) {
   assert(quiescent && !helper_case());
   ++once_restores;
 }
-void allocator_fork_prepare() {
-  assert(!allocator_snapshot);
+bool allocator_fork_try_prepare() {
+  assert(!allocator_snapshot && credential_snapshot);
+  if (snapshot_failure == SnapshotFailure::Allocator)
+    return false;
   allocator_snapshot = true;
+  return true;
 }
 void allocator_fork_release() {
   assert(allocator_snapshot);
@@ -1330,7 +1377,9 @@ void finish_loader_fork(bool child, bool resume) {
   loader_snapshot = false;
 }
 int prepare_notification_fork(bool minimal, bool *drained, bool retire_helpers) {
-  assert(!minimal && !notification_snapshot);
+  assert((!minimal || selected == Case::Quick || selected == Case::WorkerQuick ||
+          selected == Case::ActiveCleanup) &&
+         !notification_snapshot);
   assert(retire_helpers == !(helper_case() || restricted_checkpoint));
   ++notification_prepares;
   if (snapshot_failure == SnapshotFailure::Notification)
@@ -1346,7 +1395,9 @@ void finish_notification_fork(bool child) {
 }
 // Snapshot ownership only: no real service, actors, CQEs or invocation disposal.
 int prepare_aio_fork(bool minimal, bool *drained, bool retire_helpers) {
-  assert(!minimal && !aio_snapshot && !aio_frozen && notification_snapshot);
+  assert((!minimal || selected == Case::Quick || selected == Case::WorkerQuick ||
+          selected == Case::ActiveCleanup) &&
+         !aio_snapshot && !aio_frozen && notification_snapshot);
   assert(retire_helpers == !(helper_case() || restricted_checkpoint));
   ++aio_prepares;
   if (snapshot_failure == SnapshotFailure::AIO)
@@ -1378,6 +1429,13 @@ ForkResult fork_process(bool wait_for_exec) {
   assert(!wait_for_exec);
   ++clone_attempts;
   const auto owner = current_control->attributes.tid;
+  if (selected == Case::ActiveCleanup) {
+    assert(mock_operation && same_mock_witness(mock_active, mock_borrow));
+    assert(aio_frozen && allocator_snapshot && loader_snapshot &&
+           credential_snapshot && notification_snapshot);
+    // A successful parent return only; never enter the active child adopter.
+    return {clone_failure ? -EAGAIN : MockParentResult, owner};
+  }
   if (clone_failure) return {-EAGAIN, owner};
   pid_t child = ::fork();
   assert(child >= 0);
@@ -1388,9 +1446,49 @@ ForkResult fork_process(bool wait_for_exec) {
 // boundaries make the real ForkOperation/finish/certificate flow executable
 // on the host, including loader-before-metadata ordering and no window reset.
 bool has_c_cleanup() { return false; }
+bool active_cleanup_spawn_context(ThreadControl &c) {
+  return selected == Case::ActiveCleanup && mock_authenticated &&
+         current_control == &c && c.cancellation.terminal() &&
+         c.unwind_root.active && mock_active.root.matches(c.unwind_root) &&
+         c.unwind_root.kind == UnwindRootKind::Thread;
+}
+bool capture_active_fork_cleanup(ThreadControl &c, const void *operation) {
+  if (!active_cleanup_spawn_context(c) || !operation ||
+      (mock_operation && mock_operation != operation))
+    return false;
+  assert(ForkOperation::active_on_this_thread());
+  assert((mask | CREDENTIAL_MASK) == UINT64_MAX);
+  mock_operation = operation;
+  mock_borrow = mock_active;
+  ++active_captures;
+  return true;
+}
+bool validate_active_fork_cleanup(ThreadControl &c, const void *operation) {
+  if (selected != Case::ActiveCleanup)
+    return false;
+  ++active_validations;
+  assert((mask | CREDENTIAL_MASK) == UINT64_MAX);
+  return operation && mock_operation == operation &&
+         active_cleanup_spawn_context(c) &&
+         same_mock_witness(mock_active, mock_borrow);
+}
+bool quarantine_active_fork_cleanup(ThreadControl &, const void *) { return false; }
+void end_active_fork_cleanup(const void *operation) {
+  if (selected != Case::ActiveCleanup)
+    return;
+  assert(!mock_operation || mock_operation == operation);
+  assert(!notification_snapshot && !aio_snapshot && !aio_frozen &&
+         !loader_snapshot && !allocator_snapshot && !credential_snapshot);
+  if (mock_operation)
+    ++active_ends;
+  mock_operation = nullptr;
+  mock_borrow = {};
+}
 bool ordinary_fork_context(ThreadControl &c) {
-  assert(!loader_snapshot);
-  return current_control == &c && c.unwind_root.active;
+  // This injected chain query, like production's syscall, does not enter the
+  // loader and is also safe for the final frozen identity recheck.
+  return selected != Case::ActiveCleanup && current_control == &c &&
+         c.unwind_root.active;
 }
 bool terminal_thread_fork_context(ThreadControl &c) {
   return ordinary_fork_context(c) && c.terminal_cleanup_in_progress() &&
@@ -1413,7 +1511,13 @@ bool restore_fork_unwind(ThreadControl &c) {
   ++root_restores;
   return c.unwind_root.active;
 }
-bool restore_fork_cancellation(ThreadControl &) { __builtin_trap(); }
+bool restore_fork_cancellation(ThreadControl &c, uint64_t suppression) {
+  assert(selected == Case::Quick || selected == Case::WorkerQuick);
+  assert(suppression == 2 && c.cancellation_suppression.load() == 2 &&
+         !c.cancellation_identity && !loader_snapshot);
+  c.cancellation_identity = 19;
+  return true;
+}
 void run_with_unwind_root(ThreadControl &, RootBody *, void *) { __builtin_trap(); }
 void run_with_terminal_cleanup_root(ThreadControl &c, RootBody *body, void *arg) {
   assert(!c.unwind_root.active &&
@@ -1987,6 +2091,281 @@ static void exercise_helper_snapshot(M::ThreadControl &initial) {
   __builtin_trap();
 }
 
+static void exercise_active_cleanup() {
+  auto &c = *M::current_control;
+  c.unwind_root = {&c, 8, 16, 24, 4, 5, true, M::UnwindRootKind::Thread};
+  c.cancellation_identity = 19;
+  c.cancellation_generation = 23;
+  {
+    M::ThreadRegistryLock lock(M::thread_registry);
+    assert(lock.begin_cleanup(c));
+  }
+  const MockCleanupRecord tail{nullptr, 2}, pending{&tail, 4};
+  const MockCleanupRecord executing{&pending, 0};
+  mock_active = {c.unwind_root, MockForcedPhase::Stopped, 41, &executing,
+                 &pending, 6};
+  mock_authenticated = true;
+  const auto witness = mock_active;
+  const auto phase = I::phase;
+  const auto normal_phase = I::normal_exit_phase;
+  auto *attributes = I::self.attrib;
+  auto *manager = attributes->atexit_callback_mgr;
+  auto *active = I::active_attributes;
+  const auto owner = attributes->tid;
+  const auto registered = registrations;
+  const auto saved_mask = mask;
+  LIBC_NAMESPACE::libc_errno = 73;
+
+  auto check_parent = [&] {
+    assert(same_mock_witness(mock_active, witness) && mock_authenticated);
+    assert(!mock_operation && !mock_borrow.forced_token &&
+           !mock_borrow.executing && !mock_borrow.remaining);
+    assert(executing.next == &pending && !executing.serial &&
+           pending.next == &tail && pending.serial == 4 &&
+           !tail.next && tail.serial == 2);
+    assert(c.unwind_root.matches(witness.root) && c.unwind_root.active);
+    assert(I::phase == phase && I::normal_exit_phase == normal_phase &&
+           I::active_attributes == active && I::self.attrib == attributes &&
+           attributes->atexit_callback_mgr == manager);
+    assert(attributes->tid == owner && registrations == registered);
+    assert(c.terminal_cleanup_pending() && !c.terminal_cleanup_in_progress() &&
+           !c.terminal_cleanup_finished() &&
+           !I::main_thread_cleanup_in_progress() &&
+           !I::main_thread_cleanup_finished());
+    assert(c.cancellation.terminal() && c.cancellation.enabled() &&
+           !c.cancellation.ready() && !c.cancellation.asynchronous());
+    assert(c.cancellation_identity == 19 && c.cancellation_generation == 23 &&
+           !c.cancellation_suppression.load() && !c.cancellation_point.load() &&
+           !c.cancellation_transfer.load());
+    assert(!c.fork_recovery.is_child() && c.fork_recovery.allows_fork());
+    assert(!c.loader_scopes.load() && !c.loader_callbacks.load());
+    assert(!M::ForkOperation::active_on_this_thread() &&
+           !c.priority_protection.guard.lock_count);
+    assert(!loader_snapshot && !notification_snapshot && !allocator_snapshot &&
+           !credential_snapshot && !aio_snapshot && !aio_frozen);
+    assert(!notifications_closed && !tls_drains && !process_drains &&
+           !once_restores && !root_restores && !owner_retains && !owner_releases &&
+           !aio_child_thaws && !aio_child_finishes &&
+           !notification_child_finishes);
+    assert(!M::bootstrap.control && !M::bootstrap.attributes &&
+           !M::bootstrap.stopping.load());
+    assert(mask == saved_mask && int(LIBC_NAMESPACE::libc_errno) == 73);
+    // Reacquire the real stream and registry locks, and inspect membership,
+    // open leases and census without completing or relinking the caller.
+    assert(LIBC_NAMESPACE::File::list_lock.try_lock() ==
+           LIBC_NAMESPACE::MutexError::NONE);
+    LIBC_NAMESPACE::File::unlock_list();
+    M::ThreadRegistryLock lock(M::thread_registry);
+    assert(lock.live_threads() == 1 && !lock.process_exiting() &&
+           !lock.queued_reclaims() && !lock.pending_creations() &&
+           !lock.pending_helper_creations());
+    assert(lock.owner(c) == M::ThreadOwner::Joinable &&
+           lock.callback_phase(c) == M::CallbackPhase::None);
+    assert(lock.pin(attributes) == &c && lock.acquire_lease(c));
+    assert(lock.release_lease(c) && lock.unpin(c));
+  };
+  auto retry = [&](bool minimal) {
+    const auto cloned = clone_attempts, captured = active_captures;
+    const auto validated = active_validations, ended = active_ends;
+    {
+      M::ForkOperation operation(minimal);
+      assert(!operation.error() && !operation.prepare_runtime() &&
+             !operation.freeze_registry());
+      assert(mock_operation == &operation &&
+             c.cancellation_suppression.load() == 1);
+      assert(operation.create_child() == MockParentResult);
+      operation.restore_runtime(false);
+      assert(c.cancellation_suppression.load() == 1 &&
+             mock_operation == &operation);
+    }
+    assert(clone_attempts == cloned + 1 && active_captures == captured + 2 &&
+           active_validations == validated + 2 && active_ends == ended + 1);
+    check_parent();
+  };
+  check_parent();
+
+  for (bool minimal : {false, true}) {
+    for (auto failure : {SnapshotFailure::Notification, SnapshotFailure::AIO,
+                         SnapshotFailure::Loader, SnapshotFailure::Priority,
+                         SnapshotFailure::Allocator, SnapshotFailure::Freeze}) {
+      const auto cloned = clone_attempts, prepared = aio_prepares;
+      const auto frozen = aio_freezes, thawed = aio_thaws, finished = aio_finishes;
+      const auto validated = active_validations, ended = active_ends;
+      snapshot_failure = failure;
+      {
+        M::ForkOperation operation(minimal);
+        assert(!operation.error());
+        if (failure == SnapshotFailure::Freeze) {
+          assert(!operation.prepare_runtime());
+          assert(operation.freeze_registry() == EAGAIN);
+        } else {
+          assert(operation.prepare_runtime() == EAGAIN);
+        }
+        assert(mock_operation == &operation &&
+               c.cancellation_suppression.load() == 1);
+      }
+      snapshot_failure = SnapshotFailure::None;
+      const bool prepared_aio = failure != SnapshotFailure::Notification &&
+                                failure != SnapshotFailure::AIO;
+      assert(clone_attempts == cloned && active_ends == ended + 1);
+      assert(active_validations ==
+             validated + 1 + (failure == SnapshotFailure::Freeze));
+      assert(aio_prepares ==
+             prepared + (failure != SnapshotFailure::Notification));
+      assert(aio_freezes == frozen + (failure == SnapshotFailure::Freeze) &&
+             aio_thaws == thawed + prepared_aio &&
+             aio_finishes == finished + prepared_aio);
+      check_parent();
+      retry(minimal);
+    }
+    const auto cloned = clone_attempts;
+    clone_failure = true;
+    {
+      M::ForkOperation operation(minimal);
+      assert(!operation.error() && !operation.prepare_runtime() &&
+             !operation.freeze_registry());
+      assert(operation.create_child() == -EAGAIN);
+      // Destruction must thaw and release a fully frozen failed transaction.
+    }
+    clone_failure = false;
+    assert(clone_attempts == cloned + 1);
+    check_parent();
+    retry(minimal);
+  }
+
+  // A changed mocked certificate after preparation must fail the final check
+  // before AIO freeze or transport, releasing the already acquired registry.
+  for (unsigned bad = 0; bad != 4; ++bad) {
+    const auto cloned = clone_attempts, frozen = aio_freezes;
+    const auto validated = active_validations, ended = active_ends;
+    {
+      M::ForkOperation operation;
+      assert(!operation.error() && !operation.prepare_runtime());
+      if (bad == 0) ++c.unwind_root.generation;
+      if (bad == 1) mock_active.phase = MockForcedPhase::Landing;
+      if (bad == 2) ++mock_active.forced_token;
+      if (bad == 3) mock_active.remaining = &tail;
+      assert(operation.freeze_registry() == EAGAIN);
+    }
+    // Undo only the test's mutation, never runtime rollback state.
+    if (bad == 0) {
+      assert(c.unwind_root.generation == witness.root.generation + 1);
+      --c.unwind_root.generation;
+    }
+    if (bad == 1) {
+      assert(mock_active.phase == MockForcedPhase::Landing);
+      mock_active.phase = witness.phase;
+    }
+    if (bad == 2) {
+      assert(mock_active.forced_token == witness.forced_token + 1);
+      --mock_active.forced_token;
+    }
+    if (bad == 3) {
+      assert(mock_active.remaining == &tail);
+      mock_active.remaining = witness.remaining;
+    }
+    assert(clone_attempts == cloned && aio_freezes == frozen);
+    assert(active_validations == validated + 1 + (bad != 0) &&
+           active_ends == ended + 1);
+    check_parent();
+    retry(false);
+  }
+}
+
+static void exercise_quick() {
+  auto &c = *M::current_control;
+  if (!c.unwind_root.active)
+    c.unwind_root = {&c, 1, 2, 3, 4, 5, true};
+  const auto root = c.unwind_root;
+  const auto old_phase = I::phase;
+  auto *old_attributes = I::active_attributes;
+  const auto saved_mask = mask;
+  const auto owner = c.attributes.tid;
+  I::begin_process_exit(0, true);
+  assert(c.cancellation_suppression.load() == 1);
+  { M::ForkOperation operation; assert(operation.error() == EAGAIN); }
+  I::publish_quick_exit_callback(&c);
+  c.cancellation.set_enabled(true);
+  c.cancellation.set_async(true);
+  c.cancellation.request();
+  assert(I::quick_exit_fork_owner() == owner);
+  c.cancellation_suppression.fetch_add(1);
+  { M::ForkOperation operation; assert(operation.error() == EAGAIN); }
+  assert(c.cancellation_suppression.fetch_sub(1) == 2);
+  for (auto failure : {SnapshotFailure::Notification, SnapshotFailure::AIO,
+                       SnapshotFailure::Loader, SnapshotFailure::Priority,
+                       SnapshotFailure::Allocator, SnapshotFailure::Freeze}) {
+    snapshot_failure = failure;
+    {
+      M::ForkOperation operation;
+      assert(!operation.error());
+      int error = operation.prepare_runtime();
+      if (!error) error = operation.freeze_registry();
+      assert(error == EAGAIN);
+    }
+    assert(c.cancellation_suppression.load() == 1 && c.cancellation.ready());
+    assert(mask == saved_mask && !loader_snapshot && !allocator_snapshot &&
+           !credential_snapshot &&
+           !aio_snapshot && !notification_snapshot);
+  }
+  snapshot_failure = SnapshotFailure::None;
+  {
+    M::ForkOperation operation;
+    assert(!operation.error() && !operation.prepare_runtime());
+    I::finish_quick_exit_callback();
+    assert(operation.freeze_registry() == EAGAIN);
+    I::publish_quick_exit_callback(&c);
+  }
+  clone_failure = true;
+  {
+    M::ForkOperation operation;
+    assert(!operation.error() && !operation.prepare_runtime() &&
+           !operation.freeze_registry());
+    assert(operation.create_child() == -EAGAIN);
+  }
+  clone_failure = false;
+  for (bool minimal : {false, true}) {
+    long child;
+    {
+      M::ForkOperation operation(minimal);
+      assert(!operation.error() && !operation.prepare_runtime() &&
+             !operation.freeze_registry());
+      child = operation.create_child();
+      assert(child >= 0);
+      operation.restore_runtime(!child);
+    }
+    assert(c.cancellation_suppression.load() == 1 &&
+           I::quick_exit_fork_owner() == c.attributes.tid);
+    assert(c.unwind_root.matches(root) && I::phase == old_phase &&
+           I::active_attributes == old_attributes && c.quick_cleanup_running());
+    assert(!M::thread_registry.claim_process_cleanup());
+    if (child) {
+      wait_success(child);
+      assert(c.cancellation.ready() && c.attributes.tid == owner);
+    } else {
+      assert(!c.cancellation.ready() && c.fork_recovery.allows_fork());
+      assert(!I::rebind_quick_exit_fork_owner(owner));
+      // A second generation needs the copied marker's rebound owner.
+      long grandchild;
+      {
+        M::ForkOperation operation(minimal);
+        assert(!operation.error() && !operation.prepare_runtime() &&
+               !operation.freeze_registry());
+        grandchild = operation.create_child();
+        assert(grandchild >= 0);
+        operation.restore_runtime(!grandchild);
+      }
+      assert(c.cancellation_suppression.load() == 1 &&
+             I::quick_exit_fork_owner() == c.attributes.tid);
+      if (grandchild) wait_success(grandchild);
+      ::_exit(0);
+    }
+  }
+  I::finish_quick_exit_callback();
+  assert(!I::quick_exit_fork_owner() && c.cancellation_suppression.load() == 1 &&
+         !tls_drains && !process_drains);
+}
+
 static void exercise(Case test) {
   selected = test;
   M::ThreadControl caller;
@@ -1999,6 +2378,10 @@ static void exercise(Case test) {
   assert(!I::main_thread_cleanup_in_progress());
   assert(!I::adopt_fork_survivor_after_cleanup());
   assert(!I::adopt_fork_survivor_during_cleanup());
+  if (test == Case::ActiveCleanup) {
+    exercise_active_cleanup();
+    return;
+  }
   if (helper_case()) {
     exercise_helper_snapshot(caller);
     return;
@@ -2119,10 +2502,8 @@ static void exercise(Case test) {
       return;
     }
     if (test == Case::WorkerQuick) {
-      I::begin_process_exit(0, true);
-      I::cleanup_current_thread();
-      assert(!I::normal_exit_fork_owner() && main_drains == 1 &&
-             tls_drains == 1);
+      exercise_quick();
+      assert(!I::normal_exit_fork_owner() && main_drains == 1 && !tls_drains);
       return;
     }
     if (test == Case::WorkerTerminal) {
@@ -2157,11 +2538,7 @@ static void exercise(Case test) {
     return;
   }
   if (test == Case::Quick) {
-    I::begin_process_exit(0, true);
-    I::cleanup_current_thread();
-    assert(I::main_thread_cleanup_finished());
-    assert(!I::normal_exit_fork_owner());
-    assert(!I::rebind_normal_exit_fork_owner(caller.attributes.tid));
+    exercise_quick();
     return;
   }
   try {
@@ -2195,6 +2572,7 @@ int main() {
                         Case::RecursiveTLSExit,
                         Case::Terminal,
                         Case::Quick,
+                        Case::ActiveCleanup,
                         Case::DuringReturn,
                         Case::RecursiveDuringChild,
                         Case::TerminalDuring,

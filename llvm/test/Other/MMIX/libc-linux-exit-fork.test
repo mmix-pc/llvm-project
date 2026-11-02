@@ -14,6 +14,11 @@
 # Explicit-exit and deferred-cancel entries check DURING rollback, minimal refusal and
 # revalidate queue/root/exit-owner certificates before clone. Cursor capture,
 # TLS/TSS callbacks and kernel transport remain injected, not guest evidence.
+# Active cleanup adds real ForkOperation/registry rollback at notification,
+# AIO, loader, priority, allocator, final-freeze and clone failures, with a
+# parent-only retry after each failure in normal and minimal modes. Authentication,
+# forced observation tokens and cleanup lists are explicitly mocked; no active
+# unwinder, child adoption, service execution or guest proof is claimed.
 #--- run.py
 import pathlib
 import shlex

@@ -7,6 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "unwind_root.h"
+#include "active_cleanup.h"
+#include "forced_cleanup.h"
 #include "lifecycle.h"
 #include "hdr/signal_macros.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
@@ -15,14 +17,13 @@
 #include <asm/unistd.h>
 #include <libunwind.h>
 #include <unwind.h>
-#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
-#include "mmix/CursorLifetime.h"
+#ifdef _LIBUNWIND_USE_METADATA_POLICY
+#include "UnwindMetadataPolicy.h"
 #endif
 #if defined(LIBC_MMIX_CANCELLATION_WINDOWS) || defined(LIBC_MMIX_SIGNAL_UNWIND)
 #include "cancellation_point.h"
 #endif
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
-#include "UnwindMetadataPolicy.h"
 #include "mmix/ForcedContext.h"
 #include "src/setjmp/mmix/linux/jump_cleanup.h"
 #include "src/signal/linux/mmix/signal_entry.h"
@@ -39,6 +40,11 @@ struct ForcedExit {
   UnwindRoot root{};
   void *result = nullptr;
   bool active = false;
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+  // Observation only. A nonempty base must not reject an otherwise valid exit.
+  MMIXCursorCheckpoint cursor_base{};
+#endif
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
   UnwindMetadataPolicyToken admission_policy{};
   UnwindMetadataPolicyToken *policy = nullptr;
@@ -54,6 +60,18 @@ LIBC_CONSTINIT LIBC_THREAD_LOCAL ForcedExit forced
     __attribute__((tls_model("initial-exec")))
 #endif
     ;
+
+// A nonrecursive fork borrows the suspended continuation in place. Keeping the
+// private provider types here avoids exposing them through every fork caller.
+// This storage owns no cursor, callback or image reference.
+struct ForkCleanupObservation {
+  const void *operation = nullptr;
+  ForcedCleanupWitness forced{};
+  ActiveCleanupWitness active{};
+  PendingCleanupWitness pending{};
+  bool callback = false;
+};
+LIBC_CONSTINIT LIBC_THREAD_LOCAL ForkCleanupObservation fork_cleanup;
 
 uint64_t current_chain() {
   mmix_rstack_query query{};
@@ -245,7 +263,8 @@ SignalEntryRecord *signal_segment(const ForcedExit &state, uint64_t chain) {
 capture_root(ThreadControl &control, uintptr_t activation, UnwindRootKind kind) {
   unw_context_t context;
   unw_cursor_t cursor;
-#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   MMIXCursorLifetime lifetime{};
   __libunwind_mmix_cursor_begin(&lifetime, &cursor);
 #endif
@@ -273,7 +292,8 @@ capture_root(ThreadControl &control, uintptr_t activation, UnwindRootKind kind) 
   root.chain = current_chain();
   root.kind = kind;
   root.active = true;
-#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   __libunwind_mmix_cursor_end(&lifetime);
 #endif
 }
@@ -345,7 +365,8 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
 #endif
     control->unwind_root.active = false;
     state.active = false;
-#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
     // No more cursor metadata is read after the terminal root decision.
     __libunwind_mmix_cursor_finish(context);
 #endif
@@ -371,7 +392,161 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
 }
 
 void disposed(_Unwind_Reason_Code, _Unwind_Exception *) { __builtin_trap(); }
+
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+bool ordinary_forced_cleanup(ThreadControl &control) {
+  const auto &root = control.unwind_root;
+  if (current_control != &control || !forced.active ||
+      !forced.root.matches(root) || root.owner != &control ||
+      root.kind != UnwindRootKind::Thread || !root.generation || !root.chain ||
+      !root.ro || !root.sp || !root.procedure ||
+      !control.cancellation.terminal() ||
+      forced.exception.exception_class != 0x4c4c564d50544852ULL ||
+      forced.exception.exception_cleanup != disposed ||
+      forced.exception.private_1 != reinterpret_cast<uintptr_t>(&stop) ||
+      forced.exception.private_2 != reinterpret_cast<uintptr_t>(&forced))
+    return false;
+#ifdef _LIBUNWIND_USE_METADATA_POLICY
+  if (__unw_metadata_policy_current() != UNW_METADATA_ORDINARY)
+    return false;
+#endif
+#ifdef LIBC_MMIX_SIGNAL_UNWIND
+  if (forced.policy || forced.admission_policy.owner ||
+      forced.admission_policy.generation || forced.admission_policy.parent ||
+      forced.admission_policy.previous_mode != UNW_METADATA_ORDINARY ||
+      forced.segment.generation ||
+      forced.handoff.phase != SignalParentHandoff::Phase::Empty ||
+      signal_boundary_owner.live || signal_boundary_owner.live_generation ||
+      signal_boundary_owner.handoff_generation)
+    return false;
+#endif
+  mmix_rstack_query query{};
+  return !syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) &&
+         query.chain_id == root.chain;
+}
+
+bool same_cursor_base(const MMIXCursorCheckpoint &a,
+                      const MMIXCursorCheckpoint &b) {
+  return a.thread == b.thread && a.owners == b.owners && a.query == b.query &&
+         a.forced_exception == b.forced_exception &&
+         a.forced_phase == b.forced_phase;
+}
+#endif
 } // namespace
+
+bool snapshot_forced_cleanup(ThreadControl &control, ForcedCleanupWitness &out) {
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+  if (!ordinary_forced_cleanup(control))
+    return false;
+  ForcedCleanupWitness observed{};
+  if (!__libunwind_mmix_forced_capture(
+          &forced.cursor_base, &forced.exception,
+          reinterpret_cast<uintptr_t>(&stop), &forced, &observed.continuation))
+    return false;
+  observed.root = forced.root;
+  observed.result = forced.result;
+  observed.base = forced.cursor_base;
+  out = observed;
+  return true;
+#else
+  (void)control;
+  (void)out;
+  return false;
+#endif
+}
+
+bool validate_forced_cleanup(ThreadControl &control,
+                             const ForcedCleanupWitness &witness) {
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+  return ordinary_forced_cleanup(control) &&
+         witness.root.matches(forced.root) && witness.result == forced.result &&
+         same_cursor_base(witness.base, forced.cursor_base) &&
+         __libunwind_mmix_forced_validate(
+             &forced.cursor_base, &forced.exception,
+             reinterpret_cast<uintptr_t>(&stop), &forced, &witness.continuation);
+#else
+  (void)control;
+  (void)witness;
+  return false;
+#endif
+}
+
+bool capture_active_fork_cleanup(ThreadControl &control, const void *operation) {
+  if (!operation || (fork_cleanup.operation &&
+                     fork_cleanup.operation != operation))
+    return false;
+  ForkCleanupObservation observed;
+  if (!snapshot_forced_cleanup(control, observed.forced))
+    return false;
+  const auto &root = observed.forced.root;
+  const auto phase = observed.forced.continuation.phase;
+  observed.callback = snapshot_active_c_cleanup(root, observed.active);
+  if (phase == MMIXForcedStopped) {
+    if (!observed.callback ||
+        observed.active.kind != ActiveCleanupKind::CDispatch)
+      return false;
+  } else if (phase == MMIXForcedLanding) {
+    if (observed.callback) {
+      if (observed.active.kind != ActiveCleanupKind::NormalPop)
+        return false;
+    } else if (!snapshot_pending_cleanup(root, observed.pending))
+      return false;
+  } else
+    return false;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  // Only scopes belonging to the authenticated invocations may survive.
+  // Destructors without registered callbacks must have no loader scope.
+  if (control.loader_callbacks.load() || control.loader_scopes.load() !=
+      (observed.callback ? observed.active.invocation_depth : 0))
+    return false;
+#endif
+  observed.operation = operation;
+  fork_cleanup = observed;
+  return true;
+}
+
+bool validate_active_fork_cleanup(ThreadControl &control,
+                                  const void *operation) {
+  const auto &saved = fork_cleanup;
+  if (!operation || saved.operation != operation ||
+      !validate_forced_cleanup(control, saved.forced))
+    return false;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  if (control.loader_callbacks.load() || control.loader_scopes.load() !=
+      (saved.callback ? saved.active.invocation_depth : 0))
+    return false;
+#endif
+  return saved.callback
+             ? validate_active_c_cleanup(saved.forced.root, saved.active)
+             : validate_pending_cleanup(saved.forced.root, saved.pending);
+}
+
+bool quarantine_active_fork_cleanup(ThreadControl &control,
+                                     const void *operation) {
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+  if (!control.fork_recovery.is_child() || control.fork_recovery.allows_fork() ||
+      !validate_active_fork_cleanup(control, operation))
+    return false;
+  const auto &saved = fork_cleanup.forced;
+  return __libunwind_mmix_forced_quarantine(
+      &saved.base, &forced.exception, reinterpret_cast<uintptr_t>(&stop),
+      &forced, &saved.continuation);
+#else
+  (void)control;
+  (void)operation;
+  return false;
+#endif
+}
+
+void end_active_fork_cleanup(const void *operation) {
+  if (fork_cleanup.operation && fork_cleanup.operation != operation)
+    __builtin_trap();
+  fork_cleanup = {};
+}
 
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
 bool try_signal_cancellation(uint64_t final_mask) {
@@ -623,18 +798,40 @@ run_with_process_exit_root(ThreadControl &control, RootBody *body,
       control->unwind_root.chain != current_chain() ||
       (cleanup_claimed && !control->cancellation.terminal()))
     __builtin_trap();
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+  uint64_t full_mask = UINT64_MAX, previous_mask;
+  if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
+                   reinterpret_cast<long>(&full_mask),
+                   reinterpret_cast<long>(&previous_mask), sizeof(full_mask)))
+    __builtin_trap();
+  // Capture before publication, not from a later stop or landing. Keep this
+  // distinct from signal unwind's empty_cursor disposal checkpoint.
+  __libunwind_mmix_cursor_checkpoint(&forced.cursor_base);
+#endif
   forced.root = control->unwind_root;
   forced.result = result;
   forced.active = true;
   forced.exception.exception_class = 0x4c4c564d50544852ULL; // LLVMPTHR.
   forced.exception.exception_cleanup = disposed;
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+  // The unclaimed path still lets begin_thread_cleanup own its original mask
+  // and terminal claim. The claimed path keeps exclusion until callback_mask.
+  if (!cleanup_claimed &&
+      syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
+                   reinterpret_cast<long>(&previous_mask), 0,
+                   sizeof(previous_mask)))
+    __builtin_trap();
+#endif
   if (!cleanup_claimed)
     begin_thread_cleanup(*control);
   else if (syscall_impl(SYS_rt_sigprocmask, SIG_SETMASK,
                         reinterpret_cast<long>(&callback_mask), 0,
                         sizeof(callback_mask)))
     __builtin_trap();
-#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   __libunwind_mmix_set_managed_stop(reinterpret_cast<uintptr_t>(&stop));
 #endif
   _Unwind_ForcedUnwind(&forced.exception, stop, &forced);

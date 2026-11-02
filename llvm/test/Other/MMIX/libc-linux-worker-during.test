@@ -20,3 +20,14 @@ for opt in ("0", "2"):
                     "-o", str(exe)], check=True)
     for cancel in ("0", "1"):
         subprocess.run([str(exe), cancel], check=True, timeout=30)
+    # Actual phase-preserving adopter: initial, joinable and detached workers.
+    # Inject robust registration so Preserve is checked, including failures.
+    active = root / ("active-adopter-O" + opt)
+    subprocess.run([*host, "-std=c++17", "-fexceptions", "-UNDEBUG", "-O" + opt,
+                    "-I", str(libc), "-DLIBC_NAMESPACE=worker_during_test",
+                    "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+                    "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
+                    "-DLIBC_MMIX_ROBUST_MUTEX",
+                    str(libc / "test/src/__support/threads/mmix_worker_during_native.cpp"),
+                    "-o", str(active)], check=True)
+    subprocess.run([str(active), "active"], check=True, timeout=30)

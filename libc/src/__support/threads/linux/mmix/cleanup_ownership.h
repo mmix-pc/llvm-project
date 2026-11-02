@@ -43,6 +43,8 @@ public:
   class Invocation {
     friend class CleanupOwners;
     CleanupOwners *owner = nullptr;
+    const void *record = nullptr;
+    uint64_t serial = 0;
     loader::LoaderSignalLease lease{};
 
   public:
@@ -53,6 +55,25 @@ public:
     bool active() const { return owner != nullptr; }
     // Idempotent for explicit completion followed by scope destruction.
     void release();
+  };
+
+  // Non-owning observation, never a second lease. Only a process snapshot may
+  // copy the actual Invocation together with its owner and loader accounting.
+  // In-process copies of this witness confer no release/restore authority.
+  struct Witness {
+    const CleanupOwners *owner = nullptr;
+    const Invocation *invocation = nullptr;
+    const void *record = nullptr;
+    uint64_t serial = 0;
+    const Node *remaining = nullptr;
+    uint64_t invocations = 0;
+    loader::LoaderSignalLease lease{};
+  };
+
+  // Pending-only identity: no Invocation and no borrowed or synthetic lease.
+  struct PendingWitness {
+    const CleanupOwners *owner = nullptr;
+    const Node *remaining = nullptr;
   };
 
 private:
@@ -72,6 +93,8 @@ private:
     if (!empty(invocation.lease))
       __builtin_trap();
     invocation.owner = nullptr;
+    invocation.record = nullptr;
+    invocation.serial = 0;
     --invocations;
   }
 
@@ -114,6 +137,8 @@ public:
         !empty(invocation.lease) || invocations == ~uint64_t(0))
       return false;
     invocation.owner = this;
+    invocation.record = record;
+    invocation.serial = serial;
     invocation.lease = node.lease;
     ++invocations;
     head = node.previous;
@@ -129,6 +154,65 @@ public:
     return head && detach(*head, record, serial, invocation);
   }
   bool has_invocations() const { return invocations != 0; }
+
+  // A pending cursor is available only after positively excluding detached
+  // invocations, even when the registration list itself is empty.
+  bool snapshot_pending(PendingWitness &out) const {
+    if (has_invocations())
+      return false;
+    out = {this, head};
+    return true;
+  }
+
+  static bool same_pending_witness(const PendingWitness &a,
+                                   const PendingWitness &b) {
+    return a.owner == b.owner && a.remaining == b.remaining;
+  }
+
+  // Read-only owner-thread inspection under signal exclusion. The live
+  // Invocation is supplied independently, not dereferenced from a witness.
+  bool snapshot(const Invocation &invocation, Witness &out) const {
+    if (invocation.owner != this || !invocations || !invocation.record ||
+        !invocation.serial || !invocation.lease.snapshot ||
+        !invocation.lease.images[0])
+      return false;
+    out = {this, &invocation, invocation.record, invocation.serial, head,
+           invocations, invocation.lease};
+    return true;
+  }
+
+  // Nested registration changes the list/count, but not a detached lease's
+  // identity. Compare fresh observations, never dereference saved pointers.
+  static bool same_invocation(const Witness &a, const Witness &b) {
+    return a.owner == b.owner && a.invocation == b.invocation &&
+           a.record == b.record && a.serial == b.serial &&
+           a.lease.snapshot == b.lease.snapshot &&
+           a.lease.images[0] == b.lease.images[0] &&
+           a.lease.images[1] == b.lease.images[1];
+  }
+
+  static bool same_witness(const Witness &a, const Witness &b) {
+    return same_invocation(a, b) && a.remaining == b.remaining &&
+           a.invocations == b.invocations;
+  }
+
+  bool validate(const Invocation &invocation, const Witness &witness) const {
+    Witness now;
+    return snapshot(invocation, now) && same_witness(now, witness);
+  }
+
+  // Walk only a cursor obtained from a successful live Witness/PendingWitness
+  // snapshot, never from a saved witness supplied by the caller. This
+  // advances the observation, never the owning list or any lease.
+  static bool match_record(const Node *&cursor, const void *record,
+                           uint64_t serial) {
+    if (!cursor || !record || !serial || cursor->record != record ||
+        cursor->serial != serial || !cursor->lease.snapshot ||
+        !cursor->lease.images[0])
+      return false;
+    cursor = cursor->previous;
+    return true;
+  }
   // An empty registration list alone is not a terminal-transfer certificate.
   bool idle() const { return !has_records() && !has_invocations(); }
 };

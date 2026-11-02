@@ -292,12 +292,13 @@ void initialize_cancellation_windows(ThreadControl &control) {
   restore_mask(control.cancellation.enabled() ? old & ~CANCEL_MASK : old);
 }
 
-bool restore_fork_cancellation(ThreadControl &control) {
+bool restore_fork_cancellation(ThreadControl &control,
+                               uint64_t expected_suppression) {
   if (!initialized || current_control != &control ||
       !control.fork_recovery.allows_loader() || !control.unwind_root.active ||
       control.cancellation_identity || control.cancellation_point.load() ||
       control.cancellation_transfer.load() ||
-      control.cancellation_suppression.load() != 1)
+      control.cancellation_suppression.load() != expected_suppression)
     return false;
   long child_pid = syscall_impl(SYS_getpid);
   if (child_pid <= 0)

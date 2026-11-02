@@ -25,6 +25,7 @@ struct UnwindMetadataPolicyToken;
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 struct ThreadControl;
+struct ForcedCleanupWitness;
 enum class UnwindRootKind { Thread, TerminalThreadCleanup, LastThreadProcess };
 
 // Private runtime state, not a public pthread or kernel ABI.
@@ -52,6 +53,20 @@ bool restore_fork_unwind(ThreadControl &control);
 bool ordinary_fork_context(ThreadControl &control);
 // Parent-only event-spawn admission. Does not authorize copied unwind recovery.
 bool active_cleanup_spawn_context(ThreadControl &control);
+// Read-only private forced-state observation, not fork admission. The complete
+// borrow contract and provider-dependent identities are in forced_cleanup.h.
+bool snapshot_forced_cleanup(ThreadControl &control, ForcedCleanupWitness &out);
+bool validate_forced_cleanup(ThreadControl &control,
+                             const ForcedCleanupWitness &witness);
+// Borrowed observation scoped to one nonrecursive ForkOperation. Capture may
+// refresh after prepare callbacks; validate never changes the observation.
+// Application signals must be blocked. No ownership or registry admission is
+// supplied here. End before the operation's stack storage or signals resume.
+bool capture_active_fork_cleanup(ThreadControl &control, const void *operation);
+bool validate_active_fork_cleanup(ThreadControl &control, const void *operation);
+bool quarantine_active_fork_cleanup(ThreadControl &control,
+                                     const void *operation);
+void end_active_fork_cleanup(const void *operation);
 bool last_thread_fork_context(ThreadControl &control);
 bool last_worker_fork_context(ThreadControl &control);
 bool terminal_thread_fork_context(ThreadControl &control);

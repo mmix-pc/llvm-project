@@ -112,6 +112,25 @@ pid_t quick_exit_fork_owner() {
   return 0;
 }
 
+bool rebind_quick_exit_fork_owner([[maybe_unused]] pid_t previous_tid) {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes || previous_tid <= 0 ||
+      process_cleanup_tid != uint64_t(previous_tid) ||
+      !quick_callback.load(cpp::MemoryOrder::ACQUIRE) ||
+      normal_exit_phase != NormalExitPhase::None ||
+      !control->fork_recovery.is_child() ||
+      !control->fork_recovery.allows_fork() || control->attributes.tid <= 0 ||
+      control->cancellation.terminal() ||
+      control->cancellation_suppression.load() != 2)
+    return false;
+  process_cleanup_tid = uint64_t(control->attributes.tid);
+  return true;
+#else
+  return false;
+#endif
+}
+
 pid_t normal_exit_fork_owner(bool *during_cleanup) {
   if (during_cleanup)
     *during_cleanup = false;

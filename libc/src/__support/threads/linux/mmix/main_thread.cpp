@@ -158,6 +158,72 @@ bool adopt_terminal_exec_only_survivor() {
 #endif
 }
 
+bool adopt_quick_exit_fork_survivor() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes ||
+      !control->fork_recovery.is_child() ||
+      !control->fork_recovery.allows_fork() || !control->quick_cleanup_running() ||
+      control->cancellation_suppression.load() != 2)
+    return false;
+  // Resume the copied quick drain. Do not start or finish TLS/TSS cleanup.
+  return register_fork_child(*control, RobustInheritance::Preserve);
+#else
+  return false;
+#endif
+}
+
+bool adopt_active_cleanup_fork_survivor() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes ||
+      !control->fork_recovery.is_child() ||
+      !control->fork_recovery.allows_fork())
+    return false;
+  const auto &root = control->unwind_root;
+  if (!root.active || root.owner != control ||
+      root.kind != mmix::UnwindRootKind::Thread || !root.generation ||
+      !root.chain)
+    return false;
+  // Pending without in-progress proves Cleaning/terminal before callbacks.
+  // Only the original process-lifetime carrier may inspect main's phase.
+  if (control->retains_resources_until_process_exit()) {
+    if (!control->terminal_cleanup_pending() ||
+        control->terminal_cleanup_in_progress() ||
+        self.attrib != active_attributes || phase != Phase::Active)
+      return false;
+  } else if (!control->worker_cleanup_pending() ||
+             control->worker_cleanup_in_progress()) {
+    return false;
+  }
+  return register_fork_child(*control, RobustInheritance::Preserve);
+#else
+  return false;
+#endif
+}
+
+bool adopt_active_cleanup_exec_only_survivor() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes ||
+      !control->fork_recovery.is_child() ||
+      control->fork_recovery.allows_fork() || !control->cancellation.terminal() ||
+      (!control->terminal_cleanup_pending() &&
+       !control->worker_cleanup_pending()) ||
+      control->terminal_cleanup_in_progress() ||
+      control->worker_cleanup_in_progress() ||
+      control->unwind_root.owner != control || !control->unwind_root.active ||
+      control->unwind_root.kind != mmix::UnwindRootKind::Thread ||
+      !control->unwind_root.chain || !control->unwind_root.generation)
+    return false;
+  // Do not expose inherited robust registrations to child kernel exit. The
+  // copied cleanup/manager/backing remain untouched and may not resume.
+  return register_fork_child(*control, RobustInheritance::Discard);
+#else
+  return false;
+#endif
+}
+
 bool adopt_fork_survivor_during_thread_exit() {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   auto *control = mmix::current_control;
