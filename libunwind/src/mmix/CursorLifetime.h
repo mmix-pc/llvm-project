@@ -14,6 +14,8 @@
 // Stack-owned sidecar. This is not part of unw_cursor_t or unw_context_t.
 // An internal cursor is registered before initialization and released on scope
 // exit. Raw public copies remain outside this protocol and use resident views.
+// With _LIBUNWIND_MMIX_CURSOR_LIFETIME alone, images are immutable ET_EXEC:
+// token stays zero, but owners, queries and checkpoints follow the same protocol.
 struct MMIXCursorLifetime {
   void *cursor;
   uintptr_t token;
@@ -41,7 +43,7 @@ void __libunwind_mmix_cursor_checkpoint(struct MMIXCursorCheckpoint *);
 int __libunwind_mmix_cursor_at_checkpoint(const struct MMIXCursorCheckpoint *);
 // Only retire the one managed child cursor above the captured parent. Reject
 // an active query, extra child owners, a public/untracked cursor or a foreign
-// checkpoint without mutation. Success releases, never escape-pins, its lease.
+// checkpoint without mutation. Success releases, never escape-pins, any lease.
 // The caller must not read cursor metadata again before the ancestor transfer.
 int __libunwind_mmix_cursor_finish_at(void *, const struct MMIXCursorCheckpoint *);
 void __libunwind_mmix_set_managed_stop(uintptr_t);
@@ -60,8 +62,13 @@ __attribute__((visibility("hidden"))) void
 __libunwind_mmix_cursor_query_leave(void *);
 #ifdef __cplusplus
 }
+// Preserve the standalone shared-provider default used by native fixtures.
+// The explicit static opt-in omits image interfaces; startup images take priority.
+#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
+    !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
 #include "StartupImages.h"
 bool mmixFindCursorImage(uintptr_t, MMIXUnwindImage &, bool &owned);
+#endif
 class MMIXCursorQuery {
   void *previous;
 

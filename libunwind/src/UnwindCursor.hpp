@@ -50,6 +50,7 @@
 
 #include "AddressSpace.hpp"
 #include "CompactUnwinder.hpp"
+#include "CursorLifetime.h"
 #include "config.h"
 #include "DwarfInstructions.hpp"
 #include "EHHeaderParser.hpp"
@@ -2970,7 +2971,8 @@ void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
   updateMetadataPolicy();
   if (_metadataLookupFailed)
     return;
-#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES)
+#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   MMIXCursorQuery query(this);
 #endif
 #if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \

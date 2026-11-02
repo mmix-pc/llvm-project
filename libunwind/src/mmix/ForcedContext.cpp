@@ -9,6 +9,16 @@
 #include "ForcedContext.h"
 #include "../UnwindMetadataPolicy.h"
 
+extern "C" __attribute__((visibility("hidden"))) int
+__unw_init_local_current(unw_cursor_t *, unw_context_t *);
+
+extern "C" __attribute__((visibility("protected"))) int
+__libunwind_mmix_init_saved_cursor(unw_cursor_t *cursor, unw_context_t *context) {
+  if (__unw_metadata_policy_current() != UNW_METADATA_PREFLIGHT)
+    return UNW_EINVAL;
+  return __unw_init_local_current(cursor, context);
+}
+
 extern "C" __attribute__((visibility("hidden"))) _Unwind_Reason_Code
 __unw_forcedunwind_from_context(_Unwind_Exception *, _Unwind_Stop_Fn, void *,
                                unw_context_t *);

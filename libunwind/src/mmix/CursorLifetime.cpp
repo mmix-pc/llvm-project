@@ -9,7 +9,8 @@
 #include "CursorLifetime.h"
 
 namespace {
-// Libunwind is a startup provider. Lookup must not enter a dynamic TLS allocator.
+// Both startup providers and static opt-in use preallocated TLS. Lifetime
+// tracking must not enter a dynamic TLS allocator.
 thread_local MMIXCursorLifetime *owners __attribute__((tls_model("initial-exec")));
 thread_local void *query __attribute__((tls_model("initial-exec")));
 thread_local uintptr_t managed_stop __attribute__((tls_model("initial-exec")));
@@ -21,6 +22,8 @@ MMIXCursorLifetime *find(const void *cursor) {
   return nullptr;
 }
 void release(MMIXCursorLifetime &owner, bool escape) {
+#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
+    !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   if (owner.token) {
     bool ok = escape ? __libunwind_mmix_pin_image(owner.token)
                      : __libunwind_mmix_drop_image(owner.token);
@@ -28,6 +31,12 @@ void release(MMIXCursorLifetime &owner, bool escape) {
       __builtin_trap();
     owner.token = 0;
   }
+#else
+  (void)escape;
+  // Static metadata is discovered by Linux.h, never through an image lease.
+  if (owner.token)
+    __builtin_trap();
+#endif
 }
 void remove(MMIXCursorLifetime &owner) {
   auto **link = &owners;
@@ -117,11 +126,18 @@ extern "C" int __libunwind_mmix_cursor_copy(void *to, const void *from) {
   auto *destination = find(to);
   if (!source || !destination || source == destination)
     return 0;
+#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
+    !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   MMIXUnwindImage copy{};
   if (source->token && !__libunwind_mmix_retain_image(source->token, &copy))
     return 0;
   release(*destination, false);
   destination->token = copy.token;
+#else
+  if (source->token)
+    __builtin_trap();
+  release(*destination, false);
+#endif
   return 1;
 }
 extern "C" void *__libunwind_mmix_cursor_query_enter(void *cursor) {
@@ -132,6 +148,8 @@ extern "C" void *__libunwind_mmix_cursor_query_enter(void *cursor) {
 extern "C" void __libunwind_mmix_cursor_query_leave(void *previous) {
   query = previous;
 }
+#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
+    !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
 bool mmixFindCursorImage(uintptr_t pc, MMIXUnwindImage &view, bool &owned) {
   auto *owner = query ? find(query) : nullptr;
   owned = owner != nullptr;
@@ -144,3 +162,4 @@ bool mmixFindCursorImage(uintptr_t pc, MMIXUnwindImage &view, bool &owned) {
   owner->token = view.token;
   return true;
 }
+#endif

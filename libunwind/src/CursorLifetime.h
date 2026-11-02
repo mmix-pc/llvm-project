@@ -10,7 +10,8 @@
 #ifndef LIBUNWIND_CURSOR_LIFETIME_H
 #define LIBUNWIND_CURSOR_LIFETIME_H
 
-#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES)
+#if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
+    defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
 #include "mmix/CursorLifetime.h"
 #define _LIBUNWIND_CURSOR_SCOPE(cursor)                                        \
   struct MMIXCursorLifetime cursor##_lifetime                                  \

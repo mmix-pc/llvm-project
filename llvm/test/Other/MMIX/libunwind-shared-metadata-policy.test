@@ -3,7 +3,8 @@
 # RUN: %python %t/run.py %S/../../../../libunwind %t %mmix_host_cxx
 
 # Check the actual MMIX build selector and a single startup TLS provider shared
-# by two native DSOs. This is not MMIX signal-unwind execution qualification.
+# by two native DSOs, plus private saved-context gates with native fake backends.
+# This is not MMIX signal-unwind execution qualification.
 #--- run.py
 import pathlib
 import shlex
@@ -25,8 +26,9 @@ for enabled in (False, True):
     for name in ("enter", "commit", "leave", "current"):
         assert ("__unw_metadata_policy_" + name + ";" in exports) == enabled
     for name in ("cursor_checkpoint", "cursor_at_checkpoint", "cursor_finish_at",
-                 "forcedunwind_from_context"):
+                 "init_saved_cursor", "forcedunwind_from_context"):
         assert ("__libunwind_mmix_" + name + ";" in exports) == enabled
+    assert "__unw_init_local_current;" not in exports
 
 for opt in ("0", "2"):
     build = root / ("host-O" + opt)
@@ -106,8 +108,21 @@ int main() {
 #include "UnwindMetadataPolicy.h"
 #include <cstdlib>
 static unsigned calls;
+static unsigned initCalls;
+static int initResult;
 static _Unwind_Exception object{};
+static unw_cursor_t cursor{};
 static unw_context_t saved{};
+static unw_cursor_t *expectedCursor = &cursor;
+static unw_context_t *expectedContext = &saved;
+extern "C" int __unw_init_local_current(unw_cursor_t *output,
+                                      unw_context_t *context) {
+  if (output != expectedCursor || context != expectedContext ||
+      __unw_metadata_policy_current() != UNW_METADATA_PREFLIGHT)
+    std::abort();
+  ++initCalls;
+  return initResult;
+}
 static _Unwind_Reason_Code stop(int, _Unwind_Action, _Unwind_Exception_Class,
                                _Unwind_Exception *, _Unwind_Context *, void *) {
   std::abort();
@@ -123,12 +138,34 @@ extern "C" _Unwind_Reason_Code __unw_forcedunwind_from_context(
 static void check(bool value) { if (!value) std::abort(); }
 int main() {
   auto run = [] { return __libunwind_mmix_forcedunwind_from_context(&object, stop, &calls, &saved); };
+  auto init = [] { return __libunwind_mmix_init_saved_cursor(expectedCursor, expectedContext); };
+  check(__unw_metadata_policy_current() == UNW_METADATA_ORDINARY);
+  check(init() == UNW_EINVAL && initCalls == 0 && calls == 0);
   check(run() == _URC_FATAL_PHASE2_ERROR && calls == 0);
   UnwindMetadataPolicyToken policy{};
   check(__unw_metadata_policy_enter(&policy));
+  const int results[] = {UNW_ESUCCESS, UNW_ENOINFO, UNW_EINVAL};
+  for (int result : results) {
+    initResult = result;
+    unsigned before = initCalls;
+    check(init() == result && initCalls == before + 1 && calls == 0);
+    check(__unw_metadata_policy_current() == UNW_METADATA_PREFLIGHT);
+  }
+  // Argument validation belongs to the hidden initializer, not this gate.
+  expectedCursor = nullptr;
+  check(init() == UNW_EINVAL && initCalls == 4 && calls == 0);
+  expectedCursor = &cursor;
+  expectedContext = nullptr;
+  check(init() == UNW_EINVAL && initCalls == 5 && calls == 0);
+  expectedContext = &saved;
   check(run() == _URC_FATAL_PHASE2_ERROR && calls == 0);
   check(__unw_metadata_policy_commit(&policy));
+  check(__unw_metadata_policy_current() == UNW_METADATA_TERMINAL);
+  check(init() == UNW_EINVAL && initCalls == 5 && calls == 0);
+  check(__unw_metadata_policy_current() == UNW_METADATA_TERMINAL);
   check(run() == _URC_END_OF_STACK && calls == 1);
   check(__unw_metadata_policy_leave(&policy));
+  check(__unw_metadata_policy_current() == UNW_METADATA_ORDINARY);
+  check(init() == UNW_EINVAL && initCalls == 5 && calls == 1);
   check(run() == _URC_FATAL_PHASE2_ERROR && calls == 1);
 }
