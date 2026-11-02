@@ -24,6 +24,20 @@
 #include "src/signal/linux/mmix/signal_entry_record.h"
 
 namespace M = LIBC_NAMESPACE::mmix;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+// Inject only cursor-checkpoint equality. The separate real cursor tests own
+// release/query semantics; these cases prove entry retirement rejects a stale
+// certificate without mutating either linked list.
+static MMIXCursorCheckpoint cursor_state{1, nullptr, nullptr};
+extern "C" void __libunwind_mmix_cursor_checkpoint(MMIXCursorCheckpoint *out) {
+  *out = cursor_state;
+}
+extern "C" int __libunwind_mmix_cursor_at_checkpoint(
+    const MMIXCursorCheckpoint *saved) {
+  return saved && saved->thread == cursor_state.thread &&
+         saved->owners == cursor_state.owners && saved->query == cursor_state.query;
+}
+#endif
 using Boundary = M::SignalBoundary;
 using Owner = M::SignalBoundaryOwner;
 using Point = M::SignalBoundaryPoint;
@@ -588,6 +602,10 @@ static bool count_retirement(void *counter) {
 
 static void entry_retirement() {
   Environment env;
+  unsigned parent_descriptor, child_descriptor;
+  auto *parent = reinterpret_cast<M::CancellationPoint *>(&parent_descriptor);
+  auto *child = reinterpret_cast<M::CancellationPoint *>(&child_descriptor);
+  LIBC_NAMESPACE::cpp::Atomic<M::CancellationPoint *> publication{parent};
   struct EntryWrapper {
     M::SignalEntryRecord boundary;
     uint64_t padding[2]{};
@@ -599,6 +617,11 @@ static void entry_retirement() {
                                    &parent_retired));
   auto outer_point = point_for(env, outer);
   outer.boundary.saved_parent = env.context;
+  outer.boundary.cancellation_publication = &publication;
+  outer.boundary.parent_cancellation = parent;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  __libunwind_mmix_cursor_checkpoint(&outer.boundary.parent_cursor);
+#endif
   operation(env, true, [&] {
     return outer.boundary.publish(env.owner, outer_point,
                                    reinterpret_cast<uintptr_t>(&env.context), head);
@@ -608,6 +631,11 @@ static void entry_retirement() {
   {
     EntryWrapper inner;
     inner.boundary.saved_parent = env.context;
+    inner.boundary.cancellation_publication = &publication;
+    inner.boundary.parent_cancellation = parent;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    __libunwind_mmix_cursor_checkpoint(&inner.boundary.parent_cursor);
+#endif
     auto inner_point = point_for(env, inner, 43, 42, 2);
     operation(env, true, [&] {
       return inner.boundary.publish(env.owner, inner_point,
@@ -625,11 +653,27 @@ static void entry_retirement() {
     assert(env.owner.live == &inner.boundary && !child_retired && !parent_retired);
     assert(M::JumpCleanupStack::unwind(head, inner_head));
     assert(child_retired == 1);
+    publication.store(child);
+    operation(env, false, [&] {
+      return inner.boundary.prepare_transfer(head, inner_point, disposal, packet);
+    });
+    operation(env, false, [&] { return inner.boundary.normal_return(head); });
+    assert(head == inner_head && packet.phase == Handoff::Phase::Empty &&
+           env.owner.live == &inner.boundary);
+    publication.store(parent);
     auto incomplete = disposal;
     incomplete.cursors_disposed = false;
     operation(env, false, [&] {
       return inner.boundary.prepare_transfer(head, inner_point, incomplete, packet);
     });
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    cursor_state.query = &inner;
+    operation(env, false, [&] {
+      return inner.boundary.prepare_transfer(head, inner_point, disposal, packet);
+    });
+    assert(head == inner_head && packet.phase == Handoff::Phase::Empty);
+    cursor_state.query = nullptr;
+#endif
     operation(env, true, [&] {
       return inner.boundary.prepare_transfer(head, inner_point, disposal, packet);
     });
@@ -639,6 +683,16 @@ static void entry_retirement() {
   }
   // Child wrapper lifetime has ended. Only the independent packet survives.
   operation(env, true, [&] { return env.owner.consume(packet, &env.thread, 42, 2); });
+  publication.store(nullptr);
+  operation(env, false, [&] { return outer.boundary.normal_return(head); });
+  assert(head == outer_head && env.owner.live == &outer.boundary);
+  publication.store(parent);
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  cursor_state.thread = 2;
+  operation(env, false, [&] { return outer.boundary.normal_return(head); });
+  assert(head == outer_head && env.owner.live == &outer.boundary);
+  cursor_state.thread = 1;
+#endif
   operation(env, true, [&] { return outer.boundary.normal_return(head); });
   assert(head == &parent_wait && !parent_retired && !env.owner.live);
   assert(M::JumpCleanupStack::unwind(head, nullptr));

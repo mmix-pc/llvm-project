@@ -9,12 +9,17 @@
 #ifndef LLVM_LIBC_SRC_SIGNAL_LINUX_MMIX_SIGNAL_ENTRY_RECORD_H
 #define LLVM_LIBC_SRC_SIGNAL_LINUX_MMIX_SIGNAL_ENTRY_RECORD_H
 
+#include "src/__support/CPP/atomic.h"
 #include "src/__support/threads/linux/mmix/cleanup.h"
 #include "src/__support/threads/linux/mmix/signal_boundary.h"
 #include "src/setjmp/mmix/linux/jump_cleanup_stack.h"
+#ifdef LIBC_MMIX_SHARED_STARTUP
+#include "mmix/CursorLifetime.h"
+#endif
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
+struct CancellationPoint;
 
 // Only the default application entry publishes this derived record. Signals
 // remain blocked through all transitions. Normal and nonlocal returns share
@@ -25,15 +30,32 @@ struct SignalEntryRecord : SignalBoundary {
   // on their suspended chain and must never enter this segment's rO ordering.
   MmixCleanupLink parent_cleanup{};
   bool cleanup_tracked = false;
+  // The parent publication remains live while this entry is linked. Compare
+  // identities only; never follow an abandoned child's descriptor pointer.
+  cpp::Atomic<CancellationPoint *> *cancellation_publication = nullptr;
+  CancellationPoint *parent_cancellation = nullptr;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  MMIXCursorCheckpoint parent_cursor{};
+#endif
 
 private:
   JumpCleanupStack::Node jump;
   SignalParentHandoff *transfer = nullptr;
 
+  bool cancellation_at_checkpoint() const {
+    return !cancellation_publication ||
+           cancellation_publication->load(cpp::MemoryOrder::ACQUIRE) ==
+               parent_cancellation;
+  }
+
   static bool retire(void *opaque) {
     auto &record = *static_cast<SignalEntryRecord *>(opaque);
-    if (!record.owner)
+    if (!record.owner || !record.cancellation_at_checkpoint())
       return false;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    if (!__libunwind_mmix_cursor_at_checkpoint(&record.parent_cursor))
+      return false;
+#endif
 #ifdef LIBC_MMIX_SIGNAL_CLEANUP
     if (record.cleanup_tracked &&
         !c_cleanup_at_checkpoint(record.parent_cleanup))
@@ -57,6 +79,12 @@ public:
   }
 
   bool normal_return(JumpCleanupStack::Node *&head) {
+    if (!cancellation_at_checkpoint())
+      return false;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    if (!__libunwind_mmix_cursor_at_checkpoint(&parent_cursor))
+      return false;
+#endif
     return !transfer && JumpCleanupStack::pop(head, jump);
   }
 
@@ -66,7 +94,10 @@ public:
                         SignalParentHandoff &handoff) {
     // Do not discard active waits or guess that a callback flag proves their
     // removal. The live entry node must already be at the top of the stack.
-    if (head != &jump || transfer || !owner ||
+    if (head != &jump || transfer || !owner || !cancellation_at_checkpoint() ||
+#ifdef LIBC_MMIX_SHARED_STARTUP
+        !__libunwind_mmix_cursor_at_checkpoint(&parent_cursor) ||
+#endif
 #ifdef LIBC_MMIX_SIGNAL_CLEANUP
         (cleanup_tracked && !c_cleanup_at_checkpoint(parent_cleanup)) ||
 #endif

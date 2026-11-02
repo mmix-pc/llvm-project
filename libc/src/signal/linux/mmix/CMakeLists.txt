@@ -34,6 +34,7 @@ if(LIBC_MMIX_BUILD_UNWIND_ROOTS AND LIBC_MMIX_ENABLE_STATIC_TLS)
     DEPENDS
       .signal_trampoline
       libc.include.signal libc.include.ucontext libc.include.sys_syscall
+      libc.src.__support.CPP.atomic
       libc.src.__support.macros.attributes
       libc.src.__support.threads.linux.mmix.lifecycle
       libc.src.__support.OSUtil.linux.mmix.syscall

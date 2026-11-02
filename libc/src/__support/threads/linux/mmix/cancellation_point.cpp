@@ -29,6 +29,10 @@
 #include <ucontext.h>
 
 #include "notification_validation.h"
+#ifdef LIBC_MMIX_JUMP_CLEANUP
+#include "cancellation_registration.h"
+#include "src/setjmp/mmix/linux/jump_cleanup.h"
+#endif
 
 extern "C" {
 long __llvm_libc_mmix_cancel_leaf(unsigned long, long, long, long, long, long,
@@ -144,6 +148,14 @@ void restore_mask(uint64_t mask) {
                    reinterpret_cast<long>(&mask), 0, 8))
     __builtin_trap();
 }
+#ifdef LIBC_MMIX_JUMP_CLEANUP
+void finish_cancellation_registration(CancellationRegistration *registration) {
+  const uint64_t mask = mask_all();
+  if (!registration->finish())
+    __builtin_trap();
+  restore_mask(mask);
+}
+#endif
 void notification(int signal, siginfo_t *info, void *context) {
   int saved_errno = libc_errno;
   auto *control = current_control;
@@ -325,12 +337,21 @@ long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
       mask,
       libc_errno,
       {}};
+#ifdef LIBC_MMIX_JUMP_CLEANUP
+  CancellationRegistration registration
+      __attribute__((cleanup(finish_cancellation_registration)))(
+          control->cancellation_point, jump_cleanup_head, &point, point.previous);
+  if (!registration.begin())
+    __builtin_trap();
+#endif
   // The saved continuation is in this wrapper, not inside the raw leaf. Fields
   // changed by the leaf/handler are volatile across the returns-twice boundary.
   const int recovered = LIBC_NAMESPACE::setjmp(point.environment);
   long result = -4096;
   if (!recovered) {
+#ifndef LIBC_MMIX_JUMP_CLEANUP
     control->cancellation_point.store(&point, cpp::MemoryOrder::RELEASE);
+#endif
     restore_mask(mask & ~CANCEL_MASK);
     result =
         __llvm_libc_mmix_cancel_leaf(number, a1, a2, a3, a4, a5, a6, &point);
@@ -338,7 +359,12 @@ long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
   }
   if (control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE) != &point)
     __builtin_trap();
+#ifdef LIBC_MMIX_JUMP_CLEANUP
+  if (!registration.finish())
+    __builtin_trap();
+#else
   control->cancellation_point.store(point.previous, cpp::MemoryOrder::RELEASE);
+#endif
   if (recovered) {
     if (control->cancellation_transfer.exchange(0, cpp::MemoryOrder::ACQ_REL) !=
             1 ||

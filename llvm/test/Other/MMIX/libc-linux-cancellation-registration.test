@@ -1,0 +1,61 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %mmix_host_cxx -std=c++17 -O0 -Wall -Wextra -Werror -I %S/../../../../libc %t/test.cpp -o %t/host-O0
+# RUN: %t/host-O0
+# RUN: %mmix_host_cxx -std=c++17 -O2 -Wall -Wextra -Werror -I %S/../../../../libc %t/test.cpp -o %t/host-O2
+# RUN: %t/host-O2
+
+#--- test.cpp
+#define LIBC_NAMESPACE cancellation_registration_test
+#include "src/__support/threads/linux/mmix/cancellation_registration.h"
+#include <cstdlib>
+
+namespace LIBC_NAMESPACE_DECL {
+namespace mmix {
+struct CancellationPoint { unsigned generation; };
+}
+}
+namespace M = LIBC_NAMESPACE::mmix;
+using LIBC_NAMESPACE::cpp::Atomic;
+void check(bool value) { if (!value) std::abort(); }
+void finish(M::CancellationRegistration *registration) {
+  check(registration->finish());
+}
+
+int main() {
+  Atomic<M::CancellationPoint *> publication{nullptr};
+  M::JumpCleanupStack::Node *head = nullptr;
+  M::CancellationPoint outer{1}, inner{2};
+  M::CancellationRegistration first(publication, head, &outer, nullptr);
+  check(first.begin());
+  auto *saved = head;
+  check(!first.begin() && publication.load() == &outer);
+  M::CancellationRegistration bad(publication, head, &inner, nullptr);
+  check(!bad.begin() && head == saved && publication.load() == &outer);
+  M::CancellationRegistration second(publication, head, &inner, &outer);
+  check(second.begin() && publication.load() == &inner);
+  check(!first.finish() && publication.load() == &inner);
+  // Same-frame private recovery keeps its own watermark and publication.
+  check(M::JumpCleanupStack::unwind(head, head));
+  check(publication.load() == &inner);
+  // A public jump to the surviving parent removes only the child descriptor.
+  check(M::JumpCleanupStack::unwind(head, saved));
+  check(publication.load() == &outer && head == saved);
+  check(second.finish() && publication.load() == &outer);
+  check(outer.generation == 1 && inner.generation == 2);
+  check(first.finish() && !head && !publication.load());
+  check(first.finish());
+  // The wrapper's cleanup attribute also runs on exception/forced unwind.
+  try {
+    M::CancellationRegistration scope __attribute__((cleanup(finish)))(
+        publication, head, &outer, nullptr);
+    check(scope.begin());
+    throw 1;
+  } catch (int value) {
+    check(value == 1 && !publication.load() && !head);
+  }
+  M::CancellationRegistration again(publication, head, &outer, nullptr);
+  check(again.begin());
+  check(M::JumpCleanupStack::unwind(head, nullptr));
+  check(!publication.load() && !head && again.finish());
+}

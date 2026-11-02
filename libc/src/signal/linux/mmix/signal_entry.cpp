@@ -90,6 +90,12 @@ void __llvm_libc_mmix_application_signal_entry(int number, siginfo_t *info,
     }
     if (owner.generation != UINT64_MAX) {
       capture_parent(record.saved_parent, context->uc_mcontext);
+      record.cancellation_publication = &control->cancellation_point;
+      record.parent_cancellation =
+          control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE);
+#ifdef LIBC_MMIX_SHARED_STARTUP
+      __libunwind_mmix_cursor_checkpoint(&record.parent_cursor);
+#endif
       SignalBoundaryPoint point{
           control, query.chain_id, context->uc_mcontext.sc_chain_id,
           owner.generation + 1,

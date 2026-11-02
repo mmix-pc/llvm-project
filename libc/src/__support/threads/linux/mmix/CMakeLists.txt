@@ -411,6 +411,12 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     set(mmix_window_dependency)
     if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
       set(mmix_private_save_source)
+      set(mmix_point_jump_dependencies)
+      set(mmix_point_jump_options)
+      if(LIBC_MMIX_ENABLE_STATIC_TLS)
+        set(mmix_point_jump_dependencies libc.src.setjmp.mmix.jump_cleanup)
+        set(mmix_point_jump_options -DLIBC_MMIX_JUMP_CLEANUP)
+      endif()
       if(NOT LIBC_MMIX_BUILD_THREADED_LIBC OR NOT LIBC_MMIX_BUILD_JUMP_SAVE)
         # Internal archives and public profiles without setjmp still need the
         # hidden save entry. Otherwise the selected public object owns it.
@@ -421,7 +427,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
         cancellation_point
         SRCS cancellation_point.cpp cancellation_leaf.S
           ${mmix_private_save_source}
-        HDRS cancellation_point.h
+        HDRS cancellation_point.h cancellation_registration.h
         DEPENDS .lifecycle libc.hdr.errno_macros libc.hdr.signal_macros
           libc.src.errno.errno libc.hdr.types.jmp_buf
           libc.hdr.types.sigjmp_buf libc.include.ucontext libc.src.__support.common
@@ -429,7 +435,10 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
           libc.src.signal.linux.mmix.kernel_sigaction
           libc.src.signal.linux.mmix.signal_trampoline
           libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
+          ${mmix_point_jump_dependencies}
+          libc.src.__support.CPP.atomic libc.src.__support.CPP.new
         COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_async_options}
+          ${mmix_point_jump_options}
       )
       set(mmix_window_dependency .cancellation_point)
     endif()
