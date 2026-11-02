@@ -50,6 +50,8 @@ bool has_c_cleanup();
 bool validate_fork_cleanup(const UnwindRoot &root);
 bool restore_fork_unwind(ThreadControl &control);
 bool ordinary_fork_context(ThreadControl &control);
+// Parent-only event-spawn admission. Does not authorize copied unwind recovery.
+bool active_cleanup_spawn_context(ThreadControl &control);
 bool last_thread_fork_context(ThreadControl &control);
 bool last_worker_fork_context(ThreadControl &control);
 bool terminal_thread_fork_context(ThreadControl &control);

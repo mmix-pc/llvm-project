@@ -72,6 +72,15 @@ long release_shared_tls_destructor(uint64_t pin) {
 }
 } // namespace mmix
 namespace internal {
+static const void *active_quick_callback;
+void publish_quick_exit_callback(const void *token) {
+  check(terminating && token && !active_quick_callback);
+  active_quick_callback = token;
+}
+void finish_quick_exit_callback() {
+  check(terminating && active_quick_callback);
+  active_quick_callback = nullptr;
+}
 void begin_process_exit(int status, bool quick) {
   check(quick);
   if (terminating)

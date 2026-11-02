@@ -114,7 +114,9 @@ LLVM_LIBC_FUNCTION(int, at_quick_exit, (__atexithandler_t function)) {
     if (!quick_head.compare_exchange_weak(head, node->next,
                                          cpp::MemoryOrder::ACQ_REL))
       continue;
+    internal::publish_quick_exit_callback(node);
     invoke(node->function);
+    internal::finish_quick_exit_callback();
     // No allocator or loader entry, even outside a handler or fork child.
     // exit_group reclaims accepted nodes/pins; retaining them also avoids ABA.
     head = quick_head.load(cpp::MemoryOrder::ACQUIRE);

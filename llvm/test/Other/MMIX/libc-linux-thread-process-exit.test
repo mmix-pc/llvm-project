@@ -275,6 +275,24 @@ extern "C" int main(int argc, char **argv) {
       require(!lock.claim_process_cleanup() && !lock.reserve());
       require(!main_control.cancellation.enabled());
       require(main_control.cancellation_suppression.load() == 1);
+      if (mode == 12) {
+        // A popped callback marker alone does not transfer termination ownership.
+        require(!internal::quick_exit_fork_owner());
+        internal::publish_quick_exit_callback(&main_control);
+        require(internal::quick_exit_fork_owner() == 10);
+        main_control.attributes.tid = 11;
+        require(!internal::quick_exit_fork_owner());
+        main_control.attributes.tid = 10;
+        internal::self.attrib = &worker.attributes;
+        require(!internal::quick_exit_fork_owner());
+        internal::self.attrib = &main_control.attributes;
+        current_control = &worker;
+        require(!internal::quick_exit_fork_owner());
+        current_control = &main_control;
+        require(internal::quick_exit_fork_owner() == 10);
+        internal::finish_quick_exit_callback();
+        require(!internal::quick_exit_fork_owner());
+      }
     } catch (Done d) {
       require((mode == 15 && d.group) || (mode == 16 && !d.group));
     }

@@ -17,6 +17,13 @@ namespace internal {
 // exit is immediate. Quick exit also suppresses cancellation without the loader.
 void begin_process_exit(int status, bool quick = false);
 
+// Signal-safe publication around an already-popped immutable quick callback.
+// This supplies provenance only; callers must separately check the ordinary
+// register-stack chain and account for the permanent quick-exit suppression.
+void publish_quick_exit_callback(const void *token);
+void finish_quick_exit_callback();
+pid_t quick_exit_fork_owner();
+
 // Private coordinated-fork hooks, not a complete admission certificate. Query
 // with application signals blocked, then independently prove an ordinary active
 // unwind root and a Running, registered caller under the registry snapshot.

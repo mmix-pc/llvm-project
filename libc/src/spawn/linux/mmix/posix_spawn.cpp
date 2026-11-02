@@ -47,6 +47,7 @@ namespace LIBC_NAMESPACE_DECL {
 #ifdef LIBC_MMIX_SPAWN_EVENT
 namespace internal {
 pid_t last_thread_exit_fork_owner() __attribute__((weak));
+pid_t quick_exit_fork_owner() __attribute__((weak));
 }
 #endif
 
@@ -223,6 +224,8 @@ int apply_process_attributes(const posix_spawnattr_t *attr) {
 #ifdef LIBC_MMIX_SPAWN_EVENT
 bool terminal_spawn_admitted(mmix::ThreadControl &caller) {
 #ifdef LIBC_MMIX_UNWIND_ROOTS
+  if (mmix::active_cleanup_spawn_context(caller))
+    return mmix::thread_registry.active_cleanup_spawn_caller(caller);
   auto continuation = mmix::ForkContinuation::Ordinary;
   if (internal::last_thread_exit_fork_owner &&
       internal::last_thread_exit_fork_owner() == caller.attributes.tid) {
@@ -238,10 +241,12 @@ bool terminal_spawn_admitted(mmix::ThreadControl &caller) {
              mmix::terminal_worker_fork_context(caller)) {
     continuation = mmix::ForkContinuation::WorkerThreadDuring;
   }
-  // DURING needs a valid owner, not helper retirement: this child goes directly
-  // to exec/_exit and never resumes the copied terminal activation.
+  // Terminal entry needs a valid owner, not helper retirement: the child goes
+  // directly to exec/_exit and never resumes the copied terminal activation.
   if (continuation == mmix::ForkContinuation::InitialThreadDuring ||
-      continuation == mmix::ForkContinuation::WorkerThreadDuring) {
+      continuation == mmix::ForkContinuation::WorkerThreadDuring ||
+      continuation == mmix::ForkContinuation::LastThreadAfter ||
+      continuation == mmix::ForkContinuation::LastWorkerAfter) {
     if (!mmix::thread_registry.freeze_for_fork(
             caller, 1, nullptr, false, continuation,
             mmix::ForkSnapshot::TerminalExecOnly))
@@ -249,10 +254,7 @@ bool terminal_spawn_admitted(mmix::ThreadControl &caller) {
     mmix::thread_registry.release_after_fork();
     return true;
   }
-  // AFTER retains its stronger certificate. Release all inspection locks
-  // before creating or waiting for the raw child.
-  return continuation != mmix::ForkContinuation::Ordinary &&
-         mmix::reaper_absent_for_exit_fork(caller, continuation);
+  return false;
 #else
   (void)caller;
   return false;
@@ -264,6 +266,7 @@ bool terminal_spawn_admitted(mmix::ThreadControl &caller) {
 class SpawnParent {
   mmix::ThreadControl *caller = nullptr;
   bool masked = false, suppressed = false;
+  uint64_t base_suppression = 0;
 
 public:
   sigset_t saved{};
@@ -287,9 +290,16 @@ public:
       return;
     }
     masked = true;
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+    if (caller->cancellation_suppression.load() == 1 &&
+        internal::quick_exit_fork_owner &&
+        internal::quick_exit_fork_owner() == caller->attributes.tid &&
+        mmix::ordinary_fork_context(*caller))
+      base_suppression = 1;
+#endif
     if (caller->cancellation_transfer.load() ||
         caller->cancellation_point.load() ||
-        caller->cancellation_suppression.load()) {
+        caller->cancellation_suppression.load() != base_suppression) {
       error = EAGAIN;
       return;
     }
@@ -300,7 +310,8 @@ public:
   }
 
   ~SpawnParent() noexcept(false) {
-    if (suppressed && caller->cancellation_suppression.fetch_sub(1) != 1)
+    if (suppressed && caller->cancellation_suppression.fetch_sub(1) !=
+                          base_suppression + 1)
       __builtin_trap();
     // Pending asynchronous delivery is restored only after result publication
     // and all parent-owned mappings/descriptors have been consumed.

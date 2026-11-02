@@ -492,6 +492,28 @@ bool ordinary_fork_context(ThreadControl &control) {
          query.chain_id == root.chain;
 }
 
+bool active_cleanup_spawn_context(ThreadControl &control) {
+  const auto &root = control.unwind_root;
+  if (current_control != &control || !forced.active ||
+      !forced.root.matches(root) || root.kind != UnwindRootKind::Thread ||
+      root.owner != &control || !root.generation || !root.chain ||
+      !control.cancellation.terminal() ||
+      forced.exception.exception_class != 0x4c4c564d50544852ULL ||
+      forced.exception.exception_cleanup != disposed ||
+      forced.exception.private_1 != reinterpret_cast<uintptr_t>(&stop) ||
+      forced.exception.private_2 != reinterpret_cast<uintptr_t>(&forced))
+    return false;
+#ifdef LIBC_MMIX_SIGNAL_UNWIND
+  if (forced.policy || forced.handoff.phase != SignalParentHandoff::Phase::Empty)
+    return false;
+#endif
+  // A handler interrupting a cleanup cannot borrow the suspended certificate.
+  // The parent retains every exception/cursor/lease unchanged across raw spawn.
+  mmix_rstack_query query{};
+  return !syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) &&
+         query.chain_id == root.chain;
+}
+
 bool restore_fork_unwind(ThreadControl &control) {
   const auto &root = control.unwind_root;
   // Fork copies the register-stack chain and stack addresses. Retain the

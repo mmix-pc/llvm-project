@@ -36,7 +36,8 @@ flags = ["-std=c++17", "-nostdinc", "-fno-builtin", "-fno-exceptions", "-fno-rtt
          "-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections",
          "-DLIBC_FULL_BUILD", "-DLIBC_NAMESPACE=spawn_parent_test", "-DLIBC_ERRNO_MODE=3",
          "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM", "-DLIBC_MMIX_SPAWN_EVENT",
-         "-DLIBC_MMIX_SPAWN_COORDINATED", "-I", str(libc), "-isystem", str(uapi),
+         "-DLIBC_MMIX_SPAWN_COORDINATED", "-DLIBC_MMIX_UNWIND_ROOTS",
+         "-I", str(libc), "-isystem", str(uapi),
          "-isystem", str(sysroot / "usr/include"), "-isystem", resource + "/include"]
 inputs = {pathlib.Path(__file__).resolve(), root / "parent.cpp",
           pathlib.Path(shutil.which(cxx[0])).resolve()}
@@ -49,20 +50,21 @@ for opt in ("0", "2"):
     commands.append(command)
     for name in shlex.split(dep.read_text().replace("\\\n", " ").split(":", 1)[1]):
         inputs.add(pathlib.Path(name).resolve())
-    for mode in range(15):
-        command = [str(exe), str(mode)]
-        subprocess.run(command, check=True, timeout=10)
-        commands.append(command)
+    for quick in range(6):
+        for mode in (range(15) if quick < 2 else (0,)):
+            command = [str(exe), str(mode), str(quick)]
+            subprocess.run(command, check=True, timeout=10)
+            commands.append(command)
     artifacts.append(exe)
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 (root / "report.json").write_text(json.dumps(dict(
-    passed=True, native_cases=30, guest_qualified=False, commands=commands,
+    passed=True, native_cases=68, guest_qualified=False, commands=commands,
     inputs={str(path): digest(path) for path in sorted(inputs)},
     artifacts={str(path): digest(path) for path in artifacts}), indent=2) + "\n")
-print("30 native parent-transaction cases passed; no guest qualification")
+print("68 native parent-transaction cases passed; no guest qualification")
 
 #--- parent.cpp
 #include "src/__support/macros/properties/architectures.h"
@@ -84,6 +86,8 @@ static void check(bool condition, int line = __builtin_LINE()) {
   }
 }
 static int mode, diagnostic, masks, maps, creates, waits, reaps, closes, unmaps;
+static int quick;
+static uint64_t initial_suppression;
 static bool credential_gate;
 static ThreadControl control;
 static pid_t output = -41;
@@ -92,13 +96,35 @@ static constexpr uint64_t original_mask = 0x120;
 namespace spawn_parent_test {
 namespace internal {
 [[noreturn]] void exit(int) { __builtin_trap(); }
+pid_t quick_exit_fork_owner() {
+  check(masks == 1);
+  return quick == 0 || quick == 2 ? 0 : quick == 3 ? 99 : control.attributes.tid;
+}
 }
 namespace mmix {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control = nullptr;
+ThreadRegistry thread_registry;
+bool ordinary_fork_context(ThreadControl &caller) {
+  check(&caller == &control && masks == 1);
+  return quick != 4;
+}
+bool active_cleanup_spawn_context(ThreadControl &) { __builtin_trap(); }
+bool ThreadRegistry::active_cleanup_spawn_caller(ThreadControl &) { __builtin_trap(); }
+// These tests never acquire a terminal certificate or a registry snapshot.
+pid_t initial_thread_during_fork_owner() { __builtin_trap(); }
+pid_t worker_thread_during_fork_owner() { __builtin_trap(); }
+bool last_thread_fork_context(ThreadControl &) { __builtin_trap(); }
+bool last_worker_fork_context(ThreadControl &) { __builtin_trap(); }
+bool terminal_thread_fork_context(ThreadControl &) { __builtin_trap(); }
+bool terminal_worker_fork_context(ThreadControl &) { __builtin_trap(); }
+bool ThreadRegistry::freeze_for_fork(ThreadControl &, uint64_t,
+                                    bool *, bool, ForkContinuation,
+                                    ForkSnapshot) { __builtin_trap(); }
+void ThreadRegistry::release_after_fork() { __builtin_trap(); }
 bool ForkOperation::active_on_this_thread() { return mode == 11; }
 CredentialGate::CredentialGate() {
   check(!credential_gate && masks == 1 && maps == 1);
-  check(control.cancellation_suppression.load() == 1);
+  check(control.cancellation_suppression.load() == initial_suppression + 1);
   credential_gate = true;
 }
 CredentialGate::~CredentialGate() {
@@ -124,7 +150,7 @@ create_spawn_event(SpawnEventHandles &handles) {
 }
 long wait_spawn_event(int descriptor) {
   check(descriptor == 0 && !credential_gate && !closes && output == -41);
-  check(control.cancellation_suppression.load() == 1);
+  check(control.cancellation_suppression.load() == initial_suppression + 1);
   ++waits;
   if (waits < 3) return -EINTR;
   // The diagnostic becomes available only at event release.
@@ -145,9 +171,9 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
       *reinterpret_cast<uint64_t *>(c) = original_mask;
     } else {
       check(masks == 2 && !c && *mask == original_mask && !credential_gate);
-      check(control.cancellation_suppression.load() == (mode == 13 ? 1 : 0));
+      check(control.cancellation_suppression.load() == initial_suppression);
       check(unmaps == (maps && mode != 4 ? 1 : 0));
-      const bool success = mode == 0 || mode == 8;
+      const bool success = quick < 2 && (mode == 0 || mode == 8);
       check(output == (success ? 777 : -41));
     }
     return 0;
@@ -181,12 +207,15 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
 }
 
 int main(int argc, char **argv) {
-  check(argc == 2);
+  check(argc == 3);
   for (const char *p = argv[1]; *p; ++p) mode = mode * 10 + *p - '0';
+  quick = argv[2][0] - '0';
   check(mode >= 0 && mode < 15);
   current_control = &control;
+  control.attributes.tid = 17;
   control.credential_registered = mode != 12;
-  if (mode == 13) control.cancellation_suppression.store(1);
+  initial_suppression = (quick != 0) + (mode == 13 || quick == 5);
+  control.cancellation_suppression.store(initial_suppression);
   if (mode == 14) current_control = nullptr;
   const char *paths[] = {"/unused", nullptr};
   char *args[] = {nullptr};
@@ -194,10 +223,11 @@ int main(int argc, char **argv) {
                           nullptr, args, args, nullptr);
   const int expected[] = {0, ENOTSUP, ENOTSUP, EIO, ENOMEM, EAGAIN, ENOENT,
                            EACCES, 0, 0, EINVAL, EDEADLK, ENOTSUP, EAGAIN, ENOTSUP};
-  check(error == expected[mode]);
+  check(error == (quick >= 2 ? EAGAIN : expected[mode]));
   check(!credential_gate);
   check(masks == ((mode == 11 || mode == 12 || mode == 14) ? 0 : mode == 10 ? 1 : 2));
-  check(maps == (mode == 0 || (mode >= 4 && mode <= 9) ? 1 : 0));
-  check(creates == (mode == 0 || (mode >= 5 && mode <= 9) ? 1 : 0));
+  check(maps == (quick < 2 && (mode == 0 || (mode >= 4 && mode <= 9)) ? 1 : 0));
+  check(creates == (quick < 2 && (mode == 0 || (mode >= 5 && mode <= 9)) ? 1 : 0));
+  check(control.cancellation_suppression.load() == initial_suppression);
   return 0;
 }

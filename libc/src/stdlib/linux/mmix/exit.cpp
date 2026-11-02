@@ -14,6 +14,7 @@
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
+#include "src/__support/CPP/atomic.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/threads/linux/mmix/credentials.h"
 #include "src/__support/threads/thread.h"
@@ -37,6 +38,7 @@ extern "C" void __cxa_finalize(void *);
 namespace internal {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
 static LIBC_CONSTINIT LIBC_THREAD_LOCAL uint64_t process_cleanup_tid = 0;
+static LIBC_CONSTINIT LIBC_THREAD_LOCAL cpp::Atomic<uintptr_t> quick_callback{0};
 enum class NormalExitPhase {
   None,
   ThreadCallbacks,
@@ -81,6 +83,34 @@ static bool normal_exit_phase_matches() {
           main_thread_cleanup_finished());
 }
 #endif
+
+void publish_quick_exit_callback([[maybe_unused]] const void *token) {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  if (!token || quick_callback.load(cpp::MemoryOrder::RELAXED))
+    __builtin_trap();
+  quick_callback.store(reinterpret_cast<uintptr_t>(token),
+                       cpp::MemoryOrder::RELEASE);
+#endif
+}
+
+void finish_quick_exit_callback() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  quick_callback.store(0, cpp::MemoryOrder::RELEASE);
+#endif
+}
+
+pid_t quick_exit_fork_owner() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (quick_callback.load(cpp::MemoryOrder::ACQUIRE) && control &&
+      self.attrib == &control->attributes && control->attributes.tid > 0 &&
+      process_cleanup_tid == uint64_t(control->attributes.tid) &&
+      normal_exit_phase == NormalExitPhase::None &&
+      !control->cancellation.terminal())
+    return control->attributes.tid;
+#endif
+  return 0;
+}
 
 pid_t normal_exit_fork_owner(bool *during_cleanup) {
   if (during_cleanup)
