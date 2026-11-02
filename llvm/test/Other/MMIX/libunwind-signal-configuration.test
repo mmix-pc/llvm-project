@@ -147,7 +147,10 @@ def configure(profile, enabled=None, legacy=(), lifetime=False, metadata=False,
         assert "__libunwind_mmix_adopt_startup_images;" in exports
         for name in ("enter", "commit", "leave", "current"):
             assert ("__unw_metadata_policy_" + name + ";" in exports) == metadata
-        for name in ("cursor_checkpoint", "cursor_at_checkpoint", "cursor_finish_at",
+        for name in ("cursor_checkpoint", "forced_capture", "forced_validate",
+                     "forced_quarantine", "set_managed_stop"):
+            assert "__libunwind_mmix_" + name + ";" in exports
+        for name in ("cursor_at_checkpoint", "cursor_finish_at",
                      "init_saved_cursor", "forcedunwind_from_context"):
             assert ("__libunwind_mmix_" + name + ";" in exports) == metadata
         assert "__unw_init_local_current;" not in exports

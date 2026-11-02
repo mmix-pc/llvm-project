@@ -5,6 +5,9 @@
 # RUN: %python %S/Inputs/check-linux-syscall.py %t.bin
 
 # OBJ: Relocations [
+# OBJ-NEXT: Section ({{[0-9]+}}) .rela.eh_frame {
+# OBJ-NEXT: 0x1C R_MMIX_64 .text.__llvm_libc_mmix_syscall 0x0
+# OBJ-NEXT: }
 # OBJ-NEXT: ]
 # OBJ: Name: __llvm_libc_mmix_syscall
 # OBJ: Size: 40
