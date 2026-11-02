@@ -17,27 +17,6 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 
-long AioNotification::retain_owner(void *pointer) {
-  auto &owner = *static_cast<AioNotification *>(pointer);
-  uint64_t references =
-      owner.resource_references.load(cpp::MemoryOrder::RELAXED);
-  for (;;) {
-    if (references == UINT64_MAX)
-      return EAGAIN;
-    if (owner.resource_references.compare_exchange_weak(
-            references, references + 1, cpp::MemoryOrder::ACQ_REL,
-            cpp::MemoryOrder::RELAXED))
-      return 0;
-  }
-}
-
-long AioNotification::release_owner(void *pointer) {
-  auto &owner = *static_cast<AioNotification *>(pointer);
-  if (!owner.resource_references.fetch_sub(1, cpp::MemoryOrder::RELEASE))
-    __builtin_trap();
-  return 0;
-}
-
 AioNotification::~AioNotification() {
   if (!drained())
     __builtin_trap();
@@ -73,12 +52,11 @@ long AioNotification::prepare(const sigevent &event, const TLSImage &image,
         NotificationCallback::create(event, image, page_size, callback);
     if (error)
       return error;
-    ThreadPreparation preparation = callback->thread_preparation();
-    // The callback and this stable completion owner survive even after the
-    // application consumes the I/O result. Reaping, not activation, releases
-    // the last notification reference held by the service.
-    preparation.resource_owner = {this, retain_owner, release_owner};
-    ThreadCreationResult created = create_callback_waiter(preparation, waiter);
+    // The waiter retains the independent envelope, not this service record.
+    // Its reference and DSO ownership survive until thread-resource reaping,
+    // even when cleanup() releases the service's reference before invocation.
+    ThreadCreationResult created =
+        create_callback_waiter(callback->thread_preparation(), waiter);
     if (created.error) {
       retained = created.preparation.retained;
       // Keep the primary preparation error. Cleanup has a separate retry API.
@@ -154,8 +132,6 @@ long AioNotification::cleanup() {
   long error = 0;
   if (retained.owns_mappings())
     error = release_thread_resources(retained);
-  if (resource_references.load(cpp::MemoryOrder::ACQUIRE))
-    return error ? error : EBUSY;
   if (callback) {
     long released = callback->release();
     if (!released)

@@ -11,14 +11,13 @@
 
 #include "hdr/types/siginfo_t.h"
 #include "notification_callback.h"
-#include "src/__support/CPP/atomic.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 
 // One single-use notification owner per request or list group. The service
-// bounds admission (including pending cleanup and unreaped callback threads),
-// serializes all access, suppresses caller cancellation, and retains this
+// bounds request admission (including pending cleanup), serializes all access,
+// suppresses caller cancellation, and retains this
 // object through cleanup. There is at most one envelope and waiter per owner,
 // with no internal queue. Releasing this slot does not refund a live-thread
 // budget. No registry lock may be held on entry. This is not an
@@ -36,9 +35,6 @@ class AioNotification {
   NotificationCallback *callback = nullptr;
   ThreadControl *waiter = nullptr;
   ThreadResources retained{};
-  cpp::Atomic<uint64_t> resource_references{0};
-  static long retain_owner(void *);
-  static long release_owner(void *);
 
 public:
   AioNotification() = default;
@@ -75,19 +71,18 @@ public:
   // harmless.
   void discard();
 
-  // EBUSY while prepared or while a callback still owns thread resources.
-  // Otherwise release independent preparation rollback
+  // EBUSY while prepared. Otherwise release independent preparation rollback
   // resources and the envelope reference; failed releases remain owned for
   // retry. Never waits for or reclaims a running/discarded callback thread.
   long cleanup();
 
-  // Includes callback resource reclamation. Its owner hook releases only after
-  // real terminal teardown/reaping, including pthread_exit and cancellation.
-  // Keep this object's address stable until drained(), even after activation.
+  // Only this service record's obligations, not the callback thread's lifetime.
+  // A live thread retains its own envelope/DSO reference and registry budget
+  // through real terminal teardown/reaping, including exit and cancellation.
+  // Keep this object's address stable until drained().
   bool drained() {
     return state != State::Prepared && !waiter && !callback &&
-           !retained.owns_mappings() &&
-           !resource_references.load(cpp::MemoryOrder::ACQUIRE);
+           !retained.owns_mappings();
   }
 };
 

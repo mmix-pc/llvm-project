@@ -161,6 +161,7 @@ struct NotificationState {
   unsigned prepared = 0, activated = 0, discarded = 0, cleaned = 0;
   unsigned destroyed = 0;
   bool callback_resources = false;
+  bool rollback_resources = false;
   bool busy = false;
   void *owner = nullptr;
   void (*on_activate)(void *) = nullptr;
@@ -217,7 +218,7 @@ struct Notification {
     if (state->on_cleanup)
       state->on_cleanup(state->context);
     state->busy = false;
-    if (prepared || state->callback_resources)
+    if (prepared || state->rollback_resources)
       return EBUSY;
     if (state->cleanup_error)
       return state->cleanup_error;
@@ -227,7 +228,7 @@ struct Notification {
   bool drained() {
     if (state)
       EXPECT_FALSE(state->busy);
-    return !prepared && !resources && (!state || !state->callback_resources);
+    return !prepared && !resources && (!state || !state->rollback_resources);
   }
   ~Notification() {
     EXPECT_FALSE(CheckedGate::held);
@@ -713,10 +714,13 @@ TEST(LlvmLibcAioServiceRegistryTest, ListCompletionSurvivesNotificationRetry) {
   ASSERT_EQ(f.service.finish_list(**list), 0);
   group.activate_error = 0;
   group.callback_resources = true;
+  group.cleanup_error = EBUSY;
   ASSERT_EQ(f.maintain(), EBUSY);
   EXPECT_TRUE(f.service.has_list_groups());
-  group.callback_resources = false;
+  group.cleanup_error = 0;
   ASSERT_EQ(f.maintain(), 0);
+  EXPECT_FALSE(f.service.has_list_groups());
+  EXPECT_TRUE(group.callback_resources);
   EXPECT_EQ(group.activated, 2U);
   EXPECT_EQ(group.destroyed, 1U);
 }
@@ -1875,12 +1879,14 @@ TEST(LlvmLibcAioServiceRegistryTest, PreparationRollbackHasIndependentOwners) {
   EXPECT_EQ(notification.destroyed, 0U);
   notification.cleanup_error = 0;
   notification.callback_resources = true;
+  notification.rollback_resources = true;
   f.ring.unregister_error = 0;
   EXPECT_EQ(f.maintain(), EBUSY);
   EXPECT_EQ(f.ring.personalities, 0U);
   EXPECT_EQ(f.service.retained(), size_t(1));
-  notification.callback_resources = false;
+  notification.rollback_resources = false;
   EXPECT_EQ(f.maintain(), 0);
+  EXPECT_TRUE(notification.callback_resources);
   EXPECT_EQ(notification.destroyed, 1U);
   EXPECT_EQ(f.resources.closed, 1U);
 }
@@ -1934,7 +1940,7 @@ TEST(LlvmLibcAioServiceRegistryTest, CreditRevalidationRejectsPreparedRecord) {
   ASSERT_EQ(f.maintain(), 0);
 }
 
-TEST(LlvmLibcAioServiceRegistryTest, ReuseKeepsOldCallbackResources) {
+TEST(LlvmLibcAioServiceRegistryTest, ReuseRetiresRecordBeforeCallbackResources) {
   Fixture f;
   ASSERT_TRUE(bool(f.service.initialize(8)));
   NotificationState old, fresh;
@@ -1959,10 +1965,12 @@ TEST(LlvmLibcAioServiceRegistryTest, ReuseKeepsOldCallbackResources) {
   EXPECT_EQ(f.service.error(cb).error(), EINVAL);
   ASSERT_TRUE(bool(f.admit(cb, fresh)));
   EXPECT_EQ(*f.service.error(cb), EINPROGRESS);
-  EXPECT_EQ(f.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(old.activated, 1U);
-  EXPECT_EQ(old.destroyed, 0U);
-  EXPECT_EQ(f.resources.closed, 0U);
+  EXPECT_EQ(old.destroyed, 1U);
+  EXPECT_EQ(f.service.retained(), size_t(1));
+  EXPECT_TRUE(old.callback_resources);
+  EXPECT_EQ(f.resources.closed, 1U);
   ASSERT_EQ(f.service.submit(), 0);
   EXPECT_NE(f.ring.sq[0].user_data, f.ring.sq[1].user_data);
   f.finish(1, 4);
@@ -1970,9 +1978,10 @@ TEST(LlvmLibcAioServiceRegistryTest, ReuseKeepsOldCallbackResources) {
   result = f.service.take_result(cb);
   ASSERT_TRUE(bool(result));
   EXPECT_EQ(result->value, ssize_t(4));
-  EXPECT_EQ(f.maintain(), EBUSY);
+  EXPECT_EQ(f.maintain(), 0);
   EXPECT_EQ(fresh.destroyed, 1U);
-  old.callback_resources = false;
+  EXPECT_EQ(f.service.retained(), size_t(0));
+  EXPECT_TRUE(old.callback_resources);
   ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(old.destroyed, 1U);
   EXPECT_EQ(f.resources.closed, 2U);

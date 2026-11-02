@@ -34,26 +34,30 @@ scenarios = ("none", "signal-int", "signal-pointer", "pid-mismatch",
              "retained-prepare-failure", "cleanup-retry", "activation-retry",
              "allocation-failure", "null-callback", "bad-attributes",
              "bad-page-size", "bad-notify-mode", "signal-retry",
-             "signal-retry-discard")
-for opt in ("0", "2"):
+             "signal-retry-discard", "reaped-first", "slot-reuse",
+             "envelope-release-retry")
+for shared, opt in ((s, o) for s in (False, True) for o in ("0", "2")):
+    variant = "shared" if shared else "static"
+    build_flags = flags + (["-DLIBC_MMIX_SHARED_STARTUP"] if shared else [])
     for source in sources:
-        obj = root / (source.stem + "-O" + opt + ".o")
+        obj = root / (source.stem + "-" + variant + "-O" + opt + ".o")
         subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
-            "-internal-isystem", resource + "/include", *flags, "-O" + opt,
+            "-mrelocation-model", "pic" if shared else "static",
+            "-internal-isystem", resource + "/include", *build_flags, "-O" + opt,
             "-emit-obj", str(source), "-o", str(obj)], check=True)
         symbols = subprocess.check_output(["llvm-nm", "-u", str(obj)], text=True)
         assert all(s not in symbols for s in ("pthread_", "__emutls", "__atomic_"))
     bridge = root / "bridge.o"
     subprocess.run([*host, "-std=c++17", "-c", str(root / "bridge.cpp"),
                     "-o", str(bridge)], check=True)
-    exe = root / ("host-O" + opt)
-    subprocess.run([*host, *flags, "-D__mmix__", "-O" + opt,
+    exe = root / ("host-" + variant + "-O" + opt)
+    subprocess.run([*host, *build_flags, "-D__mmix__", "-O" + opt,
         "-include", str(root / "base/transport.h"), *map(str, sources),
         str(root / "test.cpp"), str(bridge), "-o", str(exe)], check=True)
     for mode, name in enumerate(scenarios):
-        print(f"AIO notification model O{opt}: {name}", flush=True)
+        print(f"AIO notification model {variant} O{opt}: {name}", flush=True)
         subprocess.run([str(exe), str(mode)], check=True, timeout=10)
-    print(f"AIO notification model: {len(scenarios)} scenarios passed at O{opt}",
+    print(f"AIO notification model: {len(scenarios)} scenarios passed {variant} O{opt}",
           flush=True)
 
 # Test transport constants, not an installed MMIX UAPI package.
@@ -74,6 +78,7 @@ extern "C" void host_free(void *p) { std::free(p); }
 #--- test.cpp
 #include "src/__support/threads/linux/mmix/aio_notification.h"
 #include "src/__support/threads/linux/mmix/thread_create.h"
+#include "src/__support/CPP/new.h"
 #include "hdr/errno_macros.h"
 #include "hdr/pthread_macros.h"
 #include "hdr/signal_macros.h"
@@ -89,6 +94,7 @@ enum Scenario {
   Thread, CopyAttributes, Discard, PrepareFailure, RetainedPrepareFailure,
   CleanupRetry, ActivationRetry, AllocationFailure, NullCallback,
   BadAttributes, BadPageSize, BadNotifyMode, SignalRetry, SignalRetryDiscard,
+  ReapedFirst, SlotReuse, EnvelopeReleaseRetry,
   ScenarioCount
 };
 static int mode, allocations, frees, allocation_attempts, attempts;
@@ -96,11 +102,14 @@ static int activations, activation_attempts, discards, drops, wakes, callbacks;
 static int lock_depth, locks, releases, retains, owner_releases;
 static int pid_calls, uid_calls, sends;
 static bool cleanup_failure, activation_failure, creator, deciding;
+static bool image_release_failure;
+static unsigned image_retains, image_releases;
 static CallbackPhase phase = CallbackPhase::None;
 static ThreadControl control;
 static ThreadPreparation pending;
 static AioNotification *owner;
 static int payload;
+static void callback(sigval);
 alignas(8) static unsigned char supplied_stack[131072];
 
 namespace aio_test {
@@ -118,9 +127,21 @@ void free(void *p) {
 }
 namespace mmix {
 ThreadRegistry thread_registry;
+long retain_shared_tls_destructor(void *dso, uintptr_t code, uint64_t *pin) {
+  check(!dso && code == reinterpret_cast<uintptr_t>(callback) && !*pin);
+  ++image_retains;
+  *pin = 17;
+  return 0;
+}
+long release_shared_tls_destructor(uint64_t pin) {
+  check(pin == 17 && allocations > frees && !lock_depth && !deciding);
+  if (image_release_failure) return EIO;
+  ++image_releases;
+  return 0;
+}
 // Only the lifecycle API contract is modeled. Unlock records a wake but never
 // starts a thread; the test explicitly invokes the saved runner before modeled
-// terminal reclamation. The helper must remain alive until that reclamation.
+// terminal reclamation. The independent envelope must outlive service cleanup.
 ThreadRegistryLock::ThreadRegistryLock(ThreadRegistry &r) : registry(r) {
   check(&r == &thread_registry && !lock_depth++);
   ++locks;
@@ -160,8 +181,9 @@ ThreadCreationResult create_callback_waiter(const ThreadPreparation &request,
   check(!lock_depth && !deciding && !callbacks && !output && !attempts++);
   check(request.detached && request.page_size == 8192);
   check(request.style == ThreadStyle::POSIX && request.runner.posix_runner);
-  check(request.argument && request.argument != request.resource_owner.context);
-  check(request.resource_owner.context == owner);
+  check(request.argument && request.argument == request.resource_owner.context);
+  check(request.resource_owner.context != owner);
+  check(request.resource_owner.terminal_runner == request.runner.posix_runner);
   check(request.resource_owner.context && request.resource_owner.retain &&
         request.resource_owner.release);
   if (mode == PrepareFailure) return {-EAGAIN};
@@ -182,7 +204,7 @@ ThreadCreationResult create_callback_waiter(const ThreadPreparation &request,
 }
 long release_thread_resources(ThreadResources &resources) {
   check(!lock_depth && !deciding && resources.owner.context);
-  check(resources.owner.context == owner);
+  check(resources.owner.context != owner);
   ++releases;
   if (cleanup_failure) return EIO;
   check(resources.owner.release(resources.owner.context) == 0);
@@ -239,6 +261,7 @@ static void discard(AioNotification &notification) {
 static void check_closed() {
   check(!lock_depth && !creator && allocations == frees);
   check(retains == owner_releases);
+  check(image_retains == image_releases);
 }
 static void check_snapshot(const ThreadPreparation &request) {
   check(request.detached && !request.apply_scheduling);
@@ -397,23 +420,49 @@ extern "C" int main(int argc, char **argv) {
   check(locks == (mode == ActivationRetry ? 3 : 1));
   check(attempts == 1 && allocation_attempts == 1 && !releases && !frees);
   check(!notification.drained());
-  check(notification.cleanup() == EBUSY && !notification.drained());
-  check(notification.cleanup() == EBUSY && !frees);
-  // Activation/discard and callback return do not release the thread-resource
-  // claim. The stable helper owns the envelope until modeled terminal resource
-  // reclamation, including the discarded (never invoked) runner case.
+  bool reaped_first = mode == ReapedFirst || mode == EnvelopeReleaseRetry;
+  if (!reaped_first) {
+    check(notification.cleanup() == 0 && notification.drained());
+    check(notification.cleanup() == 0 && !frees);
+  }
+  if (mode == SlotReuse) {
+    notification.~AioNotification();
+    new (&notification) AioNotification;
+    sigevent next{};
+    next.sigev_notify = SIGEV_NONE;
+    check(notification.prepare(next, {}, 8192) == 0);
+    check(activate(notification) == 0 && notification.cleanup() == 0);
+    check(notification.drained() && !frees);
+  }
+  // The service may retire its record before invocation. The thread's own
+  // envelope reference survives through actual resource reclamation, including
+  // the discarded (never invoked) runner case.
   if (mode != Discard) {
     check(pending.runner.posix_runner(pending.argument) == nullptr);
     check(callbacks == 1 && !frees);
   } else {
     check(phase == CallbackPhase::Discarded && !callbacks);
   }
-  check(notification.cleanup() == EBUSY && !notification.drained() && !frees);
-  check(pending.resource_owner.context == &notification);
+  check(!frees && !image_releases);
+  check(notification.drained() == !reaped_first);
+  check(pending.resource_owner.context == pending.argument);
   check(pending.resource_owner.release(pending.resource_owner.context) == 0);
   ++owner_releases;
   pending = {};
-  check(!notification.drained() && !frees);
+  if (reaped_first) {
+    check(!notification.drained() && !frees);
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    if (mode == EnvelopeReleaseRetry) {
+      image_release_failure = true;
+      check(notification.cleanup() == EIO && !notification.drained());
+      check(notification.cleanup() == EIO && !notification.drained());
+      check(!frees && !image_releases);
+      image_release_failure = false;
+    }
+#endif
+  } else {
+    check(notification.drained() && frees == 1);
+  }
   check(notification.cleanup() == 0 && notification.drained());
   check(notification.cleanup() == 0 && frees == 1);
   check_closed();
