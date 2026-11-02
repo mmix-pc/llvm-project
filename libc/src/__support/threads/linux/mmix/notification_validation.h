@@ -15,6 +15,9 @@
 #include "hdr/types/siginfo_t.h"
 #include "lifecycle.h"
 #include <asm/sigcontext.h>
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+#include "src/signal/linux/mmix/signal_entry.h"
+#endif
 
 #if !defined(MMIX_SIGCONTEXT_HAS_CHAIN_ID) || MMIX_SIGCONTEXT_HAS_CHAIN_ID != 1
 #error "MMIX cancellation windows require the matched interrupted-chain UAPI"
@@ -31,6 +34,7 @@ struct CancellationPoint {
   uint64_t identity, generation, chain, mask;
   volatile int saved_errno;
   jmp_buf environment{};
+  uint64_t signal_generation = 0;
 };
 static_assert(__builtin_offsetof(CancellationPoint, ro) == 0);
 static_assert(__builtin_offsetof(CancellationPoint, sp) == 8);
@@ -58,11 +62,21 @@ notification_origin_matches(int signal, const siginfo_t *info,
       point->identity != control->cancellation_identity || !point->generation ||
       point->generation > control->cancellation_generation ||
       !control->unwind_root.active ||
-      point->chain != control->unwind_root.chain ||
       saved.sc_chain_id != point->chain || saved.sc_regs.r_o != point->ro ||
       saved.sc_regs.regs[254] != point->sp || pc < entry || pc >= after)
     return false;
-  return true;
+  if (!point->signal_generation)
+    return point->chain == control->unwind_root.chain;
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+  const auto *entry_record = current_signal_entry();
+  return entry_record && entry_record->owner->thread == control &&
+         entry_record->point.child_chain == point->chain &&
+         entry_record->point.generation == point->signal_generation &&
+         entry_record->owner->live_generation == point->signal_generation &&
+         !entry_record->owner->handoff_generation;
+#else
+  return false;
+#endif
 }
 
 } // namespace mmix

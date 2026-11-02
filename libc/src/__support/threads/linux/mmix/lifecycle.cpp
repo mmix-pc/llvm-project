@@ -582,13 +582,26 @@ bool ThreadRegistryLock::start(ThreadControl &c) {
   return true;
 }
 
-bool ThreadRegistryLock::begin_cleanup(ThreadControl &c, bool cancellation) {
-  if (!belongs(c) || c.execution != ThreadExecution::Running ||
+bool ThreadRegistry::begin_cleanup_locked(ThreadControl &c, bool cancellation) {
+  if (c.registry != this || !c.lifecycle_pin ||
+      c.execution != ThreadExecution::Running ||
       c.callback_phase == CallbackPhase::Waiting ||
       !c.cancellation.claim(cancellation))
     return false;
   c.execution = ThreadExecution::Cleaning;
   return true;
+}
+
+bool ThreadRegistryLock::begin_cleanup(ThreadControl &c, bool cancellation) {
+  return registry.begin_cleanup_locked(c, cancellation);
+}
+
+bool ThreadRegistry::try_signal_cleanup_impl(ThreadControl &c) {
+  if (!mutex.value.try_lock())
+    return false;
+  const bool claimed = begin_cleanup_locked(c, true);
+  mutex.value.unlock();
+  return claimed;
 }
 
 int ThreadRegistryLock::request_cancellation(ThreadControl &c, bool owner) {

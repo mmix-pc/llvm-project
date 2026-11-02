@@ -9,9 +9,8 @@
 #if !defined(__mmix__) || !defined(__linux__)
 #error "The signal unwind landing requires MMIX Linux"
 #endif
-#if !defined(LIBC_MMIX_SIGNAL_UNWIND) || !defined(LIBC_MMIX_SIGNAL_CLEANUP) || \
-    !defined(LIBC_MMIX_SHARED_STARTUP)
-#error "The signal unwind landing requires matched opt-in shared providers"
+#if !defined(LIBC_MMIX_SIGNAL_UNWIND) || !defined(LIBC_MMIX_SIGNAL_CLEANUP)
+#error "The signal unwind landing requires matched opt-in cleanup providers"
 #endif
 
 .section .text.__llvm_libc_mmix_signal_unwind_landing,"ax",@progbits

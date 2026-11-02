@@ -9,6 +9,9 @@
 #include "signal_entry.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/threads/linux/mmix/lifecycle.h"
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+#include "src/__support/threads/linux/mmix/cancellation_point.h"
+#endif
 #include "src/setjmp/mmix/linux/jump_cleanup.h"
 #include <asm/rstack.h>
 #include <asm/unistd.h>
@@ -93,7 +96,7 @@ void __llvm_libc_mmix_application_signal_entry(int number, siginfo_t *info,
       record.cancellation_publication = &control->cancellation_point;
       record.parent_cancellation =
           control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE);
-#ifdef LIBC_MMIX_SHARED_STARTUP
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
       __libunwind_mmix_cursor_checkpoint(&record.parent_cursor);
 #endif
       SignalBoundaryPoint point{
@@ -118,6 +121,10 @@ void __llvm_libc_mmix_application_signal_entry(int number, siginfo_t *info,
 #endif
   if (entered && !record.normal_return(jump_cleanup_head))
     __builtin_trap();
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+  if (entered)
+    rearm_signal_cancellation();
+#endif
   // Stay masked through the epilogue. rt_sigreturn restores uc_sigmask; an
   // earlier unmask would expose an active child after its record was removed.
 }

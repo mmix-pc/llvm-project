@@ -11,6 +11,7 @@
 #include "hdr/signal_macros.h"
 #include "lifecycle.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
+#include "src/__support/libc_errno.h"
 #include <asm/rstack.h>
 #include <asm/unistd.h>
 #include <pthread.h>
@@ -45,6 +46,7 @@ public:
     restore = false;
     return saved;
   }
+  void restore_on_return() { restore = true; }
 };
 } // namespace
 
@@ -172,6 +174,25 @@ int set_cancel_type(int type, int *old_type) {
   auto *control = current_control;
   if (!control || !control->cancellation.ready())
     return;
+#ifdef LIBC_MMIX_SIGNAL_UNWIND
+  {
+    SignalMask mask;
+    mmix_rstack_query query{};
+    if (syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)))
+      __builtin_trap();
+    if (query.chain_id != control->unwind_root.chain) {
+      // A rejected handler keeps the original mask and pending request. The
+      // signal-aware engine never returns after acquiring terminal ownership.
+      int saved_errno = libc_errno;
+      // Transfer before the call: successful forced unwind must not run a
+      // destructor that unmasks signals while signal segments are being freed.
+      try_signal_cancellation(mask.transfer());
+      mask.restore_on_return();
+      libc_errno = saved_errno;
+      return;
+    }
+  }
+#endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   if (cancellation_private_block())
     return;

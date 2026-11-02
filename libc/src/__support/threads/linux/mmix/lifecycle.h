@@ -294,9 +294,16 @@ class ThreadRegistry {
   bool terminal_fork_caller(ThreadControl &caller, ForkContinuation kind);
   bool terminal_during_fork_caller(ThreadControl &caller, ForkContinuation kind,
                                  ForkSnapshot snapshot);
+  bool begin_cleanup_locked(ThreadControl &control, bool cancellation);
+  bool try_signal_cleanup_impl(ThreadControl &control);
 
 public:
   constexpr ThreadRegistry() = default;
+  // Owner-only signal admission. Never wait on an interrupted registry holder;
+  // rejection leaves the pending request and execution state unchanged.
+  bool try_signal_cleanup(ThreadControl &control) {
+    return current_control == &control && try_signal_cleanup_impl(control);
+  }
   // Lock-free explicit-exit election, including from an interrupted registry
   // owner. A restricted fork child has no peers and may replace a copied claim;
   // its caller must reject recursion before requesting that override.

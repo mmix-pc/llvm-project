@@ -27,6 +27,18 @@ bool cancellation_private_block();
 int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old);
 long cancellation_syscall(unsigned long number, long a1 = 0, long a2 = 0,
                           long a3 = 0, long a4 = 0, long a5 = 0, long a6 = 0);
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+// Select only a live trusted handler in the opt-in provider. Untracked custom
+// restorers and ordinary threads retain their previous waiting behavior.
+bool signal_cancellation_wait_available();
+// Explicit controlled waits only. Ordinary syscall wrappers retain their
+// handler exclusion until their own resource/partial-result audit is complete.
+long signal_cancellation_wait(unsigned long number, long a1 = 0, long a2 = 0,
+                              long a3 = 0, long a4 = 0, long a5 = 0,
+                              long a6 = 0);
+// Called masked after retiring a trusted default application signal boundary.
+void rearm_signal_cancellation();
+#endif
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif

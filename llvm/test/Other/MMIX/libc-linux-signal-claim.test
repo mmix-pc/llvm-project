@@ -1,0 +1,21 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-host
+# RUN: %python %s %S/../../../../libc %t %mmix_host_cxx
+
+# Production registry admission, not target signal/unwind qualification.
+import pathlib
+import shlex
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+host = shlex.split(sys.argv[3])
+root.mkdir(parents=True, exist_ok=True)
+for opt in ("0", "2"):
+    exe = root / ("native-O" + opt)
+    subprocess.run([*host, "-std=c++17", "-UNDEBUG", "-O" + opt, "-pthread",
+                    "-I", str(libc), "-DLIBC_NAMESPACE=signal_claim_test",
+                    "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+                    "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
+                    str(libc / "test/src/__support/threads/mmix_signal_claim_native.cpp"),
+                    "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, timeout=30)

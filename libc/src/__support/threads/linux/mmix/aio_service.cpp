@@ -357,6 +357,12 @@ void finish_list_frame(ListFrame *frame) { ListFrame::finish(frame); }
 
 int cancel_wait(void *, Futex *word, int operation, FutexWordType expected,
                 const void *timeout, unsigned bitset) {
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+  if (signal_cancellation_wait_available())
+    return int(signal_cancellation_wait(FUTEX_SYSCALL_ID,
+        reinterpret_cast<long>(word), operation, expected,
+        reinterpret_cast<long>(timeout), 0, bitset));
+#endif
   return int(cancellation_syscall(FUTEX_SYSCALL_ID,
                                   reinterpret_cast<long>(word), operation,
                                   expected, reinterpret_cast<long>(timeout),

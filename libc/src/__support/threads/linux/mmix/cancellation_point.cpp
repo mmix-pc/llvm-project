@@ -29,6 +29,9 @@
 #include <ucontext.h>
 
 #include "notification_validation.h"
+#if defined(LIBC_MMIX_SIGNAL_WAIT) && !defined(LIBC_MMIX_SIGNAL_UNWIND)
+#error "Controlled signal waits require matched segmented unwind providers"
+#endif
 #ifdef LIBC_MMIX_JUMP_CLEANUP
 #include "cancellation_registration.h"
 #include "src/setjmp/mmix/linux/jump_cleanup.h"
@@ -148,6 +151,30 @@ void restore_mask(uint64_t mask) {
                    reinterpret_cast<long>(&mask), 0, 8))
     __builtin_trap();
 }
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+// Caller masks signals; the boundary and its generation cannot retire between
+// selection and publication. This is not terminal/metadata admission.
+bool signal_wait_context(ThreadControl *control, uint64_t &chain,
+                         uint64_t &generation) {
+  auto *entry = current_signal_entry();
+  mmix_rstack_query query{};
+  if (!control || !control->unwind_root.active ||
+      control->cancellation.terminal() || control->cancellation.asynchronous() ||
+      !control->cancellation.enabled() ||
+      control->cancellation_suppression.load(cpp::MemoryOrder::ACQUIRE) ||
+      control->cancellation_transfer.load(cpp::MemoryOrder::ACQUIRE) ||
+      !entry || entry->owner->thread != control ||
+      entry->owner->handoff_generation ||
+      entry->owner->live_generation != entry->point.generation ||
+      syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)) ||
+      query.chain_id != entry->point.child_chain ||
+      query.chain_id == control->unwind_root.chain)
+    return false;
+  chain = query.chain_id;
+  generation = entry->point.generation;
+  return true;
+}
+#endif
 #ifdef LIBC_MMIX_JUMP_CLEANUP
 void finish_cancellation_registration(CancellationRegistration *registration) {
   const uint64_t mask = mask_all();
@@ -315,14 +342,24 @@ int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old) {
   return 0;
 }
 
-[[gnu::noinline, clang::disable_tail_calls]]
-long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
+[[gnu::noinline, clang::disable_tail_calls]] static long
+cancellation_syscall_impl(bool signal_wait, unsigned long number,
+                          long a1, long a2, long a3,
                           long a4, long a5, long a6) {
   auto *control = current_control;
-  if (!control || cancellation_private_block() ||
+  if (!control || (!signal_wait && cancellation_private_block()) ||
       !control->cancellation.enabled())
     return __llvm_libc_mmix_syscall(number, a1, a2, a3, a4, a5, a6);
   const uint64_t mask = mask_all();
+  uint64_t chain = control->unwind_root.chain, signal_generation = 0;
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+  if (signal_wait) {
+    if (!signal_wait_context(control, chain, signal_generation)) {
+      restore_mask(mask);
+      return -ENOTSUP;
+    }
+  }
+#endif
   if (control->cancellation_generation == UINT64_MAX)
     __builtin_trap();
   CancellationPoint point{
@@ -333,10 +370,11 @@ long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
       control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE),
       control->cancellation_identity,
       ++control->cancellation_generation,
-      control->unwind_root.chain,
+      chain,
       mask,
       libc_errno,
       {}};
+  point.signal_generation = signal_generation;
 #ifdef LIBC_MMIX_JUMP_CLEANUP
   CancellationRegistration registration
       __attribute__((cleanup(finish_cancellation_registration)))(
@@ -377,20 +415,71 @@ long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
   // into cancellation; public errno translation happens after this decision.
   if (recovered || result == -4096 ||
       (result == -EINTR && number != SYS_close)) {
-    bool claimed;
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+    if (signal_wait) {
+      // A rejected preflight/claim must never restart an abandoned TRAP. The
+      // trusted wrapper rearms pending cancellation on normal signal return.
+      try_signal_cancellation(mask | CANCEL_MASK);
+      result = -EINTR;
+    } else
+#endif
     {
-      ThreadRegistryLock lock(thread_registry);
-      claimed = lock.begin_cleanup(*control, true);
+      bool claimed;
+      {
+        ThreadRegistryLock lock(thread_registry);
+        claimed = lock.begin_cleanup(*control, true);
+      }
+      if (claimed)
+        unwind_after_cleanup_claim(reinterpret_cast<void *>(-1L),
+                                   mask | CANCEL_MASK);
+      if (recovered || result == -4096)
+        __builtin_trap();
     }
-    if (claimed)
-      unwind_after_cleanup_claim(reinterpret_cast<void *>(-1L),
-                                 mask | CANCEL_MASK);
-    if (recovered || result == -4096)
-      __builtin_trap();
   }
   restore_mask(mask);
   return result;
 }
+
+long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
+                          long a4, long a5, long a6) {
+  return cancellation_syscall_impl(false, number, a1, a2, a3, a4, a5, a6);
+}
+
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+bool signal_cancellation_wait_available() {
+  const uint64_t mask = mask_all();
+  uint64_t chain, generation;
+  const bool available = signal_wait_context(current_control, chain, generation);
+  restore_mask(mask);
+  return available;
+}
+
+long signal_cancellation_wait(unsigned long number, long a1, long a2, long a3,
+                              long a4, long a5, long a6) {
+  // The initial controlled surface is a resource-free futex wait. In
+  // particular, do not accept reads, close, or commands with partial effects.
+  const bool bitset = a2 == FUTEX_WAIT_BITSET_PRIVATE &&
+                      a6 == FUTEX_BITSET_MATCH_ANY;
+  if (number != SYS_futex || a5 ||
+      (a2 != FUTEX_WAIT && a2 != FUTEX_WAIT_PRIVATE && !bitset))
+    return -ENOTSUP;
+  return cancellation_syscall_impl(true, number, a1, a2, a3, a4, a5, a6);
+}
+
+void rearm_signal_cancellation() {
+  auto *control = current_control;
+  if (!control || !control->cancellation.ready() ||
+      control->cancellation.asynchronous() ||
+      control->cancellation_suppression.load(cpp::MemoryOrder::ACQUIRE) ||
+      control->cancellation_transfer.load(cpp::MemoryOrder::ACQUIRE))
+    return;
+  // All signals are still masked until rt_sigreturn. Requeue only at a
+  // retiring application boundary, never from the notification handler itself.
+  if (syscall_impl(SYS_tgkill, process_id, syscall_impl(SYS_gettid),
+                   CANCEL_SIGNAL))
+    __builtin_trap();
+}
+#endif
 
 void await_cancellable_join(ThreadJoinClaim &claim) {
   if (!claim.control || claim.caller != internal::self.attrib)

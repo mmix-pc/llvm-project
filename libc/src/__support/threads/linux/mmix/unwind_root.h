@@ -12,9 +12,12 @@
 #include "src/__support/macros/config.h"
 #include <stdint.h>
 
-#if defined(LIBC_MMIX_SIGNAL_UNWIND) &&                                     \
-    (!defined(LIBC_MMIX_SIGNAL_CLEANUP) || !defined(LIBC_MMIX_SHARED_STARTUP))
-#error "Signal unwind requires signal cleanup and shared startup providers"
+#if defined(LIBC_MMIX_SIGNAL_UNWIND) &&                                       \
+    (!defined(LIBC_MMIX_SIGNAL_CLEANUP) ||                                    \
+     !defined(_LIBUNWIND_USE_METADATA_POLICY) ||                              \
+     (!defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) &&                             \
+      !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)))
+#error "Signal unwind requires matched cleanup, metadata and cursor providers"
 #endif
 
 struct UnwindMetadataPolicyToken;
@@ -71,6 +74,10 @@ __llvm_libc_mmix_unwind_to_root(void *result);
 [[noreturn, gnu::visibility("hidden")]] void
 unwind_after_cleanup_claim(void *result, uint64_t callback_mask);
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
+// Opt-in direct testcancel admission with all signals blocked. Rejection does
+// not consume pending cancellation or change the caller's mask. Success never
+// returns. Does not admit a syscall window or an untracked custom restorer.
+bool try_signal_cancellation(uint64_t final_mask);
 // Trusted private terminal owner only, not public handler cancellation. The
 // caller has already claimed cleanup and entered/committed an outermost
 // metadata policy token. Token storage must survive ALL discarded activations

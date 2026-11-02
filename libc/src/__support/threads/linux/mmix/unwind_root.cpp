@@ -15,7 +15,7 @@
 #include <asm/unistd.h>
 #include <libunwind.h>
 #include <unwind.h>
-#ifdef LIBC_MMIX_SHARED_STARTUP
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
 #include "mmix/CursorLifetime.h"
 #endif
 #if defined(LIBC_MMIX_CANCELLATION_WINDOWS) || defined(LIBC_MMIX_SIGNAL_UNWIND)
@@ -40,6 +40,7 @@ struct ForcedExit {
   void *result = nullptr;
   bool active = false;
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
+  UnwindMetadataPolicyToken admission_policy{};
   UnwindMetadataPolicyToken *policy = nullptr;
   uint64_t final_mask = 0;
   SignalBoundaryPoint segment{};
@@ -63,6 +64,97 @@ uint64_t current_chain() {
 }
 
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
+bool signal_admission(ThreadControl &control, uint64_t chain) {
+  const auto &root = control.unwind_root;
+  const auto &owner = signal_boundary_owner;
+  if (forced.active || forced.policy || forced.admission_policy.generation ||
+      forced.handoff.phase != SignalParentHandoff::Phase::Empty ||
+      !root.active || root.owner != &control || !root.generation ||
+      root.kind != UnwindRootKind::Thread || !root.chain || chain == root.chain ||
+      !control.cancellation.ready() || control.cancellation.asynchronous() ||
+      control.cancellation_suppression.load() ||
+      control.cancellation_transfer.load() ||
+#ifdef LIBC_MMIX_SHARED_STARTUP
+      control.loader_scopes.load() || control.loader_callbacks.load() ||
+#endif
+      owner.thread != &control ||
+      owner.base_chain != root.chain || owner.handoff_generation || !owner.live ||
+      __unw_metadata_policy_current() != UNW_METADATA_ORDINARY)
+    return false;
+  MMIXCursorCheckpoint checkpoint{};
+  __libunwind_mmix_cursor_checkpoint(&checkpoint);
+  if (checkpoint.owners || checkpoint.query)
+    return false;
+  uint64_t generation = owner.live_generation, newer = 0;
+  for (auto *base = owner.live; base; base = base->previous) {
+    auto &entry = *static_cast<SignalEntryRecord *>(base);
+    const auto &point = entry.point;
+    if (entry.owner != &owner || point.thread != &control ||
+        !point.generation || point.generation != generation ||
+        point.generation > owner.generation ||
+        (newer && point.generation >= newer) || point.child_chain != chain ||
+        !point.parent_chain || point.child_chain == point.parent_chain ||
+        !point.wrapper.contains(&entry, sizeof(entry)) ||
+        !point.wrapper.disjoint(&forced, sizeof(forced)) ||
+        !entry.cleanup_tracked ||
+        entry.cancellation_publication != &control.cancellation_point ||
+        !__libunwind_mmix_cursor_at_checkpoint(&entry.parent_cursor) ||
+        bool(entry.previous) != bool(entry.previous_generation))
+      return false;
+    chain = point.parent_chain;
+    newer = point.generation;
+    generation = entry.previous_generation;
+  }
+  return chain == root.chain && !generation;
+}
+
+bool signal_metadata_preflight() {
+  // Do not step a suspended ancestor: its pending register-stack words may
+  // not yet be in backing memory. The kernel materializes them on the later
+  // terminal transfer. Check only its exact-PC FDE here; terminal phase2 owns
+  // all subsequent steps and fails closed on missing metadata.
+  for (auto *base = signal_boundary_owner.live; base; base = base->previous) {
+    unw_cursor_t cursor;
+    MMIXCursorLifetime lifetime{};
+    __libunwind_mmix_cursor_begin(&lifetime, &cursor);
+    unw_proc_info_t info{};
+    const bool available =
+        !__libunwind_mmix_init_saved_cursor(&cursor, &base->saved_parent) &&
+        !unw_get_proc_info(&cursor, &info);
+    __libunwind_mmix_cursor_end(&lifetime);
+    if (!available)
+      return false;
+  }
+  unw_context_t context;
+  unw_cursor_t cursor;
+  MMIXCursorLifetime lifetime{};
+  __libunwind_mmix_cursor_begin(&lifetime, &cursor);
+  bool available = !unw_getcontext(&context) && !unw_init_local(&cursor, &context);
+  const auto &wrapper = current_signal_entry()->point.wrapper;
+  uintptr_t newer_ro = UINTPTR_MAX;
+  while (available) {
+    unw_word_t ro, sp;
+    unw_proc_info_t info{};
+    available = !unw_get_reg(&cursor, UNW_MMIX_RO, &ro) &&
+                !unw_get_reg(&cursor, UNW_REG_SP, &sp) &&
+                !unw_get_proc_info(&cursor, &info);
+    if (!available)
+      break;
+    if (ro == wrapper.ro) {
+      available = sp == wrapper.sp && info.start_ip == wrapper.procedure;
+      break;
+    }
+    if (ro < wrapper.ro || ro >= newer_ro || sp > wrapper.sp) {
+      available = false;
+      break;
+    }
+    newer_ro = ro;
+    available = unw_step(&cursor) == 1;
+  }
+  __libunwind_mmix_cursor_end(&lifetime);
+  return available;
+}
+
 uint64_t signal_chain(const ForcedExit &state) {
   auto *control = current_control;
   auto *token = state.policy;
@@ -78,8 +170,11 @@ uint64_t signal_chain(const ForcedExit &state) {
       control->terminal_cleanup_in_progress() ||
       control->worker_cleanup_in_progress() ||
       control->cancellation_suppression.load() ||
-      control->cancellation_transfer.load() || control->loader_scopes.load() ||
-      control->loader_callbacks.load() || !token || token->parent ||
+      control->cancellation_transfer.load() ||
+#ifdef LIBC_MMIX_SHARED_STARTUP
+      control->loader_scopes.load() || control->loader_callbacks.load() ||
+#endif
+      !token || token->parent ||
       token->previous_mode != UNW_METADATA_ORDINARY ||
       __unw_metadata_policy_current() != UNW_METADATA_TERMINAL ||
       !__unw_metadata_policy_commit(token) ||
@@ -150,7 +245,7 @@ SignalEntryRecord *signal_segment(const ForcedExit &state, uint64_t chain) {
 capture_root(ThreadControl &control, uintptr_t activation, UnwindRootKind kind) {
   unw_context_t context;
   unw_cursor_t cursor;
-#ifdef LIBC_MMIX_SHARED_STARTUP
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
   MMIXCursorLifetime lifetime{};
   __libunwind_mmix_cursor_begin(&lifetime, &cursor);
 #endif
@@ -178,7 +273,7 @@ capture_root(ThreadControl &control, uintptr_t activation, UnwindRootKind kind) 
   root.chain = current_chain();
   root.kind = kind;
   root.active = true;
-#ifdef LIBC_MMIX_SHARED_STARTUP
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
   __libunwind_mmix_cursor_end(&lifetime);
 #endif
 }
@@ -250,7 +345,7 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
 #endif
     control->unwind_root.active = false;
     state.active = false;
-#ifdef LIBC_MMIX_SHARED_STARTUP
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
     // No more cursor metadata is read after the terminal root decision.
     __libunwind_mmix_cursor_finish(context);
 #endif
@@ -279,6 +374,31 @@ void disposed(_Unwind_Reason_Code, _Unwind_Exception *) { __builtin_trap(); }
 } // namespace
 
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
+bool try_signal_cancellation(uint64_t final_mask) {
+  auto *control = current_control;
+  if (!control || !signal_admission(*control, current_chain()))
+    return false;
+  auto &policy = forced.admission_policy;
+  if (!__unw_metadata_policy_enter(&policy))
+    return false;
+  bool ready = signal_metadata_preflight();
+  MMIXCursorCheckpoint checkpoint{};
+  __libunwind_mmix_cursor_checkpoint(&checkpoint);
+  ready &= !checkpoint.owners && !checkpoint.query;
+  for (auto *base = signal_boundary_owner.live; base; base = base->previous)
+    ready &= __libunwind_mmix_cursor_at_checkpoint(
+                 &static_cast<SignalEntryRecord *>(base)->parent_cursor) != 0;
+  if (!ready || !thread_registry.try_signal_cleanup(*control)) {
+    if (!__unw_metadata_policy_leave(&policy))
+      __builtin_trap();
+    return false;
+  }
+  if (!__unw_metadata_policy_commit(&policy))
+    __builtin_trap();
+  unwind_signal_after_cleanup_claim(reinterpret_cast<void *>(-1L), &policy,
+                                   final_mask);
+}
+
 extern "C" [[noreturn, gnu::visibility("hidden")]] void
 __llvm_libc_mmix_signal_unwind_resume(void *environment) {
   auto &state = forced;
@@ -492,7 +612,7 @@ run_with_process_exit_root(ThreadControl &control, RootBody *body,
                         reinterpret_cast<long>(&callback_mask), 0,
                         sizeof(callback_mask)))
     __builtin_trap();
-#ifdef LIBC_MMIX_SHARED_STARTUP
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND)
   __libunwind_mmix_set_managed_stop(reinterpret_cast<uintptr_t>(&stop));
 #endif
   _Unwind_ForcedUnwind(&forced.exception, stop, &forced);
