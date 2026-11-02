@@ -1745,6 +1745,44 @@ extern "C" void mmix_normal_exit_test_finalize(void *dso) {
   I::normal_exit_phase = I::NormalExitPhase::ThreadCallbacks;
   assert(!I::normal_exit_fork_owner());
   I::normal_exit_phase = I::NormalExitPhase::ProcessCallbacks;
+  if (selected == Case::Return) {
+    // Exercise production minimal admission without a transport or service
+    // snapshot. The real shared finalizer contributes exactly one scope.
+    const auto saved_scopes = caller.loader_scopes.load();
+    const auto saved_root = caller.unwind_root;
+    caller.unwind_root = {&caller, 1, 2, 3, 4, 5, true};
+    const auto saved_mask = mask;
+    const auto prepares = notification_prepares;
+    assert(!caller.loader_callbacks.load() &&
+           !caller.cancellation_suppression.load());
+    for (unsigned scopes = 0; scopes != 3; ++scopes) {
+      caller.loader_scopes.store(scopes);
+      {
+        M::ForkOperation operation(true);
+        assert(operation.error() == (scopes < 2 ? 0 : EAGAIN));
+      }
+      assert(mask == saved_mask && !M::ForkOperation::active_on_this_thread());
+      assert(caller.loader_scopes.load() == scopes &&
+             !caller.cancellation_suppression.load());
+    }
+    caller.loader_scopes.store(1);
+    caller.loader_callbacks.store(1);
+    {
+      M::ForkOperation operation(true);
+      assert(operation.error() == EAGAIN);
+    }
+    caller.loader_callbacks.store(0);
+    I::normal_exit_phase = I::NormalExitPhase::ThreadCallbacks;
+    {
+      M::ForkOperation operation(true);
+      assert(operation.error() == EAGAIN);
+    }
+    I::normal_exit_phase = I::NormalExitPhase::ProcessCallbacks;
+    caller.loader_scopes.store(saved_scopes);
+    caller.unwind_root = saved_root;
+    assert(mask == saved_mask && !caller.cancellation_suppression.load() &&
+           notification_prepares == prepares);
+  }
   if (selected == Case::DuringReturn ||
       selected == Case::RecursiveDuringChild) {
     assert(registrations == 1 + during_forks);

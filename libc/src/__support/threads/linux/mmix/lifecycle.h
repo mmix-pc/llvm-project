@@ -306,8 +306,10 @@ public:
   // retries) must not deliver new notifications. This is not a lifetime pin.
   bool admit_signal_notification() { return !process_exiting(); }
   // Nonblocking precheck; the caller has blocked signals and proved that it
-  // is on its ordinary chain before inspecting the registry.
-  bool quiescent_fork_caller(ThreadControl &caller);
+  // is on its ordinary chain before inspecting the registry. NormalAfter also
+  // requires the private normal-exit owner/phase certificate from the caller.
+  bool quiescent_fork_caller(
+      ThreadControl &caller, ForkContinuation kind = ForkContinuation::Ordinary);
   // Dedicated clone snapshot scope; never use the ordinary API lock across it.
   // Non-ordinary kinds require the matching private exit-owner/root
   // certificate. Both terminal DURING kinds retain Cleaning/live one/RUNNING;

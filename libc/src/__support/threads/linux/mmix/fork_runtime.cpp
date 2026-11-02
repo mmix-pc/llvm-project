@@ -80,8 +80,19 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
 #ifdef LIBC_MMIX_UNWIND_ROOTS
     // Reject interrupted execution before acquiring runtime locks. The census
     // includes unreaped helpers, not merely the caller's creation history.
-    if (!ordinary_fork_context(*caller) ||
-        !thread_registry.quiescent_fork_caller(*caller) ||
+    if (!ordinary_fork_context(*caller)) {
+      error_code = EAGAIN;
+      return;
+    }
+    bool during = false;
+    const bool normal_after =
+        internal::normal_exit_fork_owner &&
+        internal::rebind_normal_exit_fork_owner &&
+        internal::normal_exit_fork_owner(&during) == caller->attributes.tid &&
+        !during;
+    if (normal_after)
+      continuation = ForkContinuation::NormalAfter;
+    if (!thread_registry.quiescent_fork_caller(*caller, continuation) ||
         caller->cancellation.terminal()) {
       error_code = EAGAIN;
       return;
@@ -91,7 +102,14 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
     return;
 #endif
 #ifdef LIBC_MMIX_SHARED_STARTUP
-    if (caller->loader_scopes.load() || caller->loader_callbacks.load()) {
+    // Shared __cxa_finalize retains a cancellation scope across user code,
+    // but invokes callbacks outside loader transactions. A certified ordinary
+    // process callback may preserve that single scope; prepare_runtime must still
+    // prove the loader is quiescent. Never admit a loader callback itself.
+    const auto scopes = caller->loader_scopes.load();
+    if ((scopes && !(scopes == 1 &&
+                     continuation == ForkContinuation::NormalAfter)) ||
+        caller->loader_callbacks.load()) {
       error_code = EAGAIN;
       return;
     }
@@ -148,13 +166,15 @@ int ForkOperation::prepare_runtime() {
              terminal_worker_fork_context(*caller)) {
     continuation = ForkContinuation::WorkerThreadDuring;
     continuation_root = caller->unwind_root;
-  } else if (!minimal && internal::normal_exit_fork_owner &&
+  } else if (internal::normal_exit_fork_owner &&
              internal::rebind_normal_exit_fork_owner &&
              internal::normal_exit_fork_owner(&during) ==
                  caller->attributes.tid &&
+             (!minimal || !during) &&
              ordinary_fork_context(*caller)) {
     continuation = during ? ForkContinuation::NormalDuring
                           : ForkContinuation::NormalAfter;
+    continuation_root = caller->unwind_root;
   }
 #endif
   const bool cleanup_continuation = continuation != ForkContinuation::Ordinary;
@@ -286,6 +306,17 @@ int ForkOperation::freeze_registry() {
   // Recheck the exact owner/root selected before locks. These hooks inspect
   // only owner-local identity and phase, never query locked loader metadata.
 #ifdef LIBC_MMIX_UNWIND_ROOTS
+  if (registry && minimal && continuation == ForkContinuation::NormalAfter) {
+    bool during = false;
+    if (!internal::normal_exit_fork_owner ||
+        internal::normal_exit_fork_owner(&during) != caller->attributes.tid ||
+        during || !continuation_root.matches(caller->unwind_root) ||
+        !ordinary_fork_context(*caller)) {
+      thread_registry.release_after_fork();
+      registry = false;
+      return EAGAIN;
+    }
+  }
   if (registry && continuation == ForkContinuation::WorkerThreadDuring &&
       (worker_thread_during_fork_owner() != caller->attributes.tid ||
        !continuation_root.matches(caller->unwind_root))) {

@@ -1534,8 +1534,20 @@ extern "C" int main() {
     // A certificate cannot bypass the actual claim and completed drain state.
     require(!process.freeze_for_fork(caller, 0, &single, false, ForkContinuation::NormalAfter));
     require(process.claim_process_cleanup());
+    require(!process.quiescent_fork_caller(caller, ForkContinuation::NormalAfter));
     require(!process.freeze_for_fork(caller, 0, &single, false, ForkContinuation::NormalAfter));
     require(caller.begin_callback_cleanup());
+    require(!process.quiescent_fork_caller(caller));
+    require(process.quiescent_fork_caller(caller, ForkContinuation::NormalAfter));
+    require(!process.quiescent_fork_caller(caller, ForkContinuation::NormalDuring));
+    require(!process.quiescent_fork_caller(caller, ForkContinuation::LastThreadAfter));
+    {
+      ThreadRegistryLock lock(process);
+      require(!process.quiescent_fork_caller(caller, ForkContinuation::NormalAfter));
+    }
+    require(caller.cancellation.claim(false));
+    require(!process.quiescent_fork_caller(caller, ForkContinuation::NormalAfter));
+    caller.cancellation.restore_after_fork();
     require(!process.freeze_for_fork(caller));
     require(process.freeze_for_fork(caller, 0, &single, false, ForkContinuation::NormalAfter) && single);
     process.release_after_fork(); // A failed clone must not erase parent state.

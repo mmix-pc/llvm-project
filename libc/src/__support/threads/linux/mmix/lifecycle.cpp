@@ -15,17 +15,24 @@ namespace mmix {
 
 LIBC_CONSTINIT ThreadRegistry thread_registry;
 
-bool ThreadRegistry::quiescent_fork_caller(ThreadControl &caller) {
+bool ThreadRegistry::quiescent_fork_caller(ThreadControl &caller,
+                                           ForkContinuation kind) {
   if (!mutex.value.try_lock())
     return false;
+  const bool ordinary = kind == ForkContinuation::Ordinary &&
+                        !process_exiting() && !caller.callbacks_started;
+  const bool normal_after =
+      kind == ForkContinuation::NormalAfter && caller.callbacks_started &&
+      process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED &&
+      !caller.cancellation.terminal() && !caller.internal_helper &&
+      caller.callback_phase == CallbackPhase::None;
   bool quiescent =
-      main_registered && !process_operation && !process_exiting() &&
+      (ordinary || normal_after) && main_registered && !process_operation &&
       fork_recovery.allows_fork() && caller.fork_recovery.allows_fork() &&
       !reservations && !helper_reservations && !unreaped_helpers &&
       !unreaped_callbacks && live == 1 && head == &caller && !caller.next &&
       !reap_head && !reap_tail && !reap_count && caller.registry == this &&
-      caller.listed && caller.execution == ThreadExecution::Running &&
-      !caller.callbacks_started;
+      caller.listed && caller.execution == ThreadExecution::Running;
   mutex.value.unlock();
   return quiescent;
 }
