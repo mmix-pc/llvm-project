@@ -91,6 +91,21 @@ TEST(LlvmLibcSysconfTest, ArgMaxTest) {
   ASSERT_GE(arg_max, 131072L);
 }
 
+TEST(LlvmLibcSysconfTest, AioLimitsPreserveErrno) {
+  libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_AIO_MAX), -1L);
+  EXPECT_EQ(static_cast<int>(libc_errno), EDOM);
+  EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_AIO_LISTIO_MAX), -1L);
+  EXPECT_EQ(static_cast<int>(libc_errno), EDOM);
+#if defined(LIBC_TARGET_ARCH_IS_MMIX) && defined(_POSIX_ASYNCHRONOUS_IO) && \
+    _POSIX_ASYNCHRONOUS_IO > 0
+  EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_AIO_PRIO_DELTA_MAX), 0L);
+#else
+  EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_AIO_PRIO_DELTA_MAX), -1L);
+#endif
+  EXPECT_EQ(static_cast<int>(libc_errno), EDOM);
+}
+
 TEST(LlvmLibcSysconfTest, OpenMaxTest) {
   long open_max = LIBC_NAMESPACE::sysconf(_SC_OPEN_MAX);
   if (open_max == -1)

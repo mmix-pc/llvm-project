@@ -172,6 +172,14 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
 #else
     return -1;
 #endif
+  case _SC_AIO_PRIO_DELTA_MAX:
+#if defined(LIBC_TARGET_ARCH_IS_MMIX) && defined(_POSIX_ASYNCHRONOUS_IO) && \
+    _POSIX_ASYNCHRONOUS_IO > 0
+    // The MMIX provider ignores aio_reqprio without prioritized I/O support.
+    return 0;
+#else
+    return -1;
+#endif
   case _SC_SYNCHRONIZED_IO:
 #ifdef _POSIX_SYNCHRONIZED_IO
     return _POSIX_SYNCHRONIZED_IO > 0 ? _POSIX_SYNCHRONIZED_IO : -1;
@@ -665,7 +673,6 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
   case _SC_TIMER_MAX:
   case _SC_AIO_LISTIO_MAX:
   case _SC_AIO_MAX:
-  case _SC_AIO_PRIO_DELTA_MAX:
   case _SC_DELAYTIMER_MAX:
   case _SC_MQ_OPEN_MAX:
   case _SC_MQ_PRIO_MAX:

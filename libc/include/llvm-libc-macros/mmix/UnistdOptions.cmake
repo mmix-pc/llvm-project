@@ -77,9 +77,64 @@ function(mmix_configure_unistd_options output)
     signal.sigqueue signal.sigtimedwait signal.sigwaitinfo)
   mmix_set_posix_option(PRIORITY_SCHEDULING 200809L
     sched.sched_setscheduler sched.sched_getscheduler sched.sched_setparam sched.sched_getparam)
-  # FIXME: Qualify the full Spawn option after implementing spawn attributes.
-  # Exporting the null-attribute subset does not establish option support.
+  # Publish the accepted Linux process providers, not the SINGLE null-attribute
+  # spawn subset or an internal preparation archive. Keep this prerequisite
+  # closure aligned with RuntimeMode.cmake's full extended/coordinated profile;
+  # the existing thread and unrelated option predicates above are unchanged.
+  set(mmix_process_options TRUE)
+  foreach(component THREADED_LIBC THREAD_LIFECYCLE RUNTIME_STATE
+                    PTHREAD_CREATION PTHREAD_LIFECYCLE PTHREAD_MUTEX
+                    PTHREAD_COND PTHREAD_ONCE PTHREAD_TSS PTHREAD_SIGNALS
+                    CONCURRENT_ALLOCATION CONCURRENT_STDIO EXTENDED_PTHREAD
+                    MUTEX_TYPES TIMED_MUTEX PTHREAD_RWLOCK PTHREAD_BARRIER
+                    PTHREAD_SPIN PROCESS_SHARED ROBUST_MUTEX PI_MUTEX
+                    PROTECT_MUTEX PTHREAD_SCHEDULING PTHREAD_CLOCKS
+                    CONCURRENCY_HINTS COORDINATED_FORK UNWIND_DIAGNOSTICS
+                    UNWIND_ROOTS TLS_DESTRUCTORS CXX_RUNTIME_DEPENDENCIES
+                    FORCED_EXIT DEFERRED_CANCELLATION CANCELLATION_WINDOWS
+                    CANCELLATION_RUNTIME_LOCKS ASYNC_CANCELLATION)
+    if(NOT LIBC_MMIX_BUILD_${component})
+      set(mmix_process_options FALSE)
+    endif()
+  endforeach()
+  if(NOT LIBC_TARGET_OS STREQUAL "linux" OR
+     NOT LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" OR
+     NOT LLVM_LIBC_FULL_BUILD OR NOT LIBC_MMIX_ENABLE_STATIC_TLS OR
+     LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC OR
+     NOT LIBC_CONF_THREAD_MODE STREQUAL "LIBC_THREAD_MODE_PLATFORM" OR
+     NOT LIBC_CONF_ERRNO_MODE STREQUAL "LIBC_ERRNO_MODE_THREAD_LOCAL" OR
+     (LIBC_MMIX_BUILD_SHARED_LIBC AND NOT CMAKE_POSITION_INDEPENDENT_CODE))
+    set(mmix_process_options FALSE)
+  endif()
   set(MMIX_POSIX_SPAWN "(-1L)")
+  set(MMIX_POSIX_ASYNCHRONOUS_IO "(-1L)")
+  if(mmix_process_options)
+    # Scheduling attributes use the internal kernel transport. They require
+    # the selected scheduling runtime, not exported public sched_* wrappers or
+    # a positive whole-process PRIORITY_SCHEDULING advertisement.
+    mmix_set_posix_option(SPAWN 202405L
+      spawn.posix_spawn spawn.posix_spawnp
+      spawn.posix_spawn_file_actions_init spawn.posix_spawn_file_actions_destroy
+      spawn.posix_spawn_file_actions_addopen spawn.posix_spawn_file_actions_addclose
+      spawn.posix_spawn_file_actions_adddup2 spawn.posix_spawn_file_actions_addchdir
+      spawn.posix_spawn_file_actions_addfchdir
+      spawn.posix_spawnattr_init spawn.posix_spawnattr_destroy
+      spawn.posix_spawnattr_getflags spawn.posix_spawnattr_setflags
+      spawn.posix_spawnattr_getpgroup spawn.posix_spawnattr_setpgroup
+      spawn.posix_spawnattr_getschedparam spawn.posix_spawnattr_setschedparam
+      spawn.posix_spawnattr_getschedpolicy spawn.posix_spawnattr_setschedpolicy
+      spawn.posix_spawnattr_getsigdefault spawn.posix_spawnattr_setsigdefault
+      spawn.posix_spawnattr_getsigmask spawn.posix_spawnattr_setsigmask)
+    # The eight entrypoints alone do not select the matched cancellation,
+    # notification and io_uring service. AIO and signal cancellation stay opt-in;
+    # this accepted non-PIO provider never advertises PRIORITIZED_IO.
+    if(LIBC_MMIX_BUILD_AIO AND LIBC_MMIX_BUILD_SIGNAL_CANCELLATION AND
+       LIBC_MMIX_BUILD_JUMP_SAVE)
+      mmix_set_posix_option(ASYNCHRONOUS_IO 202405L
+        aio.aio_read aio.aio_write aio.aio_fsync aio.aio_error aio.aio_return
+        aio.aio_cancel aio.aio_suspend aio.lio_listio)
+    endif()
+  endif()
   mmix_set_posix_option(SAVED_IDS 1
     unistd.setuid unistd.setgid)
   mmix_set_posix_option(JOB_CONTROL 1

@@ -26,7 +26,7 @@ extensions = {
 all_flags = base + list(extensions) + ["ROBUST_MUTEX"]
 options = ["THREADS", "THREAD_ATTR_STACKADDR", "THREAD_ATTR_STACKSIZE",
            *extensions.values(), "THREAD_ROBUST_PRIO_INHERIT",
-           "THREAD_ROBUST_PRIO_PROTECT", "SPAWN"]
+           "THREAD_ROBUST_PRIO_PROTECT", "SPAWN", "ASYNCHRONOUS_IO"]
 providers = {
     "REGEXP": {"regex.regcomp", "regex.regexec", "regex.regerror", "regex.regfree"},
     "MAPPED_FILES": {"sys.mman.mmap", "sys.mman.munmap"},
@@ -58,18 +58,57 @@ providers = {
                  "pthread.pthread_rwlock_timedwrlock"},
 }
 
-def check(name, enabled, entries=()):
+# Independent public populations: every one is removed below, including the
+# PS-conjoined attribute accessors and Issue 8 chdir/fchdir actions.
+spawn_entries = {"spawn." + name for name in (
+    "posix_spawn", "posix_spawnp", "posix_spawn_file_actions_init",
+    "posix_spawn_file_actions_destroy", "posix_spawn_file_actions_addopen",
+    "posix_spawn_file_actions_addclose", "posix_spawn_file_actions_adddup2",
+    "posix_spawn_file_actions_addchdir", "posix_spawn_file_actions_addfchdir",
+    "posix_spawnattr_init", "posix_spawnattr_destroy",
+    "posix_spawnattr_getflags", "posix_spawnattr_setflags",
+    "posix_spawnattr_getpgroup", "posix_spawnattr_setpgroup",
+    "posix_spawnattr_getschedparam", "posix_spawnattr_setschedparam",
+    "posix_spawnattr_getschedpolicy", "posix_spawnattr_setschedpolicy",
+    "posix_spawnattr_getsigdefault", "posix_spawnattr_setsigdefault",
+    "posix_spawnattr_getsigmask", "posix_spawnattr_setsigmask")}
+aio_entries = {"aio." + name for name in (
+    "aio_read", "aio_write", "aio_fsync", "aio_error", "aio_return",
+    "aio_cancel", "aio_suspend", "lio_listio")}
+assert len(spawn_entries) == 23 and len(aio_entries) == 8
+process_flags = sorted(set(all_flags) | {
+    "RUNTIME_STATE", "CONCURRENT_ALLOCATION", "CONCURRENT_STDIO",
+    "EXTENDED_PTHREAD", "CONCURRENCY_HINTS", "MUTEX_TYPES", "TIMED_MUTEX",
+    "UNWIND_DIAGNOSTICS", "UNWIND_ROOTS", "TLS_DESTRUCTORS",
+    "CXX_RUNTIME_DEPENDENCIES",
+    "FORCED_EXIT", "CANCELLATION_WINDOWS", "CANCELLATION_RUNTIME_LOCKS"})
+aio_flags = ["AIO", "SIGNAL_CANCELLATION", "JUMP_SAVE"]
+selected_flags = process_flags + aio_flags
+process_settings = {
+    "LIBC_TARGET_OS": "linux",
+    "LIBC_TARGET_ARCHITECTURE": "mmix",
+    "LLVM_LIBC_FULL_BUILD": "ON",
+    "LIBC_MMIX_ENABLE_STATIC_TLS": "ON",
+    "LIBC_CONF_THREAD_MODE": "LIBC_THREAD_MODE_PLATFORM",
+    "LIBC_CONF_ERRNO_MODE": "LIBC_ERRNO_MODE_THREAD_LOCAL",
+}
+
+def check(name, enabled, entries=(), *, settings=None,
+          process_values=(-1, -1), source_only=False):
     directory = work / name
     header = directory / "llvm-libc-macros/mmix/unistd-options.h"
     header.parent.mkdir(parents=True, exist_ok=True)
-    script = directory / "configure.cmake"
-    script.write_text(
-        'include("' + str(libc / "include/llvm-libc-macros/mmix/UnistdOptions.cmake") + '")\n' +
-        "".join("set(LIBC_MMIX_BUILD_" + flag + " ON)\n" for flag in enabled) +
-        'set(TARGET_LIBC_ENTRYPOINTS ' +
-        " ".join("libc.src." + entry for entry in entries) + ')\n' +
-        'mmix_configure_unistd_options("' + str(header) + '")\n')
-    subprocess.run(["cmake", "-P", script], check=True)
+    if not source_only:
+        script = directory / "configure.cmake"
+        script.write_text(
+            'include("' + str(libc / "include/llvm-libc-macros/mmix/UnistdOptions.cmake") + '")\n' +
+            "".join("set(LIBC_MMIX_BUILD_" + flag + " ON)\n" for flag in enabled) +
+            "".join('set(' + key + ' "' + value + '")\n'
+                    for key, value in (settings or {}).items()) +
+            'set(TARGET_LIBC_ENTRYPOINTS ' +
+            " ".join("libc.src." + entry for entry in sorted(entries)) + ')\n' +
+            'mmix_configure_unistd_options("' + str(header) + '")\n')
+        subprocess.run(["cmake", "-P", script], check=True)
     public = set(base) <= set(enabled)
     expected = {option: -1 for option in options}
     for option, required in providers.items():
@@ -83,18 +122,33 @@ def check(name, enabled, entries=()):
                 expected[option] = 200809
         if "ROBUST_MUTEX" in enabled and "PI_MUTEX" in enabled:
             expected["THREAD_ROBUST_PRIO_INHERIT"] = 200809
+    # Explicit oracles, not a second implementation of the CMake predicate.
+    expected["SPAWN"], expected["ASYNCHRONOUS_IO"] = process_values
+    if source_only:
+        expected = {option: -1 for option in expected}
     source = directory / "probe.c"
     source.write_text(
         '#include "llvm-libc-macros/mmix/unistd-macros.h"\n' +
         "".join('_Static_assert(_POSIX_' + option + ' == ' + str(value) +
                 'L, "' + option + '");\n' for option, value in expected.items()) +
         '#if defined(_POSIX_VERSION) || defined(_XOPEN_VERSION)\n'
-        '#error "Do not advertise complete POSIX/XSI conformance"\n#endif\n')
-    # Private consumer flags must not change the installed provider contract.
-    subprocess.run([clang, "-cc1", "-triple", "mmix-unknown-linux",
-                    "-std=c17", "-ffreestanding", "-DLIBC_THREAD_MODE=0",
-                    "-I", str(directory), "-I", str(libc / "include"),
-                    "-fsyntax-only", str(source)], check=True)
+        '#error "Do not advertise complete POSIX/XSI conformance"\n#endif\n' +
+        '#ifdef _POSIX_PRIORITIZED_IO\n'
+        '#error "Non-PIO publication must not introduce a PIO macro"\n#endif\n')
+    # Enabling client-private flags cannot promote a negative provider; disabling
+    # them cannot downgrade a selected provider. Source fallback stays negative.
+    for value in (0, 1):
+        client = ["-DLIBC_THREAD_MODE=" + str(value),
+                  "-DLIBC_MMIX_ENABLE_STATIC_TLS=" + str(value),
+                  "-DLIBC_MMIX_PTHREAD_SCHEDULING=" + str(value),
+                  "-DLIBC_MMIX_SIGNAL_CLEANUP=" + str(value),
+                  "-DLIBC_MMIX_SIGNAL_WAIT=" + str(value)]
+        client += ["-DLIBC_MMIX_BUILD_" + flag + "=" + str(value)
+                   for flag in selected_flags + ["SPAWN"]]
+        subprocess.run([clang, "-cc1", "-triple", "mmix-unknown-linux",
+                        "-std=c17", "-ffreestanding", *client,
+                        "-I", str(directory), "-I", str(libc / "include"),
+                        "-fsyntax-only", str(source)], check=True)
 
 check("minimal", [])
 check("full", all_flags)
@@ -108,3 +162,67 @@ check("partial-spawn", all_flags + ["SPAWN"],
 check("regexp-only", [], sorted(providers["REGEXP"]))
 for entry in entries:
     check("without-provider-" + entry, [], [e for e in entries if e != entry])
+
+process_entries = spawn_entries | aio_entries
+complete_entries = set(entries) | process_entries
+check("process-selected-static", selected_flags, complete_entries,
+      settings=process_settings, process_values=(202405, 202405))
+check("process-selected-shared", selected_flags, complete_entries,
+      settings={**process_settings, "LIBC_MMIX_BUILD_SHARED_LIBC": "ON",
+                "CMAKE_POSITION_INDEPENDENT_CODE": "ON"},
+      process_values=(202405, 202405))
+# Internal scheduling is required; absence of the separate public process
+# scheduler exports does not remove working spawn scheduling attributes.
+check("process-without-public-sched", selected_flags,
+      complete_entries - providers["PRIORITY_SCHEDULING"],
+      settings=process_settings, process_values=(202405, 202405))
+check("spawn-without-aio-selection", process_flags, complete_entries,
+      settings=process_settings, process_values=(202405, -1))
+check("spawn-only", process_flags, spawn_entries,
+      settings=process_settings, process_values=(202405, -1))
+check("aio-without-spawn-exports", selected_flags, aio_entries,
+      settings=process_settings, process_values=(-1, 202405))
+check("entrypoints-without-runtime", [], complete_entries,
+      settings=process_settings)
+check("selected-runtime-without-entrypoints", selected_flags,
+      settings=process_settings)
+check("threaded-null-attributes-only", selected_flags,
+      {"spawn.posix_spawn", "spawn.posix_spawnp"}, settings=process_settings)
+check("single-null-attribute-spawn", ["SINGLE_THREADED_LIBC", "SPAWN"],
+      {"spawn.posix_spawn", "spawn.posix_spawnp"},
+      settings={**process_settings, "LIBC_MMIX_ENABLE_STATIC_TLS": "OFF",
+                "LIBC_CONF_THREAD_MODE": "LIBC_THREAD_MODE_SINGLE",
+                "LIBC_CONF_ERRNO_MODE": "LIBC_ERRNO_MODE_SHARED"})
+check("single-even-with-all-exports", ["SINGLE_THREADED_LIBC", "SPAWN"],
+      complete_entries,
+      settings={**process_settings, "LIBC_MMIX_ENABLE_STATIC_TLS": "OFF",
+                "LIBC_CONF_THREAD_MODE": "LIBC_THREAD_MODE_SINGLE",
+                "LIBC_CONF_ERRNO_MODE": "LIBC_ERRNO_MODE_SHARED"})
+for flag in process_flags:
+    check("process-without-" + flag,
+          [f for f in selected_flags if f != flag], complete_entries,
+          settings=process_settings)
+for flag in aio_flags:
+    check("aio-without-" + flag,
+          [f for f in selected_flags if f != flag], complete_entries,
+          settings=process_settings, process_values=(202405, -1))
+for entry in sorted(process_entries):
+    check("process-without-provider-" + entry, selected_flags,
+          complete_entries - {entry}, settings=process_settings,
+          process_values=((-1, 202405) if entry in spawn_entries else
+                          (202405, -1)))
+for key, value in (
+        ("LIBC_TARGET_OS", "generic"),
+        ("LIBC_TARGET_ARCHITECTURE", "x86_64"),
+        ("LLVM_LIBC_FULL_BUILD", "OFF"),
+        ("LIBC_MMIX_ENABLE_STATIC_TLS", "OFF"),
+        ("LIBC_CONF_THREAD_MODE", "LIBC_THREAD_MODE_SINGLE"),
+        ("LIBC_CONF_ERRNO_MODE", "LIBC_ERRNO_MODE_SHARED"),
+        ("LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC", "ON")):
+    check("process-invalid-" + key, selected_flags, complete_entries,
+          settings={**process_settings, key: value})
+check("process-shared-without-pic", selected_flags, complete_entries,
+      settings={**process_settings, "LIBC_MMIX_BUILD_SHARED_LIBC": "ON",
+                "CMAKE_POSITION_INDEPENDENT_CODE": "OFF"})
+check("source-fallback", selected_flags, complete_entries,
+      settings=process_settings, source_only=True)
