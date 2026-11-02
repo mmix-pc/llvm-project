@@ -1,0 +1,10 @@
+# REQUIRES: mmix-registered-target
+# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %S/../../../../libc/src/__support/threads/linux/mmix/cancellation_leaf.S -o %t.o
+# RUN: llvm-dwarfdump --eh-frame %t.o | FileCheck %s
+
+# The resource-free leaf preserves FP and rJ through both syscall and pending
+# returns. Its exact interrupted PC must have a CFI row for parent unwinding.
+# CHECK: CIE
+# CHECK: FDE
+# CHECK: DW_CFA_def_cfa: R254 +0
+# CHECK: DW_CFA_same_value: RJ

@@ -12,6 +12,10 @@
 .hidden __llvm_libc_mmix_cancel_leaf
 .type __llvm_libc_mmix_cancel_leaf,@function
 __llvm_libc_mmix_cancel_leaf:
+  .cfi_startproc
+  // This leaf never changes FP/SP or rJ, including the recoverable interval.
+  .cfi_def_cfa 30, 0
+  .cfi_same_value 35
   // Arguments: number, six syscall words, private descriptor in r238.
   // Prepare expected leaf identity before the recoverable interval. No call,
   // window growth, SP adjustment or store occurs inside that interval.
@@ -46,5 +50,6 @@ __llvm_libc_mmix_cancel_after:
   SETL r231, 4096
   NEGU r231, 0, r231
   POP 0, 0
+  .cfi_endproc
 .size __llvm_libc_mmix_cancel_leaf, .-__llvm_libc_mmix_cancel_leaf
 .section .note.GNU-stack,"",@progbits
