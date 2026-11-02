@@ -30,6 +30,9 @@ bool activate_main_thread(MainThreadState &state);
 // Pre-creation fork only, after publishing the child's TID with signals blocked.
 bool restore_main_thread_after_fork();
 bool adopt_fork_survivor();
+// Terminal snapshot with live helpers: retain backing only until exec/_exit.
+// Registry isolation has invalidated roots and forbidden cleanup replay.
+bool adopt_terminal_exec_only_survivor();
 // Owner-only phase query. False for workers and for an unfinished TLS/TSS
 // drain; this neither proves process-exit ownership nor validates an unwind
 // root.

@@ -23,7 +23,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
-int prepare_notification_fork(bool, bool *) __attribute__((weak));
+int prepare_notification_fork(bool, bool *, bool) __attribute__((weak));
 void finish_notification_fork(bool) __attribute__((weak));
 namespace {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL uint64_t parent_mask;
@@ -63,7 +63,8 @@ extern "C" [[gnu::visibility("hidden")]] long __llvm_libc_mmix_vfork_begin() {
     restore_mask(UINT64_MAX & ~CREDENTIAL_MASK);
     bool notification_drained = true;
     int prepared = prepare_notification_fork
-                       ? prepare_notification_fork(false, &notification_drained)
+                       ? prepare_notification_fork(false, &notification_drained,
+                                                   true)
                        : 0;
     notification_prepared = prepare_notification_fork && !prepared;
     bool reaper_drained = !prepared && notification_drained &&

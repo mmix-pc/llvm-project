@@ -238,9 +238,19 @@ bool terminal_spawn_admitted(mmix::ThreadControl &caller) {
              mmix::terminal_worker_fork_context(caller)) {
     continuation = mmix::ForkContinuation::WorkerThreadDuring;
   }
-  // Preserve the already-certified fork continuation subset. This is only a
-  // nonblocking census: release its locks before creating or waiting for the
-  // raw exec-only child. Do not retire helpers or restore the copied runtime.
+  // DURING needs a valid owner, not helper retirement: this child goes directly
+  // to exec/_exit and never resumes the copied terminal activation.
+  if (continuation == mmix::ForkContinuation::InitialThreadDuring ||
+      continuation == mmix::ForkContinuation::WorkerThreadDuring) {
+    if (!mmix::thread_registry.freeze_for_fork(
+            caller, 1, nullptr, false, continuation,
+            mmix::ForkSnapshot::TerminalExecOnly))
+      return false;
+    mmix::thread_registry.release_after_fork();
+    return true;
+  }
+  // AFTER retains its stronger certificate. Release all inspection locks
+  // before creating or waiting for the raw child.
   return continuation != mmix::ForkContinuation::Ordinary &&
          mmix::reaper_absent_for_exit_fork(caller, continuation);
 #else

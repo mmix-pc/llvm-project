@@ -214,7 +214,7 @@ int register_mq_notification(int descriptor, const sigevent &event) {
                                  app.tls, app.page_size));
 }
 
-int prepare_notification_fork(bool minimal, bool *drained) {
+int prepare_notification_fork(bool minimal, bool *drained, bool retire_helpers) {
   *drained = false;
   if (!serializer.mutex.try_lock())
     return EAGAIN;
@@ -237,7 +237,7 @@ int prepare_notification_fork(bool minimal, bool *drained) {
   serializer.mutex.unlock();
   // Retirement releases loader owners. Publish the checkpoint instead of
   // holding a mutex across that release or the copied-process snapshot.
-  if (service->timers.empty() && service->mq.drained()) {
+  if (retire_helpers && service->timers.empty() && service->mq.drained()) {
     int error = !service->timers.collect_retired() ||
                         (minimal && !dispatcher.drained())
                     ? EAGAIN

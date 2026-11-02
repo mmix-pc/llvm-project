@@ -25,7 +25,9 @@ int register_mq_notification(int, const sigevent &);
 // Optional process hooks, called with application signals/cancellation blocked.
 // Credential notification must remain enabled during helper retirement.
 // Successful prepare holds admission until finish, including clone failure.
-int prepare_notification_fork(bool minimal, bool *drained);
+// A checkpoint without retirement preserves helper and callback ownership.
+int prepare_notification_fork(bool minimal, bool *drained,
+                              bool retire_helpers = true);
 void finish_notification_fork(bool child);
 // Lock-free, including quick_exit from a handler. No waiting or callbacks.
 void close_notification_admission();

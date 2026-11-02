@@ -104,7 +104,8 @@ LIBC_INLINE int wait_relative(AioWaitEvent &event, const timespec *timeout,
 // restoration; finish reopens admission afterwards. Every successful prepare
 // needs exactly one finish, including rollback before freeze or failed clone.
 // A copied active service is quarantined, never drained by the child.
-int prepare_aio_fork(bool minimal, bool *drained);
+// Terminal callers may checkpoint live helpers, but must not retire them.
+int prepare_aio_fork(bool minimal, bool *drained, bool retire_helpers = true);
 int freeze_aio_fork();
 void thaw_aio_fork(bool child);
 void finish_aio_fork(bool child);

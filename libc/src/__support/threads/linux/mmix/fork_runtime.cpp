@@ -48,10 +48,10 @@ pid_t last_thread_exit_fork_owner() __attribute__((weak));
 bool rebind_last_thread_exit_fork_owner(pid_t) __attribute__((weak));
 } // namespace internal
 namespace mmix {
-int prepare_notification_fork(bool, bool *) __attribute__((weak));
+int prepare_notification_fork(bool, bool *, bool) __attribute__((weak));
 void finish_notification_fork(bool) __attribute__((weak));
 void close_notification_admission() __attribute__((weak));
-int prepare_aio_fork(bool, bool *) __attribute__((weak));
+int prepare_aio_fork(bool, bool *, bool) __attribute__((weak));
 int freeze_aio_fork() __attribute__((weak));
 void thaw_aio_fork(bool) __attribute__((weak));
 void finish_aio_fork(bool) __attribute__((weak));
@@ -166,24 +166,35 @@ int ForkOperation::prepare_runtime() {
   // retirement or enter ordinary child restoration as a fallback.
   if (caller->cancellation.terminal() && !terminal)
     return EAGAIN;
-  if (terminal &&
-      !reaper_absent_for_exit_fork(*caller, continuation))
-    return EAGAIN;
+  if (terminal && !reaper_absent_for_exit_fork(*caller, continuation)) {
+    // A DURING owner may retain helpers only with a restricted copied child.
+    // This independently checks the whole certificate, not just helper count.
+    if (!thread_registry.freeze_for_fork(
+            *caller, 1, nullptr, false, continuation,
+            ForkSnapshot::TerminalExecOnly))
+      return EAGAIN;
+    thread_registry.release_after_fork();
+    snapshot = ForkSnapshot::TerminalExecOnly;
+  }
+  const bool retire_helpers = snapshot != ForkSnapshot::TerminalExecOnly;
   // Helper TLS retirement can enter the loader and allocator. Complete it
   // before either subsystem is locked for the clone snapshot.
   bool notification_drained = true;
   if (prepare_notification_fork) {
-    if (int error = prepare_notification_fork(minimal, &notification_drained))
+    if (int error = prepare_notification_fork(minimal, &notification_drained,
+                                             retire_helpers))
       return error;
     notifications = true;
   }
   bool aio_drained = true;
   if (prepare_aio_fork) {
-    if (int error = prepare_aio_fork(minimal, &aio_drained))
+    if (int error = prepare_aio_fork(minimal, &aio_drained, retire_helpers))
       return error;
     aio = true;
   }
-  if (!minimal)
+  if (!retire_helpers)
+    helper_drained = false;
+  else if (!minimal)
     // A terminal continuation may witness absence, never retire a live helper.
     helper_drained = (cleanup_continuation
                           ? reaper_absent_for_exit_fork(*caller, continuation)
@@ -270,7 +281,8 @@ int ForkOperation::prepare_runtime() {
 int ForkOperation::freeze_registry() {
   bool single_thread = false;
   registry = thread_registry.freeze_for_fork(*caller, 1, &single_thread,
-                                             helper_drained, continuation);
+                                             helper_drained, continuation,
+                                             snapshot);
   // Recheck the exact owner/root selected before locks. These hooks inspect
   // only owner-local identity and phase, never query locked loader metadata.
 #ifdef LIBC_MMIX_UNWIND_ROOTS
@@ -304,8 +316,10 @@ int ForkOperation::freeze_registry() {
 #else
   child_recovery = internal::ForkRecovery::child(single_thread, true);
 #endif
-  if (!registry || ((minimal || continuation != ForkContinuation::Ordinary) &&
-                    !child_recovery.allows_fork()))
+  if (!registry ||
+      ((minimal || (continuation != ForkContinuation::Ordinary &&
+                    snapshot != ForkSnapshot::TerminalExecOnly)) &&
+       !child_recovery.allows_fork()))
     return EAGAIN;
   return aio ? freeze_aio_fork() : 0;
 }
@@ -319,6 +333,7 @@ long ForkOperation::create_child(bool wait_for_exec) {
 }
 
 void ForkOperation::restore_runtime(bool child) {
+  const bool exec_only = snapshot == ForkSnapshot::TerminalExecOnly;
   // Release completion/query exclusion before ordinary restoration; admission
   // stays closed until its late finish hook. The child first unpublishes state.
   if (aio)
@@ -339,7 +354,7 @@ void ForkOperation::restore_runtime(bool child) {
   if (registry) {
     if (child)
       thread_registry.restore_fork_child(*caller, child_recovery,
-                                         continuation);
+                                         continuation, snapshot);
     else
       thread_registry.release_after_fork();
     registry = false;
@@ -412,11 +427,14 @@ void ForkOperation::restore_runtime(bool child) {
       caller->cancellation_transfer.store(0);
     }
     restore_reaper_after_fork();
-    once_after_fork(child_recovery.allows_fork());
+    if (!exec_only)
+      once_after_fork(child_recovery.allows_fork());
     // Worker adopters establish phase, so select from the pre-clone certificate
     // rather than trying AFTER first and falling back to DURING.
     bool adopted = false;
-    switch (continuation) {
+    if (exec_only)
+      adopted = internal::adopt_terminal_exec_only_survivor();
+    else switch (continuation) {
     case ForkContinuation::Ordinary:
       adopted = internal::adopt_fork_survivor();
       break;

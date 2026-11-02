@@ -666,7 +666,7 @@ int suspend_aio_requests_relative(const aiocb *const *list, size_t count,
                                    context);
 }
 
-int prepare_aio_fork(bool minimal, bool *drained) {
+int prepare_aio_fork(bool minimal, bool *drained, bool retire_helpers) {
   *drained = false;
   if (!serializer.mutex.try_lock())
     return EAGAIN;
@@ -679,7 +679,7 @@ int prepare_aio_fork(bool minimal, bool *drained) {
   helpers_parked = service && service->try_park();
   serializer.mutex.unlock();
   int error = 0;
-  if (helpers_parked && Service::drained(service)) {
+  if (retire_helpers && helpers_parked && Service::drained(service)) {
     if (minimal && !service->helpers_drained())
       error = EAGAIN;
     else {

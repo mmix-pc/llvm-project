@@ -58,6 +58,7 @@ enum class ForkContinuation {
   LastWorkerAfter,
   WorkerThreadDuring
 };
+enum class ForkSnapshot { Recoverable, TerminalExecOnly };
 
 struct ThreadMapping {
   uintptr_t base = 0;
@@ -150,6 +151,13 @@ struct ThreadControl {
   }
 
   bool retains_resources_until_process_exit() const { return process_lifetime; }
+  // Owner-only check after the registry isolated a terminal copied child.
+  bool terminal_exec_only_survivor() const {
+    return fork_recovery.is_child() && !fork_recovery.allows_fork() &&
+           process_lifetime && callbacks_started &&
+           callback_phase == CallbackPhase::None &&
+           execution == ThreadExecution::Running && !unwind_root.active;
+  }
   bool terminal_cleanup_pending() {
     return initial_thread && process_lifetime &&
            execution == ThreadExecution::Cleaning && cancellation.terminal();
@@ -284,7 +292,8 @@ class ThreadRegistry {
            (caller.retained_active_callback() && unreaped_callbacks == 1);
   }
   bool terminal_fork_caller(ThreadControl &caller, ForkContinuation kind);
-  bool terminal_during_fork_caller(ThreadControl &caller, ForkContinuation kind);
+  bool terminal_during_fork_caller(ThreadControl &caller, ForkContinuation kind,
+                                 ForkSnapshot snapshot);
 
 public:
   constexpr ThreadRegistry() = default;
@@ -305,15 +314,24 @@ public:
   // LastThreadAfter requires the completed initial-thread drain and live zero.
   // LastWorkerAfter instead requires an elected, completed ordinary worker;
   // neither terminal AFTER kind promotes identity or transfers backing.
+  // All terminal certificates use nonblocking registry acquisition.
+  // TerminalExecOnly admits only certified DURING owners, with suppression one.
+  // Helpers need not be drained, but single_thread remains false. The caller
+  // must independently freeze/quarantine service state and validate its root.
+  // Its registry acquisition is nonblocking, including for admission prechecks.
   bool freeze_for_fork(
       ThreadControl &caller, uint64_t suppression = 0,
       bool *single_thread = nullptr, bool helper_drained = false,
-      ForkContinuation continuation = ForkContinuation::Ordinary);
+      ForkContinuation continuation = ForkContinuation::Ordinary,
+      ForkSnapshot snapshot = ForkSnapshot::Recoverable);
   void release_after_fork();
+  // TerminalExecOnly requires ExecOnly recovery and preserves the active fork
+  // guard's suppression while invalidating copied terminal execution state.
   void restore_fork_child(
       ThreadControl &survivor,
       internal::ForkRecovery recovery = internal::ForkRecovery::child(),
-      ForkContinuation continuation = ForkContinuation::Ordinary);
+      ForkContinuation continuation = ForkContinuation::Ordinary,
+      ForkSnapshot snapshot = ForkSnapshot::Recoverable);
   // Snapshot under ThreadRegistryLock; wait only after releasing it. Callers
   // supply a bounded deadline and recheck predicates even after timeout/wrap.
   ErrorOr<int> wait(uint32_t sequence, Futex::Timeout deadline) {

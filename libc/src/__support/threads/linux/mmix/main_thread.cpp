@@ -144,6 +144,20 @@ bool adopt_fork_survivor_after_thread_exit() {
 #endif
 }
 
+bool adopt_terminal_exec_only_survivor() {
+#if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
+  auto *control = mmix::current_control;
+  if (!control || self.attrib != &control->attributes ||
+      !control->terminal_exec_only_survivor())
+    return false;
+  active_attributes = self.attrib;
+  phase = Phase::Finished;
+  return register_fork_child(*control, RobustInheritance::Discard);
+#else
+  return false;
+#endif
+}
+
 bool adopt_fork_survivor_during_thread_exit() {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   auto *control = mmix::current_control;

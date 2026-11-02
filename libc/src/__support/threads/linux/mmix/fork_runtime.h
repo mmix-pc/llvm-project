@@ -22,6 +22,7 @@ class ForkOperation {
   bool aio = false;
   bool minimal = false;
   ForkContinuation continuation = ForkContinuation::Ordinary;
+  ForkSnapshot snapshot = ForkSnapshot::Recoverable;
   UnwindRoot continuation_root;
   bool credentials = false;
   bool exit_callbacks = false;

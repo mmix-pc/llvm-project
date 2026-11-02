@@ -63,7 +63,11 @@ bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller,
 }
 
 bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
-                                                ForkContinuation kind) {
+                                                ForkContinuation kind,
+                                                ForkSnapshot snapshot) {
+  if (kind != ForkContinuation::InitialThreadDuring &&
+      kind != ForkContinuation::WorkerThreadDuring)
+    return false;
   const auto &root = caller.unwind_root;
   const bool draining = kind == ForkContinuation::WorkerThreadDuring
                             ? caller.worker_cleanup_in_progress()
@@ -80,7 +84,8 @@ bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == RUNNING &&
-         !reservations && !helper_reservations && !unreaped_helpers &&
+         !reservations && !helper_reservations &&
+         (snapshot == ForkSnapshot::TerminalExecOnly || !unreaped_helpers) &&
          terminal_callback_census(caller) && live == 1 && head == &caller &&
          !caller.next &&
          !reap_head && !reap_tail && !reap_count && caller.registry == this &&
@@ -95,19 +100,37 @@ bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
 bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
                                      uint64_t suppression, bool *single_thread,
                                      bool helper_drained,
-                                     ForkContinuation kind) {
+                                     ForkContinuation kind,
+                                     ForkSnapshot snapshot) {
   if (single_thread)
     *single_thread = false;
-  mutex.value.lock();
+  const bool exec_only = snapshot == ForkSnapshot::TerminalExecOnly;
+  if (exec_only || kind == ForkContinuation::LastThreadAfter ||
+      kind == ForkContinuation::LastWorkerAfter ||
+      kind == ForkContinuation::InitialThreadDuring ||
+      kind == ForkContinuation::WorkerThreadDuring) {
+    // The preliminary helper-absence witness also uses this entrypoint.
+    // Terminal admission must not wait before its restricted fallback check.
+    if (!mutex.value.try_lock())
+      return false;
+  } else {
+    mutex.value.lock();
+  }
+  const bool during = kind == ForkContinuation::InitialThreadDuring ||
+                      kind == ForkContinuation::WorkerThreadDuring;
+  if ((snapshot != ForkSnapshot::Recoverable && !exec_only) ||
+      (exec_only && (!during || suppression != 1))) {
+    mutex.value.unlock();
+    return false;
+  }
   if (kind == ForkContinuation::LastThreadAfter ||
       kind == ForkContinuation::LastWorkerAfter ||
       kind == ForkContinuation::InitialThreadDuring ||
       kind == ForkContinuation::WorkerThreadDuring) {
-    const bool during = kind == ForkContinuation::InitialThreadDuring ||
-                        kind == ForkContinuation::WorkerThreadDuring;
-    const bool eligible = during ? terminal_during_fork_caller(caller, kind)
-                                 : terminal_fork_caller(caller, kind);
-    if (!helper_drained || !eligible ||
+    const bool eligible =
+        during ? terminal_during_fork_caller(caller, kind, snapshot)
+               : terminal_fork_caller(caller, kind);
+    if ((!exec_only && !helper_drained) || !eligible ||
         caller.cancellation_transfer.load() ||
         caller.cancellation_suppression.load() != suppression ||
         caller.cancellation_point.load()) {
@@ -115,7 +138,7 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
       return false;
     }
     if (single_thread)
-      *single_thread = true;
+      *single_thread = !exec_only;
     return true;
   }
   const bool process_cleanup = kind != ForkContinuation::Ordinary;
@@ -154,8 +177,53 @@ void ThreadRegistry::release_after_fork() { mutex.value.unlock(); }
 
 void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
                                         internal::ForkRecovery recovery,
-                                        ForkContinuation kind) {
+                                        ForkContinuation kind,
+                                        ForkSnapshot snapshot) {
   if (!recovery.is_child())
+    __builtin_trap();
+  if (snapshot == ForkSnapshot::TerminalExecOnly) {
+    if (recovery.allows_fork() ||
+        !terminal_during_fork_caller(survivor, kind, snapshot) ||
+        survivor.cancellation_suppression.load() != 1 ||
+        survivor.cancellation_transfer.load() ||
+        survivor.cancellation_point.load())
+      __builtin_trap();
+    // Only the copied registry is discarded. Backing and invocation owners
+    // remain mapped, without release hooks, until this child execs or _exits.
+    head = &survivor;
+    reap_head = reap_tail = nullptr;
+    reap_count = reservations = unreaped_callbacks = 0;
+    helper_reservations = unreaped_helpers = 0;
+    live = 1;
+    process_exit_state.store(RUNNING, cpp::MemoryOrder::RELAXED);
+    process_operation = false;
+    main_registered = creation_started = true;
+    fork_recovery = recovery;
+    survivor.registry = this;
+    survivor.next = survivor.reap_next = nullptr;
+    survivor.queued = survivor.creator_pin = survivor.leases_open = false;
+    survivor.listed = survivor.counted = survivor.lifecycle_pin = true;
+    survivor.process_lifetime = true;
+    survivor.internal_helper = false;
+    survivor.callback_phase = CallbackPhase::None;
+    survivor.callbacks_started = true;
+    survivor.completed_worker_callback_mgr = nullptr;
+    survivor.last_worker_exit_elected = false;
+    survivor.api_pins = survivor.leases = 0;
+    survivor.owner = ThreadOwner::Joinable;
+    survivor.execution = ThreadExecution::Running;
+    survivor.fork_recovery = recovery;
+    survivor.unwind_root.active = false;
+    survivor.cancellation.restore_after_fork();
+    survivor.cancellation_identity = survivor.cancellation_generation = 0;
+    survivor.cancellation_point.store(nullptr);
+    survivor.cancellation_transfer.store(0);
+    // The copied ForkOperation still owns its one suppression level.
+    event.value.store(0);
+    RawMutex::init(&mutex.value);
+    return;
+  }
+  if (snapshot != ForkSnapshot::Recoverable)
     __builtin_trap();
   if (kind == ForkContinuation::LastThreadAfter ||
       kind == ForkContinuation::LastWorkerAfter ||
@@ -163,8 +231,9 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
       kind == ForkContinuation::WorkerThreadDuring) {
     const bool during = kind == ForkContinuation::InitialThreadDuring ||
                         kind == ForkContinuation::WorkerThreadDuring;
-    const bool eligible = during ? terminal_during_fork_caller(survivor, kind)
-                                 : terminal_fork_caller(survivor, kind);
+    const bool eligible =
+        during ? terminal_during_fork_caller(survivor, kind, snapshot)
+               : terminal_fork_caller(survivor, kind);
     if (!recovery.allows_fork() || !eligible)
       __builtin_trap();
     // The frozen registry already contains exactly this terminal task. Do not
