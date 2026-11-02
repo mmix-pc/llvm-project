@@ -15,7 +15,7 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(pid_t, wait, (int *wait_status)) {
-  long result = mmix::cancellation_syscall(
+  long result = mmix::cancellation_process_wait(
       SYS_wait4, -1, reinterpret_cast<long>(wait_status), 0, 0);
   if (result < 0) {
     libc_errno = static_cast<int>(-result);

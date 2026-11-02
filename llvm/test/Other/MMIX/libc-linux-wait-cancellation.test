@@ -1,9 +1,10 @@
 # REQUIRES: mmix-registered-target
 # RUN: split-file %s %t
-# RUN: %python %t/check.py %S/../../../../libc %t
+# RUN: %python %t/check.py %S/../../../../libc %t "%mmix_host_cxx"
 
 #--- check.py
 import pathlib
+import shlex
 import subprocess
 import sys
 
@@ -12,23 +13,26 @@ sources = [libc / ('src/sys/wait/linux/mmix/cancellation_' + name + '.cpp')
            for name in ('wait', 'waitpid', 'wait4', 'waitid')]
 subprocess.run(['cmake', '-DLIBC_SOURCE_DIR=' + str(libc),
                 '-P', str(root / 'selection.cmake')], check=True)
-for opt in ('0', '2'):
+for opt, signal_wait in ((o, s) for o in ('0', '2') for s in (False, True)):
+    definitions = ['-DLIBC_MMIX_SIGNAL_WAIT'] if signal_wait else []
     for source in sources:
         obj = root / (source.stem + opt + '.o')
         subprocess.run(['clang', '--target=mmix-unknown-linux', '-O' + opt,
                         '-std=c++17', '-ffreestanding', '-fexceptions',
                         '-funwind-tables', '-DLIBC_FULL_BUILD',
-                        '-DLIBC_NAMESPACE=wait_test', '-I', str(root),
+                        '-DLIBC_NAMESPACE=wait_test', *definitions, '-I', str(root),
                         '-I', str(libc), '-c', str(source), '-o', str(obj)], check=True)
         undefined = subprocess.check_output(['llvm-nm', '-u', str(obj)], text=True)
         assert 'cancellation_syscall' in undefined, undefined
+        assert ('signal_cancellation_wait' in undefined) == signal_wait, undefined
         assert '__llvm_libc_mmix_syscall' not in undefined, undefined
         sections = subprocess.check_output(['llvm-readobj', '--sections', str(obj)], text=True)
         assert '.eh_frame' in sections, sections
     if len(sys.argv) == 4:
         binary = root / ('native-' + opt)
-        subprocess.run([sys.argv[3], '--no-default-config', '-O' + opt, '-std=c++17',
+        subprocess.run([*shlex.split(sys.argv[3]), '-O' + opt, '-std=c++17',
                         '-DLIBC_NAMESPACE=wait_test', '-DLIBC_ERRNO_MODE=6',
+                        *definitions,
                         '-I', str(libc), *map(str, sources), str(root / 'native.cpp'),
                         '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=10)
@@ -45,6 +49,13 @@ function(add_entrypoint_object name)
        NOT "-funwind-tables" IN_LIST arg_COMPILE_OPTIONS)
       message(FATAL_ERROR "Missing cancellable provider or unwind support: ${name}")
     endif()
+    if(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION AND
+       NOT "-DLIBC_MMIX_SIGNAL_WAIT" IN_LIST arg_COMPILE_OPTIONS)
+      message(FATAL_ERROR "Missing handler wait dispatch: ${name}")
+    elseif(NOT LIBC_MMIX_BUILD_SIGNAL_CANCELLATION AND
+           "-DLIBC_MMIX_SIGNAL_WAIT" IN_LIST arg_COMPILE_OPTIONS)
+      message(FATAL_ERROR "Unexpected handler wait dispatch: ${name}")
+    endif()
   else()
     if(NOT arg_SRCS STREQUAL "${name}.cpp" OR
        "libc.src.__support.threads.linux.mmix.cancellation_point" IN_LIST arg_DEPENDS OR
@@ -54,9 +65,10 @@ function(add_entrypoint_object name)
   endif()
   set_property(GLOBAL APPEND PROPERTY checked_names ${name})
 endfunction()
-function(check_selection arch cancellation)
+function(check_selection arch cancellation signal_wait)
   set(LIBC_TARGET_ARCHITECTURE ${arch})
   set(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS ${cancellation})
+  set(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION ${signal_wait})
   set_property(GLOBAL PROPERTY checked_names "")
   include("${LIBC_SOURCE_DIR}/src/sys/wait/linux/CMakeLists.txt")
   get_property(names GLOBAL PROPERTY checked_names)
@@ -65,10 +77,12 @@ function(check_selection arch cancellation)
     message(FATAL_ERROR "Missing wait entrypoint: ${names}")
   endif()
 endfunction()
-check_selection(mmix ON)
-check_selection(mmix OFF)
-check_selection(x86_64 ON)
-check_selection(x86_64 OFF)
+foreach(signal_wait ON OFF)
+  check_selection(mmix ON ${signal_wait})
+  check_selection(mmix OFF ${signal_wait})
+  check_selection(x86_64 ON ${signal_wait})
+  check_selection(x86_64 OFF ${signal_wait})
+endforeach()
 
 #--- sys/syscall.h
 #define SYS_wait4 260
@@ -100,10 +114,16 @@ check_selection(x86_64 OFF)
 static long returned, expected_pid, expected_status, expected_options, expected_usage;
 static int calls;
 static bool cancel;
+static bool handler, signal_path;
 static unsigned long expected_number = SYS_wait4;
 namespace wait_test { namespace mmix {
 long cancellation_syscall(unsigned long number, long pid, long status, long options,
                           long usage, long a5, long a6) {
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+  assert(signal_path == handler);
+#else
+  assert(!signal_path);
+#endif
   ++calls;
   assert(number == expected_number && pid == expected_pid);
   assert(status == expected_status && options == expected_options);
@@ -112,6 +132,14 @@ long cancellation_syscall(unsigned long number, long pid, long status, long opti
     throw 42;
   return returned;
 }
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+bool signal_cancellation_wait_available() { return handler; }
+long signal_cancellation_wait(unsigned long number, long pid, long status,
+                              long options, long usage, long a5, long a6) {
+  signal_path = true;
+  return cancellation_syscall(number, pid, status, options, usage, a5, a6);
+}
+#endif
 } }
 
 template <class F>
@@ -150,7 +178,9 @@ void check(F call, pid_t pid, int *status, int options, rusage *usage) {
   cancel = false;
 }
 
-int main() {
+static void run() {
+  expected_number = SYS_wait4;
+  signal_path = false;
   int status = 123;
   rusage usage{};
   usage.ru_maxrss = 456;
@@ -194,4 +224,12 @@ int main() {
     }
     cancel = false;
   }
+}
+
+int main() {
+  run();
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+  handler = true;
+  run();
+#endif
 }

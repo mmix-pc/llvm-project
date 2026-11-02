@@ -457,12 +457,17 @@ bool signal_cancellation_wait_available() {
 
 long signal_cancellation_wait(unsigned long number, long a1, long a2, long a3,
                               long a4, long a5, long a6) {
-  // The initial controlled surface is a resource-free futex wait. In
-  // particular, do not accept reads, close, or commands with partial effects.
+  // As for futex waits, the leaf's recoverable interval excludes completed
+  // syscall returns. Process-wait copy-out failures also retain their result,
+  // since an EFAULT can follow child-state consumption.
+  // Do not accept reads, close, or commands with other partial effects.
   const bool bitset = a2 == FUTEX_WAIT_BITSET_PRIVATE &&
                       a6 == FUTEX_BITSET_MATCH_ANY;
-  if (number != SYS_futex || a5 ||
-      (a2 != FUTEX_WAIT && a2 != FUTEX_WAIT_PRIVATE && !bitset))
+  const bool futex = number == SYS_futex && !a5 &&
+                     (a2 == FUTEX_WAIT || a2 == FUTEX_WAIT_PRIVATE || bitset);
+  const bool process = (number == SYS_wait4 || number == SYS_waitid) &&
+                       !a5 && !a6;
+  if (!futex && !process)
     return -ENOTSUP;
   return cancellation_syscall_impl(true, number, a1, a2, a3, a4, a5, a6);
 }

@@ -32,14 +32,27 @@ long cancellation_syscall(unsigned long number, long a1 = 0, long a2 = 0,
 // Select only a live trusted handler in the opt-in provider. Untracked custom
 // restorers and ordinary threads retain their previous waiting behavior.
 bool signal_cancellation_wait_available();
-// Explicit controlled waits only. Ordinary syscall wrappers retain their
-// handler exclusion until their own resource/partial-result audit is complete.
+// Explicit controlled futex and process waits only. Other syscall wrappers
+// retain their handler exclusion pending their own partial-result audit.
 long signal_cancellation_wait(unsigned long number, long a1 = 0, long a2 = 0,
                               long a3 = 0, long a4 = 0, long a5 = 0,
                               long a6 = 0);
 // Called masked after retiring a trusted default application signal boundary.
 void rearm_signal_cancellation();
 #endif
+
+// The controlled leaf checks pending cancellation before entering the kernel.
+// Successful results and copy-out errors can consume child state; neither is
+// converted to cancellation after the kernel returns.
+inline long cancellation_process_wait(unsigned long number, long a1 = 0,
+                                      long a2 = 0, long a3 = 0, long a4 = 0,
+                                      long a5 = 0, long a6 = 0) {
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+  if (signal_cancellation_wait_available())
+    return signal_cancellation_wait(number, a1, a2, a3, a4, a5, a6);
+#endif
+  return cancellation_syscall(number, a1, a2, a3, a4, a5, a6);
+}
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif

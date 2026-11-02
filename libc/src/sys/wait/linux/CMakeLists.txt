@@ -4,6 +4,10 @@ endforeach()
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
   mmix_select_cancellation_points(wait waitpid wait4 waitid)
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS AND
+     LIBC_MMIX_BUILD_SIGNAL_CANCELLATION)
+    list(APPEND mmix_cancellation_options -DLIBC_MMIX_SIGNAL_WAIT)
+  endif()
 endif()
 
 add_entrypoint_object(
