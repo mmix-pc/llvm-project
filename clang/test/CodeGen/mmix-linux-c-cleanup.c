@@ -9,8 +9,9 @@ extern void leave(void) __attribute__((noreturn));
 
 MMIX_CLEANUP_FRAME void owner(void) {
   MmixCleanupRecord record;
+  MmixCleanupOwner owner;
   int value = 7;
-  __llvm_libc_mmix_thread_cleanup_push(&record, callback, &value);
+  __llvm_libc_mmix_thread_cleanup_push(&record, &owner, callback, &value);
   leave();
 }
 
