@@ -19,6 +19,7 @@ void *allocate(size_t size, size_t alignment = 1);
 void *resize(void *ptr, size_t size);
 void deallocate(void *ptr);
 void allocator_fork_prepare();
+bool allocator_fork_try_prepare();
 void allocator_fork_release();
 
 } // namespace mmix

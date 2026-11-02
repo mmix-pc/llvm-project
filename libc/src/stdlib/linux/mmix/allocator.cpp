@@ -129,6 +129,7 @@ void *resize_unlocked(void *ptr, size_t size) {
 } // namespace
 
 void allocator_fork_prepare() { regions_mutex.lock(); }
+bool allocator_fork_try_prepare() { return regions_mutex.try_lock(); }
 void allocator_fork_release() { regions_mutex.unlock(); }
 
 void *allocate(size_t size, size_t alignment) {

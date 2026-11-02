@@ -61,12 +61,23 @@ for opt in ("0", "2"):
 if len(sys.argv) == 4:
     for opt in ("0", "2"):
         exe = root / ("native-O" + opt)
-        subprocess.run([sys.argv[3], "-std=c++17", "-O" + opt,
+        command = [sys.argv[3], "-std=c++17", "-pthread", "-O" + opt,
             "-I", str(mapping / "fake"), "-I", str(libc),
             *[flag for flag in defines if flag != "-DLIBC_FULL_BUILD"],
             *map(str, sources), str(root / "test.cpp"), "-Wl,--wrap=realloc",
-            "-o", str(exe)], check=True)
-        subprocess.run([str(exe)], check=True)
+            "-o", str(exe)]
+        subprocess.run(command, check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
+        # The former blocking snapshot edge must deadlock the same controlled
+        # schedule. Only the test selects it; no production sources are edited.
+        negative = str(exe) + "-blocking-control"
+        subprocess.run(command[:-1] + [negative, "-DBLOCKING_SNAPSHOT_CONTROL"], check=True)
+        try:
+            subprocess.run([negative], check=True, timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            raise AssertionError("blocking snapshot unexpectedly completed")
 
 #--- test.cpp
 #include "src/stdlib/malloc.h"
@@ -76,17 +87,21 @@ if len(sys.argv) == 4:
 #include "src/stdlib/reallocarray.h"
 #include "src/stdlib/aligned_alloc.h"
 #include "src/stdlib/linux/mmix/posix_memalign.h"
+#include "src/stdlib/linux/mmix/allocator.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/error_or.h"
 #include "hdr/types/off_t.h"
 #include <stddef.h>
 #include "hdr/stdint_proxy.h"
+#include <pthread.h>
 
 alignas(8192) unsigned char pages[4][131072];
 bool used[4];
 int maps, releases;
 bool fail_map, fail_unmap;
 size_t last_request;
+bool credential_gate, observe_interrupted_owner;
+unsigned handler_waiting;
 
 extern "C" void *__wrap_realloc(void *ptr, size_t size) {
   return allocation_test::realloc(ptr, size);
@@ -94,6 +109,13 @@ extern "C" void *__wrap_realloc(void *ptr, size_t size) {
 
 namespace allocation_test::linux_syscalls {
 ErrorOr<void *> mmap(void *, size_t size, int, int, int, off_t) {
+  if (observe_interrupted_owner) {
+    // Model a credential handler at an allocator-owned safe stopping point.
+    // No real credential syscall or claim about guest signal delivery is made.
+    __atomic_store_n(&handler_waiting, 1, __ATOMIC_RELEASE);
+    while (__atomic_exchange_n(&credential_gate, true, __ATOMIC_ACQUIRE)) {}
+    __atomic_store_n(&credential_gate, false, __ATOMIC_RELEASE);
+  }
   ++maps;
   last_request = size;
   if (fail_map || size > sizeof(pages[0]))
@@ -124,6 +146,14 @@ ErrorOr<int> munmap(void *address, size_t) {
 int main() {
   using allocation_test::malloc;
   using allocation_test::free;
+  // Fork must never block behind an interrupted allocator owner while it
+  // holds the credential gate. A busy snapshot neither steals nor releases it.
+  allocation_test::mmix::allocator_fork_prepare();
+  if (allocation_test::mmix::allocator_fork_try_prepare()) return 48;
+  if (allocation_test::mmix::allocator_fork_try_prepare()) return 49;
+  allocation_test::mmix::allocator_fork_release();
+  if (!allocation_test::mmix::allocator_fork_try_prepare()) return 50;
+  allocation_test::mmix::allocator_fork_release();
   libc_errno = 17;
   free(nullptr);
   if (malloc(0) || int(libc_errno) != 17 || maps || releases)
@@ -325,6 +355,29 @@ int main() {
   for (bool live : used)
     if (live)
       return 47;
+  // The fork-side gate is already owned when allocation is interrupted. Its
+  // failed try-admission must release that gate so the handler and owner can
+  // finish. The real ForkOperation rollback is checked by exit-fork.test.
+  observe_interrupted_owner = true;
+  credential_gate = true;
+  pthread_t owner;
+  if (pthread_create(&owner, nullptr, +[](void *) -> void * {
+        void *allocation = allocation_test::malloc(64);
+        allocation_test::free(allocation);
+        return allocation ? nullptr : reinterpret_cast<void *>(1);
+      }, nullptr)) return 51;
+  while (!__atomic_load_n(&handler_waiting, __ATOMIC_ACQUIRE)) {}
+#ifdef BLOCKING_SNAPSHOT_CONTROL
+  allocation_test::mmix::allocator_fork_prepare();
+#else
+  if (allocation_test::mmix::allocator_fork_try_prepare()) return 52;
+#endif
+  __atomic_store_n(&credential_gate, false, __ATOMIC_RELEASE);
+  void *result;
+  if (pthread_join(owner, &result) || result) return 53;
+  observe_interrupted_owner = false;
+  if (!allocation_test::mmix::allocator_fork_try_prepare()) return 54;
+  allocation_test::mmix::allocator_fork_release();
   return 0;
 }
 

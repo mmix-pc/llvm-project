@@ -69,9 +69,15 @@ size_t prepare_fork_callbacks() {
       callback();
   return count;
 }
-void lock_fork_callbacks() { registry.mutex.lock(); }
-void finish_fork_callbacks(size_t count, bool child) {
-  registry.mutex.unlock();
+bool try_lock_fork_callbacks() { return registry.mutex.try_lock(); }
+void finish_fork_callbacks(size_t count, bool child, bool locked) {
+  if (child && !locked)
+    __builtin_trap();
+  if (locked)
+    registry.mutex.unlock();
+  // Prepared entries are immutable. A failed nonblocking admission may run
+  // its parent callbacks without acquiring or releasing a peer's registration
+  // lock; later entries never belong to this fork's snapshot.
   for (size_t i = 0; i < count; ++i) {
     auto *callback =
         child ? registry.callbacks[i].child : registry.callbacks[i].parent;

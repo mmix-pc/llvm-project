@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "src/__support/common.h"
+#include "hdr/errno_macros.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/linux/mmix/atfork_callbacks.h"
 #include "src/__support/threads/linux/mmix/fork_runtime.h"
@@ -21,12 +22,14 @@ LLVM_LIBC_FUNCTION(pid_t, fork, (void)) {
   // Freeze callback registration only after internal locks have been prepared.
   size_t count = mmix::prepare_fork_callbacks();
   int error = operation.prepare_runtime();
-  mmix::lock_fork_callbacks();
+  const bool callbacks_locked = !error && mmix::try_lock_fork_callbacks();
+  if (!error && !callbacks_locked)
+    error = EAGAIN;
   if (!error)
     error = operation.freeze_registry();
   long result = error ? -error : operation.create_child();
   operation.restore_runtime(result == 0);
-  mmix::finish_fork_callbacks(count, result == 0);
+  mmix::finish_fork_callbacks(count, result == 0, callbacks_locked);
   if (result < 0) {
     libc_errno = int(-result);
     return -1;

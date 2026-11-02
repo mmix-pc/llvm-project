@@ -13,8 +13,8 @@ namespace mmix {
 bool register_fork_callbacks(ForkCallback *prepare, ForkCallback *parent,
                              ForkCallback *child);
 size_t prepare_fork_callbacks();
-void lock_fork_callbacks();
-void finish_fork_callbacks(size_t count, bool child);
+bool try_lock_fork_callbacks();
+void finish_fork_callbacks(size_t count, bool child, bool locked);
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif
