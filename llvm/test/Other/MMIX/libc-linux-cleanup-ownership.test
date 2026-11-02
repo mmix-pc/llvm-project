@@ -1,0 +1,172 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %mmix_host_cxx -std=c++17 -O0 -Wall -Wextra -Werror -I %S/../../../../libc %t/test.cpp -o %t/host-O0
+# RUN: %t/host-O0
+# RUN: %mmix_host_cxx -std=c++17 -O2 -Wall -Wextra -Werror -I %S/../../../../libc %t/test.cpp -o %t/host-O2
+# RUN: %t/host-O2
+
+#--- test.cpp
+// Native component regression for the production stack-sidecar helper.
+// Signal services are injected: this does not exercise loader retirement,
+// target frame capture, signal metadata admission or nonlocal-transfer glue.
+#include "src/__support/threads/linux/mmix/cleanup_ownership.h"
+#include <cstdlib>
+#include <type_traits>
+
+namespace M = LIBC_NAMESPACE::mmix;
+namespace L = LIBC_NAMESPACE::loader;
+
+static void check(bool condition) {
+  if (!condition)
+    std::abort();
+}
+
+namespace {
+struct Slot {
+  bool live = false;
+  uintptr_t callback = 0;
+};
+Slot slots[64];
+unsigned issued, finished, live, attempts, rolled_back;
+bool fail_next;
+// The component's caller-side serialization precondition is checked by both
+// injected endpoints. No actual signal-safety claim follows from this flag.
+bool masked = true;
+
+bool empty(const L::LoaderSignalLease &lease) {
+  return !lease.snapshot && !lease.images[0] && !lease.images[1];
+}
+} // namespace
+
+namespace LIBC_NAMESPACE_DECL {
+namespace mmix {
+long retain_shared_signal(uintptr_t callback, uintptr_t restorer,
+                          loader::LoaderSignalLease *lease) {
+  check(masked && callback && !restorer && lease && empty(*lease));
+  ++attempts;
+  if (fail_next) {
+    fail_next = false;
+    // Model the service's rollback contract after a partial acquisition.
+    ++live;
+    --live;
+    ++rolled_back;
+    return 1;
+  }
+  check(issued < sizeof(slots) / sizeof(slots[0]));
+  auto &slot = slots[issued++];
+  check(!slot.live);
+  slot = {true, callback};
+  ++live;
+  *lease = {&slot, {&slot, nullptr}};
+  return 0;
+}
+
+void finish_shared_signal(loader::LoaderSignalLease *lease, bool installed) {
+  check(masked && lease && !installed && lease->snapshot &&
+        lease->images[0] == lease->snapshot && !lease->images[1]);
+  auto &slot = *static_cast<Slot *>(lease->snapshot);
+  check(slot.live && slot.callback && live);
+  slot.live = false;
+  --live;
+  ++finished;
+  *lease = {};
+}
+} // namespace mmix
+} // namespace LIBC_NAMESPACE_DECL
+
+static_assert(!std::is_copy_constructible<M::CleanupOwners>::value);
+static_assert(!std::is_copy_constructible<M::CleanupOwners::Node>::value);
+static_assert(!std::is_move_constructible<M::CleanupOwners::Node>::value);
+static_assert(!std::is_copy_constructible<M::CleanupOwners::Invocation>::value);
+static_assert(!std::is_move_constructible<M::CleanupOwners::Invocation>::value);
+static_assert(std::is_trivially_destructible<M::CleanupOwners::Node>::value);
+
+int main() {
+  M::CleanupOwners owners, other;
+  M::CleanupOwners::Node outer, inner, duplicate;
+  int a = 0, b = 0;
+  constexpr uintptr_t first_code = 16, second_code = 32;
+
+  check(owners.idle());
+  check(!owners.push(outer, nullptr, 1, first_code));
+  check(!owners.push(outer, &a, 0, first_code));
+  check(!owners.push(outer, &a, 1, 0));
+  check(!attempts && owners.idle() && !outer.linked());
+
+  fail_next = true;
+  check(!owners.push(outer, &a, 1, first_code));
+  check(rolled_back == 1 && !live && !outer.linked() && owners.idle());
+  check(owners.push(outer, &a, 1, first_code));
+  check(owners.has_records() && !owners.has_invocations() && live == 1);
+  auto before = attempts;
+  check(!owners.push(outer, &b, 2, second_code));
+  check(!other.push(outer, &b, 2, second_code));
+  check(!owners.push(duplicate, &a, 2, second_code));
+  check(attempts == before && live == 1);
+
+  fail_next = true;
+  check(!owners.push(inner, &b, 2, second_code));
+  check(outer.linked() && !inner.linked() && live == 1);
+  check(owners.push(inner, &b, 2, second_code));
+  {
+    M::CleanupOwners::Invocation invocation;
+    check(!owners.detach(outer, &a, 1, invocation));
+    check(!other.detach(inner, &b, 2, invocation));
+    check(!owners.detach(inner, &a, 2, invocation));
+    check(!owners.detach(inner, &b, 1, invocation));
+    check(!invocation.active() && inner.linked() && live == 2);
+    check(owners.detach(inner, &b, 2, invocation));
+    check(invocation.active() && !inner.linked() && live == 2);
+    check(owners.has_invocations());
+
+    // The detached lease is independent of the reused lexical sidecar.
+    check(owners.push(inner, &b, 3, second_code) && live == 3);
+    check(!owners.detach(inner, &b, 3, invocation));
+    {
+      M::CleanupOwners::Invocation nested;
+      check(!owners.detach(inner, &b, 2, nested));
+      check(owners.detach(inner, &b, 3, nested));
+      check(live == 3 && owners.has_invocations());
+    }
+    check(live == 2 && owners.has_invocations());
+    invocation.release();
+    auto released = finished;
+    invocation.release();
+    check(finished == released && live == 1 && !owners.has_invocations());
+  }
+
+  {
+    M::CleanupOwners::Invocation invocation;
+    check(owners.detach(outer, &a, 1, invocation));
+    check(!owners.has_records() && owners.has_invocations() && !owners.idle());
+    check(live == 1); // pop(execute = 0) still needs explicit lease completion.
+    invocation.release();
+    check(owners.idle() && !live);
+  }
+
+  // Ordinary C++ scope unwinding releases a detached invocation exactly once.
+  // This is not evidence for longjmp or the target's forced-unwind path.
+  check(owners.push(outer, &a, 4, first_code));
+  try {
+    M::CleanupOwners::Invocation invocation;
+    check(owners.detach(outer, &a, 4, invocation));
+    throw 7;
+  } catch (int value) {
+    check(value == 7 && owners.idle() && !live);
+  }
+
+  // Owner stacks are independent; no fixed-size production sidecar pool is
+  // consumed across repeated lexical registrations.
+  for (uint64_t serial = 5; serial != 21; ++serial) {
+    M::CleanupOwners::Invocation left, right;
+    check(owners.push(outer, &a, serial, first_code));
+    check(other.push(inner, &b, serial, second_code));
+    check(owners.detach(outer, &a, serial, left));
+    check(other.detach(inner, &b, serial, right));
+    left.release();
+    check(owners.idle() && !other.idle() && live == 1);
+    right.release();
+    check(other.idle() && !live);
+  }
+  check(issued == finished && rolled_back == 2 && owners.idle() && other.idle());
+}

@@ -14,7 +14,14 @@
 #endif
 #ifdef LIBC_MMIX_SHARED_STARTUP
 #include "callback_ownership.h"
+#include "cancellation.h"
+#include "cleanup_ownership.h"
+#include <pthread.h>
 #include "mmix/CursorLifetime.h"
+#include "src/__support/CPP/new.h"
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+#include "UnwindMetadataPolicy.h"
+#endif
 #endif
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include <asm/rstack.h>
@@ -28,17 +35,19 @@ LIBC_CONSTINIT LIBC_THREAD_LOCAL MmixCleanupLink head{};
 LIBC_CONSTINIT LIBC_THREAD_LOCAL uint64_t serial = 0;
 LIBC_CONSTINIT LIBC_THREAD_LOCAL bool dispatching = false;
 #ifdef LIBC_MMIX_SHARED_STARTUP
-LIBC_CONSTINIT LIBC_THREAD_LOCAL CallbackOwners callback_owners;
+LIBC_CONSTINIT LIBC_THREAD_LOCAL CleanupOwners callback_owners;
+static_assert(sizeof(CleanupOwners::Node) <= sizeof(MmixCleanupOwner));
+static_assert(alignof(CleanupOwners::Node) <= alignof(MmixCleanupOwner));
 #endif
 
 class RegistrationMask {
-#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+#if defined(LIBC_MMIX_ASYNC_CANCELLATION) || defined(LIBC_MMIX_SHARED_STARTUP)
   uint64_t saved;
   bool active = true;
 #endif
 public:
   RegistrationMask() {
-#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+#if defined(LIBC_MMIX_ASYNC_CANCELLATION) || defined(LIBC_MMIX_SHARED_STARTUP)
     uint64_t full = UINT64_MAX;
     if (syscall_impl(__NR_rt_sigprocmask, SIG_SETMASK,
                      reinterpret_cast<long>(&full),
@@ -47,7 +56,7 @@ public:
 #endif
   }
   void restore() {
-#ifdef LIBC_MMIX_ASYNC_CANCELLATION
+#if defined(LIBC_MMIX_ASYNC_CANCELLATION) || defined(LIBC_MMIX_SHARED_STARTUP)
     if (!active)
       return;
     active = false;
@@ -68,7 +77,7 @@ MmixCleanupFrame owner_frame(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
       syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)))
     __builtin_trap();
   if (query.chain_id != control->unwind_root.chain) {
-#if defined(LIBC_MMIX_SIGNAL_CLEANUP) && !defined(LIBC_MMIX_SHARED_STARTUP)
+#if defined(LIBC_MMIX_SIGNAL_CLEANUP)
     auto *entry = current_signal_entry();
     if (!entry || !entry->cleanup_tracked ||
         entry->point.thread != control ||
@@ -78,8 +87,7 @@ MmixCleanupFrame owner_frame(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
     return {control, ro, procedure, sp, 0, query.chain_id,
             entry->point.generation};
 #else
-    // Shared callback registration still allocates and retains loader owners.
-    // Do not admit it merely because an application boundary was captured.
+    // Only matched signal-boundary providers authenticate handler frames.
     __builtin_trap();
 #endif
   }
@@ -107,7 +115,7 @@ bool same_link(const MmixCleanupLink &a, const MmixCleanupLink &b) {
 }
 
 MmixCleanupLink segment_checkpoint(const MmixCleanupFrame &frame) {
-#if defined(LIBC_MMIX_SIGNAL_CLEANUP) && !defined(LIBC_MMIX_SHARED_STARTUP)
+#if defined(LIBC_MMIX_SIGNAL_CLEANUP)
   if (frame.chain != current_control->unwind_root.chain) {
     auto *entry = current_signal_entry();
     if (!entry || !entry->cleanup_tracked ||
@@ -129,6 +137,21 @@ capture(MmixCleanupRecord *record) {
   unw_context_t context;
   unw_cursor_t cursor;
 #ifdef LIBC_MMIX_SHARED_STARTUP
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+  UnwindMetadataPolicyToken policy{};
+  mmix_rstack_query query{};
+  if (!current_control || !current_control->unwind_root.active ||
+      syscall_impl(__NR_mmix_rstack_query, reinterpret_cast<long>(&query)))
+    __builtin_trap();
+  const bool handler = query.chain_id != current_control->unwind_root.chain;
+  if (handler) {
+    auto *entry = current_signal_entry();
+    if (!entry || !entry->cleanup_tracked ||
+        entry->point.child_chain != query.chain_id ||
+        !__unw_metadata_policy_enter(&policy))
+      __builtin_trap();
+  }
+#endif
   // This private cursor never escapes; do not permanently pin its image set.
   MMIXCursorLifetime lifetime{};
   __libunwind_mmix_cursor_begin(&lifetime, &cursor);
@@ -152,6 +175,10 @@ capture(MmixCleanupRecord *record) {
   frame.limit = parent_sp;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   __libunwind_mmix_cursor_end(&lifetime);
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+  if (handler && !__unw_metadata_policy_leave(&policy))
+    __builtin_trap();
+#endif
 #endif
   return frame;
 }
@@ -169,9 +196,60 @@ void invoke_callback(void (*callback)(void *), void *argument) noexcept {
   callback(argument);
 }
 
+#if defined(LIBC_MMIX_SHARED_STARTUP) && defined(LIBC_MMIX_SIGNAL_CLEANUP)
+// Handler cleanup cannot enter a suspended loader transaction. Its lease uses
+// the signal-safe service, but callback execution still requires the same
+// disabled-state/re-enable exclusion as ordinary cleanup. All transitions are
+// made under RegistrationMask; callbacks run with the caller's mask restored.
+class CleanupCancellationScope {
+  loader::LoaderCancellation hooks = loader_cancellation_hooks();
+  uint64_t saved = 0;
+  bool handler;
+
+public:
+  explicit CleanupCancellationScope(bool handler) : handler(handler) {
+    if (!handler) {
+      if (hooks.enter(&saved))
+        __builtin_trap();
+      return;
+    }
+    auto *control = current_control;
+    if (!control)
+      __builtin_trap();
+    saved = control->cancellation.set_enabled(false) ? PTHREAD_CANCEL_ENABLE
+                                                     : PTHREAD_CANCEL_DISABLE;
+    if (control->loader_scopes.fetch_add(1) == UINT64_MAX)
+      __builtin_trap();
+  }
+  ~CleanupCancellationScope() noexcept(false) {
+    if (!handler) {
+      if (hooks.leave(saved))
+        __builtin_trap();
+      return;
+    }
+    RegistrationMask mask;
+    if (!current_control || !current_control->loader_scopes.fetch_sub(1) ||
+        set_cancel_state(static_cast<int>(saved), nullptr))
+      __builtin_trap();
+  }
+};
+#endif
+
 void remove(bool execute, RegistrationMask *mask = nullptr) {
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  CallbackOwnershipScope ownership_scope;
+  // Forced dispatch has no pop mask. Serialize both ownership lists even when
+  // application signals are enabled for cleanup callbacks.
+  RegistrationMask ownership_mask;
+  // Async cancellation does not unwind this detached invocation. Keep the
+  // existing cancellation suppression until its transient lease is released.
+  validate_link(head);
+#ifdef LIBC_MMIX_SIGNAL_CLEANUP
+  CleanupCancellationScope cancellation_scope(
+      head.frame.chain != current_control->unwind_root.chain);
+#else
+  CallbackOwnershipScope cancellation_scope;
+#endif
+  CleanupOwners::Invocation owner;
 #endif
   validate_link(head);
   auto *record = head.record;
@@ -180,19 +258,27 @@ void remove(bool execute, RegistrationMask *mask = nullptr) {
   auto callback = record->callback;
   auto argument = record->argument;
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  auto *owner = callback_owners.detach(record);
+  if (!callback_owners.detach(record, head.serial, owner))
+    __builtin_trap();
 #endif
   head = record->previous;
   record->serial = 0;
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  ownership_mask.restore();
+#endif
   if (mask)
     mask->restore();
   if (execute)
     invoke_callback(callback, argument);
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  CallbackOwners::release(owner);
+  // Normal pop restores its caller's mask before invocation. Mask again for
+  // the owner-thread lease transition; detached code stayed held throughout.
+  RegistrationMask release_mask;
+  owner.release();
 #endif
 }
-void publish(MmixCleanupRecord *record, void (*callback)(void *), void *argument,
+void publish(MmixCleanupRecord *record, MmixCleanupOwner *storage,
+             void (*callback)(void *), void *argument,
              const MmixCleanupFrame &frame, bool cpp_record) {
   if (!callback || dispatching || serial >= UINT64_MAX - 2)
     __builtin_trap();
@@ -220,11 +306,20 @@ void publish(MmixCleanupRecord *record, void (*callback)(void *), void *argument
     newer = link.serial;
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  CallbackOwnershipScope ownership_scope;
-  // The public push operation has no error result. Fail closed after rolling
-  // back a failed retain/allocation rather than publish unprotected code.
-  if (!callback_owners.push(record, reinterpret_cast<uintptr_t>(callback)))
+  uintptr_t address = reinterpret_cast<uintptr_t>(storage);
+  uintptr_t record_address = reinterpret_cast<uintptr_t>(record);
+  if (!storage || address % alignof(MmixCleanupOwner) || address < frame.sp ||
+      address > frame.limit || frame.limit - address < sizeof(*storage) ||
+      !(address + sizeof(*storage) <= record_address ||
+        record_address + sizeof(*record) <= address))
     __builtin_trap();
+  auto *node = new (storage->__storage) CleanupOwners::Node;
+  // Push has no error result: fail closed rather than publish unprotected code.
+  if (!callback_owners.push(*node, record, identifier,
+                            reinterpret_cast<uintptr_t>(callback)))
+    __builtin_trap();
+#else
+  (void)storage;
 #endif
   serial = next;
   *record = {head, callback, argument, identifier};
@@ -234,20 +329,22 @@ void publish(MmixCleanupRecord *record, void (*callback)(void *), void *argument
 
 extern "C" [[gnu::noinline, clang::disable_tail_calls]] void
 __llvm_libc_mmix_thread_cleanup_push(MmixCleanupRecord *record,
+                                     MmixCleanupOwner *owner,
                                      void (*callback)(void *), void *argument) {
   RegistrationMask mask;
   auto frame = capture(record);
-  publish(record, callback, argument, frame, false);
+  publish(record, owner, callback, argument, frame, false);
 }
 
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
 extern "C" [[gnu::visibility("default"), gnu::noinline,
              clang::disable_tail_calls]] void
 __llvm_libc_mmix_thread_cleanup_push_cpp(MmixCleanupRecord *record,
+                                        MmixCleanupOwner *owner,
                                         void (*callback)(void *), void *argument) {
   RegistrationMask mask;
   auto frame = capture(record);
-  publish(record, callback, argument, frame, true);
+  publish(record, owner, callback, argument, frame, true);
 }
 #endif
 

@@ -20,6 +20,7 @@
 typedef struct __llvm_libc_mmix_cleanup_frame MmixCleanupFrame;
 typedef struct __llvm_libc_mmix_cleanup_link MmixCleanupLink;
 typedef struct __llvm_libc_mmix_cleanup_record MmixCleanupRecord;
+typedef struct __llvm_libc_mmix_cleanup_owner MmixCleanupOwner;
 
 #ifdef __cplusplus
 #include "src/__support/macros/config.h"

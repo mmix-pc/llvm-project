@@ -55,14 +55,21 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   include(${CMAKE_CURRENT_LIST_DIR}/../../../../../config/linux/mmix/RuntimeMode.cmake)
   mmix_check_runtime_mode()
   set(mmix_callback_ownership_dependency)
+  set(mmix_cleanup_ownership_dependency)
   if(LIBC_MMIX_BUILD_SHARED_LIBC)
+    add_header_library(
+      cleanup_ownership
+      HDRS cleanup_ownership.h
+      DEPENDS libc.src.__support.OSUtil.linux.loader_services
+    )
+    set(mmix_cleanup_ownership_dependency .cleanup_ownership .callback_ownership
+        libc.src.__support.CPP.new)
     add_header_library(
       callback_ownership
       HDRS callback_ownership.h
       # These declarations are linked by shared libc composition. Depending on
       # the cancellation object here would cycle through its cleanup consumer.
       DEPENDS libc.src.__support.OSUtil.linux.loader_services
-        libc.src.__support.CPP.new libc.src.stdlib.malloc libc.src.stdlib.free
     )
     set(mmix_callback_ownership_dependency .callback_ownership)
   endif()
@@ -436,7 +443,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       HDRS cleanup.h
       DEPENDS .lifecycle libc.src.__support.OSUtil.linux.mmix.syscall
               libc.include.sys_syscall libc.hdr.signal_macros
-              ${mmix_callback_ownership_dependency}
+              ${mmix_cleanup_ownership_dependency}
       COMPILE_OPTIONS -fno-lto -funwind-tables ${mmix_cleanup_options} ${mmix_async_options}
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include

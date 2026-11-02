@@ -27,11 +27,19 @@ struct __llvm_libc_mmix_cleanup_record {
   __UINT64_TYPE__ serial;
 };
 
+// Private caller-owned sidecar. Keep the existing cleanup record unchanged;
+// this header and the runtime's push entrypoints must be rebuilt together.
+struct __llvm_libc_mmix_cleanup_owner {
+  __attribute__((aligned(__alignof__(void *))))
+  unsigned char __storage[6 * sizeof(void *)];
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 __attribute__((visibility("default"))) void
 __llvm_libc_mmix_thread_cleanup_push(struct __llvm_libc_mmix_cleanup_record *,
+                                     struct __llvm_libc_mmix_cleanup_owner *,
                                      void (*)(void *), void *);
 __attribute__((visibility("default"))) void
 __llvm_libc_mmix_thread_cleanup_pop(struct __llvm_libc_mmix_cleanup_record *,
@@ -39,6 +47,7 @@ __llvm_libc_mmix_thread_cleanup_pop(struct __llvm_libc_mmix_cleanup_record *,
 #ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
 __attribute__((visibility("default"))) void
 __llvm_libc_mmix_thread_cleanup_push_cpp(struct __llvm_libc_mmix_cleanup_record *,
+                                       struct __llvm_libc_mmix_cleanup_owner *,
                                        void (*)(void *), void *);
 #endif
 #ifdef __cplusplus
@@ -47,6 +56,7 @@ __llvm_libc_mmix_thread_cleanup_push_cpp(struct __llvm_libc_mmix_cleanup_record 
 class __llvm_libc_mmix_cleanup_guard {
 #ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
   __llvm_libc_mmix_cleanup_record __record;
+  __llvm_libc_mmix_cleanup_owner __owner;
 #else
   void (*__callback)(void *);
   void *__argument;
@@ -63,7 +73,7 @@ public:
   __llvm_libc_mmix_cleanup_guard(void (*__fn)(void *), void *__arg)
 #ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
   {
-    __llvm_libc_mmix_thread_cleanup_push_cpp(&__record, __fn, __arg);
+    __llvm_libc_mmix_thread_cleanup_push_cpp(&__record, &__owner, __fn, __arg);
   }
 #else
       : __callback(__fn), __argument(__arg), __active(true) {
@@ -106,7 +116,9 @@ public:
   do {                                                                         \
     struct __llvm_libc_mmix_cleanup_record __mmix_cleanup                      \
         __attribute__((annotate("mmix.pthread_cleanup_frame")));               \
-    __llvm_libc_mmix_thread_cleanup_push(&__mmix_cleanup, (routine), (arg));
+    struct __llvm_libc_mmix_cleanup_owner __mmix_cleanup_owner;                \
+    __llvm_libc_mmix_thread_cleanup_push(                                     \
+        &__mmix_cleanup, &__mmix_cleanup_owner, (routine), (arg));
 #define pthread_cleanup_pop(execute)                                           \
   __llvm_libc_mmix_thread_cleanup_pop(&__mmix_cleanup, (execute));             \
   }                                                                            \
