@@ -12,6 +12,13 @@
 #include "src/__support/macros/config.h"
 #include <stdint.h>
 
+#if defined(LIBC_MMIX_SIGNAL_UNWIND) &&                                     \
+    (!defined(LIBC_MMIX_SIGNAL_CLEANUP) || !defined(LIBC_MMIX_SHARED_STARTUP))
+#error "Signal unwind requires signal cleanup and shared startup providers"
+#endif
+
+struct UnwindMetadataPolicyToken;
+
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 struct ThreadControl;
@@ -63,6 +70,22 @@ extern "C" [[noreturn, gnu::visibility("hidden")]] void
 __llvm_libc_mmix_unwind_to_root(void *result);
 [[noreturn, gnu::visibility("hidden")]] void
 unwind_after_cleanup_claim(void *result, uint64_t callback_mask);
+#ifdef LIBC_MMIX_SIGNAL_UNWIND
+// Trusted private terminal owner only, not public handler cancellation. The
+// caller has already claimed cleanup and entered/committed an outermost
+// metadata policy token. Token storage must survive ALL discarded activations
+// and stacks, through final cursor disposal; known entry bounds are only a
+// partial lifetime check. The current segment and EVERY interrupted ancestor
+// must have no managed cursor or active query. This is a bounded trusted-caller
+// precondition, not the admission policy for a future public interface.
+// Requires matched, prebound startup metadata-policy and saved-context hooks.
+// All blockable signals must remain blocked throughout stack cleanup, including
+// callbacks and destructors. Public admission/mask policy is a separate task.
+// Restore final_mask | CANCEL_MASK only before normal TLS/TSS root capture.
+[[noreturn, gnu::visibility("hidden")]] void
+unwind_signal_after_cleanup_claim(void *result, UnwindMetadataPolicyToken *token,
+                                 uint64_t final_mask);
+#endif
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 #endif
