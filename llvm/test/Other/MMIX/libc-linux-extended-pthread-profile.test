@@ -11,7 +11,30 @@ libc, root = map(pathlib.Path, sys.argv[1:])
 script = root / 'mode.cmake'
 script.write_text('cmake_minimum_required(VERSION 3.20)\ninclude("' +
                   str(libc.resolve() / 'config/linux/mmix/RuntimeMode.cmake') +
-                  '")\nmmix_check_runtime_mode()\n')
+                  '")\nmmix_check_runtime_mode()\n' + '''
+if(EXPECT_SIGNAL)
+  foreach(flag -DLIBC_MMIX_SIGNAL_BOUNDARIES -DLIBC_MMIX_SIGNAL_CLEANUP
+               -DLIBC_MMIX_SIGNAL_UNWIND -DLIBC_MMIX_SIGNAL_WAIT
+               -DLIBC_MMIX_JUMP_CLEANUP -D_LIBUNWIND_USE_METADATA_POLICY)
+    if(NOT flag IN_LIST mmix_signal_cancellation_options)
+      message(FATAL_ERROR "Missing matched signal option: ${flag}")
+    endif()
+  endforeach()
+  if(LIBC_MMIX_BUILD_SHARED_LIBC)
+    set(required -D_LIBUNWIND_MMIX_STARTUP_IMAGES)
+    set(forbidden -D_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+  else()
+    set(required -D_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+    set(forbidden -D_LIBUNWIND_MMIX_STARTUP_IMAGES)
+  endif()
+  if(NOT required IN_LIST mmix_signal_cancellation_options OR
+     forbidden IN_LIST mmix_signal_cancellation_options)
+    message(FATAL_ERROR "Wrong cursor provider selection")
+  endif()
+elseif(mmix_signal_cancellation_options OR LIBC_MMIX_BUILD_AIO)
+  message(FATAL_ERROR "Signal cancellation and AIO must remain opt-in")
+endif()
+''')
 features = ('THREADED_LIBC MUTEX_TYPES TIMED_MUTEX PTHREAD_RWLOCK PTHREAD_BARRIER '
             'PTHREAD_SPIN PROCESS_SHARED ROBUST_MUTEX PI_MUTEX PROTECT_MUTEX '
             'PTHREAD_SCHEDULING PTHREAD_CLOCKS CONCURRENCY_HINTS COORDINATED_FORK '
@@ -41,3 +64,26 @@ for feature in ('PTHREAD_SCHEDULING', 'ASYNC_CANCELLATION', 'PROTECT_MUTEX',
 result = configure(dict(args, LIBC_MMIX_BUILD_EXTENDED_PTHREAD='OFF'))
 assert result.returncode != 0
 assert 'deferred-only' in result.stderr
+
+signal = dict(args, LIBC_MMIX_BUILD_SIGNAL_CANCELLATION='ON',
+              LIBC_MMIX_BUILD_JUMP_SAVE='ON', EXPECT_SIGNAL='ON')
+for shared in (False, True):
+    selected = dict(signal, LIBC_MMIX_BUILD_AIO='ON')
+    if shared:
+        selected.update(LIBC_MMIX_BUILD_SHARED_LIBC='ON',
+                        CMAKE_POSITION_INDEPENDENT_CODE='ON',
+                        LIBC_COMPILE_OPTIONS_DEFAULT='-ftls-model=initial-exec;-fno-lto')
+    result = configure(selected)
+    assert result.returncode == 0, result.stderr
+for missing in ('THREADED_LIBC', 'UNWIND_ROOTS', 'FORCED_EXIT',
+                'DEFERRED_CANCELLATION', 'CANCELLATION_WINDOWS', 'JUMP_SAVE'):
+    result = configure(dict(signal, **{f'LIBC_MMIX_BUILD_{missing}': 'OFF'}))
+    assert result.returncode != 0
+    assert f'MMIX signal cancellation requires {missing}' in result.stderr
+result = configure(dict(signal, LIBC_MMIX_ENABLE_STATIC_TLS='OFF'))
+assert result.returncode != 0 and 'requires static TLS' in result.stderr
+result = configure(dict(args, LIBC_MMIX_BUILD_AIO='ON'))
+assert result.returncode != 0 and 'public AIO requires' in result.stderr
+result = configure(dict(signal, LIBC_MMIX_BUILD_AIO='ON',
+                        LIBC_MMIX_BUILD_PTHREAD_SCHEDULING='OFF'))
+assert result.returncode != 0 and 'public AIO requires' in result.stderr

@@ -324,13 +324,13 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
       aio_service
       SRCS aio_service.cpp
       HDRS aio_service.h
-      DEPENDS .aio_dispatcher .aio_service_registry .aio_input .aio_transfer
+      DEPENDS .aio_dispatcher .aio_notification .aio_service_registry .aio_input .aio_transfer
         .cancellation .cancellation_point .credentials libc.src.setjmp.mmix.jump_cleanup
         libc.config.app_h libc.include.pthread
         libc.src.__support.CPP.new libc.include.sys_syscall
         libc.src.stdlib.malloc libc.src.stdlib.free
       COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
-        ${mmix_scheduling_options}
+        ${mmix_scheduling_options} ${mmix_signal_cancellation_options}
     )
     add_object_library(
       notification_service
@@ -438,7 +438,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
           ${mmix_point_jump_dependencies}
           libc.src.__support.CPP.atomic libc.src.__support.CPP.new
         COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables ${mmix_async_options}
-          ${mmix_point_jump_options}
+          ${mmix_point_jump_options} ${mmix_signal_cancellation_options}
       )
       set(mmix_window_dependency .cancellation_point)
     endif()
@@ -454,17 +454,26 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
               libc.include.sys_syscall libc.hdr.signal_macros
               ${mmix_cleanup_ownership_dependency}
       COMPILE_OPTIONS -fno-lto -funwind-tables ${mmix_cleanup_options} ${mmix_async_options}
+        ${mmix_signal_cancellation_options}
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include
         -I${LIBC_SOURCE_DIR}/../libunwind/src
     )
+    set(mmix_signal_unwind_sources)
+    set(mmix_signal_unwind_dependencies)
+    if(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION)
+      set(mmix_signal_unwind_sources signal_unwind_landing.S)
+      set(mmix_signal_unwind_dependencies libc.src.signal.linux.mmix.signal_entry)
+    endif()
     add_object_library(
       unwind_root
-      SRCS unwind_root.cpp
+      SRCS unwind_root.cpp ${mmix_signal_unwind_sources}
       HDRS unwind_root.h
       DEPENDS .lifecycle .cleanup libc.src.__support.OSUtil.linux.mmix.syscall
               libc.include.sys_syscall libc.hdr.signal_macros ${mmix_window_dependency}
+              ${mmix_signal_unwind_dependencies}
       COMPILE_OPTIONS -fno-lto -funwind-tables
+        ${mmix_signal_cancellation_options}
         -D_LIBUNWIND_IS_NATIVE_ONLY
         -I${LIBC_SOURCE_DIR}/../libunwind/include
         -I${LIBC_SOURCE_DIR}/../libunwind/src
@@ -507,7 +516,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
         libc.hdr.signal_macros libc.include.pthread
         libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall
       COMPILE_OPTIONS -fno-lto -fexceptions -funwind-tables
-        ${mmix_async_options}
+        ${mmix_async_options} ${mmix_signal_cancellation_options}
     )
   endif()
   add_object_library(

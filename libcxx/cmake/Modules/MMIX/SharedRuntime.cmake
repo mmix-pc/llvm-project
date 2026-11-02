@@ -71,6 +71,7 @@ foreach(project LIBCXX LIBCXXABI LIBUNWIND)
 endforeach()
 # Component installation is explicit; package qualification remains separate.
 set(MMIX_LINUX_SHARED_RUNTIME_VALIDATED TRUE)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../libunwind/src/mmix/SignalCancellation.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../../../../libunwind/src/mmix/Shared.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/SharedInstallation.cmake")
 cmake_language(DEFER CALL mmix_shared_installation)

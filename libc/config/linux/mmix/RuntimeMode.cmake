@@ -67,6 +67,25 @@ option(LIBC_MMIX_BUILD_CANCELLATION_RUNTIME_LOCKS
   "Prepare cancellation-safe stream leaves and runtime cleanup" OFF)
 option(LIBC_MMIX_BUILD_ASYNC_CANCELLATION
   "Prepare asynchronous cancellation with explicit registered cleanup" OFF)
+option(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION
+  "Build matched deferred cancellation for tracked application signal waits" OFF)
+option(LIBC_MMIX_BUILD_AIO
+  "Build the io_uring POSIX AIO provider without prioritized I/O" OFF)
+set(mmix_signal_cancellation_options)
+if(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION)
+  set(mmix_signal_cancellation_options
+    -DLIBC_MMIX_SIGNAL_BOUNDARIES -DLIBC_MMIX_SIGNAL_CLEANUP
+    -DLIBC_MMIX_SIGNAL_UNWIND -DLIBC_MMIX_SIGNAL_WAIT
+    -DLIBC_MMIX_JUMP_CLEANUP -D_LIBUNWIND_USE_METADATA_POLICY
+    -D_LIBUNWIND_IS_NATIVE_ONLY
+    -I${CMAKE_CURRENT_LIST_DIR}/../../../../libunwind/include
+    -I${CMAKE_CURRENT_LIST_DIR}/../../../../libunwind/src)
+  if(LIBC_MMIX_BUILD_SHARED_LIBC)
+    list(APPEND mmix_signal_cancellation_options -D_LIBUNWIND_MMIX_STARTUP_IMAGES)
+  else()
+    list(APPEND mmix_signal_cancellation_options -D_LIBUNWIND_MMIX_CURSOR_LIFETIME)
+  endif()
+endif()
 option(LIBC_MMIX_BUILD_EXTENDED_PTHREAD
   "Compose one extended pthread runtime with both cancellation modes" OFF)
 option(LIBC_MMIX_BUILD_TLS_DESTRUCTORS
@@ -81,6 +100,22 @@ if(LIBC_MMIX_BUILD_SINGLE_THREADED_LIBC)
   set(LIBC_MMIX_BUILD_C_RUNTIME ON)
 endif()
 function(mmix_check_runtime_mode)
+  if(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION)
+    foreach(component THREADED_LIBC UNWIND_ROOTS FORCED_EXIT
+                      DEFERRED_CANCELLATION CANCELLATION_WINDOWS JUMP_SAVE)
+      if(NOT LIBC_MMIX_BUILD_${component})
+        message(FATAL_ERROR "MMIX signal cancellation requires ${component}")
+      endif()
+    endforeach()
+    if(NOT LIBC_MMIX_ENABLE_STATIC_TLS)
+      message(FATAL_ERROR "MMIX signal cancellation requires static TLS")
+    endif()
+  endif()
+  if(LIBC_MMIX_BUILD_AIO AND
+     (NOT LIBC_MMIX_BUILD_SIGNAL_CANCELLATION OR
+      NOT LIBC_MMIX_BUILD_PTHREAD_SCHEDULING))
+    message(FATAL_ERROR "MMIX public AIO requires signal cancellation and pthread scheduling")
+  endif()
   if(LIBC_MMIX_BUILD_SHARED_LIBC AND
      (NOT LIBC_MMIX_BUILD_EXTENDED_PTHREAD OR
       NOT CMAKE_POSITION_INDEPENDENT_CODE OR
@@ -238,7 +273,9 @@ function(mmix_check_runtime_mode)
       # Nonlocal transfers use per-call storage and the calling thread's kernel
       # register-stack service; they do not introduce shared libc state.
       if(variable STREQUAL "LIBC_MMIX_BUILD_SHARED_LIBC" OR
-         variable STREQUAL "LIBC_MMIX_BUILD_JUMP_SAVE")
+         variable STREQUAL "LIBC_MMIX_BUILD_JUMP_SAVE" OR
+         variable STREQUAL "LIBC_MMIX_BUILD_SIGNAL_CANCELLATION" OR
+         variable STREQUAL "LIBC_MMIX_BUILD_AIO")
         continue()
       endif()
       # Math providers use immutable tables, per-call scratch, thread-local

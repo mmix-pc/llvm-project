@@ -23,7 +23,7 @@ add_object_library(
     libc.src.setjmp.mmix.jump_fail
 )
 
-# Buildable preparation component, not yet selected by public sigaction.
+# Selected by public sigaction only in the matched signal cancellation profile.
 # The entry and the jump providers must use the same private checkpoint ABI.
 if(LIBC_MMIX_BUILD_UNWIND_ROOTS AND LIBC_MMIX_ENABLE_STATIC_TLS)
   add_object_library(
@@ -42,6 +42,7 @@ if(LIBC_MMIX_BUILD_UNWIND_ROOTS AND LIBC_MMIX_ENABLE_STATIC_TLS)
     COMPILE_OPTIONS
       -DLIBC_MMIX_JUMP_CLEANUP -fno-lto -funwind-tables
       -fno-optimize-sibling-calls -D_LIBUNWIND_IS_NATIVE_ONLY
+      ${mmix_signal_cancellation_options}
       -I${LIBC_SOURCE_DIR}/../libunwind/include
       -I${LIBC_SOURCE_DIR}/../libunwind/src
   )

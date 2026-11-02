@@ -32,6 +32,10 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(signal_set_deps libc.hdr.signal_macros .mmix.private_signals)
   set(signal_action_source mmix/sigaction.cpp)
   set(signal_action_deps .mmix.rt_sigaction .mmix.signal_trampoline)
+  if(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION)
+    list(APPEND signal_action_deps .mmix.signal_entry)
+    set(signal_action_options ${mmix_signal_cancellation_options})
+  endif()
   if(LIBC_MMIX_BUILD_SHARED_LIBC)
     list(APPEND signal_action_deps
       libc.src.__support.OSUtil.linux.mmix.dynamic_tls)
@@ -110,6 +114,7 @@ add_entrypoint_object(
     libc.hdr.errno_macros
     libc.hdr.signal_macros
     libc.src.errno.errno
+  COMPILE_OPTIONS ${signal_action_options}
 )
 
 add_entrypoint_object(

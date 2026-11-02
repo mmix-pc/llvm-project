@@ -81,6 +81,12 @@ if(LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS)
     libc.src.stdio.fprintf)
 endif()
 include(${CMAKE_CURRENT_LIST_DIR}/CxxRuntimeDependencies.cmake)
+if(LIBC_MMIX_BUILD_AIO)
+  foreach(operation read write fsync error return cancel suspend)
+    list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.aio.aio_${operation})
+  endforeach()
+  list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.aio.lio_listio)
+endif()
 if(LIBC_MMIX_BUILD_SHARED_LIBC)
   # Dynamic-loading entrypoints live in libc; keep explicit -ldl linkable.
   list(APPEND libc_empty_archive_names dl)
@@ -176,6 +182,8 @@ function(mmix_configure_threaded_libc)
                "errno_mode|${LIBC_CONF_ERRNO_MODE}"
                "unwind_diagnostics|${LIBC_MMIX_BUILD_UNWIND_DIAGNOSTICS}"
                "unwind_roots|${LIBC_MMIX_BUILD_UNWIND_ROOTS}"
+               "signal_cancellation|${LIBC_MMIX_BUILD_SIGNAL_CANCELLATION}"
+               "aio|${LIBC_MMIX_BUILD_AIO}"
                "forced_exit|${LIBC_MMIX_BUILD_FORCED_EXIT}"
                "deferred_cancellation|${LIBC_MMIX_BUILD_DEFERRED_CANCELLATION}"
                "cancellation_windows|${LIBC_MMIX_BUILD_CANCELLATION_WINDOWS}"

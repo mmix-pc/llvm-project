@@ -91,11 +91,13 @@ function(mmix_configure_shared_libc)
       -o "${directory}/libc.so.1"
     COMMAND ${CMAKE_COMMAND} -DNM=${nm} -DIMAGE=${directory}/libc.so.1
       -DOUTPUT=${directory}
+      -DSIGNAL_CANCELLATION=${LIBC_MMIX_BUILD_SIGNAL_CANCELLATION}
       -P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CheckSharedLibc.cmake
     DEPENDS libc ${extra_objects} ${objects} "${directory}/exports.map"
       "${LIBC_MMIX_SHARED_BUILTINS}"
       "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CheckSharedLibc.cmake"
       "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/shared-unwind-imports.txt"
+      "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/shared-signal-unwind-imports.txt"
     COMMAND_EXPAND_LISTS VERBATIM)
   add_custom_target(mmix_libc_shared DEPENDS "${directory}/libc.so.1")
 endfunction()
