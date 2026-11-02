@@ -361,6 +361,10 @@ static _Unwind_Reason_Code
 unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                      _Unwind_Exception *exception_object, _Unwind_Stop_Fn stop,
                      void *stop_parameter, bool processCurrentFrame) {
+  // A resumed managed cleanup must reuse its retained image view even if the
+  // loader has since removed those images from the current published snapshot.
+  if (!_LIBUNWIND_FORCED_ENTER(cursor, exception_object, stop, stop_parameter))
+    return _URC_FATAL_PHASE2_ERROR;
   int initResult;
 #if defined(_LIBUNWIND_SUPPORT_SAVED_CONTEXT)
   if (processCurrentFrame)
@@ -416,9 +420,13 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
     // Call stop function at each frame.
     _Unwind_Action action =
         (_Unwind_Action)(_UA_FORCE_UNWIND | _UA_CLEANUP_PHASE);
+    if (!_LIBUNWIND_FORCED_STOP(cursor, exception_object, stop, stop_parameter, 1))
+      return _URC_FATAL_PHASE2_ERROR;
     _Unwind_Reason_Code stopResult =
         (*stop)(1, action, exception_object->exception_class, exception_object,
                 (struct _Unwind_Context *)(cursor), stop_parameter);
+    if (!_LIBUNWIND_FORCED_STOP(cursor, exception_object, stop, stop_parameter, 0))
+      return _URC_FATAL_PHASE2_ERROR;
     _LIBUNWIND_TRACE_UNWINDING(
         "unwind_phase2_forced(ex_obj=%p): stop function returned %d",
         (void *)exception_object, stopResult);
@@ -454,7 +462,11 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                                    "_URC_INSTALL_CONTEXT",
                                    (void *)exception_object);
         // We may get control back if landing pad calls _Unwind_Resume().
+        if (!_LIBUNWIND_FORCED_LANDING(cursor, exception_object, stop,
+                                      stop_parameter))
+          return _URC_FATAL_PHASE2_ERROR;
         __unw_phase2_resume(cursor, framesWalked);
+        _LIBUNWIND_FORCED_ABORT(exception_object, stop, stop_parameter);
         if (processCurrentFrame)
           return _URC_FATAL_PHASE2_ERROR;
         break;
@@ -476,8 +488,12 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                              (void *)exception_object);
   _Unwind_Action lastAction =
       (_Unwind_Action)(_UA_FORCE_UNWIND | _UA_CLEANUP_PHASE | _UA_END_OF_STACK);
+  if (!_LIBUNWIND_FORCED_STOP(cursor, exception_object, stop, stop_parameter, 1))
+    return _URC_FATAL_PHASE2_ERROR;
   (*stop)(1, lastAction, exception_object->exception_class, exception_object,
           (struct _Unwind_Context *)(cursor), stop_parameter);
+  if (!_LIBUNWIND_FORCED_STOP(cursor, exception_object, stop, stop_parameter, 0))
+    return _URC_FATAL_PHASE2_ERROR;
 
   // Clean up phase did not resume at the frame that the search phase said it
   // would.
@@ -525,6 +541,9 @@ _Unwind_RaiseException(_Unwind_Exception *exception_object) {
 _LIBUNWIND_EXPORT void
 _Unwind_Resume(_Unwind_Exception *exception_object) {
   _LIBUNWIND_TRACE_API("_Unwind_Resume(ex_obj=%p)", (void *)exception_object);
+  if (!_LIBUNWIND_FORCED_RESUME(exception_object, exception_object->private_1,
+                              (void *)exception_object->private_2))
+    _LIBUNWIND_ABORT("_Unwind_Resume() has no matching managed continuation");
   unw_context_t uc;
   unw_cursor_t cursor;
   _LIBUNWIND_CURSOR_SCOPE_WITH_STOP(cursor, exception_object->private_1);

@@ -20,6 +20,7 @@ struct MMIXCursorLifetime {
   void *cursor;
   uintptr_t token;
   struct MMIXCursorLifetime *previous;
+  uintptr_t fallback_token;
 };
 
 // A borrowed checkpoint in a still-live, suspended parent. Capture with signals
@@ -29,6 +30,8 @@ struct MMIXCursorCheckpoint {
   uintptr_t thread;
   struct MMIXCursorLifetime *owners;
   void *query;
+  void *forced_exception;
+  unsigned forced_phase;
 };
 
 #ifdef __cplusplus
@@ -47,6 +50,19 @@ int __libunwind_mmix_cursor_at_checkpoint(const struct MMIXCursorCheckpoint *);
 // The caller must not read cursor metadata again before the ancestor transfer.
 int __libunwind_mmix_cursor_finish_at(void *, const struct MMIXCursorCheckpoint *);
 void __libunwind_mmix_set_managed_stop(uintptr_t);
+// Managed forced-unwind hooks. A landing pad owns the old snapshot without a
+// stack cursor; resume moves it back before the new cursor's metadata lookup.
+// Other stop functions are deliberately outside this private protocol.
+__attribute__((visibility("hidden"))) int
+__libunwind_mmix_forced_resume(void *, uintptr_t, void *);
+__attribute__((visibility("hidden"))) int
+__libunwind_mmix_forced_enter(void *, void *, uintptr_t, void *);
+__attribute__((visibility("hidden"))) int
+__libunwind_mmix_forced_stop(void *, void *, uintptr_t, void *, int);
+__attribute__((visibility("hidden"))) int
+__libunwind_mmix_forced_landing(void *, void *, uintptr_t, void *);
+__attribute__((visibility("hidden"))) void
+__libunwind_mmix_forced_abort(void *, uintptr_t, void *);
 __attribute__((visibility("hidden"))) void
 __libunwind_mmix_cursor_begin_with_stop(struct MMIXCursorLifetime *, void *,
                                         uintptr_t);
