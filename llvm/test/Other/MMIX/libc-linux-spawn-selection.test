@@ -1,4 +1,5 @@
 # REQUIRES: mmix-registered-target
+# RUN: rm -rf %t
 # RUN: split-file %s %t
 # RUN: %python %t/check.py %S/../../../../libc %t
 

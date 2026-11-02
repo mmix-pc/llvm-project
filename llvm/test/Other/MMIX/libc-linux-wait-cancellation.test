@@ -77,6 +77,13 @@ check_selection(x86_64 OFF)
 #--- linux/errno.h
 // This compile-only fixture does not inspect errno constants.
 
+#--- linux/wait.h
+// Kernel enum inputs for the compile-only waitid provider.
+#define P_ALL 0
+#define P_PID 1
+#define P_PGID 2
+#define P_PIDFD 3
+
 #--- native.cpp
 #include "src/__support/threads/linux/mmix/cancellation_point.h"
 #include "src/sys/wait/wait.h"
