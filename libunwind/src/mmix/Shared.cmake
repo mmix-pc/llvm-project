@@ -13,11 +13,11 @@ function(mmix_configure_shared_unwind)
       "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../UnwindMetadataPolicy.cpp"
       "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ForcedContext.cpp")
     set(metadata_exports
-      " __unw_metadata_policy_enter; __unw_metadata_policy_commit; __unw_metadata_policy_leave; __unw_metadata_policy_current; __libunwind_mmix_cursor_checkpoint; __libunwind_mmix_cursor_at_checkpoint; __libunwind_mmix_cursor_finish_at; __libunwind_mmix_init_saved_cursor; __libunwind_mmix_forcedunwind_from_context;")
+      " __unw_metadata_policy_enter; __unw_metadata_policy_commit; __unw_metadata_policy_leave; __unw_metadata_policy_current; __libunwind_mmix_cursor_at_checkpoint; __libunwind_mmix_cursor_finish_at; __libunwind_mmix_init_saved_cursor; __libunwind_mmix_forcedunwind_from_context;")
   endif()
   set(exports "${CMAKE_CURRENT_BINARY_DIR}/mmix-shared-unwind.exports")
   file(WRITE "${exports}"
-    "{ global: _Unwind_*; unw_*; __gcc_personality_v0; __libunwind_mmix_adopt_startup_images; __libunwind_mmix_cursor_begin; __libunwind_mmix_cursor_end; __libunwind_mmix_cursor_finish; __libunwind_mmix_set_managed_stop;${metadata_exports} local: *; };\n")
+    "{ global: _Unwind_*; unw_*; __gcc_personality_v0; __libunwind_mmix_adopt_startup_images; __libunwind_mmix_cursor_begin; __libunwind_mmix_cursor_end; __libunwind_mmix_cursor_finish; __libunwind_mmix_cursor_checkpoint; __libunwind_mmix_forced_capture; __libunwind_mmix_forced_validate; __libunwind_mmix_forced_quarantine; __libunwind_mmix_set_managed_stop;${metadata_exports} local: *; };\n")
   set_property(TARGET unwind_shared APPEND PROPERTY LINK_OPTIONS
     "LINKER:--version-script=${exports}")
   set_property(TARGET unwind_shared APPEND PROPERTY LINK_DEPENDS "${exports}")

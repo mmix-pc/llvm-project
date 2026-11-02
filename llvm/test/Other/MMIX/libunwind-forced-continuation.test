@@ -1,4 +1,8 @@
 # REQUIRES: mmix-native-linux-host
+# Ownership transitions and read-only forced capture/validate, including both
+# opaque snapshot slots, stopped/landing shapes and the static token-zero path.
+# Native fork-isolated quarantine preserves both leases and traps on continuation
+# or ownership reuse before any metadata call or lifecycle mutation.
 # RUN: split-file %s %t
 # RUN: %python %t/run.py %S/../../../../libunwind %t %mmix_host_cxx
 

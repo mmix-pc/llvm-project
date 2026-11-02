@@ -15,7 +15,14 @@ thread_local MMIXCursorLifetime *owners __attribute__((tls_model("initial-exec")
 thread_local void *query __attribute__((tls_model("initial-exec")));
 thread_local uintptr_t managed_stop __attribute__((tls_model("initial-exec")));
 
-enum ForcedPhase : unsigned { Empty, Walking, Stopped, Landing, Changing };
+enum ForcedPhase : unsigned {
+  Empty,
+  Walking,
+  Stopped,
+  Landing,
+  Changing,
+  Quarantined
+};
 struct ForcedContinuation {
   void *exception;
   uintptr_t stop;
@@ -23,14 +30,30 @@ struct ForcedContinuation {
   void *cursor;
   MMIXCursorLifetime *base;
   MMIXCursorLifetime held;
-  unsigned phase;
+  // MMIX compare-and-swap operates on naturally aligned octabytes.
+  uintptr_t phase;
 };
+static_assert(__atomic_always_lock_free(sizeof(uintptr_t), nullptr),
+              "forced continuation transitions must be lock-free");
 thread_local ForcedContinuation forced
     __attribute__((tls_model("initial-exec")));
 
-unsigned phase() { return __atomic_load_n(&forced.phase, __ATOMIC_ACQUIRE); }
+unsigned phase() {
+  return static_cast<unsigned>(
+      __atomic_load_n(&forced.phase, __ATOMIC_ACQUIRE));
+}
 void publish(unsigned next) {
   __atomic_store_n(&forced.phase, next, __ATOMIC_RELEASE);
+}
+// Do not return an unwind failure for the copied continuation: its diagnostic
+// path may allocate or release ownership in the restricted fork child.
+void check_quarantined_exception(void *exception) {
+  if (phase() == Quarantined && forced.exception == exception)
+    __builtin_trap();
+}
+void check_quarantined_cursor(const void *cursor) {
+  if (cursor && phase() == Quarantined && forced.cursor == cursor)
+    __builtin_trap();
 }
 bool matches(void *exception, uintptr_t stop, void *argument) {
   return forced.exception == exception && forced.stop == stop &&
@@ -53,6 +76,10 @@ MMIXCursorLifetime *find(const void *cursor) {
   return nullptr;
 }
 void release(MMIXCursorLifetime &owner, bool escape) {
+  if (phase() == Quarantined &&
+      (&owner == &forced.held ||
+       (owner.cursor && owner.cursor == forced.cursor)))
+    __builtin_trap();
 #if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
     !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   auto consume = [escape](uintptr_t &token) {
@@ -86,6 +113,7 @@ void remove(MMIXCursorLifetime &owner) {
 
 extern "C" __attribute__((visibility("protected"))) void
 __libunwind_mmix_cursor_begin(MMIXCursorLifetime *owner, void *cursor) {
+  check_quarantined_cursor(cursor);
   if (!owner || !cursor || find(cursor))
     __builtin_trap();
   *owner = {cursor, 0, owners, 0};
@@ -109,6 +137,7 @@ __libunwind_mmix_cursor_begin_with_stop(MMIXCursorLifetime *owner, void *cursor,
 }
 extern "C" __attribute__((visibility("protected"))) void
 __libunwind_mmix_cursor_end(MMIXCursorLifetime *owner) {
+  check_quarantined_cursor(owner->cursor);
   if (owner->cursor) {
     bool terminal = forced.cursor == owner->cursor;
     if (terminal) {
@@ -124,6 +153,7 @@ __libunwind_mmix_cursor_end(MMIXCursorLifetime *owner) {
 }
 extern "C" __attribute__((visibility("protected"))) void
 __libunwind_mmix_cursor_finish(void *cursor) {
+  check_quarantined_cursor(cursor);
   if (auto *owner = find(cursor))
     __libunwind_mmix_cursor_end(owner);
 }
@@ -150,6 +180,7 @@ __libunwind_mmix_cursor_at_checkpoint(const MMIXCursorCheckpoint *checkpoint) {
 extern "C" __attribute__((visibility("protected"))) int
 __libunwind_mmix_cursor_finish_at(void *cursor,
                                  const MMIXCursorCheckpoint *checkpoint) {
+  check_quarantined_cursor(cursor);
   if (!checkpoint || checkpoint->thread != reinterpret_cast<uintptr_t>(&owners) ||
       !cursor || !owners || owners->cursor != cursor ||
       owners->previous != checkpoint->owners || query != checkpoint->query ||
@@ -165,7 +196,84 @@ __libunwind_mmix_cursor_finish_at(void *cursor,
     __builtin_trap();
   return 1;
 }
+
+extern "C" __attribute__((visibility("protected"))) int
+__libunwind_mmix_forced_capture(const MMIXCursorCheckpoint *base,
+                               void *exception, uintptr_t stop, void *argument,
+                               MMIXForcedCheckpoint *output) {
+  unsigned current = phase();
+  if (!base || !output ||
+      base->thread != reinterpret_cast<uintptr_t>(&owners) || base->owners ||
+      base->query || base->forced_exception || base->forced_phase != Empty ||
+      !exception || !stop || stop != managed_stop ||
+      (current != Stopped && current != Landing) ||
+      !matches(exception, stop, argument) || query || forced.base != base->owners ||
+      forced.held.cursor || forced.held.previous)
+    return 0;
+
+  MMIXForcedCheckpoint result{};
+  result.thread = base->thread;
+  result.exception = exception;
+  result.stop = stop;
+  result.argument = argument;
+  result.base = forced.base;
+  if (current == Stopped) {
+    // Only the live TLS head is dereferenced, never a borrowed checkpoint node.
+    if (!forced.cursor || !owners || owners->cursor != forced.cursor ||
+        owners->previous != forced.base || forced.held.token ||
+        forced.held.fallback_token)
+      return 0;
+    result.owner = owners;
+    result.cursor = forced.cursor;
+    result.token = owners->token;
+    result.fallback_token = owners->fallback_token;
+    result.phase = MMIXForcedStopped;
+  } else {
+    // Landing is published before __unw_resume retires its old stack sidecar.
+    // That brief, still-owned interval is not an observable cleanup boundary.
+    if (forced.cursor || owners != forced.base)
+      return 0;
+    result.held_token = forced.held.token;
+    result.held_fallback_token = forced.held.fallback_token;
+    result.phase = MMIXForcedLanding;
+  }
+  *output = result;
+  return 1;
+}
+
+extern "C" __attribute__((visibility("protected"))) int
+__libunwind_mmix_forced_validate(const MMIXCursorCheckpoint *base,
+                                void *exception, uintptr_t stop, void *argument,
+                                const MMIXForcedCheckpoint *saved) {
+  MMIXForcedCheckpoint current;
+  if (!saved || !__libunwind_mmix_forced_capture(base, exception, stop, argument,
+                                               &current))
+    return 0;
+  return saved->thread == current.thread &&
+         saved->exception == current.exception && saved->stop == current.stop &&
+         saved->argument == current.argument && saved->base == current.base &&
+         saved->owner == current.owner && saved->cursor == current.cursor &&
+         saved->token == current.token &&
+         saved->fallback_token == current.fallback_token &&
+         saved->held_token == current.held_token &&
+         saved->held_fallback_token == current.held_fallback_token &&
+         saved->phase == current.phase;
+}
+
+extern "C" __attribute__((visibility("protected"))) int
+__libunwind_mmix_forced_quarantine(const MMIXCursorCheckpoint *base,
+                                  void *exception, uintptr_t stop,
+                                  void *argument,
+                                  const MMIXForcedCheckpoint *saved) {
+  if (!__libunwind_mmix_forced_validate(base, exception, stop, argument, saved))
+    return 0;
+  uintptr_t expected = saved->phase == MMIXForcedStopped ? Stopped : Landing;
+  return __atomic_compare_exchange_n(&forced.phase, &expected, Quarantined,
+                                     false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
+
 extern "C" void __libunwind_mmix_cursor_escape(void *cursor) {
+  check_quarantined_cursor(cursor);
   if (auto *owner = find(cursor)) {
     if (forced.cursor == cursor)
       __builtin_trap();
@@ -177,12 +285,15 @@ extern "C" void __libunwind_mmix_cursor_escape(void *cursor) {
   }
 }
 extern "C" void __libunwind_mmix_cursor_reset(void *cursor) {
+  check_quarantined_cursor(cursor);
   if (cursor && forced.cursor == cursor)
     __builtin_trap();
   if (auto *owner = find(cursor))
     release(*owner, false);
 }
 extern "C" int __libunwind_mmix_cursor_copy(void *to, const void *from) {
+  check_quarantined_cursor(from);
+  check_quarantined_cursor(to);
   auto *source = find(from);
   auto *destination = find(to);
   if (!source || !destination || source == destination || forced.cursor == to)
@@ -212,6 +323,7 @@ extern "C" int __libunwind_mmix_cursor_copy(void *to, const void *from) {
 
 extern "C" int __libunwind_mmix_forced_resume(void *exception, uintptr_t stop,
                                               void *argument) {
+  check_quarantined_exception(exception);
   if (forced.exception && forced.exception == exception)
     return phase() == Landing && matches(exception, stop, argument) && !query;
   return !stop || stop != managed_stop;
@@ -219,6 +331,8 @@ extern "C" int __libunwind_mmix_forced_resume(void *exception, uintptr_t stop,
 
 extern "C" int __libunwind_mmix_forced_enter(void *cursor, void *exception,
                                              uintptr_t stop, void *argument) {
+  check_quarantined_exception(exception);
+  check_quarantined_cursor(cursor);
   if (!stop || stop != managed_stop)
     return !forced.exception || forced.exception != exception;
   auto *owner = find(cursor);
@@ -251,6 +365,8 @@ extern "C" int __libunwind_mmix_forced_enter(void *cursor, void *exception,
 extern "C" int __libunwind_mmix_forced_stop(void *cursor, void *exception,
                                             uintptr_t stop, void *argument,
                                             int entering) {
+  check_quarantined_exception(exception);
+  check_quarantined_cursor(cursor);
   if (!stop || stop != managed_stop)
     return !forced.exception || forced.exception != exception;
   if (phase() != (entering ? Walking : Stopped) ||
@@ -263,6 +379,8 @@ extern "C" int __libunwind_mmix_forced_stop(void *cursor, void *exception,
 
 extern "C" int __libunwind_mmix_forced_landing(void *cursor, void *exception,
                                                uintptr_t stop, void *argument) {
+  check_quarantined_exception(exception);
+  check_quarantined_cursor(cursor);
   if (!stop || stop != managed_stop)
     return !forced.exception || forced.exception != exception;
   auto *owner = find(cursor);
@@ -285,6 +403,7 @@ extern "C" int __libunwind_mmix_forced_landing(void *cursor, void *exception,
 
 extern "C" void __libunwind_mmix_forced_abort(void *exception, uintptr_t stop,
                                               void *argument) {
+  check_quarantined_exception(exception);
   if (!stop || stop != managed_stop) {
     if (forced.exception && forced.exception == exception)
       __builtin_trap();
@@ -297,6 +416,7 @@ extern "C" void __libunwind_mmix_forced_abort(void *exception, uintptr_t stop,
   clear_forced();
 }
 extern "C" void *__libunwind_mmix_cursor_query_enter(void *cursor) {
+  check_quarantined_cursor(cursor);
   void *previous = query;
   query = cursor;
   return previous;
@@ -307,6 +427,7 @@ extern "C" void __libunwind_mmix_cursor_query_leave(void *previous) {
 #if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
     !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
 bool mmixFindCursorImage(uintptr_t pc, MMIXUnwindImage &view, bool &owned) {
+  check_quarantined_cursor(query);
   auto *owner = query ? find(query) : nullptr;
   owned = owner != nullptr;
   if (!owner)
