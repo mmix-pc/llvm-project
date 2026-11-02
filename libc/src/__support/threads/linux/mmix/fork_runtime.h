@@ -39,6 +39,7 @@ class ForkOperation {
   File *standard[3]{};
   File *stream_stop = nullptr;
   bool standard_locked[3]{};
+  void select_continuation();
 
 public:
   static bool active_on_this_thread();

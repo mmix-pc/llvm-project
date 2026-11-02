@@ -84,16 +84,8 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
       error_code = EAGAIN;
       return;
     }
-    bool during = false;
-    const bool normal_after =
-        internal::normal_exit_fork_owner &&
-        internal::rebind_normal_exit_fork_owner &&
-        internal::normal_exit_fork_owner(&during) == caller->attributes.tid &&
-        !during;
-    if (normal_after)
-      continuation = ForkContinuation::NormalAfter;
-    if (!thread_registry.quiescent_fork_caller(*caller, continuation) ||
-        caller->cancellation.terminal()) {
+    select_continuation();
+    if (!thread_registry.quiescent_fork_caller(*caller, continuation)) {
       error_code = EAGAIN;
       return;
     }
@@ -102,13 +94,13 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
     return;
 #endif
 #ifdef LIBC_MMIX_SHARED_STARTUP
-    // Shared __cxa_finalize retains a cancellation scope across user code,
-    // but invokes callbacks outside loader transactions. A certified ordinary
-    // process callback may preserve that single scope; prepare_runtime must still
+    // Shared TSS drains and __cxa_finalize retain a cancellation scope across
+    // user code, outside loader transactions. A certified ordinary exit
+    // callback may preserve that single scope; prepare_runtime must still
     // prove the loader is quiescent. Never admit a loader callback itself.
     const auto scopes = caller->loader_scopes.load();
     if ((scopes && !(scopes == 1 &&
-                     continuation == ForkContinuation::NormalAfter)) ||
+                     continuation != ForkContinuation::Ordinary)) ||
         caller->loader_callbacks.load()) {
       error_code = EAGAIN;
       return;
@@ -144,10 +136,10 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
   (void)internal::EnvironmentManager::get_instance();
 }
 
-int ForkOperation::prepare_runtime() {
+void ForkOperation::select_continuation() {
 #ifdef LIBC_MMIX_UNWIND_ROOTS
   bool during = false;
-  if (!minimal && internal::last_thread_exit_fork_owner &&
+  if (internal::last_thread_exit_fork_owner &&
       internal::rebind_last_thread_exit_fork_owner &&
       internal::last_thread_exit_fork_owner() == caller->attributes.tid &&
       (last_thread_fork_context(*caller) ||
@@ -156,13 +148,11 @@ int ForkOperation::prepare_runtime() {
                        ? ForkContinuation::LastWorkerAfter
                        : ForkContinuation::LastThreadAfter;
     continuation_root = caller->unwind_root;
-  } else if (!minimal &&
-             initial_thread_during_fork_owner() == caller->attributes.tid &&
+  } else if (initial_thread_during_fork_owner() == caller->attributes.tid &&
              terminal_thread_fork_context(*caller)) {
     continuation = ForkContinuation::InitialThreadDuring;
     continuation_root = caller->unwind_root;
-  } else if (!minimal &&
-             worker_thread_during_fork_owner() == caller->attributes.tid &&
+  } else if (worker_thread_during_fork_owner() == caller->attributes.tid &&
              terminal_worker_fork_context(*caller)) {
     continuation = ForkContinuation::WorkerThreadDuring;
     continuation_root = caller->unwind_root;
@@ -170,13 +160,16 @@ int ForkOperation::prepare_runtime() {
              internal::rebind_normal_exit_fork_owner &&
              internal::normal_exit_fork_owner(&during) ==
                  caller->attributes.tid &&
-             (!minimal || !during) &&
              ordinary_fork_context(*caller)) {
     continuation = during ? ForkContinuation::NormalDuring
                           : ForkContinuation::NormalAfter;
     continuation_root = caller->unwind_root;
   }
 #endif
+}
+
+int ForkOperation::prepare_runtime() {
+  select_continuation();
   const bool cleanup_continuation = continuation != ForkContinuation::Ordinary;
   const bool terminal = continuation == ForkContinuation::LastThreadAfter ||
                         continuation == ForkContinuation::LastWorkerAfter ||
@@ -186,8 +179,8 @@ int ForkOperation::prepare_runtime() {
   // retirement or enter ordinary child restoration as a fallback.
   if (caller->cancellation.terminal() && !terminal)
     return EAGAIN;
-  if (terminal && !reaper_absent_for_exit_fork(*caller, continuation)) {
-    // A DURING owner may retain helpers only with a restricted copied child.
+  if (cleanup_continuation && !reaper_absent_for_exit_fork(*caller, continuation)) {
+    // A cleanup owner may retain peers/helpers only with a restricted child.
     // This independently checks the whole certificate, not just helper count.
     if (!thread_registry.freeze_for_fork(
             *caller, 1, nullptr, false, continuation,
@@ -306,11 +299,14 @@ int ForkOperation::freeze_registry() {
   // Recheck the exact owner/root selected before locks. These hooks inspect
   // only owner-local identity and phase, never query locked loader metadata.
 #ifdef LIBC_MMIX_UNWIND_ROOTS
-  if (registry && minimal && continuation == ForkContinuation::NormalAfter) {
+  if (registry &&
+      (continuation == ForkContinuation::NormalAfter ||
+       continuation == ForkContinuation::NormalDuring)) {
     bool during = false;
     if (!internal::normal_exit_fork_owner ||
         internal::normal_exit_fork_owner(&during) != caller->attributes.tid ||
-        during || !continuation_root.matches(caller->unwind_root) ||
+        during != (continuation == ForkContinuation::NormalDuring) ||
+        !continuation_root.matches(caller->unwind_root) ||
         !ordinary_fork_context(*caller)) {
       thread_registry.release_after_fork();
       registry = false;
@@ -495,11 +491,11 @@ void ForkOperation::restore_runtime(bool child) {
       break;
     }
     if (!adopted ||
-        ((continuation == ForkContinuation::LastThreadAfter ||
+        (!exec_only && (continuation == ForkContinuation::LastThreadAfter ||
           continuation == ForkContinuation::LastWorkerAfter) &&
          (!internal::rebind_last_thread_exit_fork_owner ||
           !internal::rebind_last_thread_exit_fork_owner(previous_tid))) ||
-        (process_cleanup && !terminal &&
+        (!exec_only && process_cleanup && !terminal &&
          (!internal::rebind_normal_exit_fork_owner ||
           !internal::rebind_normal_exit_fork_owner(previous_tid))))
       internal::exit(127);

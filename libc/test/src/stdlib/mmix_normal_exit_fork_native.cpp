@@ -674,20 +674,24 @@ void fork_detached_initial_after() {
   check_detached_initial_after();
   assert(!I::normal_exit_fork_owner());
   assert(I::last_thread_exit_fork_owner() == attributes->tid);
-  // Terminal minimal recovery and an unavailable bootstrap remain excluded.
+  // The sole terminal certificate also admits optional minimal preparation.
   const auto prepared = notification_prepares;
   const auto attempts = clone_attempts;
   {
     M::ForkOperation operation(true);
-    assert(operation.error() == EAGAIN);
+    assert(!operation.error());
   }
   assert(M::bootstrap.mutex.try_lock());
+  restricted_checkpoint = true;
   {
     M::ForkOperation operation;
-    assert(!operation.error() && operation.prepare_runtime() == EAGAIN);
+    assert(!operation.error() && !operation.prepare_runtime());
+    assert(!operation.freeze_registry());
   }
+  restricted_checkpoint = false;
   M::bootstrap.mutex.unlock();
-  assert(notification_prepares == prepared && clone_attempts == attempts);
+  assert(notification_prepares == prepared + 1 && clone_attempts == attempts);
+  check_detached_initial_after();
 
   // Revalidate queue and certificate at the final frozen boundary. Taking the
   // queue entry uses the real reaper transition, not a fabricated owner flag.
@@ -1630,6 +1634,32 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
   assert(main_thread_cleanup_in_progress() &&
          normal_exit_fork_owner() == owner);
 
+  if (selected == Case::Return) {
+    const auto root = caller.unwind_root;
+    const auto saved_mask = mask;
+    caller.unwind_root = {&caller, 1, 2, 3, 4, 5, true};
+    assert(!caller.loader_scopes.load());
+    {
+      M::ForkOperation operation(true);
+      assert(!operation.error());
+    }
+    assert(!caller.cancellation_suppression.load() && mask == saved_mask);
+    // Shared TSS draining retains one cancellation scope, but no loader lock.
+    caller.loader_scopes.store(1);
+    {
+      M::ForkOperation operation(true);
+      assert(!operation.error());
+    }
+    caller.loader_scopes.store(2);
+    {
+      M::ForkOperation operation(true);
+      assert(operation.error() == EAGAIN);
+    }
+    caller.loader_scopes.store(0);
+    caller.unwind_root = root;
+    assert(!M::ForkOperation::active_on_this_thread());
+  }
+
   if (selected == Case::TerminalDuring) {
     assert(caller.cancellation.claim(false));
     assert(!normal_exit_fork_owner());
@@ -1656,13 +1686,24 @@ extern "C" void mmix_normal_exit_test_finalize(void *dso) {
     assert(caller.attributes.retval.posix_retval == terminal_result());
     assert(helper_worker_case() ? caller.last_worker_cleanup_finished()
                                : caller.terminal_cleanup_finished());
-    // DURING helper admission must not weaken the existing AFTER certificate.
+    // AFTER helpers allow only a restricted copied child, never a resumed drain.
     const auto prepared = notification_prepares, cloned = clone_attempts;
+    long child;
     {
       M::ForkOperation operation;
-      assert(!operation.error() && operation.prepare_runtime() == EAGAIN);
+      assert(!operation.error() && !operation.prepare_runtime());
+      assert(!operation.freeze_registry());
+      child = operation.create_child();
+      assert(child >= 0);
+      operation.restore_runtime(child == 0);
     }
-    assert(notification_prepares == prepared && clone_attempts == cloned);
+    if (!child) {
+      assert(caller.terminal_exec_only_survivor() && !owner_retains && !owner_releases);
+      assert(!caller.fork_recovery.allows_loader() && !once_restores);
+      ::_exit(0);
+    }
+    wait_success(pid_t(child));
+    assert(notification_prepares == prepared + 1 && clone_attempts == cloned + 1);
     assert(!caller.cancellation_suppression.load() && caller.unwind_root.active);
     assert(M::bootstrap.control == snapshot_helper &&
            !M::bootstrap.stopping.load() && !owner_retains && !owner_releases);
@@ -1932,7 +1973,7 @@ static void exercise_helper_snapshot(M::ThreadControl &initial) {
     assert(drain_roots == 1 && drain_returns == 1 && after_roots == 1 &&
            callback_returns == 1 && pending_tls == 1 && pending_tss == 1);
     assert(main_drains == unsigned(helper_worker_case()));
-    assert(clone_attempts == 4 && !owner_retains && !owner_releases &&
+  assert(clone_attempts == 5 && !owner_retains && !owner_releases &&
            !once_restores && !root_restores && invocation == 41);
     assert(!loader_snapshot && !notification_snapshot && !allocator_snapshot &&
            !aio_snapshot && !aio_frozen && !caller.cancellation_suppression.load());

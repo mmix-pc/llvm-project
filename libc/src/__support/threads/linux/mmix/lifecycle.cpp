@@ -19,18 +19,33 @@ bool ThreadRegistry::quiescent_fork_caller(ThreadControl &caller,
                                            ForkContinuation kind) {
   if (!mutex.value.try_lock())
     return false;
+  if (kind == ForkContinuation::LastThreadAfter ||
+      kind == ForkContinuation::LastWorkerAfter ||
+      kind == ForkContinuation::InitialThreadDuring ||
+      kind == ForkContinuation::WorkerThreadDuring) {
+    const bool during = kind == ForkContinuation::InitialThreadDuring ||
+                        kind == ForkContinuation::WorkerThreadDuring;
+    const bool quiescent =
+        during ? terminal_during_fork_caller(caller, kind,
+                                             ForkSnapshot::Recoverable)
+               : terminal_fork_caller(caller, kind);
+    mutex.value.unlock();
+    return quiescent;
+  }
   const bool ordinary = kind == ForkContinuation::Ordinary &&
-                        !process_exiting() && !caller.callbacks_started;
-  const bool normal_after =
-      kind == ForkContinuation::NormalAfter && caller.callbacks_started &&
+                        !process_exiting() && !caller.callbacks_started &&
+                        !caller.cancellation.terminal();
+  const bool normal_cleanup =
+      (kind == ForkContinuation::NormalAfter ||
+       kind == ForkContinuation::NormalDuring) && caller.callbacks_started &&
       process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED &&
       !caller.cancellation.terminal() && !caller.internal_helper &&
       caller.callback_phase == CallbackPhase::None;
   bool quiescent =
-      (ordinary || normal_after) && main_registered && !process_operation &&
+      (ordinary || normal_cleanup) && main_registered && !process_operation &&
       fork_recovery.allows_fork() && caller.fork_recovery.allows_fork() &&
       !reservations && !helper_reservations && !unreaped_helpers &&
-      !unreaped_callbacks && live == 1 && head == &caller && !caller.next &&
+      running_callback_census(caller) && live == 1 && head == &caller && !caller.next &&
       !reap_head && !reap_tail && !reap_count && caller.registry == this &&
       caller.listed && caller.execution == ThreadExecution::Running;
   mutex.value.unlock();
@@ -38,28 +53,33 @@ bool ThreadRegistry::quiescent_fork_caller(ThreadControl &caller,
 }
 
 bool ThreadRegistry::terminal_fork_caller(ThreadControl &caller,
-                                          ForkContinuation kind) {
+                                          ForkContinuation kind,
+                                          ForkSnapshot snapshot) {
+  const bool restricted = snapshot == ForkSnapshot::TerminalExecOnly;
   const auto &root = caller.unwind_root;
   const bool completed = kind == ForkContinuation::LastWorkerAfter
                              ? caller.last_worker_cleanup_finished()
                              : caller.terminal_cleanup_finished();
   const bool owner_queue =
       (caller.owner == ThreadOwner::Joinable && !caller.queued &&
-       !caller.reap_next && !reap_head && !reap_tail && !reap_count) ||
-      (((kind == ForkContinuation::LastThreadAfter && caller.initial_thread &&
+       !caller.reap_next &&
+       (restricted || (!reap_head && !reap_tail && !reap_count))) ||
+      (((kind == ForkContinuation::LastThreadAfter &&
          caller.process_lifetime) ||
         (kind == ForkContinuation::LastWorkerAfter && !caller.initial_thread &&
          !caller.process_lifetime)) &&
        caller.owner == ThreadOwner::Detached &&
-       caller.queued && !caller.reap_next && reap_head == &caller &&
-       reap_tail == &caller && reap_count == 1);
-  // A certified detached AFTER owner retains only its own completed queue entry.
-  // The helper absence and closed process admission leave no live reclaimer.
+       caller.queued &&
+       (restricted || (!caller.reap_next && reap_head == &caller &&
+                       reap_tail == &caller && reap_count == 1)));
+  // Resumable AFTER retains only its own completed queue entry, with no live
+  // reclaimer. Restricted children instead preserve all backing until exec.
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED &&
-         !reservations && !helper_reservations && !unreaped_helpers &&
-         terminal_callback_census(caller) && !live && head == &caller &&
+         !reservations && !helper_reservations &&
+         (restricted || (!unreaped_helpers && terminal_callback_census(caller))) &&
+         !live && head == &caller &&
          !caller.next &&
          owner_queue && caller.registry == this &&
          caller.listed && !caller.counted && caller.lifecycle_pin &&
@@ -84,24 +104,41 @@ bool ThreadRegistry::terminal_during_fork_caller(ThreadControl &caller,
   const bool owner =
       caller.owner == ThreadOwner::Joinable ||
       (caller.owner == ThreadOwner::Detached &&
-       ((kind == ForkContinuation::InitialThreadDuring && caller.initial_thread &&
+       ((kind == ForkContinuation::InitialThreadDuring &&
          caller.process_lifetime) ||
         (kind == ForkContinuation::WorkerThreadDuring && !caller.initial_thread &&
          !caller.process_lifetime)));
+  // A restricted child never resumes this drain or reclaims copied owners.
+  // Foreign live threads, callback slots and reap entries therefore need not
+  // be quiescent; the caller's own terminal activation must still be intact.
+  const bool isolated = !unreaped_helpers && terminal_callback_census(caller) &&
+                        live == 1 && head == &caller && !caller.next &&
+                        !reap_head && !reap_tail && !reap_count;
   return main_registered && fork_recovery.allows_fork() &&
          caller.fork_recovery.allows_fork() && !process_operation &&
          process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == RUNNING &&
          !reservations && !helper_reservations &&
-         (snapshot == ForkSnapshot::TerminalExecOnly || !unreaped_helpers) &&
-         terminal_callback_census(caller) && live == 1 && head == &caller &&
-         !caller.next &&
-         !reap_head && !reap_tail && !reap_count && caller.registry == this &&
+         (snapshot == ForkSnapshot::TerminalExecOnly || isolated) &&
+         caller.registry == this &&
          caller.listed && caller.counted && caller.lifecycle_pin &&
          !caller.creator_pin && !caller.api_pins && caller.leases_open &&
          !caller.leases && !caller.queued && !caller.reap_next &&
          owner && !caller.internal_helper && draining && root.active &&
          root.kind == UnwindRootKind::TerminalThreadCleanup &&
          root.owner == &caller && root.generation && root.chain;
+}
+
+bool ThreadRegistry::normal_cleanup_fork_caller(ThreadControl &caller,
+                                               ForkContinuation kind) {
+  return (kind == ForkContinuation::NormalDuring ||
+          kind == ForkContinuation::NormalAfter) &&
+         main_registered && fork_recovery.allows_fork() &&
+         caller.fork_recovery.allows_fork() && !process_operation &&
+         !reservations && !helper_reservations && caller.registry == this &&
+         caller.listed && caller.execution == ThreadExecution::Running &&
+         caller.callbacks_started && !caller.cancellation.terminal() &&
+         !caller.internal_helper && caller.callback_phase == CallbackPhase::None &&
+         process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED;
 }
 
 bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
@@ -125,8 +162,12 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
   }
   const bool during = kind == ForkContinuation::InitialThreadDuring ||
                       kind == ForkContinuation::WorkerThreadDuring;
+  const bool after = kind == ForkContinuation::LastThreadAfter ||
+                     kind == ForkContinuation::LastWorkerAfter;
+  const bool normal = kind == ForkContinuation::NormalDuring ||
+                      kind == ForkContinuation::NormalAfter;
   if ((snapshot != ForkSnapshot::Recoverable && !exec_only) ||
-      (exec_only && (!during || suppression != 1))) {
+      (exec_only && ((!during && !after && !normal) || suppression != 1))) {
     mutex.value.unlock();
     return false;
   }
@@ -136,7 +177,7 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
       kind == ForkContinuation::WorkerThreadDuring) {
     const bool eligible =
         during ? terminal_during_fork_caller(caller, kind, snapshot)
-               : terminal_fork_caller(caller, kind);
+               : terminal_fork_caller(caller, kind, snapshot);
     if ((!exec_only && !helper_drained) || !eligible ||
         caller.cancellation_transfer.load() ||
         caller.cancellation_suppression.load() != suppression ||
@@ -152,12 +193,7 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
   // The private exit-owner certificate is checked by ForkOperation. Keep its
   // claim and certified callback continuation rather than restarting cleanup
   // merely to pass admission.
-  bool continuation =
-      process_cleanup && main_registered && fork_recovery.allows_fork() &&
-      caller.callbacks_started &&
-      !caller.cancellation.terminal() && !caller.internal_helper &&
-      caller.callback_phase == CallbackPhase::None &&
-      process_exit_state.load(cpp::MemoryOrder::ACQUIRE) == CLEANUP_CLAIMED;
+  bool continuation = normal_cleanup_fork_caller(caller, kind);
   if ((process_cleanup && !continuation) ||
       (process_exiting() && !continuation) || reservations ||
       helper_reservations || process_operation || caller.registry != this ||
@@ -173,14 +209,35 @@ bool ThreadRegistry::freeze_for_fork(ThreadControl &caller,
   // The census is necessary, but resource release after final reap must still
   // be witnessed independently by the caller through helper_drained.
   if (single_thread)
-    *single_thread = (!creation_started || helper_drained) &&
-                     !unreaped_helpers && !unreaped_callbacks &&
+    *single_thread = !exec_only && (!creation_started || helper_drained) &&
+                     !unreaped_helpers && running_callback_census(caller) &&
                      live == 1 && head == &caller &&
                      !caller.next && !reap_head && !reap_tail && !reap_count;
   return true;
 }
 
 void ThreadRegistry::release_after_fork() { mutex.value.unlock(); }
+
+bool ThreadRegistry::active_cleanup_spawn_caller(ThreadControl &caller) {
+  if (!mutex.value.try_lock())
+    return false;
+  const auto &root = caller.unwind_root;
+  const bool admitted =
+      main_registered && fork_recovery.allows_fork() &&
+      caller.fork_recovery.allows_fork() && !process_operation &&
+      !process_exiting() && caller.registry == this && caller.listed &&
+      caller.counted && caller.lifecycle_pin && !caller.internal_helper &&
+      caller.execution == ThreadExecution::Cleaning &&
+      !caller.callbacks_started &&
+      caller.leases_open && !caller.queued && !caller.reap_next &&
+      caller.cancellation.terminal() && !caller.cancellation_transfer.load() &&
+      !caller.cancellation_point.load() &&
+      caller.cancellation_suppression.load() == 1 && root.active &&
+      root.owner == &caller && root.kind == UnwindRootKind::Thread &&
+      root.chain && root.generation;
+  mutex.value.unlock();
+  return admitted;
+}
 
 void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
                                         internal::ForkRecovery recovery,
@@ -189,8 +246,16 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   if (!recovery.is_child())
     __builtin_trap();
   if (snapshot == ForkSnapshot::TerminalExecOnly) {
+    const bool during = kind == ForkContinuation::InitialThreadDuring ||
+                        kind == ForkContinuation::WorkerThreadDuring;
+    const bool after = kind == ForkContinuation::LastThreadAfter ||
+                       kind == ForkContinuation::LastWorkerAfter;
+    const bool eligible =
+        during ? terminal_during_fork_caller(survivor, kind, snapshot)
+        : after ? terminal_fork_caller(survivor, kind, snapshot)
+                : normal_cleanup_fork_caller(survivor, kind);
     if (recovery.allows_fork() ||
-        !terminal_during_fork_caller(survivor, kind, snapshot) ||
+        !eligible ||
         survivor.cancellation_suppression.load() != 1 ||
         survivor.cancellation_transfer.load() ||
         survivor.cancellation_point.load())
@@ -281,6 +346,9 @@ void ThreadRegistry::restore_fork_child(ThreadControl &survivor,
   survivor.process_lifetime = true;
   survivor.internal_helper = false;
   survivor.callbacks_started = process_cleanup;
+  // The survivor's invocation backing is now process-lifetime, not a detached
+  // callback awaiting reaping. Keep resource_owner and the suspended runner;
+  // neither the copied service nor registry may refund that backing early.
   survivor.callback_phase = CallbackPhase::None;
   survivor.api_pins = survivor.leases = 0;
   survivor.owner = ThreadOwner::Joinable;

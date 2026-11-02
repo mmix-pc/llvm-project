@@ -159,8 +159,10 @@ struct ThreadControl {
            execution == ThreadExecution::Running && !unwind_root.active;
   }
   bool terminal_cleanup_pending() {
-    return initial_thread && process_lifetime &&
-           execution == ThreadExecution::Cleaning && cancellation.terminal();
+    // Ordinary fork recovery adopts the survivor's callback manager as the
+    // process cleanup owner without changing its original thread identity.
+    return process_lifetime && execution == ThreadExecution::Cleaning &&
+           cancellation.terminal();
   }
   bool terminal_cleanup_in_progress() {
     return terminal_cleanup_pending() && callbacks_started;
@@ -194,9 +196,8 @@ struct ThreadControl {
   // Owner-only local half of the terminal certificate. Registry-owned pins,
   // queues, leases and ownership are inspected only under the snapshot lock.
   bool terminal_cleanup_finished() {
-    return initial_thread && process_lifetime && callbacks_started &&
-           execution == ThreadExecution::ExitReady &&
-           cancellation.terminal();
+    return process_lifetime && callbacks_started &&
+           execution == ThreadExecution::ExitReady && cancellation.terminal();
   }
 
   // Owner-only, called only after complete_thread_cleanup's TLS/TSS drain
@@ -291,7 +292,17 @@ class ThreadRegistry {
             !unreaped_callbacks) ||
            (caller.retained_active_callback() && unreaped_callbacks == 1);
   }
-  bool terminal_fork_caller(ThreadControl &caller, ForkContinuation kind);
+  bool running_callback_census(const ThreadControl &caller) const {
+    return terminal_callback_census(caller) &&
+           (caller.callback_phase == CallbackPhase::None ||
+            (caller.counted && !caller.creator_pin && !caller.api_pins &&
+             caller.leases_open && !caller.leases && !caller.queued &&
+             !caller.reap_next));
+  }
+  bool normal_cleanup_fork_caller(ThreadControl &caller, ForkContinuation kind);
+  bool terminal_fork_caller(
+      ThreadControl &caller, ForkContinuation kind,
+      ForkSnapshot snapshot = ForkSnapshot::Recoverable);
   bool terminal_during_fork_caller(ThreadControl &caller, ForkContinuation kind,
                                  ForkSnapshot snapshot);
   bool begin_cleanup_locked(ThreadControl &control, bool cancellation);
@@ -324,7 +335,8 @@ public:
   // LastWorkerAfter instead requires an elected, completed ordinary worker;
   // neither terminal AFTER kind promotes identity or transfers backing.
   // All terminal certificates use nonblocking registry acquisition.
-  // TerminalExecOnly admits only certified DURING owners, with suppression one.
+  // TerminalExecOnly admits certified post-stack or normal-exit owners, with
+  // suppression one. Active stack cleanup needs its separate protocol.
   // Helpers need not be drained, but single_thread remains false. The caller
   // must independently freeze/quarantine service state and validate its root.
   // Its registry acquisition is nonblocking, including for admission prechecks.
@@ -334,6 +346,8 @@ public:
       ForkContinuation continuation = ForkContinuation::Ordinary,
       ForkSnapshot snapshot = ForkSnapshot::Recoverable);
   void release_after_fork();
+  // Inspect, then release before event CREATE/wait. Never a fork snapshot.
+  bool active_cleanup_spawn_caller(ThreadControl &caller);
   // TerminalExecOnly requires ExecOnly recovery and preserves the active fork
   // guard's suppression while invalidating copied terminal execution state.
   void restore_fork_child(
