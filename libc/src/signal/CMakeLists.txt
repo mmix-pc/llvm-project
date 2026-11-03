@@ -10,6 +10,11 @@ add_entrypoint_object(
 )
 
 foreach(entry sigwait sigwaitinfo)
+  if(entry STREQUAL "sigwait" AND LIBC_TARGET_OS STREQUAL "linux" AND
+     LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+    add_entrypoint_object(sigwait ALIAS DEPENDS .linux.mmix.sigwait)
+    continue()
+  endif()
   add_entrypoint_object(
     ${entry}
     SRCS ${entry}.cpp
@@ -21,7 +26,7 @@ endforeach()
 
 if(LIBC_TARGET_OS STREQUAL "linux" AND
    LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
-  foreach(entry sig2str str2sig)
+  foreach(entry sig2str str2sig sigpending sigqueue)
     add_entrypoint_object(
       ${entry}
       ALIAS

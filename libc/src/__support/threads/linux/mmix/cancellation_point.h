@@ -28,18 +28,36 @@ bool cancellation_private_block();
 int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old);
 long cancellation_syscall(unsigned long number, long a1 = 0, long a2 = 0,
                           long a3 = 0, long a4 = 0, long a5 = 0, long a6 = 0);
+struct SignalWaitResult {
+  long value;
+  bool cancellation_rejected;
+};
 #ifdef LIBC_MMIX_SIGNAL_WAIT
 // Select only a live trusted handler in the opt-in provider. Untracked custom
 // restorers and ordinary threads retain their previous waiting behavior.
 bool signal_cancellation_wait_available();
-// Explicit controlled futex and process waits only. Other syscall wrappers
+// Explicit controlled futex, process and signal waits only. Other wrappers
 // retain their handler exclusion pending their own partial-result audit.
 long signal_cancellation_wait(unsigned long number, long a1 = 0, long a2 = 0,
                               long a3 = 0, long a4 = 0, long a5 = 0,
                               long a6 = 0);
+// Per-call provenance lets sigwait retry ordinary EINTR without restarting a
+// wait abandoned by rejected handler cancellation. No shared sticky state.
+SignalWaitResult signal_cancellation_wait_result(
+    unsigned long number, long a1, long a2, long a3, long a4);
 // Called masked after retiring a trusted default application signal boundary.
 void rearm_signal_cancellation();
 #endif
+
+inline SignalWaitResult cancellation_signal_wait(unsigned long number, long a1,
+                                                long a2, long a3 = 0,
+                                                long a4 = 0) {
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+  if (signal_cancellation_wait_available())
+    return signal_cancellation_wait_result(number, a1, a2, a3, a4);
+#endif
+  return {cancellation_syscall(number, a1, a2, a3, a4), false};
+}
 
 // The controlled leaf checks pending cancellation before entering the kernel.
 // Successful results and copy-out errors can consume child state; neither is

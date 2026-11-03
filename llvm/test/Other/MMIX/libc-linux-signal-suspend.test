@@ -17,7 +17,7 @@ if(NOT NO_MASKS)
   set(LIBC_MMIX_BUILD_SIGNAL_MASKS ON)
 endif()
 include(${SOURCE}/libc/config/linux/mmix/SignalSuspend.cmake)
-if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel;libc.src.signal.sigsuspend;libc.src.signal.sigismember")
+if(NOT "${TARGET_LIBC_ENTRYPOINTS}" STREQUAL "sentinel;libc.src.unistd.pause;libc.src.signal.sigsuspend;libc.src.signal.sigismember")
   message(FATAL_ERROR "unexpected signal-suspension provider selection")
 endif()
 

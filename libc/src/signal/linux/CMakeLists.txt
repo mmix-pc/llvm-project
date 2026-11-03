@@ -6,6 +6,9 @@ set(pthread_sigmask_source pthread_sigmask.cpp)
 set(pthread_sigmask_deps)
 set(signal_wait_source_dir "")
 set(signal_wait_deps)
+set(signal_timed_wait_deps)
+set(signal_cancel_deps)
+set(signal_cancel_options)
 set(signal_send_source_dir "")
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(pthread_sigmask_source mmix/pthread_sigmask.cpp)
@@ -18,6 +21,14 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(signal_wait_source_dir "mmix/")
   set(signal_send_source_dir "mmix/")
   set(signal_wait_deps .mmix.private_signals)
+  set(signal_timed_wait_deps .mmix.timed_wait)
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    set(signal_cancel_deps libc.src.__support.threads.linux.mmix.cancellation_point)
+    set(signal_cancel_options -fexceptions -funwind-tables)
+    if(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION)
+      list(APPEND signal_cancel_options -DLIBC_MMIX_SIGNAL_WAIT)
+    endif()
+  endif()
   add_entrypoint_object(
     pthread_kill
     SRCS mmix/pthread_kill.cpp
@@ -164,11 +175,13 @@ add_entrypoint_object(
     ../sigsuspend.h
   DEPENDS
     ${signal_wait_deps}
+    ${signal_cancel_deps}
     libc.hdr.signal_macros
     libc.hdr.types.sigset_t
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+  COMPILE_OPTIONS ${signal_cancel_options}
 )
 
 add_entrypoint_object(
@@ -178,7 +191,9 @@ add_entrypoint_object(
   HDRS
     ../sigtimedwait.h
   DEPENDS
+    ${signal_timed_wait_deps}
     ${signal_wait_deps}
+    ${signal_cancel_deps}
     libc.hdr.limits_macros
     libc.hdr.signal_macros
     libc.hdr.types.siginfo_t
@@ -187,6 +202,7 @@ add_entrypoint_object(
     libc.include.sys_syscall
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+  COMPILE_OPTIONS ${signal_cancel_options}
 )
 
 add_entrypoint_object(

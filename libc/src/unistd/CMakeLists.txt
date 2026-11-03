@@ -9,6 +9,12 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
 add_entrypoint_object(
+  pause
+  ALIAS
+  DEPENDS .${LIBC_TARGET_OS}.pause
+)
+
+add_entrypoint_object(
   _exit
   SRCS
     _exit.cpp

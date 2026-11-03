@@ -19,6 +19,19 @@ endif()
 
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   add_entrypoint_object(
+    pause
+    SRCS mmix/pause.cpp
+    HDRS ../pause.h
+    DEPENDS
+      libc.hdr.signal_macros
+      libc.hdr.types.sigset_t
+      libc.include.sys_syscall
+      libc.src.__support.OSUtil.osutil
+      libc.src.signal.sigsuspend
+      libc.src.errno.errno
+    COMPILE_OPTIONS ${mmix_cancellation_options}
+  )
+  add_entrypoint_object(
     posix_close
     SRCS mmix/posix_close.cpp
     HDRS ../posix_close.h

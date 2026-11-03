@@ -347,7 +347,10 @@ int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old) {
 [[gnu::noinline, clang::disable_tail_calls]] static long
 cancellation_syscall_impl(bool signal_wait, unsigned long number,
                           long a1, long a2, long a3,
-                          long a4, long a5, long a6) {
+                          long a4, long a5, long a6,
+                          bool *cancellation_rejected = nullptr) {
+  if (cancellation_rejected)
+    *cancellation_rejected = false;
   auto *control = current_control;
   if (!control || (!signal_wait && cancellation_private_block()) ||
       !control->cancellation.enabled())
@@ -421,7 +424,10 @@ cancellation_syscall_impl(bool signal_wait, unsigned long number,
     if (signal_wait) {
       // A rejected preflight/claim must never restart an abandoned TRAP. The
       // trusted wrapper rearms pending cancellation on normal signal return.
+      const bool pending = control->cancellation.ready();
       try_signal_cancellation(mask | CANCEL_MASK);
+      if (cancellation_rejected)
+        *cancellation_rejected = pending;
       result = -EINTR;
     } else
 #endif
@@ -471,6 +477,20 @@ long signal_cancellation_wait(unsigned long number, long a1, long a2, long a3,
   if (!futex && !process)
     return -ENOTSUP;
   return cancellation_syscall_impl(true, number, a1, a2, a3, a4, a5, a6);
+}
+
+SignalWaitResult signal_cancellation_wait_result(unsigned long number, long a1,
+                                                long a2, long a3, long a4) {
+  const bool suspend = number == SYS_rt_sigsuspend && a2 == 8 && !a3 && !a4;
+  const bool timed = number == SYS_rt_sigtimedwait && a4 == 8;
+  if (!suspend && !timed)
+    return {-ENOTSUP, false};
+  // Successful acceptance and EFAULT may consume a queued signal. As for
+  // process waits, the leaf excludes the completed syscall's return PC.
+  SignalWaitResult result{};
+  result.value = cancellation_syscall_impl(true, number, a1, a2, a3, a4, 0, 0,
+                                          &result.cancellation_rejected);
+  return result;
 }
 
 void rearm_signal_cancellation() {

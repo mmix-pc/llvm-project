@@ -29,6 +29,8 @@ profiles = {
     "platform": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM"],
     "cancel": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
                "-DLIBC_MMIX_CANCELLATION_WINDOWS"],
+    "handler": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+                "-DLIBC_MMIX_CANCELLATION_WINDOWS", "-DLIBC_MMIX_SIGNAL_WAIT"],
 }
 for profile, defines in profiles.items():
     for opt in ("0", "2"):
@@ -86,6 +88,7 @@ for profile, defines in profiles.items():
 #include "src/signal/linux/mmix/kill.cpp"
 #include "src/signal/linux/mmix/raise.cpp"
 #include "src/signal/linux/mmix/sigtimedwait.cpp"
+#include "src/signal/linux/mmix/sigwait.cpp"
 #include "src/signal/linux/mmix/sigsuspend.cpp"
 #include "src/poll/linux/mmix/ppoll.cpp"
 #include "src/sys/select/linux/mmix/pselect.cpp"
@@ -107,6 +110,10 @@ static uint64_t kernel_mask, seen_mask;
 static unsigned calls;
 static int query_error, update_error;
 static bool private_block;
+static bool handler_wait, reject_cancel, saw_handler_wait;
+static long wait_result = -EAGAIN;
+static unsigned interruptions;
+static unsigned wait_calls;
 
 extern "C" void __llvm_libc_mmix_signal_trampoline() {}
 extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
@@ -140,8 +147,10 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
   }
   if (number == SYS_rt_sigtimedwait) {
     require(d == 8);
+    ++wait_calls;
     seen_mask = *reinterpret_cast<const uint64_t *>(a);
-    return -EAGAIN;
+    if (interruptions) { --interruptions; return -EINTR; }
+    return wait_result;
   }
   if (number == SYS_rt_sigsuspend) {
     require(b == 8);
@@ -179,6 +188,16 @@ long cancellation_syscall(unsigned long n, long a, long b, long c, long d,
                           long e, long f) {
   return __llvm_libc_mmix_syscall(n, a, b, c, d, e, f);
 }
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+bool signal_cancellation_wait_available() { return handler_wait; }
+SignalWaitResult signal_cancellation_wait_result(unsigned long n, long a,
+                                                long b, long c, long d) {
+  require(handler_wait && (n == SYS_rt_sigsuspend || n == SYS_rt_sigtimedwait));
+  saw_handler_wait = true;
+  long value = __llvm_libc_mmix_syscall(n, a, b, c, d, 0, 0);
+  return {value, reject_cancel && value == -EINTR};
+}
+#endif
 }
 #endif
 
@@ -325,5 +344,56 @@ extern "C" int main() {
   require(private_test::sigprocmask(SIG_SETMASK, &input, &old) == -1);
   require(int(libc_errno) == EFAULT && kernel_mask == previous);
   for (auto word : old.__signals) require(word == UINT64_MAX);
+  update_error = 0;
+
+  // Per-call rejection is not a sticky flag. Ordinary interruptions retry;
+  // rejected handler cancellation returns directly without publishing *sig.
+  for (bool in_handler : states) {
+    handler_wait = in_handler;
+    saw_handler_wait = false;
+    wait_calls = 0;
+    wait_result = SIGUSR1;
+    interruptions = 2;
+    int signal = 123;
+    require(private_test::sigwait(&input, &signal) == 0);
+    require(signal == SIGUSR1 && wait_calls == 3);
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+    require(saw_handler_wait == in_handler);
+    if (in_handler) {
+      reject_cancel = true;
+      interruptions = 1;
+      wait_calls = 0;
+      signal = 123;
+      libc_errno = 77;
+      require(private_test::sigwait(&input, &signal) == EINTR);
+      require(signal == 123 && wait_calls == 1 && int(libc_errno) == 77);
+      reject_cancel = false;
+      interruptions = 1;
+      wait_calls = 0;
+      require(private_test::sigwait(&input, &signal) == 0);
+      require(signal == SIGUSR1 && wait_calls == 2);
+    }
+#else
+    require(!saw_handler_wait);
+#endif
+    const long wait_errors[] = {-EFAULT, -EAGAIN};
+    for (long error : wait_errors) {
+      signal = 123;
+      wait_result = error;
+      wait_calls = 0;
+      require(private_test::sigwait(&input, &signal) == -error);
+      require(signal == 123 && wait_calls == 1);
+    }
+    siginfo_t info{};
+    info.si_signo = 123;
+    wait_result = -EFAULT;
+    wait_calls = 0;
+    require(private_test::sigtimedwait(&input, &info, nullptr) == -1);
+    require(int(libc_errno) == EFAULT && info.si_signo == 123 && wait_calls == 1);
+    timespec invalid{-1, 0};
+    require(private_test::sigtimedwait(&input, &info, &invalid) == -1);
+    require(int(libc_errno) == EINVAL && wait_calls == 1);
+    require(private_test::sigsuspend(&input) == -1 && int(libc_errno) == EINTR);
+  }
   return 0;
 }

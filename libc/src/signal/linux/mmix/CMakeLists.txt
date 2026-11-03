@@ -29,6 +29,54 @@ add_header_library(
   DEPENDS libc.src.__support.macros.config libc.src.__support.macros.attributes
 )
 
+set(timed_wait_deps)
+set(timed_wait_options -fexceptions -funwind-tables)
+if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+  list(APPEND timed_wait_deps
+    libc.src.__support.threads.linux.mmix.cancellation_point)
+  if(LIBC_MMIX_BUILD_SIGNAL_CANCELLATION)
+    list(APPEND timed_wait_options -DLIBC_MMIX_SIGNAL_WAIT)
+  endif()
+endif()
+add_header_library(
+  timed_wait
+  HDRS timed_wait.h
+  DEPENDS
+    .private_signals
+    libc.hdr.errno_macros
+    libc.hdr.types.siginfo_t
+    libc.hdr.types.sigset_t
+    libc.hdr.types.struct_timespec
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    ${timed_wait_deps}
+)
+add_entrypoint_object(
+  sigwait
+  SRCS sigwait.cpp
+  HDRS ../../sigwait.h
+  DEPENDS .timed_wait libc.src.__support.common
+  COMPILE_OPTIONS ${timed_wait_options}
+)
+
+foreach(entry sigpending sigqueue)
+  add_entrypoint_object(
+    ${entry}
+    SRCS ${entry}.cpp
+    HDRS ../../${entry}.h
+    DEPENDS
+      .private_signals
+      libc.hdr.signal_macros
+      libc.hdr.types.sigset_t
+      libc.hdr.types.siginfo_t
+      libc.hdr.types.pid_t
+      libc.include.sys_syscall
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.common
+      libc.src.errno.errno
+  )
+endforeach()
+
 add_object_library(
   signal_trampoline
   SRCS signal_trampoline.S

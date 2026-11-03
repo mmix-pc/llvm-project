@@ -9,6 +9,8 @@ if(LIBC_MMIX_BUILD_PROCESS_CONTROL)
     libc.src.unistd.getpagesize
     libc.src.termios.tcflush
     libc.src.signal.sigtimedwait
+    libc.src.signal.sigwait
+    libc.src.signal.sigwaitinfo
     libc.src.sched.sched_getaffinity
     libc.src.sys.prctl.prctl)
 endif()

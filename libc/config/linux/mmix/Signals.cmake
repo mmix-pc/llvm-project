@@ -6,6 +6,8 @@ endif()
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.signal.sig2str
   libc.src.signal.str2sig
+  libc.src.signal.sigpending
+  libc.src.signal.sigqueue
   libc.src.signal.sigemptyset
   libc.src.signal.sigfillset
   libc.src.signal.sigaddset
@@ -15,6 +17,7 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.signal.signal
   libc.src.signal.sigaltstack
   libc.src.signal.kill
+  libc.src.signal.killpg
   libc.src.signal.raise
   libc.src.unistd.alarm
   libc.src.string.strsignal

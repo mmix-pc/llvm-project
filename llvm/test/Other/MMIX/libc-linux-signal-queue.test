@@ -1,0 +1,173 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+# Provider boundary checks only, not guest delivery or queue-order acceptance.
+# An optional native compiler argument executes the same intercepted providers.
+
+#--- run.py
+from pathlib import Path
+import subprocess
+import sys
+
+libc, root = map(Path, sys.argv[1:3])
+resource = subprocess.check_output(
+    ["clang", "--no-default-config", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=queue_test",
+          "-I", str(root), "-I", str(libc)]
+profiles = {
+    "single": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE"],
+    "platform": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM"],
+    "cancel": ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+               "-DLIBC_MMIX_CANCELLATION_WINDOWS"],
+}
+for profile, defines in profiles.items():
+    for opt in ("0", "2"):
+        name = profile + "-O" + opt
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+                        "-mrelocation-model", "static", "-internal-isystem",
+                        resource + "/include", *common, *defines, "-O" + opt,
+                        "-emit-obj", str(root / "semantics.cpp"),
+                        "-o", str(root / (name + ".o"))], check=True)
+        if len(sys.argv) == 4:
+            exe = root / ("native-" + name)
+            subprocess.run([sys.argv[3], *common, *defines, "-O" + opt,
+                            "-include", str(root / "native-boundary.h"),
+                            str(root / "semantics.cpp"), "-o", str(exe)],
+                           check=True)
+            subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- native-boundary.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#undef LIBC_TARGET_ARCH_IS_X86_32
+#undef LIBC_TARGET_ARCH_IS_AARCH64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+#include "include/llvm-libc-macros/linux/signal-macros.h"
+#undef MINSIGSTKSZ
+#undef SIGSTKSZ
+#include "include/llvm-libc-macros/mmix/linux-signal-macros.h"
+
+#--- sys/syscall.h
+#define SYS_rt_sigpending 136
+#define SYS_rt_sigqueueinfo 138
+#define SYS_getpid 172
+#define SYS_getuid 174
+
+#--- linux/errno.h
+#define EPERM 1
+#define ESRCH 3
+#define EAGAIN 11
+#define EFAULT 14
+#define EINVAL 22
+#define ENOSYS 38
+
+#--- semantics.cpp
+#include "src/signal/linux/mmix/sigpending.cpp"
+#include "src/signal/linux/mmix/sigqueue.cpp"
+#include "src/errno/libc_errno.cpp"
+
+using namespace queue_test;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+static unsigned calls;
+static long reply, failed_syscall;
+static pid_t target = 123, sender = 456;
+static uid_t real_uid = 789;
+static int signal_number;
+static union sigval payload;
+
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
+                                        long c, long d, long e, long f) {
+  ++calls;
+  require(!d && !e && !f);
+  if (nr == SYS_rt_sigpending) {
+    require(b == 8 && !c);
+    if (!a) return -EFAULT;
+    // Even an injected partial write followed by failure must not escape.
+    *reinterpret_cast<unsigned long *>(a) = ~0UL;
+    return reply;
+  }
+  if (nr == SYS_getpid || nr == SYS_getuid) {
+    require(!a && !b && !c);
+    require(calls == (nr == SYS_getpid ? 1U : 2U));
+    if (failed_syscall == static_cast<long>(nr)) return -ENOSYS;
+    return nr == SYS_getpid ? static_cast<long>(sender)
+                           : static_cast<long>(real_uid);
+  }
+  require(nr == SYS_rt_sigqueueinfo && calls == 3);
+  require(a == target && b == signal_number && c);
+  const auto &info = *reinterpret_cast<const siginfo_t *>(c);
+  require(info.si_signo == signal_number && info.si_code == SI_QUEUE);
+  require(info.si_errno == 0 && info.si_pid == sender && info.si_uid == real_uid);
+  const auto *value = reinterpret_cast<const unsigned char *>(&info.si_value);
+  const auto *expected = reinterpret_cast<const unsigned char *>(&payload);
+  for (unsigned i = 0; i < sizeof(payload); ++i)
+    require(value[i] == expected[i]);
+  const auto *bytes = reinterpret_cast<const unsigned char *>(&info);
+  for (unsigned i = 3 * sizeof(int); i < __builtin_offsetof(siginfo_t, _sifields); ++i)
+    require(bytes[i] == 0);
+  for (unsigned i = __builtin_offsetof(siginfo_t, si_value) + sizeof(payload);
+       i < sizeof(info); ++i)
+    require(bytes[i] == 0);
+  return reply;
+}
+
+extern "C" int main() {
+  const int errors[] = {0, EPERM, ESRCH, EAGAIN, EINVAL, EFAULT, ENOSYS};
+  for (int error : errors) {
+    struct { sigset_t set; unsigned long canary; } output;
+    for (auto &word : output.set.__signals) word = 0x55UL;
+    output.canary = 0x1234UL;
+    reply = -error;
+    calls = 0;
+    libc_errno = 77;
+    require(queue_test::sigpending(&output.set) == (error ? -1 : 0));
+    require(calls == 1 && int(libc_errno) == (error ? error : 77));
+    require(output.canary == 0x1234UL);
+    require(output.set.__signals[0] ==
+            (error ? 0x55UL : ~mmix::private_signal_mask));
+    for (unsigned i = 1; i < sizeof(sigset_t) / sizeof(unsigned long); ++i)
+      require(output.set.__signals[i] == (error ? 0x55UL : 0UL));
+  }
+  require(queue_test::sigpending(nullptr) == -1 && int(libc_errno) == EFAULT);
+
+  const int signals[] = {0, 1, 32, 33, 34, 35, 64, -1, 65};
+  const pid_t targets[] = {123, 0, -1, -42};
+  for (pid_t pid : targets) {
+    target = pid;
+    for (int sig : signals) {
+      signal_number = sig;
+      for (int error : errors) {
+        for (int pointer = 0; pointer != 2; ++pointer) {
+          __builtin_memset(&payload, 0, sizeof(payload));
+          if (pointer) payload.sival_ptr = &payload;
+          else payload.sival_int = -12345;
+          reply = -error;
+          calls = 0;
+          libc_errno = 77;
+          bool reserved = mmix::private_signal(sig);
+          require(queue_test::sigqueue(target, sig, payload) ==
+                  (reserved || error ? -1 : 0));
+          require(calls == (reserved ? 0U : 3U));
+          require(int(libc_errno) == (reserved ? EINVAL : error ? error : 77));
+          ++sender;
+          ++real_uid;
+        }
+      }
+    }
+  }
+  // Sender identity is queried on every call and failures do not send.
+  signal_number = 35;
+  const long failures[] = {SYS_getpid, SYS_getuid};
+  for (long failure : failures) {
+    failed_syscall = failure;
+    calls = 0;
+    libc_errno = 77;
+    require(queue_test::sigqueue(target, signal_number, payload) == -1);
+    require(int(libc_errno) == ENOSYS);
+    require(calls == (failure == SYS_getpid ? 1U : 2U));
+  }
+  return 0;
+}
