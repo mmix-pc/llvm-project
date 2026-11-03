@@ -42,6 +42,8 @@ bool try_lock_random48_for_fork() __attribute__((weak));
 void unlock_random48_after_fork() __attribute__((weak));
 bool try_lock_random_for_fork() __attribute__((weak));
 void unlock_random_after_fork() __attribute__((weak));
+bool try_lock_log_for_fork() __attribute__((weak));
+void finish_log_fork(bool) __attribute__((weak));
 pid_t normal_exit_fork_owner(bool *) __attribute__((weak));
 bool rebind_normal_exit_fork_owner(pid_t) __attribute__((weak));
 pid_t quick_exit_fork_owner() __attribute__((weak));
@@ -325,6 +327,11 @@ int ForkOperation::prepare_runtime() {
       return EAGAIN;
     random_locked = true;
   }
+  if (internal::try_lock_log_for_fork) {
+    if (!internal::try_lock_log_for_fork())
+      return EAGAIN;
+    log_locked = true;
+  }
   if (!allocator_fork_try_prepare())
     return EAGAIN;
   allocator = true;
@@ -455,6 +462,10 @@ void ForkOperation::restore_runtime(bool child) {
   if (allocator) {
     allocator_fork_release();
     allocator = false;
+  }
+  if (log_locked) {
+    internal::finish_log_fork(child);
+    log_locked = false;
   }
   if (random_locked) {
     internal::unlock_random_after_fork();
