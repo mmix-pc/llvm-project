@@ -49,6 +49,7 @@ int signal_thread(ThreadAttributes *handle, int signal) {
     __builtin_trap();
   ThreadControl *control;
   int tid = 0;
+  int error = ESRCH;
   {
     ThreadRegistryLock lock(thread_registry);
     control = lock.pin(handle);
@@ -57,11 +58,19 @@ int signal_thread(ThreadAttributes *handle, int signal) {
         tid = control->attributes.tid;
         if (tid <= 0)
           __builtin_trap();
-      } else if (!lock.unpin(*control))
-        __builtin_trap();
+      } else {
+        // Joinable lifetime outlasts the kernel task. Once leases are closed
+        // and drained, acknowledge the request without reading a reusable TID.
+        // Join claims stay listed; reaping removes the handle from lookup.
+        ThreadOwner owner = lock.owner(*control);
+        if ((owner == ThreadOwner::Joinable || owner == ThreadOwner::JoinOwner) &&
+            lock.leases_drained(*control))
+          error = 0;
+        if (!lock.unpin(*control))
+          __builtin_trap();
+      }
     }
   }
-  int error = ESRCH;
   if (tid) {
     error = send_signal(tid, signal);
     ThreadRegistryLock lock(thread_registry);

@@ -42,9 +42,9 @@ for opt in ('0', '2'):
         subprocess.run([sys.argv[3], *common, '-D__mmix__', '-O'+opt,
             '-include', str(root/'finish/transport.h'), *map(str,sources),
             str(root/'test.cpp'), '-o', str(exe)], check=True)
-        for mode in range(16):
+        for mode in range(29):
             subprocess.run([str(exe), str(mode)], check=True, timeout=15)
-        print('Native thread signals: 16 scenarios passed at O'+opt, flush=True)
+        print('Native thread signals: 29 scenarios passed at O'+opt, flush=True)
 
 #--- headers/sys/syscall.h
 #define SYS_getpid 172
@@ -59,6 +59,7 @@ for opt in ('0', '2'):
 #include "src/__support/threads/linux/mmix/thread_signal.h"
 #include "src/__support/threads/linux/mmix/thread_finish.h"
 #include "src/__support/threads/linux/mmix/thread_start.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include "src/__support/threads/thread.h"
 #include "src/signal/pthread_kill.h"
 #include "src/__support/libc_errno.h"
@@ -74,6 +75,7 @@ static void require(bool b) { if (!b) __builtin_abort(); }
 static unsigned mode, sends, masks, pids;
 static unsigned ready_wakes, startup_waits, delivered, runners;
 static bool pending;
+static bool credential_gate;
 static uint64_t mask = 0x1234;
 static ThreadControl main_control, target;
 struct Done {};
@@ -92,9 +94,22 @@ void cleanup_current_thread() { call_atexit_callbacks(self.attrib); }
 } namespace mmix {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL ThreadControl *current_control = nullptr;
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
+CredentialGate::CredentialGate() {
+  require(!credential_gate && mask == (UINT64_MAX & ~CREDENTIAL_MASK));
+  credential_gate = true;
+}
+CredentialGate::~CredentialGate() {
+  require(credential_gate);
+  credential_gate = false;
+}
+void unregister_credentials(ThreadControl &control) {
+  require(credential_gate && &control == &target &&
+          (mode == 12 || mode == 15));
+}
 } }
 extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
-  require((mode == 12 || mode == 15) && mask == UINT64_MAX);
+  require((mode == 12 || mode == 15) &&
+          mask == (UINT64_MAX & ~CREDENTIAL_MASK) && !credential_gate);
   if (mode == 15) require(pending && delivered == 1 && runners == 1);
   ThreadRegistryLock lock(thread_registry);
   require(lock.leases_drained(target) && lock.live_threads() == 1);
@@ -147,6 +162,13 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
       require(lock.finish_reaping(target)); // No sender pin survives unmask.
       target.attributes.tid = 999; // Storage/TID reuse cannot redirect a send.
     }
+    if (mode == 25 && mask == 0x1234) {
+      ThreadRegistryLock lock(thread_registry);
+      require(lock.pin(&target.attributes) == &target);
+      require(lock.claim_join(target) && lock.begin_reaping(target));
+      require(lock.unpin(target) && lock.finish_reaping(target));
+      target.attributes.tid = 999; // No zombie pin survives mask restoration.
+    }
     return 0;
   }
   if (n == SYS_gettid) {
@@ -183,6 +205,56 @@ static void *runner(void *) {
   ++runners;
   return nullptr;
 }
+static void zombie_case() {
+  // These are registry/transport injections, not guest termination evidence.
+  // No public stale-ID contract is inferred from the reaping/detached controls.
+  {
+    ThreadRegistryLock lock(thread_registry);
+    require(lock.drop_creator(target));
+    require(lock.pin(&target.attributes) == &target);
+    if (mode == 27) require(lock.acquire_lease(target));
+    require(lock.begin_cleanup(target) && lock.close_leases(target));
+    if (mode != 27) {
+      require(lock.exit_ready(target, 73));
+      target.clear_tid.value.store(mode == 26 ? 20 : 0);
+    }
+    if (mode == 18 || mode == 24) require(lock.claim_join(target));
+    if (mode == 23) require(lock.detach(target));
+    if (mode == 24) require(lock.begin_reaping(target));
+    if (mode != 18 && mode != 27) require(lock.unpin(target));
+  }
+  int signal = mode == 17 ? 0 : mode == 19 ? NSIG : mode == 20 ? -1 :
+               mode == 21 ? 33 : mode == 22 ? 34 : mode == 28 ? 32 : SIGUSR1;
+  bool invalid = mode >= 19 && mode <= 22;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  invalid = invalid || mode == 28;
+#endif
+  libc_errno = 77;
+  pthread_t thread{&target.attributes};
+  int error = signal_test::pthread_kill(thread, signal);
+  require(error == (invalid ? EINVAL :
+                   mode == 23 || mode == 24 || mode == 27 ? ESRCH : 0));
+  require(int(libc_errno) == 77 && mask == 0x1234);
+  require(!sends && !pids && masks == (invalid ? 0u : 2u));
+  if (mode == 25) return; // Reclaimed by the unmask hook.
+  ThreadRegistryLock lock(thread_registry);
+  if (mode == 27) {
+    require(lock.release_lease(target) && lock.unpin(target));
+    require(lock.exit_ready(target, 73));
+  }
+  target.clear_tid.value.store(0);
+  if (mode != 24) {
+    if (mode != 18) require(lock.pin(&target.attributes) == &target);
+    if (mode != 18 && mode != 23) require(lock.claim_join(target));
+    ThreadReturnValue result;
+    if (mode != 23) {
+      require(lock.join_result(target, result));
+      require(result.stdc_retval == 73);
+    }
+    require(lock.begin_reaping(target) && lock.unpin(target));
+  }
+  require(lock.finish_reaping(target)); // Includes no-send API-pin leak checks.
+}
 extern "C" int main(int argc, char **argv) {
   require(argc == 2);
   mode = unsigned(argv[1][0]-'0');
@@ -208,6 +280,11 @@ extern "C" int main(int argc, char **argv) {
     return 0;
   }
   internal::self.attrib = mode == 12 || mode == 13 ? &target.attributes : &main_control.attributes;
+  if (mode >= 16) {
+    target.attributes.style = ThreadStyle::STDC;
+    zombie_case();
+    return 0;
+  }
   auto *handle = mode == 4 ? nullptr : mode == 5 ? reinterpret_cast<ThreadAttributes *>(1) : &target.attributes;
   int signal = mode == 2 ? NSIG : mode == 3 ? -1 : mode == 1 ? 0 : SIGUSR1;
   libc_errno = 77;
@@ -223,7 +300,7 @@ extern "C" int main(int argc, char **argv) {
     int error = signal_test::pthread_kill(thread, signal);
     require(mode != 11 && mode != 12);
     require(error == (mode == 2 || mode == 3 || mode == 10 ? EINVAL :
-        mode >= 4 && mode <= 7 ? ESRCH : mode == 8 ? EPERM : mode == 9 ? EAGAIN : 0));
+        mode == 4 || mode == 5 || mode == 7 ? ESRCH : mode == 8 ? EPERM : mode == 9 ? EAGAIN : 0));
     require(mask == 0x1234);
     require(int(libc_errno) == 77);
     if (mode >= 2 && mode <= 6 || mode == 9 || mode == 10) require(!sends);
