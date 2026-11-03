@@ -339,7 +339,8 @@ int cancellation_public_mask(int how, const uint64_t *set, uint64_t *old) {
   }
   if (old)
     *old = previous & ~private_signal_mask;
-  restore_mask(next & ~CREDENTIAL_MASK);
+  // A query must not undo a private critical section's notification mask.
+  restore_mask(set ? next & ~CREDENTIAL_MASK : previous);
   return 0;
 }
 

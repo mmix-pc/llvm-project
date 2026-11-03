@@ -296,7 +296,7 @@ extern "C" int main() {
   require(kernel_mask == previous);
   require(private_test::pthread_sigmask(-1, nullptr, &old) == 0);
   check_old(old, previous);
-  require((kernel_mask & notification) == notification);
+  require(kernel_mask == previous);
   require(private_test::sigprocmask(-1, &input, nullptr) == -1);
   require(int(libc_errno) == EINVAL);
   require(private_test::pthread_sigmask(-1, &input, nullptr) == EINVAL);
