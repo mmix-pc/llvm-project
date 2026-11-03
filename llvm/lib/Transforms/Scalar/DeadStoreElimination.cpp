@@ -2789,6 +2789,11 @@ static bool eliminateDeadStores(Function &F, AliasAnalysis &AA, MemorySSA &MSSA,
                                 DominatorTree &DT, PostDominatorTree &PDT,
                                 const TargetLibraryInfo &TLI,
                                 const CycleInfo &CI) {
+  // Nonlocal returns can bypass overwrites or revisit reads that are not
+  // reachable in the CFG/MemorySSA, including reads of nonescaping heap objects.
+  if (F.callsFunctionThatReturnsTwice())
+    return false;
+
   bool MadeChange = false;
   DSEState State(F, AA, MSSA, DT, PDT, TLI, CI);
   // For each store:
