@@ -118,6 +118,7 @@ add_entrypoint_object(
   HDRS
     ../tcsendbreak.h
   DEPENDS
+    libc.hdr.limits_macros
     libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
     libc.src.errno.errno
 )

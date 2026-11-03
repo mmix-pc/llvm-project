@@ -13,6 +13,7 @@
 
 #include "src/termios/tcsendbreak.h"
 
+#include "hdr/limits_macros.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/ioctl.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
@@ -22,11 +23,19 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
-LLVM_LIBC_FUNCTION(int, tcsendbreak, (int fd, int /* unused duration */)) {
-  // POSIX leaves the behavior for non-zero duration implementation dependent.
-  // Which means that the behavior can be the same as it is when duration is
-  // zero. So, we just pass zero to the syscall.
-  auto ret = linux_syscalls::ioctl(fd, TCSBRK, 0);
+LLVM_LIBC_FUNCTION(int, tcsendbreak, (int fd, int duration)) {
+  unsigned long request = TCSBRK;
+  unsigned long units = 0;
+  if (duration > 0) {
+    units = static_cast<unsigned int>(duration) / 100 + (duration % 100 != 0);
+    // TCSBRKP uses 100ms units, but the driver's break callback takes int ms.
+    if (units > static_cast<unsigned int>(INT_MAX) / 100) {
+      libc_errno = EOVERFLOW;
+      return -1;
+    }
+    request = TCSBRKP;
+  }
+  auto ret = linux_syscalls::ioctl(fd, request, units);
   if (!ret.has_value()) {
     libc_errno = ret.error();
     return -1;

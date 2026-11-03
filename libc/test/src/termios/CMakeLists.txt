@@ -1,6 +1,22 @@
 add_custom_target(libc_termios_unittests)
 
 add_libc_test(
+  tcsendbreak_test
+  SUITE libc_termios_unittests
+  SRCS
+    tcsendbreak_test.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/linux/tcsendbreak.cpp
+  HDRS termios_test_syscall.h
+  COMPILE_OPTIONS
+    -DLIBC_FULL_BUILD
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/termios_test_syscall.h
+  DEPENDS
+    libc.hdr.limits_macros
+    libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
+    libc.src.errno.errno
+)
+
+add_libc_test(
   speed_test
   SUITE libc_termios_unittests
   SRCS speed_test.cpp
