@@ -24,6 +24,11 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, tcflow, (int fd, int action)) {
+  if (action != TCOOFF && action != TCOON && action != TCIOFF && action != TCION) {
+    libc_errno = EINVAL;
+    return -1;
+  }
+
   auto ret = linux_syscalls::ioctl(fd, TCXONC, action);
   if (!ret.has_value()) {
     libc_errno = ret.error();

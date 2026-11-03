@@ -24,6 +24,12 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, tcflush, (int fd, int queue_selector)) {
+  if (queue_selector != TCIFLUSH && queue_selector != TCOFLUSH &&
+      queue_selector != TCIOFLUSH) {
+    libc_errno = EINVAL;
+    return -1;
+  }
+
   auto ret = linux_syscalls::ioctl(fd, TCFLSH, queue_selector);
   if (!ret.has_value()) {
     libc_errno = ret.error();
