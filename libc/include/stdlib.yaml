@@ -45,6 +45,7 @@ functions:
       - type: "char *const *__restrict"
       - type: "char **__restrict"
   - name: grantpt
+    noexcept: false
     standards: [posix]
     return_type: int
     arguments:

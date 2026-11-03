@@ -448,7 +448,7 @@ class TestHeaderGenIntegration(unittest.TestCase):
             ("signal", ["psiginfo", "psignal"], ["sig2str", "str2sig"]),
             ("termios", ["tcdrain"], ["tcflow", "tcflush", "tcsendbreak"]),
             ("syslog", ["openlog", "closelog", "syslog", "vsyslog"], ["setlogmask"]),
-            ("stdlib", ["posix_openpt", "ptsname", "ptsname_r"], ["grantpt", "unlockpt"]),
+            ("stdlib", ["posix_openpt", "ptsname", "ptsname_r", "grantpt"], ["unlockpt"]),
         ):
             with self.subTest(header=header):
                 output = self.output_dir / (header + "-cancellation.h")
