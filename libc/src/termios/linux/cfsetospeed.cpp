@@ -22,15 +22,13 @@ namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, cfsetospeed, (termios * t, speed_t speed)) {
   LIBC_CRASH_ON_NULLPTR(t);
-  constexpr speed_t NOT_SPEED_MASK = ~static_cast<speed_t>(CBAUD);
-  speed_t encoded = encode_speed(speed);
-  // A speed value is valid only if it is equal to one of the B<NN+> values.
-  if ((encoded & NOT_SPEED_MASK) != 0) {
+  if (!is_valid_speed(speed)) {
     libc_errno = EINVAL;
     return -1;
   }
 
-  t->c_cflag = (t->c_cflag & NOT_SPEED_MASK) | encoded;
+  constexpr speed_t NOT_SPEED_MASK = ~static_cast<speed_t>(CBAUD);
+  t->c_cflag = (t->c_cflag & NOT_SPEED_MASK) | encode_speed(speed);
   t->c_ospeed = speed;
   return 0;
 }

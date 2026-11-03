@@ -181,6 +181,96 @@ LIBC_INLINE constexpr speed_t decode_speed(speed_t kernel_speed) {
 
 #endif // (B50 == 1)
 
+LIBC_INLINE constexpr bool is_valid_speed(speed_t speed) {
+  const speed_t encoded = encode_speed(speed);
+  if ((encoded & ~static_cast<speed_t>(CBAUD)) != 0)
+    return false;
+#if B50 != 1
+  return encoded != INVALID_SPEED;
+#else
+  // CBAUD also contains unnamed encodings (including BOTHER). Use the public
+  // names because extended rates have different encodings on some platforms.
+  switch (speed) {
+  case B0:
+  case B50:
+  case B75:
+  case B110:
+  case B134:
+  case B150:
+  case B200:
+  case B300:
+  case B600:
+  case B1200:
+  case B1800:
+  case B2400:
+  case B4800:
+  case B9600:
+  case B19200:
+  case B38400:
+#ifdef B57600
+  case B57600:
+#endif
+#ifdef B76800
+  case B76800:
+#endif
+#ifdef B115200
+  case B115200:
+#endif
+#ifdef B153600
+  case B153600:
+#endif
+#ifdef B230400
+  case B230400:
+#endif
+#ifdef B307200
+  case B307200:
+#endif
+#ifdef B460800
+  case B460800:
+#endif
+#ifdef B500000
+  case B500000:
+#endif
+#ifdef B576000
+  case B576000:
+#endif
+#ifdef B614400
+  case B614400:
+#endif
+#ifdef B921600
+  case B921600:
+#endif
+#ifdef B1000000
+  case B1000000:
+#endif
+#ifdef B1152000
+  case B1152000:
+#endif
+#ifdef B1500000
+  case B1500000:
+#endif
+#ifdef B2000000
+  case B2000000:
+#endif
+#ifdef B2500000
+  case B2500000:
+#endif
+#ifdef B3000000
+  case B3000000:
+#endif
+#ifdef B3500000
+  case B3500000:
+#endif
+#ifdef B4000000
+  case B4000000:
+#endif
+    return true;
+  default:
+    return false;
+  }
+#endif
+}
+
 } // namespace LIBC_NAMESPACE_DECL
 
 #endif // LLVM_LIBC_SRC_TERMIOS_LINUX_SPEED_UTILS_H

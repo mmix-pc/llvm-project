@@ -1,5 +1,19 @@
 add_custom_target(libc_termios_unittests)
 
+add_libc_test(
+  speed_test
+  SUITE libc_termios_unittests
+  SRCS speed_test.cpp
+  DEPENDS
+    libc.hdr.termios_macros
+    libc.hdr.types.struct_termios
+    libc.src.errno.errno
+    libc.src.termios.cfgetispeed
+    libc.src.termios.cfgetospeed
+    libc.src.termios.cfsetispeed
+    libc.src.termios.cfsetospeed
+)
+
 # Exercise the real conversion against a controlled kernel boundary, without
 # requiring a controlling terminal or changing the test runner's attributes.
 add_libc_test(
