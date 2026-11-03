@@ -6,6 +6,7 @@ if(LIBC_TARGET_OS_IS_LINUX)
     OVERLAY_BUILD_ONLY
     SUITE libc-stdlib-tests
     SRCS mmix_pty_syscall_test.cpp
+    COMPILE_OPTIONS -fexceptions -funwind-tables
     DEPENDS
       libc.hdr.fcntl_macros libc.hdr.sys_ioctl_macros libc.hdr.sys_stat_macros
       libc.hdr.types.gid_t libc.hdr.types.mode_t libc.hdr.types.uid_t

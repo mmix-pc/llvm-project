@@ -26,6 +26,7 @@
 // opens a real terminal nor establishes O_PATH/PTY kernel execution evidence.
 namespace {
 constexpr int MASTER = 41;
+struct Cancelled {};
 struct State {
   int peer = 0;
   int open_result = 0, open_error = 0, open_calls = 0, open_flags = 0;
@@ -37,6 +38,7 @@ struct State {
   bool no_cancel_context = false, live = false, locked = true;
   bool initial_lock = true;
   bool ignore_mode = false, ignore_owner = false;
+  bool cancel_on_restore = false;
   unsigned mask = STATX_TYPE | STATX_MODE | STATX_UID;
   unsigned mode = S_IFCHR | 0600;
   uid_t real_uid = 1001, owner = 2002;
@@ -188,6 +190,8 @@ int pty_test_set_cancel_state(int requested, int *saved) {
   if (saved)
     *saved = state.cancel_state;
   state.cancel_state = requested;
+  if (requested == PTHREAD_CANCEL_ENABLE && state.cancel_on_restore)
+    throw Cancelled{};
   return 0;
 }
 long pty_test_cancellation_syscall(unsigned long number, long a1, long a2,
@@ -277,6 +281,34 @@ TEST(LlvmLibcMMIXPtySyscallTest, GrantRepairsActualSlaveBeforeUnlocking) {
     EXPECT_EQ(state.mode_calls, 1);
     EXPECT_EQ(state.owner_calls, 1);
     EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
+    expect_retired();
+  }
+}
+
+TEST(LlvmLibcMMIXPtySyscallTest, GrantUnwindsOnlyAfterRetiringPeer) {
+  const int errors[] = {0, EIO};
+  for (int error : errors) {
+    reset();
+    state.before_error = error;
+    state.cancel_on_restore = true;
+    int destroyed = 0;
+    struct Guard {
+      int &destroyed;
+      ~Guard() {
+        EXPECT_FALSE(state.live);
+        EXPECT_EQ(state.close_calls, 1);
+        ++destroyed;
+      }
+    };
+    bool caught = false;
+    try {
+      Guard guard{destroyed};
+      (void)LIBC_NAMESPACE::pty_boundary_grantpt(MASTER);
+    } catch (const Cancelled &) {
+      caught = true;
+    }
+    EXPECT_TRUE(caught);
+    EXPECT_EQ(destroyed, 1);
     expect_retired();
   }
 }
