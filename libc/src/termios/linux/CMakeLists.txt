@@ -3,6 +3,19 @@
 # of the input and output speeds, we use different entrypoints with the
 # same getter/setter logic.
 
+foreach(entry tcgetwinsize tcsetwinsize)
+  add_entrypoint_object(
+    ${entry}
+    SRCS ${entry}.cpp
+    HDRS ../${entry}.h
+    DEPENDS
+      libc.hdr.types.struct_winsize
+      libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
+      libc.src.__support.macros.null_check
+      libc.src.errno.errno
+  )
+endforeach()
+
 add_header_library(
   speed_utils
   HDRS

@@ -2,6 +2,14 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
+foreach(entry tcgetwinsize tcsetwinsize)
+  add_entrypoint_object(
+    ${entry}
+    ALIAS
+    DEPENDS .${LIBC_TARGET_OS}.${entry}
+  )
+endforeach()
+
 add_entrypoint_object(
   cfgetispeed
   ALIAS

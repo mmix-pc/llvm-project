@@ -19,6 +19,24 @@ add_libc_test(
 )
 
 add_libc_test(
+  winsize_test
+  SUITE libc_termios_unittests
+  SRCS
+    winsize_test.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/linux/tcgetwinsize.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/linux/tcsetwinsize.cpp
+  HDRS termios_test_syscall.h
+  COMPILE_OPTIONS
+    -DLIBC_FULL_BUILD
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/termios_test_syscall.h
+  DEPENDS
+    libc.hdr.types.struct_winsize
+    libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
+    libc.src.__support.macros.null_check
+    libc.src.errno.errno
+)
+
+add_libc_test(
   tcsendbreak_test
   SUITE libc_termios_unittests
   SRCS
