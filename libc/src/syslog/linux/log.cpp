@@ -14,6 +14,7 @@
 #include "hdr/syslog_macros.h"
 #include "hdr/types/struct_sockaddr_un.h"
 #include "src/__support/CPP/mutex.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/mutex.h"
 #include "src/fcntl/open.h"
@@ -22,6 +23,8 @@
 #include "src/sys/socket/connect.h"
 #include "src/sys/socket/send.h"
 #include "src/sys/socket/socket.h"
+#include "src/time/localtime_r.h"
+#include "src/time/time_func.h"
 #include "src/unistd/close.h"
 #include "src/unistd/getpid.h"
 #include "src/unistd/write.h"
@@ -50,43 +53,95 @@ struct PreserveErrno {
   ~PreserveErrno() { libc_errno = value; }
 };
 
+// Temporary ownership survives cancellation unwinding while the lock is held.
+struct Buffer {
+  char *data = nullptr;
+  ~Buffer() { ::free(data); }
+};
+
+struct Descriptor {
+  int fd = -1;
+  ~Descriptor() noexcept(false) {
+    if (fd >= 0)
+      LIBC_NAMESPACE::close(fd);
+  }
+};
+
+// Sender timestamp: local timezone, but independent of LC_TIME.
+bool timestamp(char (&text)[16]) {
+  time_t now = LIBC_NAMESPACE::time(nullptr);
+  struct tm local;
+  if (now == time_t(-1) || !LIBC_NAMESPACE::localtime_r(&now, &local))
+    return false;
+  constexpr char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  if (local.tm_mon < 0 || local.tm_mon > 11)
+    return false;
+  for (int i = 0; i < 3; ++i)
+    text[i] = months[local.tm_mon * 3 + i];
+  text[3] = text[6] = ' ';
+  text[4] = local.tm_mday < 10 ? ' ' : char('0' + local.tm_mday / 10);
+  text[5] = '0' + local.tm_mday % 10;
+  text[7] = char('0' + local.tm_hour / 10);
+  text[8] = '0' + local.tm_hour % 10;
+  text[9] = text[12] = ':';
+  text[10] = char('0' + local.tm_min / 10);
+  text[11] = '0' + local.tm_min % 10;
+  text[13] = char('0' + local.tm_sec / 10);
+  text[14] = '0' + local.tm_sec % 10;
+  text[15] = '\0';
+  return true;
+}
+
 void disconnect() {
-  if (descriptor >= 0)
-    LIBC_NAMESPACE::close(descriptor);
+  int old = descriptor;
   descriptor = -1;
+  if (old >= 0)
+    LIBC_NAMESPACE::close(old);
 }
 
 bool connect() {
   if (descriptor >= 0)
     return true;
-  descriptor = LIBC_NAMESPACE::socket(
+  Descriptor pending;
+  pending.fd = LIBC_NAMESPACE::socket(
       AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-  if (descriptor < 0)
+  if (pending.fd < 0)
     return false;
   const sockaddr_un address = {AF_UNIX, "/dev/log"};
-  if (LIBC_NAMESPACE::connect(descriptor,
-                              reinterpret_cast<const sockaddr *>(&address),
-                              offsetof(sockaddr_un, sun_path) + 9) == 0)
+  if (LIBC_NAMESPACE::connect(pending.fd,
+                             reinterpret_cast<const sockaddr *>(&address),
+                             offsetof(sockaddr_un, sun_path) + 9) == 0) {
+    descriptor = pending.fd;
+    pending.fd = -1;
     return true;
-  disconnect();
+  }
   return false;
+}
+
+// Only a stale connection warrants one reconnect; never retry queue pressure,
+// interruption, oversized messages, permissions or resource exhaustion.
+bool stale_connection(int error) {
+  return error == ECONNREFUSED || error == ECONNRESET || error == ENOTCONN;
 }
 
 bool send(const char *message, size_t size) {
   if (!connect())
     return false;
-  ssize_t result;
-  do {
+  ssize_t result = LIBC_NAMESPACE::send(descriptor, message, size, MSG_NOSIGNAL);
+  if (result < 0 && stale_connection(libc_errno)) {
+    disconnect();
+    if (!connect())
+      return false;
     result = LIBC_NAMESPACE::send(descriptor, message, size, MSG_NOSIGNAL);
-  } while (result < 0 && libc_errno == EINTR);
+    if (result < 0 && stale_connection(libc_errno))
+      disconnect();
+  }
   return result >= 0 && static_cast<size_t>(result) == size;
 }
 
 void write_all(int fd, const char *message, size_t size) {
   while (size) {
     ssize_t result = LIBC_NAMESPACE::write(fd, message, size);
-    if (result < 0 && libc_errno == EINTR)
-      continue;
     if (result <= 0)
       return;
     message += result;
@@ -130,56 +185,73 @@ void write(int priority, const char *format, va_list args) {
     return;
   if (!(priority & ~7))
     priority |= facility;
-  char *body = nullptr;
+  char date[16];
+  if (!timestamp(date))
+    return;
+  Buffer body;
   // %m must observe the caller's errno, not socket or formatting setup errors.
   libc_errno = saved.value;
-  int body_size = LIBC_NAMESPACE::vasprintf(&body, format, args);
+  int body_size = LIBC_NAMESPACE::vasprintf(&body.data, format, args);
   if (body_size < 0)
     return;
   const char *ident = tag ? tag : LOG_PROGRAM_NAME;
   if (!ident)
     ident = "";
-  char *message = nullptr;
+  Buffer message;
   int size;
   if (options & LOG_PID)
-    size = LIBC_NAMESPACE::asprintf(&message, "<%d>%s[%d]: %s", priority, ident,
-                                    static_cast<int>(LIBC_NAMESPACE::getpid()),
-                                    body);
+    size = LIBC_NAMESPACE::asprintf(&message.data, "<%d>%s %s[%d]: %*s", priority,
+                                   date, ident,
+                                   static_cast<int>(LIBC_NAMESPACE::getpid()),
+                                   body_size, "");
   else
-    size =
-        LIBC_NAMESPACE::asprintf(&message, "<%d>%s: %s", priority, ident, body);
-  ::free(body);
+    size = LIBC_NAMESPACE::asprintf(&message.data, "<%d>%s %s: %*s", priority,
+                                   date, ident, body_size, "");
   if (size < 0)
     return;
+  // Reserve the body by length, then copy its bytes, including embedded NULs.
+  for (int i = 0; i < body_size; ++i)
+    message.data[size - body_size + i] = body.data[i];
 
-  // The receiver supplies the timestamp. The datagram has no terminating NUL.
-  bool delivered = send(message, static_cast<size_t>(size));
-  if (!delivered) {
-    disconnect();
-    delivered = send(message, static_cast<size_t>(size));
-    if (!delivered)
-      disconnect();
-  }
-  const char *text = message;
+  // The datagram excludes the formatting buffer's terminating NUL.
+  bool delivered = send(message.data, static_cast<size_t>(size));
+  const char *text = message.data;
   while (*text && *text != '>')
     ++text;
   if (*text)
     ++text;
-  size_t text_size = static_cast<size_t>(size) - (text - message);
+  size_t text_size = static_cast<size_t>(size) - (text - message.data);
   if (options & LOG_PERROR) {
     write_all(2, text, text_size);
     write_all(2, "\n", 1);
   }
   if (!delivered && (options & LOG_CONS)) {
-    int console = LIBC_NAMESPACE::open(
+    Descriptor console;
+    console.fd = LIBC_NAMESPACE::open(
         "/dev/console", O_WRONLY | O_NOCTTY | O_CLOEXEC | O_NONBLOCK);
-    if (console >= 0) {
-      write_all(console, text, text_size);
-      write_all(console, "\r\n", 2);
-      LIBC_NAMESPACE::close(console);
+    if (console.fd >= 0) {
+      write_all(console.fd, text, text_size);
+      write_all(console.fd, "\r\n", 2);
     }
   }
-  ::free(message);
 }
 } // namespace local_log
+
+namespace internal {
+bool try_lock_log_for_fork() {
+  return local_log::mutex.try_lock() == MutexError::NONE;
+}
+
+void finish_log_fork(bool child) {
+  if (child) {
+    int old = local_log::descriptor;
+    local_log::descriptor = -1;
+    // Snapshot restoration cannot enter cancellation or retry a consumed fd.
+    if (old >= 0)
+      (void)linux_syscalls::close(old);
+  }
+  if (local_log::mutex.unlock() != MutexError::NONE)
+    __builtin_trap();
+}
+} // namespace internal
 } // namespace LIBC_NAMESPACE_DECL

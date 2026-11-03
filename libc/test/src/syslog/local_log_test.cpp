@@ -83,7 +83,7 @@ int connect(int fd, const sockaddr *address, socklen_t length) {
 ssize_t send(int fd, const void *buffer, size_t size, int flags) {
   ++sends;
   EXPECT_EQ(fd, 42);
-  EXPECT_EQ(flags, MSG_NOSIGNAL);
+  EXPECT_EQ(flags, int(MSG_NOSIGNAL));
   if (interrupt_send) {
     interrupt_send = false;
     libc_errno = EINTR;
@@ -127,6 +127,16 @@ ssize_t write(int fd, const void *buffer, size_t size) {
   return static_cast<ssize_t>(size);
 }
 pid_t getpid() { return 123; }
+time_t time(time_t *) { return 123456; }
+struct tm *localtime_r(const time_t *, struct tm *out) {
+  *out = {};
+  out->tm_mon = 10;
+  out->tm_mday = 3;
+  out->tm_hour = 12;
+  out->tm_min = 4;
+  out->tm_sec = 5;
+  return out;
+}
 } // namespace LIBC_NAMESPACE_DECL
 
 class LlvmLibcLocalLogTest : public LIBC_NAMESPACE::testing::Test {
@@ -149,7 +159,7 @@ TEST_F(LlvmLibcLocalLogTest, FormatMaskAndLifecycle) {
   EXPECT_EQ(sockets, 1);
   LIBC_NAMESPACE::libc_errno = EDOM;
   LIBC_NAMESPACE::syslog(LOG_ERR, "value=%d", 7);
-  EXPECT_STREQ(datagram, "<131>test[123]: value=7");
+  EXPECT_STREQ(datagram, "<131>Nov  3 12:04:05 test[123]: value=7");
   EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
   EXPECT_EQ(LIBC_NAMESPACE::setlogmask(LOG_MASK(LOG_ERR)), 255);
   EXPECT_EQ(LIBC_NAMESPACE::setlogmask(0), int(LOG_MASK(LOG_ERR)));
@@ -158,7 +168,7 @@ TEST_F(LlvmLibcLocalLogTest, FormatMaskAndLifecycle) {
   LIBC_NAMESPACE::syslog(1 << 12, "invalid");
   EXPECT_EQ(sends, 1);
   LIBC_NAMESPACE::syslog(LOG_MAIL | LOG_ERR, "%s", "explicit");
-  EXPECT_STREQ(datagram, "<19>test[123]: explicit");
+  EXPECT_STREQ(datagram, "<19>Nov  3 12:04:05 test[123]: explicit");
   EXPECT_EQ(sockets, 1);
   LIBC_NAMESPACE::closelog();
   EXPECT_EQ(closes, 1);
@@ -169,27 +179,27 @@ TEST_F(LlvmLibcLocalLogTest, MissingReceiverAndConsoleFallback) {
   LIBC_NAMESPACE::libc_errno = EDOM;
   LIBC_NAMESPACE::syslog(LOG_ERR, "absent");
   EXPECT_EQ(sends, 0);
-  EXPECT_EQ(closes, 2);
+  EXPECT_EQ(closes, 1);
   EXPECT_EQ(writes, 0);
   EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
   LIBC_NAMESPACE::openlog("fallback", LOG_CONS, LOG_USER);
   LIBC_NAMESPACE::syslog(LOG_ERR, "failure");
   EXPECT_EQ(consoles, 1);
-  EXPECT_STREQ(fallback, "fallback: failure\r\n");
+  EXPECT_STREQ(fallback, "Nov  3 12:04:05 fallback: failure\r\n");
   EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
 }
 
 TEST_F(LlvmLibcLocalLogTest, InterruptFailureAndRecovery) {
   interrupt_send = true;
   LIBC_NAMESPACE::syslog(LOG_ERR, "retry");
-  EXPECT_EQ(sends, 2);
-  EXPECT_STREQ(datagram, "<11>test: retry");
+  EXPECT_EQ(sends, 1);
+  EXPECT_STREQ(datagram, "");
   send_error = ECONNREFUSED;
   LIBC_NAMESPACE::syslog(LOG_ERR, "lost");
   EXPECT_EQ(closes, 2);
   send_error = 0;
   LIBC_NAMESPACE::syslog(LOG_ERR, "recovered");
-  EXPECT_STREQ(datagram, "<11>test: recovered");
+  EXPECT_STREQ(datagram, "<11>Nov  3 12:04:05 test: recovered");
   EXPECT_EQ(sockets, 3);
 }
 
@@ -200,7 +210,7 @@ TEST_F(LlvmLibcLocalLogTest, SocketFailureAndStderr) {
   EXPECT_EQ(connects, 0);
   EXPECT_EQ(sends, 0);
   EXPECT_EQ(closes, 0);
-  EXPECT_STREQ(fallback, "stderr: no sockets\n");
+  EXPECT_STREQ(fallback, "Nov  3 12:04:05 stderr: no sockets\n");
 }
 
 TEST_F(LlvmLibcLocalLogTest, LongMessageAndErrnoExpansion) {
@@ -209,10 +219,10 @@ TEST_F(LlvmLibcLocalLogTest, LongMessageAndErrnoExpansion) {
     message[i] = 'a';
   message[sizeof(message) - 1] = '\0';
   LIBC_NAMESPACE::syslog(LOG_ERR, "%s", message);
-  EXPECT_EQ(datagram[2999 + 10], '\0');
+  EXPECT_EQ(datagram[2999 + sizeof("<11>Nov  3 12:04:05 test: ") - 1], '\0');
   LIBC_NAMESPACE::libc_errno = ENOENT;
   LIBC_NAMESPACE::syslog(LOG_ERR, "%m");
-  EXPECT_STREQ(datagram, "<11>test: No such file or directory");
+  EXPECT_STREQ(datagram, "<11>Nov  3 12:04:05 test: No such file or directory");
   EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOENT);
 }
 

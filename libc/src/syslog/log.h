@@ -19,6 +19,10 @@ void close();
 int set_mask(int mask);
 void write(int priority, const char *format, va_list args);
 } // namespace local_log
+namespace internal {
+bool try_lock_log_for_fork();
+void finish_log_fork(bool child);
+} // namespace internal
 } // namespace LIBC_NAMESPACE_DECL
 
 #endif
