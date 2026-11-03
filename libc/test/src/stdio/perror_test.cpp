@@ -277,3 +277,83 @@ TEST(LlvmLibcPerrorTest, DiagnosticResultCountsConsumedInputBytes) {
   EXPECT_EQ(empty.calls, 0U);
   EXPECT_EQ(empty.get_orientation(), File::Orientation::UNORIENTED);
 }
+
+TEST(LlvmLibcPerrorTest, WideDiagnosticBatchesWithoutRetainingOutput) {
+  LocaleGuard locale;
+  DiagnosticFile file(File::Orientation::WIDE);
+  char text[601];
+  for (size_t i = 0; i < sizeof(text) - 1; ++i)
+    text[i] = 'x';
+  text[sizeof(text) - 1] = '\0';
+  auto result = file.write_diagnostic_unlocked(text, sizeof(text) - 1);
+  EXPECT_EQ(result.value, sizeof(text) - 1);
+  EXPECT_EQ(result.error, 0);
+  EXPECT_STREQ(file.output, text);
+  // A semantic batching bound, not an assertion of a particular buffer size.
+  EXPECT_LT(file.calls, 20U);
+  unsigned calls = file.calls;
+  EXPECT_EQ(file.flush(), 0);
+  EXPECT_EQ(file.calls, calls);
+  EXPECT_FALSE(file.changed_orientation);
+}
+
+TEST(LlvmLibcPerrorTest, WideDiagnosticBatchKeepsMultibyteBoundaries) {
+  LocaleGuard locale;
+  const char text[] = "ab\xc2\xa2\xe2\x82\xac\xf0\x9f\x99\x82z";
+  const size_t ends[] = {1, 2, 4, 7, 11, 12};
+  for (size_t stop = 0; stop <= sizeof(text) - 1; ++stop) {
+    DiagnosticFile file(File::Orientation::WIDE);
+    file.write_limit = stop;
+    file.write_error = EINTR;
+    auto result = file.write_diagnostic_unlocked(text, sizeof(text) - 1);
+    size_t complete = 0;
+    for (size_t end : ends)
+      if (end <= stop)
+        complete = end;
+    EXPECT_EQ(result.value, complete);
+    EXPECT_EQ(result.error, EINTR);
+    EXPECT_EQ(file.length, stop);
+    EXPECT_EQ(file.calls, 1U);
+    for (size_t i = 0; i < stop; ++i)
+      EXPECT_EQ(file.output[i], text[i]);
+    file.clearerr();
+    EXPECT_EQ(file.flush(), 0);
+    EXPECT_EQ(file.calls, 1U);
+    file.write_error = 0;
+    file.write_limit = sizeof(file.output);
+    EXPECT_EQ(file.write_diagnostic_unlocked("!", 1).value, size_t(1));
+    EXPECT_EQ(file.length, stop + 1);
+    EXPECT_EQ(file.output[stop], '!');
+  }
+}
+
+TEST(LlvmLibcPerrorTest, WideDiagnosticWriteErrorPrecedesLaterEncodingError) {
+  LocaleGuard locale;
+  DiagnosticFile file(File::Orientation::WIDE);
+  file.write_limit = 2;
+  file.write_error = EAGAIN;
+  auto result = file.write_diagnostic_unlocked("abc\xff", 4);
+  EXPECT_EQ(result.value, size_t(2));
+  EXPECT_EQ(result.error, EAGAIN);
+  EXPECT_STREQ(file.output, "ab");
+  EXPECT_EQ(file.calls, 1U);
+}
+
+TEST(LlvmLibcPerrorTest, WideDiagnosticEncodingFailureAfterFullBatches) {
+  LocaleGuard locale;
+  const bool endings[] = {false, true};
+  for (bool incomplete : endings) {
+    DiagnosticFile file(File::Orientation::WIDE);
+    char text[601];
+    for (size_t i = 0; i < sizeof(text) - 1; ++i)
+      text[i] = 'x';
+    text[sizeof(text) - 1] = incomplete ? '\xc2' : '\xff';
+    auto result = file.write_diagnostic_unlocked(text, sizeof(text));
+    EXPECT_EQ(result.value, sizeof(text) - 1);
+    EXPECT_EQ(result.error, EILSEQ);
+    EXPECT_EQ(file.length, sizeof(text) - 1);
+    for (size_t i = 0; i < file.length; ++i)
+      EXPECT_EQ(file.output[i], 'x');
+    EXPECT_TRUE(file.error());
+  }
+}

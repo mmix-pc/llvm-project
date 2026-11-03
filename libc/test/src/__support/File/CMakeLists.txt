@@ -35,6 +35,29 @@ add_libc_test(
     libc.include.stdio
 )
 
+add_libc_test(
+  diagnostic_state_test
+  FULL_BUILD_ONLY
+  SUITE libc-support-tests
+  SRCS diagnostic_state_test.cpp
+  DEPENDS
+    libc.src.__support.File.file
+    libc.src.locale.locale_storage
+    libc.src.locale.encoding_data
+)
+
+if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD AND NOT CMAKE_CROSSCOMPILING)
+  add_libc_test(
+    diagnostic_unwind_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-support-tests
+    SRCS diagnostic_unwind_test.cpp ${LIBC_SOURCE_DIR}/src/__support/File/file.cpp
+    DEPENDS libc.src.__support.File.file libc.src.errno.errno
+    COMPILE_OPTIONS -fexceptions -funwind-tables -DFile=DiagnosticUnwindFile
+    LINK_LIBRARIES pthread
+  )
+endif()
+
 set(platform_stream_targets "platform_stdout;platform_stdin;platform_stderr")
 foreach(target IN LISTS platform_file_targets)
   if(TARGET libc.src.__support.File.${target})

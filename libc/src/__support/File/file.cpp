@@ -166,6 +166,10 @@ FileIOResult File::write_diagnostic_unlocked(const char *data, size_t len) {
     return result;
   }
 
+  initialize_buffer_mode_unlocked();
+  if (bufmode == _IONBF && !platform_wide_write)
+    return write_diagnostic_nbf(data, len);
+
   internal::mbstate state;
   auto converter = internal::RestartableConverter::current();
   size_t consumed = 0;
@@ -180,7 +184,7 @@ FileIOResult File::write_diagnostic_unlocked(const char *data, size_t len) {
     if (*decoded == size_t(-2))
       continue;
     wchar_t wc = static_cast<wchar_t>(scalar);
-    auto result = write_unlocked(&wc, 1);
+    auto result = write_wide_unlocked(&wc, 1, true);
     if (result.value == 1)
       consumed = i + 1;
     if (result.has_error())
@@ -191,6 +195,92 @@ FileIOResult File::write_diagnostic_unlocked(const char *data, size_t len) {
     }
   }
   if (!converter.boundary(state)) {
+    err = true;
+    return {consumed, EILSEQ};
+  }
+  return len;
+}
+
+FileIOResult File::write_diagnostic_nbf(const char *data, size_t len) {
+  internal::mbstate input_state;
+  auto converter = internal::RestartableConverter::current();
+  size_t cursor = 0, consumed = 0;
+  // Preserve a custom flush callback's existing per-character cadence.
+  const size_t character_limit = platform_flush ? 1 : 64;
+  while (cursor < len) {
+    uint8_t bytes[256];
+    struct Boundary {
+      size_t input_end, output_end;
+      internal::mbstate state;
+    } boundaries[64];
+    size_t length = 0, characters = 0;
+    int encoding_error = 0;
+    auto output_state = mbstate;
+    while (cursor < len && characters < character_limit &&
+           length <= sizeof(bytes) - internal::MAX_LOCALE_CHARACTER_BYTES) {
+      uint8_t byte = uint8_t(data[cursor++]);
+      uint32_t scalar;
+      auto decoded = converter.decode(&scalar, {&byte, 1}, input_state);
+      if (!decoded) {
+        encoding_error = decoded.error();
+        break;
+      }
+      if (*decoded == size_t(-2))
+        continue;
+      if (!write_allowed()) {
+        err = true;
+        return {consumed, EBADF};
+      }
+      auto encoded = encode_wide(static_cast<wchar_t>(scalar), bytes + length,
+                                 output_state);
+      if (!encoded) {
+        encoding_error = encoded.error();
+        break;
+      }
+      length += *encoded;
+      boundaries[characters++] = {cursor, length, output_state};
+    }
+
+    // Emit the valid prefix before reporting a later encoding error. No
+    // unwritten bytes survive this call, and completed characters remain
+    // committed even if a subsequent backend call unwinds.
+    if (characters) {
+      begin_output();
+      if (pos || wide_size) {
+        int error = flush_unlocked();
+        if (error)
+          return {consumed, error};
+      }
+      size_t written = 0;
+      FileIOResult result(0);
+      {
+        cpp::scope_exit commit([&] {
+          for (size_t i = 0; i < characters; ++i) {
+            if (boundaries[i].output_end > written)
+              break;
+            mbstate = wide_output_state = boundaries[i].state;
+            consumed = boundaries[i].input_end;
+          }
+        });
+        result = write_all(platform_write, get_backend(), bytes, length,
+                           &written);
+      }
+      if (result.has_error()) {
+        err = true;
+        return {consumed, result.error};
+      }
+      if (platform_flush) {
+        int error = flush_unlocked();
+        if (error)
+          return {consumed, error};
+      }
+    }
+    if (encoding_error) {
+      err = true;
+      return {consumed, encoding_error};
+    }
+  }
+  if (!converter.boundary(input_state)) {
     err = true;
     return {consumed, EILSEQ};
   }
@@ -867,6 +957,11 @@ int File::flush_wide_unlocked() {
 }
 
 FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
+  return write_wide_unlocked(ws, len, false);
+}
+
+FileIOResult File::write_wide_unlocked(const wchar_t *ws, size_t len,
+                                      bool diagnostic) {
   initialize_buffer_mode_unlocked();
   switch (orientation) {
   case Orientation::BYTE:
@@ -941,7 +1036,9 @@ FileIOResult File::write_unlocked(const wchar_t *ws, size_t len) {
       if (bufmode == _IOLBF && ws[i] == L'\n') {
         int error = flush_unlocked();
         if (error)
-          return {written, error};
+          // An empty queue proves this character was fully emitted, even
+          // when the backend or final flush callback also reported an error.
+          return {written + (diagnostic && !wide_size ? 1 : 0), error};
       }
     }
     ++written;

@@ -271,6 +271,8 @@ public:
 
   // Diagnostic output preserves orientation. For wide streams, decode the
   // current locale's input and use the stream's captured output encoding.
+  // Errors retain input progress for complete emitted characters, even when
+  // the backend reports those bytes together with an error.
   FileIOResult write_diagnostic_unlocked(const char *data, size_t len);
 
   // Buffered write of |len| bytes from |data| under the file lock.
@@ -543,6 +545,9 @@ private:
                               internal::mbstate &state) const;
   ErrorOr<size_t> pending_wide_bytes() const;
   int flush_wide_unlocked();
+  FileIOResult write_diagnostic_nbf(const char *data, size_t len);
+  FileIOResult write_wide_unlocked(const wchar_t *ws, size_t len,
+                                  bool diagnostic);
   FileIOResult write_unlocked_impl(const void *data, size_t len);
   ErrorOr<int> seek_unlocked(off_t offset, int whence);
   ErrorOr<off_t> tell_unlocked();
