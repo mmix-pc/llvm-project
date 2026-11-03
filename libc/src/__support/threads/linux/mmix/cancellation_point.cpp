@@ -452,6 +452,16 @@ cancellation_syscall_impl(bool signal_wait, unsigned long number,
 #else
   control->cancellation_point.store(point.previous, cpp::MemoryOrder::RELEASE);
 #endif
+  // A handler may _Fork while this safe syscall is suspended. Its minimal
+  // child retires the copied stack registration, but must not acquire an
+  // inherited registry lock even when the interrupted operation returns EINTR.
+  if (control->fork_recovery.is_child() &&
+      !control->fork_recovery.allows_fork() && !control->unwind_root.active) {
+    if (recovered || result == -4096 || control->cancellation_identity)
+      __builtin_trap();
+    restore_mask(mask);
+    return result;
+  }
   if (recovered) {
     if (control->cancellation_transfer.exchange(0, cpp::MemoryOrder::ACQ_REL) !=
             1 ||

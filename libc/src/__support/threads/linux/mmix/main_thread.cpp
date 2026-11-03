@@ -97,7 +97,9 @@ bool restore_minimal_fork_child() {
   control->unwind_root.active = false;
   control->cancellation.restore_after_fork();
   control->cancellation_identity = control->cancellation_generation = 0;
-  control->cancellation_point.store(nullptr);
+  // Interrupted safe syscalls and trusted signal entries still own live stack
+  // registrations. Keep their LIFO publication until they return; the cleared
+  // identity/root prevents these inherited descriptors from delivering cancel.
   control->cancellation_transfer.store(0);
   control->credential_pending.store(0);
   return register_fork_child(*control, RobustInheritance::Discard);

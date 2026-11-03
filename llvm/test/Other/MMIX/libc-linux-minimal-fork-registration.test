@@ -1,0 +1,64 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %mmix_host_cxx -std=c++17 -O0 -ffunction-sections -fdata-sections -Wl,--gc-sections -I %S/../../../../libc %t/test.cpp -o %t/host-O0
+# RUN: %t/host-O0
+# RUN: %mmix_host_cxx -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections -I %S/../../../../libc %t/test.cpp -o %t/host-O2
+# RUN: %t/host-O2
+
+# Real minimal-child restoration with an injected set_tid_address transport.
+# This checks stack publication lifetime, not a real fork or signal return.
+#--- test.cpp
+#define LIBC_NAMESPACE minimal_fork_test
+#define LIBC_FULL_BUILD
+#define LIBC_THREAD_MODE LIBC_THREAD_MODE_PLATFORM
+#define LIBC_ERRNO_MODE LIBC_ERRNO_MODE_THREAD_LOCAL
+#define __mmix__ 1
+#define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_X86_64_SYSCALL_H
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
+#include "src/__support/threads/linux/mmix/main_thread.cpp"
+#include "src/__support/threads/linux/mmix/cancellation_registration.h"
+
+namespace LIBC_NAMESPACE_DECL::mmix {
+struct CancellationPoint { unsigned value; };
+}
+using namespace LIBC_NAMESPACE;
+using namespace LIBC_NAMESPACE::mmix;
+static ThreadControl control;
+static unsigned calls;
+static void check(bool value) { if (!value) __builtin_trap(); }
+
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long a, long b,
+                                        long c, long d, long e, long f) {
+  check(nr == SYS_set_tid_address && !b && !c && !d && !e && !f);
+  check(a == reinterpret_cast<long>(&control.clear_tid.value.val));
+  ++calls;
+  return control.attributes.tid;
+}
+
+int main() {
+  control.attributes.tid = 123;
+  internal::self.attrib = &control.attributes;
+  current_control = &control;
+  control.unwind_root.active = true;
+  control.cancellation_identity = 41;
+  control.cancellation_generation = 19;
+  check(control.cancellation.request());
+  control.cancellation_transfer.store(1);
+  control.credential_pending.store(1);
+  JumpCleanupStack::Node *head = nullptr;
+  CancellationPoint outer{1}, inner{2};
+  CancellationRegistration first(control.cancellation_point, head, &outer, nullptr);
+  CancellationRegistration second(control.cancellation_point, head, &inner, &outer);
+  check(first.begin() && second.begin());
+  auto *checkpoint = head;
+  check(internal::restore_minimal_fork_child());
+  check(calls == 1 && control.fork_recovery.is_child() &&
+        !control.fork_recovery.allows_fork() && !control.unwind_root.active);
+  check(!control.cancellation.ready() && control.cancellation.enabled());
+  check(!control.cancellation_identity && !control.cancellation_generation &&
+        !control.cancellation_transfer.load() && !control.credential_pending.load());
+  check(head == checkpoint && control.cancellation_point.load() == &inner);
+  check(second.finish() && control.cancellation_point.load() == &outer);
+  check(first.finish() && !head && !control.cancellation_point.load());
+  return 0;
+}
