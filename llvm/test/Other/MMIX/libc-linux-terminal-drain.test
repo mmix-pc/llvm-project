@@ -1,0 +1,90 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../../libc %t
+
+# Target compilation and optional native dispatch injection, not physical drain.
+#--- run.py
+from pathlib import Path
+import subprocess
+import sys
+libc, root = map(Path, sys.argv[1:3])
+resource = subprocess.check_output(
+    ["clang", "--no-default-config", "-print-resource-dir"], text=True).strip()
+common = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
+          "-DLIBC_ERRNO_MODE=3", "-DLIBC_NAMESPACE=drain_test",
+          "-I", str(root), "-I", str(libc)]
+for cancel in (False, True):
+    defines = ["-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM"]
+    if cancel:
+        defines.append("-DLIBC_MMIX_CANCELLATION_WINDOWS")
+    for opt in ("0", "2"):
+        name = str(int(cancel)) + "-O" + opt
+        subprocess.run(["clang", "-cc1", "-triple", "mmix-unknown-linux",
+                        "-internal-isystem", resource + "/include",
+                        *common, *defines, "-O" + opt, "-emit-obj",
+                        str(root / "semantics.cpp"), "-o", str(root / (name + ".o"))], check=True)
+        if len(sys.argv) == 4:
+            exe = root / ("native-" + name)
+            subprocess.run([sys.argv[3], *common, *defines, "-O" + opt,
+                            "-include", str(root / "native.h"),
+                            str(root / "semantics.cpp"), "-o", str(exe)], check=True)
+            subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- native.h
+#include "src/__support/macros/properties/architectures.h"
+#undef LIBC_TARGET_ARCH_IS_X86_64
+#define LIBC_TARGET_ARCH_IS_MMIX
+#define __mmix__ 1
+
+#--- sys/syscall.h
+#define SYS_ioctl 29
+
+#--- asm/ioctls.h
+#define TCSBRK 0x5409
+
+#--- linux/errno.h
+#define EINTR 4
+#define EIO 5
+#define EBADF 9
+#define ENOTTY 25
+
+#--- semantics.cpp
+#include "src/termios/linux/mmix/tcdrain.cpp"
+#include "src/errno/libc_errno.cpp"
+using namespace drain_test;
+static unsigned raw_calls, cancel_calls;
+static long reply;
+static void require(bool ok) { if (!ok) __builtin_trap(); }
+extern "C" long __llvm_libc_mmix_syscall(unsigned long nr, long fd, long op,
+                                        long arg, long d, long e, long f) {
+  require(nr == SYS_ioctl && fd == 17 && op == TCSBRK && arg == 1);
+  require(!d && !e && !f);
+  ++raw_calls;
+  return reply;
+}
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+namespace drain_test::mmix {
+long cancellation_syscall(unsigned long nr, long a, long b, long c,
+                          long d, long e, long f) {
+  ++cancel_calls;
+  return __llvm_libc_mmix_syscall(nr, a, b, c, d, e, f);
+}
+}
+#endif
+extern "C" int main() {
+  const long results[] = {0, -EINTR, -EIO, -EBADF, -ENOTTY};
+  for (long result : results) {
+    reply = result;
+    raw_calls = cancel_calls = 0;
+    libc_errno = 77;
+    require(drain_test::tcdrain(17) == (result < 0 ? -1 : 0));
+    require(int(libc_errno) == (result < 0 ? -result : 77));
+    require(raw_calls == 1);
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+    require(cancel_calls == 1);
+#else
+    require(cancel_calls == 0);
+#endif
+  }
+  return 0;
+}

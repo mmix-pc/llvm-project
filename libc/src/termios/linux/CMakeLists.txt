@@ -89,15 +89,28 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+set(tcdrain_source tcdrain.cpp)
+set(tcdrain_deps)
+set(tcdrain_options)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(tcdrain_source mmix/tcdrain.cpp)
+  list(APPEND tcdrain_deps libc.include.sys_syscall)
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    list(APPEND tcdrain_deps libc.src.__support.threads.linux.mmix.cancellation_point)
+    set(tcdrain_options -fexceptions -funwind-tables)
+  endif()
+endif()
 add_entrypoint_object(
   tcdrain
   SRCS
-    tcdrain.cpp
+    ${tcdrain_source}
   HDRS
     ../tcdrain.h
   DEPENDS
+    ${tcdrain_deps}
     libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
     libc.src.errno.errno
+  COMPILE_OPTIONS ${tcdrain_options}
 )
 
 add_entrypoint_object(

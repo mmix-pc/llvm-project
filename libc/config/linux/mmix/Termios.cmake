@@ -8,6 +8,7 @@ if(LIBC_MMIX_BUILD_TERMIOS)
     libc.src.termios.tcsetattr
     libc.src.termios.tcgetsid
     libc.src.termios.tcflow
+    libc.src.termios.tcdrain
     libc.src.termios.tcgetwinsize
     libc.src.termios.tcsetwinsize
     libc.src.termios.tcsendbreak
