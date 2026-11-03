@@ -683,12 +683,14 @@ functions:
       - type: const char *
       - type: off_t
   - name: ttyname
+    noexcept: false
     standards:
       - posix
     return_type: char *
     arguments:
       - type: int
   - name: ttyname_r
+    noexcept: false
     standards:
       - posix
     return_type: int
