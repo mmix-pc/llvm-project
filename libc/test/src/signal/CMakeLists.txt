@@ -14,6 +14,32 @@ if(LIBC_TARGET_OS STREQUAL "linux" AND
 endif()
 
 add_libc_test(
+  psiginfo_test
+  FULL_BUILD_ONLY
+  SUITE libc_signal_unittests
+  SRCS psiginfo_test.cpp ${LIBC_SOURCE_DIR}/src/signal/psiginfo.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.limits_macros
+    libc.hdr.signal_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.stdio_macros
+    libc.hdr.types.siginfo_t
+    libc.src.__support.CPP.stringstream
+    libc.src.__support.CPP.string_view
+    libc.src.__support.File.file
+    libc.src.__support.File.platform_file
+    libc.src.__support.StringUtil.diagnostic_message
+    libc.src.__support.StringUtil.platform_signals
+    libc.src.__support.StringUtil.signal_to_string
+    libc.src.__support.integer_to_string
+    libc.src.errno.errno
+    libc.src.stdio.stderr
+    libc.src.string.strsignal
+    libc.test.src.locale_guard
+)
+
+add_libc_test(
   psignal_test
   FULL_BUILD_ONLY
   SUITE libc_signal_unittests

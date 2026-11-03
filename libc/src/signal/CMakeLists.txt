@@ -14,6 +14,28 @@ if(LIBC_TARGET_OS STREQUAL "linux" AND
 endif()
 
 add_entrypoint_object(
+  psiginfo
+  SRCS psiginfo.cpp
+  HDRS psiginfo.h
+  DEPENDS
+    libc.hdr.signal_macros
+    libc.hdr.stdint_proxy
+    libc.hdr.types.siginfo_t
+    libc.src.__support.common
+    libc.src.__support.CPP.string_view
+    libc.src.__support.CPP.stringstream
+    libc.src.__support.File.file
+    libc.src.__support.File.platform_file
+    libc.src.__support.StringUtil.diagnostic_message
+    libc.src.__support.StringUtil.platform_signals
+    libc.src.__support.StringUtil.signal_to_string
+    libc.src.__support.integer_to_string
+    libc.src.errno.errno
+    libc.src.stdio.stderr
+  COMPILE_OPTIONS -fexceptions -funwind-tables
+)
+
+add_entrypoint_object(
   psignal
   SRCS psignal.cpp
   HDRS psignal.h
