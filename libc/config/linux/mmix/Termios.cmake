@@ -3,6 +3,7 @@ if(LIBC_MMIX_BUILD_TERMIOS)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.termios.tcgetattr
     libc.src.termios.tcsetattr
+    libc.src.termios.tcsendbreak
     libc.src.termios.cfgetispeed
     libc.src.termios.cfgetospeed
     libc.src.termios.cfsetispeed
