@@ -2,6 +2,23 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
+add_entrypoint_object(
+  killpg
+  SRCS killpg.cpp
+  HDRS killpg.h
+  DEPENDS .kill libc.hdr.errno_macros libc.src.errno.errno
+)
+
+foreach(entry sigwait sigwaitinfo)
+  add_entrypoint_object(
+    ${entry}
+    SRCS ${entry}.cpp
+    HDRS ${entry}.h
+    DEPENDS .sigtimedwait libc.hdr.errno_macros libc.src.errno.errno
+    COMPILE_OPTIONS -fexceptions -funwind-tables
+  )
+endforeach()
+
 if(LIBC_TARGET_OS STREQUAL "linux" AND
    LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   foreach(entry sig2str str2sig)

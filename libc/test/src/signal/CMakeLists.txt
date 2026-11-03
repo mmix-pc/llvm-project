@@ -1,5 +1,29 @@
 add_custom_target(libc_signal_unittests)
 
+add_libc_test(
+  wait_dispatch_test
+  SUITE libc_signal_unittests
+  SRCS wait_dispatch_test.cpp
+    ${LIBC_SOURCE_DIR}/src/signal/sigwait.cpp
+    ${LIBC_SOURCE_DIR}/src/signal/sigwaitinfo.cpp
+  DEPENDS
+    libc.hdr.types.sigset_t
+    libc.hdr.types.siginfo_t
+    libc.hdr.types.struct_timespec
+    libc.src.errno.errno
+)
+
+add_libc_test(
+  killpg_dispatch_test
+  SUITE libc_signal_unittests
+  SRCS killpg_dispatch_test.cpp
+    ${LIBC_SOURCE_DIR}/src/signal/killpg.cpp
+  DEPENDS
+    libc.hdr.limits_macros
+    libc.hdr.types.pid_t
+    libc.src.errno.errno
+)
+
 if(LIBC_TARGET_OS STREQUAL "linux" AND
    LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   add_libc_test(
