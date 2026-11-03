@@ -51,6 +51,10 @@ LLVM_LIBC_FUNCTION(int, pselect,
       }
     }
     filtered = mmix::public_replacement_mask(mask->__signals[0], previous);
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+    if (mmix::signal_cancellation_wait_available())
+      filtered &= ~mmix::CANCEL_MASK;
+#endif
   }
   struct {
     const uint64_t *mask;

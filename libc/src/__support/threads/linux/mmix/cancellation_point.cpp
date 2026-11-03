@@ -10,6 +10,7 @@
 #include "credentials.h"
 #include "cancellation.h"
 #include "hdr/errno_macros.h"
+#include "hdr/fcntl_macros.h"
 #include "hdr/signal_macros.h"
 #include "lifecycle.h"
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
@@ -23,6 +24,7 @@
 #include "thread_join.h"
 #include <asm/rstack.h>
 #include <asm/sigcontext.h>
+#include <asm/ioctls.h>
 #include <asm/unistd.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -152,6 +154,39 @@ void restore_mask(uint64_t mask) {
     __builtin_trap();
 }
 #ifdef LIBC_MMIX_SIGNAL_WAIT
+// Separate from controlled waits: these operations can transfer bytes or
+// descriptor ownership. Only an uncompleted leaf may enter cancellation.
+bool signal_io_operation(unsigned long number, long a2, long a3) {
+  switch (number) {
+  case SYS_read:
+  case SYS_write:
+  case SYS_readv:
+  case SYS_writev:
+  case SYS_pread64:
+  case SYS_pwritev2:
+  case SYS_openat:
+  case SYS_close:
+  case SYS_fsync:
+  case SYS_fdatasync:
+  case SYS_accept4:
+  case SYS_connect:
+  case SYS_recvfrom:
+  case SYS_sendto:
+  case SYS_recvmsg:
+  case SYS_sendmsg:
+  case SYS_ppoll:
+  case SYS_pselect6:
+  case SYS_nanosleep:
+    return true;
+  case SYS_fcntl:
+    return a2 == F_SETLKW || a2 == F_OFD_SETLKW;
+  case SYS_ioctl:
+    return a2 == TCSBRK && a3 == 1;
+  default:
+    return false;
+  }
+}
+
 // Caller masks signals; the boundary and its generation cannot retire between
 // selection and publication. This is not terminal/metadata admission.
 bool signal_wait_context(ThreadControl *control, uint64_t &chain,
@@ -352,15 +387,24 @@ cancellation_syscall_impl(bool signal_wait, unsigned long number,
   if (cancellation_rejected)
     *cancellation_rejected = false;
   auto *control = current_control;
-  if (!control || (!signal_wait && cancellation_private_block()) ||
-      !control->cancellation.enabled())
+  if (!control || !control->cancellation.enabled())
     return __llvm_libc_mmix_syscall(number, a1, a2, a3, a4, a5, a6);
+  bool signal_io = false;
+  if (!signal_wait && cancellation_private_block()) {
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+    signal_io = signal_io_operation(number, a2, a3);
+#endif
+    if (!signal_io)
+      return __llvm_libc_mmix_syscall(number, a1, a2, a3, a4, a5, a6);
+  }
   const uint64_t mask = mask_all();
   uint64_t chain = control->unwind_root.chain, signal_generation = 0;
 #ifdef LIBC_MMIX_SIGNAL_WAIT
-  if (signal_wait) {
+  if (signal_wait || signal_io) {
     if (!signal_wait_context(control, chain, signal_generation)) {
       restore_mask(mask);
+      if (signal_io)
+        return __llvm_libc_mmix_syscall(number, a1, a2, a3, a4, a5, a6);
       return -ENOTSUP;
     }
   }
@@ -421,14 +465,20 @@ cancellation_syscall_impl(bool signal_wait, unsigned long number,
   if (recovered || result == -4096 ||
       (result == -EINTR && number != SYS_close)) {
 #ifdef LIBC_MMIX_SIGNAL_WAIT
-    if (signal_wait) {
+    if (signal_wait || signal_io) {
       // A rejected preflight/claim must never restart an abandoned TRAP. The
       // trusted wrapper rearms pending cancellation on normal signal return.
       const bool pending = control->cancellation.ready();
       try_signal_cancellation(mask | CANCEL_MASK);
       if (cancellation_rejected)
         *cancellation_rejected = pending;
-      result = -EINTR;
+      // An uncompleted close must still consume its descriptor after rejected
+      // cancellation. Completed close errors never reach this branch; retrying
+      // those could close a reused descriptor. All other abandoned operations
+      // report EINTR without replaying their side effects.
+      result = signal_io && number == SYS_close
+                   ? __llvm_libc_mmix_syscall(number, a1, a2, a3, a4, a5, a6)
+                   : -EINTR;
     } else
 #endif
     {

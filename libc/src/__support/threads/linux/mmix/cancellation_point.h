@@ -36,8 +36,8 @@ struct SignalWaitResult {
 // Select only a live trusted handler in the opt-in provider. Untracked custom
 // restorers and ordinary threads retain their previous waiting behavior.
 bool signal_cancellation_wait_available();
-// Explicit controlled futex, process and signal waits only. Other wrappers
-// retain their handler exclusion pending their own partial-result audit.
+// Explicit controlled futex, process and signal waits only. Audited I/O uses
+// a separate selection in cancellation_syscall, not this whitelist.
 long signal_cancellation_wait(unsigned long number, long a1 = 0, long a2 = 0,
                               long a3 = 0, long a4 = 0, long a5 = 0,
                               long a6 = 0);

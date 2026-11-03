@@ -429,6 +429,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
           ${mmix_private_save_source}
         HDRS cancellation_point.h cancellation_registration.h
         DEPENDS .lifecycle libc.hdr.errno_macros libc.hdr.signal_macros
+          libc.hdr.fcntl_macros
           libc.src.errno.errno libc.hdr.types.jmp_buf
           libc.hdr.types.sigjmp_buf libc.include.ucontext libc.src.__support.common
           libc.src.setjmp.mmix.jump_restore

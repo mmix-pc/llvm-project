@@ -43,6 +43,10 @@ LLVM_LIBC_FUNCTION(int, ppoll,
     }
     filtered.__signals[0] =
         mmix::public_replacement_mask(filtered.__signals[0], previous);
+#ifdef LIBC_MMIX_SIGNAL_WAIT
+    if (mmix::signal_cancellation_wait_available())
+      filtered.__signals[0] &= ~mmix::CANCEL_MASK;
+#endif
   }
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   long result = mmix::cancellation_syscall(
