@@ -4,6 +4,8 @@ if(LIBC_MMIX_BUILD_TERMIOS)
     libc.src.stdlib.posix_openpt
     libc.src.stdlib.grantpt
     libc.src.stdlib.unlockpt
+    libc.src.stdlib.ptsname
+    libc.src.stdlib.ptsname_r
     libc.src.termios.tcgetattr
     libc.src.termios.tcsetattr
     libc.src.termios.tcgetsid

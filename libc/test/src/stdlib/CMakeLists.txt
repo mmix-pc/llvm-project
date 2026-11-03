@@ -14,6 +14,23 @@ if(LIBC_TARGET_OS_IS_LINUX)
       libc.src.__support.OSUtil.osutil
       libc.src.errno.errno
   )
+  add_libc_test(
+    mmix_ptsname_syscall_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS mmix_ptsname_syscall_test.cpp
+    COMPILE_OPTIONS -fexceptions -funwind-tables
+    DEPENDS
+      libc.hdr.errno_macros libc.hdr.fcntl_macros libc.hdr.limits_macros
+      libc.hdr.sys_ioctl_macros libc.hdr.sys_stat_macros libc.hdr.types.size_t
+      libc.include.sys_syscall
+      libc.src.__support.common
+      libc.src.__support.CPP.stringstream
+      libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+      libc.src.__support.OSUtil.osutil
+      libc.src.string.memory_utils.inline_memcpy
+      libc.src.errno.errno
+  )
 endif()
 
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)

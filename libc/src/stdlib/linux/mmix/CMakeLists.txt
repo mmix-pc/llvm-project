@@ -49,6 +49,34 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  ptsname_r
+  SRCS ptsname_r.cpp
+  HDRS ../../ptsname_r.h
+  DEPENDS
+    libc.hdr.errno_macros libc.hdr.fcntl_macros libc.hdr.limits_macros
+    libc.hdr.sys_ioctl_macros libc.hdr.sys_stat_macros libc.hdr.types.size_t
+    libc.include.sys_syscall
+    libc.src.__support.common
+    libc.src.__support.CPP.stringstream
+    libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+    libc.src.__support.OSUtil.linux.syscall_wrappers.close
+    libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
+    libc.src.__support.OSUtil.linux.syscall_wrappers.readlinkat
+    libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+    libc.src.string.memory_utils.inline_memcpy
+    ${pty_cancel_dependency}
+  COMPILE_OPTIONS ${pty_cancel_options}
+)
+add_entrypoint_object(
+  ptsname
+  SRCS ptsname.cpp
+  HDRS ../../ptsname.h
+  DEPENDS libc.hdr.limits_macros libc.src.__support.common
+    libc.src.errno.errno .ptsname_r
+  COMPILE_OPTIONS ${pty_cancel_options}
+)
+
+add_entrypoint_object(
   secure_getenv
   SRCS secure_getenv.cpp
   HDRS ../../secure_getenv.h
