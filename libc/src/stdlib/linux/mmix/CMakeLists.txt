@@ -8,6 +8,47 @@ add_header_library(
 )
 
 add_entrypoint_object(
+  posix_openpt
+  SRCS posix_openpt.cpp
+  HDRS ../../posix_openpt.h
+  DEPENDS libc.hdr.fcntl_macros libc.src.fcntl.open libc.src.errno.errno
+  COMPILE_OPTIONS -fexceptions -funwind-tables
+)
+
+set(pty_cancel_dependency)
+set(pty_cancel_options)
+if(TARGET libc.src.__support.threads.linux.mmix.cancellation)
+  set(pty_cancel_dependency libc.src.__support.threads.linux.mmix.cancellation)
+  set(pty_cancel_options -DLIBC_MMIX_PTY_CANCELLATION -fexceptions -funwind-tables)
+endif()
+add_entrypoint_object(
+  grantpt
+  SRCS grantpt.cpp
+  HDRS ../../grantpt.h
+  DEPENDS
+    libc.hdr.fcntl_macros libc.hdr.sys_ioctl_macros libc.hdr.sys_stat_macros
+    libc.hdr.types.gid_t libc.hdr.types.mode_t libc.hdr.types.uid_t
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+    libc.src.__support.OSUtil.linux.syscall_wrappers.close
+    libc.src.__support.OSUtil.linux.syscall_wrappers.fchmodat
+    libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
+    libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+    libc.src.errno.errno
+    ${pty_cancel_dependency}
+  COMPILE_OPTIONS ${pty_cancel_options}
+)
+add_entrypoint_object(
+  unlockpt
+  SRCS unlockpt.cpp
+  HDRS ../../unlockpt.h
+  DEPENDS
+    libc.hdr.sys_ioctl_macros
+    libc.src.__support.OSUtil.linux.syscall_wrappers.ioctl
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
   secure_getenv
   SRCS secure_getenv.cpp
   HDRS ../../secure_getenv.h

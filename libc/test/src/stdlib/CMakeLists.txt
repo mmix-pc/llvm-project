@@ -1,5 +1,21 @@
 add_custom_target(libc-stdlib-tests)
 
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    mmix_pty_syscall_test
+    OVERLAY_BUILD_ONLY
+    SUITE libc-stdlib-tests
+    SRCS mmix_pty_syscall_test.cpp
+    DEPENDS
+      libc.hdr.fcntl_macros libc.hdr.sys_ioctl_macros libc.hdr.sys_stat_macros
+      libc.hdr.types.gid_t libc.hdr.types.mode_t libc.hdr.types.uid_t
+      libc.include.sys_syscall
+      libc.src.__support.OSUtil.linux.stat.kernel_statx_types
+      libc.src.__support.OSUtil.osutil
+      libc.src.errno.errno
+  )
+endif()
+
 if(LIBC_TARGET_OS_IS_LINUX AND NOT LLVM_LIBC_FULL_BUILD)
   add_libc_test(
     random_test

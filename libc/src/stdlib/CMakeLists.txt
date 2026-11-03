@@ -691,6 +691,13 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
 if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  foreach(entry posix_openpt grantpt unlockpt)
+    add_entrypoint_object(
+      ${entry}
+      ALIAS
+      DEPENDS .linux.mmix.${entry}
+    )
+  endforeach()
   add_entrypoint_object(
     secure_getenv
     ALIAS
