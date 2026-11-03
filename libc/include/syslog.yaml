@@ -74,12 +74,14 @@ enums: []
 objects: []
 functions:
   - name: openlog
+    noexcept: false
     return_type: void
     arguments:
       - type: const char *
       - type: int
       - type: int
   - name: closelog
+    noexcept: false
     return_type: void
     arguments: []
   - name: setlogmask
@@ -87,6 +89,7 @@ functions:
     arguments:
       - type: int
   - name: vsyslog
+    noexcept: false
     standards:
       - bsd
     return_type: void
@@ -95,6 +98,7 @@ functions:
       - type: const char *
       - type: va_list
   - name: syslog
+    noexcept: false
     return_type: void
     arguments:
       - type: int

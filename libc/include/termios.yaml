@@ -41,6 +41,7 @@ functions:
       - type: struct termios *
       - type: speed_t
   - name: tcdrain
+    noexcept: false
     standards:
       - posix
     return_type: int

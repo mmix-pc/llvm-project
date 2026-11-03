@@ -443,6 +443,24 @@ class TestHeaderGenIntegration(unittest.TestCase):
             self.run_script(yaml_file, self.output_dir / "invalid-noexcept.h")
         self.assertIn("Function noexcept must be a boolean", raised.exception.stderr)
 
+    def test_signal_terminal_exception_specifications(self):
+        for header, throwing, nonthrowing in (
+            ("signal", ["psiginfo", "psignal"], ["sig2str", "str2sig"]),
+            ("termios", ["tcdrain"], ["tcflow", "tcflush", "tcsendbreak"]),
+            ("syslog", ["openlog", "closelog", "syslog", "vsyslog"], ["setlogmask"]),
+        ):
+            with self.subTest(header=header):
+                output = self.output_dir / (header + "-cancellation.h")
+                self.run_script(self.source_dir.parents[2] /
+                                ("include/" + header + ".yaml"), output,
+                                throwing + nonthrowing)
+                lines = output.read_text().splitlines()
+                for name in throwing + nonthrowing:
+                    matches = [line for line in lines
+                               if re.search(r"\b" + name + r"\(", line)]
+                    self.assertEqual(len(matches), 1)
+                    self.assertEqual("__NOEXCEPT" in matches[0], name in nonthrowing)
+
     def test_blocking_syscall_exception_specifications(self):
         for header, functions in (
             ("unistd", ["read", "write", "close", "getlogin", "getlogin_r"]),

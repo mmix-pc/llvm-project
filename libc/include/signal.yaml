@@ -66,6 +66,7 @@ functions:
       - type: pid_t
       - type: int
   - name: psiginfo
+    noexcept: false
     standards: [posix]
     return_type: void
     arguments:
