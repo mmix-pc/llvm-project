@@ -93,6 +93,7 @@ functions:
     arguments:
       - type: "unsigned short [3]"
   - name: posix_openpt
+    noexcept: false
     standards: [posix]
     return_type: int
     arguments:
