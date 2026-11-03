@@ -2,6 +2,24 @@ header: syslog.h
 standards:
   - posix
 macros:
+  - macro_name: LOG_PRIMASK
+    macro_header: syslog-macros.h
+  - macro_name: LOG_FACMASK
+    macro_header: syslog-macros.h
+  - macro_name: LOG_PRI
+    macro_header: syslog-macros.h
+  - macro_name: LOG_FAC
+    macro_header: syslog-macros.h
+  - macro_name: LOG_MAKEPRI
+    macro_header: syslog-macros.h
+  - macro_name: LOG_NFACILITIES
+    macro_header: syslog-macros.h
+  - macro_name: LOG_SYSLOG
+    macro_header: syslog-macros.h
+  - macro_name: LOG_AUTHPRIV
+    macro_header: syslog-macros.h
+  - macro_name: LOG_FTP
+    macro_header: syslog-macros.h
   - macro_name: LOG_MASK
     macro_header: syslog-macros.h
   - macro_name: LOG_UPTO

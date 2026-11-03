@@ -52,6 +52,42 @@ add_libc_test(
   DEPENDS libc.include.stdio libc.include.stdlib libc.include.wctype
 )
 
+add_libc_test(
+  syslog_macros_test
+  SUITE libc_include_tests
+  SRCS syslog_macros_test.cpp
+  DEPENDS libc.include.llvm-libc-macros.syslog_macros
+)
+
+foreach(language IN ITEMS c cpp)
+  set(syslog_test_options)
+  if(language STREQUAL "c")
+    list(APPEND syslog_test_options C_TEST)
+  endif()
+  foreach(qualifier IN ITEMS mutable const)
+    set(syslog_names_options)
+    if(qualifier STREQUAL "const")
+      list(APPEND syslog_names_options -DSYSLOG_NAMES_CONST)
+    endif()
+    add_libc_test(
+      syslog_names_${language}_${qualifier}_test
+      ${syslog_test_options}
+      SUITE libc_include_tests
+      SRCS syslog_names_test.${language}
+      HDRS syslog_names_test.h
+      COMPILE_OPTIONS ${syslog_names_options} -Wall -Wextra -Werror
+      DEPENDS libc.include.llvm-libc-macros.syslog_macros
+    )
+  endforeach()
+endforeach()
+add_libc_test(
+  syslog_namespace_test
+  C_TEST
+  SUITE libc_include_tests
+  SRCS syslog_namespace_test.c
+  DEPENDS libc.include.llvm-libc-macros.syslog_macros
+)
+
 if(LIBC_TARGET_OS_IS_LINUX)
   foreach(language IN ITEMS c cpp)
     set(wait_status_options)
