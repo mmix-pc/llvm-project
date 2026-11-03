@@ -1,3 +1,18 @@
+add_header_library(
+  signal_names
+  HDRS signal_names.h
+  DEPENDS libc.hdr.signal_macros libc.src.__support.macros.config
+)
+
+foreach(entry sig2str str2sig)
+  add_entrypoint_object(
+    ${entry}
+    SRCS ${entry}.cpp
+    HDRS ../../${entry}.h
+    DEPENDS .signal_names libc.src.__support.common
+  )
+endforeach()
+
 add_object_library(
   uapi_checks
   SRCS uapi_checks.cpp

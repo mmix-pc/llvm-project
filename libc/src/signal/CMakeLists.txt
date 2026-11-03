@@ -2,6 +2,17 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
 endif()
 
+if(LIBC_TARGET_OS STREQUAL "linux" AND
+   LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  foreach(entry sig2str str2sig)
+    add_entrypoint_object(
+      ${entry}
+      ALIAS
+      DEPENDS .linux.mmix.${entry}
+    )
+  endforeach()
+endif()
+
 add_entrypoint_object(
   psignal
   SRCS psignal.cpp

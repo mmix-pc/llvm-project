@@ -4,6 +4,8 @@ if(NOT LIBC_MMIX_BUILD_SIGNAL_MASKS)
 endif()
 
 list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.signal.sig2str
+  libc.src.signal.str2sig
   libc.src.signal.sigemptyset
   libc.src.signal.sigfillset
   libc.src.signal.sigaddset

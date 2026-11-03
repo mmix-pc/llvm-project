@@ -1,5 +1,18 @@
 add_custom_target(libc_signal_unittests)
 
+if(LIBC_TARGET_OS STREQUAL "linux" AND
+   LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  add_libc_test(
+    mmix_signal_names_test
+    SUITE libc_signal_unittests
+    SRCS mmix_signal_names_test.cpp
+    DEPENDS
+      libc.hdr.signal_macros
+      libc.src.signal.sig2str
+      libc.src.signal.str2sig
+  )
+endif()
+
 add_libc_test(
   psignal_test
   FULL_BUILD_ONLY
