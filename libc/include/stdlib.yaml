@@ -99,11 +99,13 @@ functions:
     arguments:
       - type: "int"
   - name: ptsname
+    noexcept: false
     standards: [posix]
     return_type: char *
     arguments:
       - type: "int"
   - name: ptsname_r
+    noexcept: false
     standards: [posix]
     return_type: int
     arguments:
