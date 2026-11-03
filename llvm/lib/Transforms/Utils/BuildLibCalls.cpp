@@ -764,6 +764,11 @@ bool llvm::inferNonMandatoryLibFuncAttrs(Function &F,
     Changed |= setOnlyReadsMemory(F, 0);
     break;
   case LibFunc_ctermid:
+    // A nonnull buffer may escape through the return value. A null argument
+    // selects internal storage, so the argument is not unconditionally returned.
+    Changed |= setRetAndArgsNoUndef(F);
+    Changed |= setDoesNotThrow(F);
+    break;
   case LibFunc_clearerr:
     Changed |= setDoesNotThrow(F);
     [[fallthrough]];
