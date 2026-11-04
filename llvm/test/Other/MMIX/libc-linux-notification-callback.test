@@ -123,7 +123,12 @@ extern "C" int main() {
   attr = attributes(); attr.__detachstate = 99;
   rejected(e, EINVAL);
   attr = attributes(); attr.__guardsize = 1;
-  rejected(e, EINVAL);
+  NotificationCallback *rounded = nullptr;
+  check(!NotificationCallback::create(e, {}, 8192, rounded));
+  check(rounded->thread_preparation().guard_size == 1);
+  check(!rounded->release() && !allocated);
+  attr = attributes(); attr.__guardsize = SIZE_MAX;
+  rejected(e, EOVERFLOW);
   attr = attributes(); attr.__stack = reinterpret_cast<void *>(0x10001);
   rejected(e, EINVAL);
   attr = attributes(); attr.__stack = reinterpret_cast<void *>(UINTPTR_MAX - 15);
@@ -176,7 +181,7 @@ extern "C" int main() {
   check(!NotificationCallback::create(e, {}, 8192, out));
   request = out->thread_preparation();
   check(!out->supplied_stack() && !request.apply_scheduling && request.detached);
-  check(request.stack_size == 65536 && request.guard_size == 8192);
+  check(request.stack_size == 2 * 1024 * 1024 && request.guard_size == 8192);
   check(!out->retain() && !out->retain());
   check(!out->release() && !out->release() && allocated);
   check(!out->release() && !allocated);

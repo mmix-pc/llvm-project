@@ -298,8 +298,8 @@ extern "C" int main(int argc, char **argv) {
   } else if (mode == CopyAttributes || mode == BadAttributes) {
     attr.__detachstate = PTHREAD_CREATE_JOINABLE;
     attr.__stack = supplied_stack;
-    attr.__stacksize = sizeof(supplied_stack);
-    attr.__guardsize = mode == BadAttributes ? 1 : 16384;
+    attr.__stacksize = mode == BadAttributes ? 1 : sizeof(supplied_stack);
+    attr.__guardsize = 16384;
     attr.__inheritsched = PTHREAD_INHERIT_SCHED;
     attr.__scope = PTHREAD_SCOPE_SYSTEM;
     event.sigev_notify_attributes = &attr;
@@ -395,7 +395,7 @@ extern "C" int main(int argc, char **argv) {
     auto *envelope = static_cast<NotificationCallback *>(pending.argument);
     check_snapshot(envelope->thread_preparation());
   } else {
-    check(pending.detached && !pending.stack && pending.stack_size == 65536);
+    check(pending.detached && !pending.stack && pending.stack_size == 2 * 1024 * 1024);
     check(pending.guard_size == 8192 && !pending.apply_scheduling);
   }
   if (mode == ActivationRetry) {

@@ -29,12 +29,13 @@ long NotificationCallback::create(const sigevent &event, const TLSImage &image,
   ThreadPreparation request;
   request.image = image;
   request.page_size = page_size;
+  request.guard_size = page_size;
   request.detached = true;
   if (event.sigev_notify_attributes) {
     const auto attr = *event.sigev_notify_attributes;
     if ((attr.__detachstate != PTHREAD_CREATE_JOINABLE &&
          attr.__detachstate != PTHREAD_CREATE_DETACHED) ||
-        attr.__stacksize < PTHREAD_STACK_MIN || attr.__guardsize % page_size ||
+        attr.__stacksize < PTHREAD_STACK_MIN ||
         (attr.__inheritsched != PTHREAD_INHERIT_SCHED &&
          attr.__inheritsched != PTHREAD_EXPLICIT_SCHED))
       return EINVAL;
@@ -66,9 +67,13 @@ long NotificationCallback::create(const sigevent &event, const TLSImage &image,
   } else {
     size_t stack_padding =
         (page_size - request.stack_size % page_size) % page_size;
+    size_t guard_padding =
+        (page_size - request.guard_size % page_size) % page_size;
     if (request.stack_size > maximum ||
         stack_padding > maximum - request.stack_size ||
-        request.guard_size > maximum - request.stack_size - stack_padding)
+        request.guard_size > maximum - request.stack_size - stack_padding ||
+        guard_padding > maximum - request.stack_size - stack_padding -
+                            request.guard_size)
       return EOVERFLOW;
   }
 
