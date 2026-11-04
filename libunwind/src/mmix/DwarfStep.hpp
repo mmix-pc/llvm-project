@@ -32,26 +32,26 @@ int restoreMMIXWindow(A &addressSpace, const Registers_mmix &registers,
 }
 
 template <typename A>
-int stepWithMMIXDwarf(A &addressSpace, uint64_t pc, uint64_t fde,
-                      Registers_mmix &registers, bool &isSignalFrame,
-                      bool stage2) {
-  Registers_mmix caller = registers;
-  bool signalFrame = false;
-  int result = DwarfInstructions<A, Registers_mmix>::stepWithDwarf(
-      addressSpace, pc, fde, caller, signalFrame, stage2);
-  if (result != UNW_STEP_SUCCESS || !caller.getIP()) {
-    if (result == UNW_STEP_SUCCESS)
-      registers = caller;
-    return result;
-  }
+int finishMMIXDwarfStep(A &addressSpace, const Registers_mmix &registers,
+                        Registers_mmix &caller, bool signalFrame) {
+  if (!caller.getIP())
+    return UNW_STEP_SUCCESS;
   if (signalFrame)
     return UNW_EINVAL;
   // Both stacks use the original activation; CFI must not see the caller's rO.
-  result = restoreMMIXWindow(addressSpace, registers, caller);
-  if (result != UNW_STEP_SUCCESS)
-    return result;
-  registers = caller;
-  isSignalFrame = false;
+  return restoreMMIXWindow(addressSpace, registers, caller);
+}
+
+template <typename A>
+int stepWithMMIXDwarf(A &addressSpace, uint64_t pc, uint64_t fde,
+                      Registers_mmix &registers, bool &isSignalFrame,
+                      bool stage2) {
+  bool signalFrame = false;
+  int result = DwarfInstructions<A, Registers_mmix>::stepWithDwarf(
+      addressSpace, pc, fde, registers, signalFrame, stage2,
+      finishMMIXDwarfStep<A>);
+  if (result == UNW_STEP_SUCCESS && registers.getIP())
+    isSignalFrame = false;
   return result;
 }
 

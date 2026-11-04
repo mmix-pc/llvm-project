@@ -96,7 +96,9 @@ public:
     int32_t           cfaRegisterOffset;  // CFA = (cfaRegister)+cfaRegisterOffset
     int64_t           cfaExpression;      // CFA = expression
     uint32_t          spExtraArgSize;
-    RegisterLocation  savedRegisters[kMaxRegisterNumber + 1];
+    int64_t registerValues[kMaxRegisterNumber + 1];
+    uint8_t registerLocations[kMaxRegisterNumber + 1];
+    bool registerInitialStateSaved[kMaxRegisterNumber + 1];
 #if defined(_LIBUNWIND_TARGET_AARCH64)
     pint_t ptrAuthDiversifier;
 #endif
@@ -108,30 +110,39 @@ public:
         memset(this, 0, sizeof(*this));
     }
     void checkSaveRegister(uint64_t reg, PrologInfo &initialState) {
-      if (!savedRegisters[reg].initialStateSaved) {
-        initialState.savedRegisters[reg] = savedRegisters[reg];
-        savedRegisters[reg].initialStateSaved = true;
+      if (!registerInitialStateSaved[reg]) {
+        initialState.setRegisterLocationRecord(reg, getRegisterLocation(reg));
+        registerInitialStateSaved[reg] = true;
       }
+    }
+    RegisterLocation getRegisterLocation(uint64_t reg) const {
+      return {static_cast<RegisterSavedWhere>(registerLocations[reg]),
+              registerInitialStateSaved[reg], registerValues[reg]};
+    }
+    void setRegisterLocationRecord(uint64_t reg, RegisterLocation record) {
+      registerLocations[reg] = static_cast<uint8_t>(record.location);
+      registerInitialStateSaved[reg] = record.initialStateSaved;
+      registerValues[reg] = record.value;
     }
     void setRegister(uint64_t reg, RegisterSavedWhere newLocation,
                      int64_t newValue, PrologInfo &initialState) {
       checkSaveRegister(reg, initialState);
-      savedRegisters[reg].location = newLocation;
-      savedRegisters[reg].value = newValue;
+      registerLocations[reg] = static_cast<uint8_t>(newLocation);
+      registerValues[reg] = newValue;
     }
     void setRegisterLocation(uint64_t reg, RegisterSavedWhere newLocation,
                              PrologInfo &initialState) {
       checkSaveRegister(reg, initialState);
-      savedRegisters[reg].location = newLocation;
+      registerLocations[reg] = static_cast<uint8_t>(newLocation);
     }
     void setRegisterValue(uint64_t reg, int64_t newValue,
                           PrologInfo &initialState) {
       checkSaveRegister(reg, initialState);
-      savedRegisters[reg].value = newValue;
+      registerValues[reg] = newValue;
     }
     void restoreRegisterToInitialState(uint64_t reg, PrologInfo &initialState) {
-      if (savedRegisters[reg].initialStateSaved)
-        savedRegisters[reg] = initialState.savedRegisters[reg];
+      if (registerInitialStateSaved[reg])
+        setRegisterLocationRecord(reg, initialState.getRegisterLocation(reg));
       // else the register still holds its initial state
     }
   };
@@ -679,7 +690,7 @@ bool CFI_Parser<A>::parseFDEInstructions(
         _LIBUNWIND_TRACE_DWARF("DW_CFA_expression(reg=%" PRIu64 ", "
                                "expression=0x%" PRIx64 ", "
                                "length=%" PRIu64 ")\n",
-                               reg, results->savedRegisters[reg].value, length);
+                               reg, results->getRegisterLocation(reg).value, length);
         break;
       case DW_CFA_offset_extended_sf:
         reg = addressSpace.getULEB128(p, instructionsEnd);
@@ -762,7 +773,7 @@ bool CFI_Parser<A>::parseFDEInstructions(
         _LIBUNWIND_TRACE_DWARF("DW_CFA_val_expression(reg=%" PRIu64 ", "
                                "expression=0x%" PRIx64 ", length=%" PRIu64
                                ")\n",
-                               reg, results->savedRegisters[reg].value, length);
+                               reg, results->getRegisterLocation(reg).value, length);
         break;
       case DW_CFA_GNU_args_size:
         length = addressSpace.getULEB128(p, instructionsEnd);
@@ -794,7 +805,7 @@ bool CFI_Parser<A>::parseFDEInstructions(
 #if defined(_LIBUNWIND_TARGET_AARCH64)
         case REGISTERS_ARM64: {
           int64_t value =
-              results->savedRegisters[UNW_AARCH64_RA_SIGN_STATE].value ^ 0x1;
+              results->getRegisterLocation(UNW_AARCH64_RA_SIGN_STATE).value ^ 0x1;
           results->setRegister(UNW_AARCH64_RA_SIGN_STATE, kRegisterIsPseudo,
                                value, initialState);
           _LIBUNWIND_TRACE_DWARF("DW_CFA_AARCH64_negate_ra_state\n");
@@ -846,7 +857,7 @@ bool CFI_Parser<A>::parseFDEInstructions(
 #if defined(_LIBUNWIND_TARGET_AARCH64)
       case DW_CFA_AARCH64_negate_ra_state_with_pc: {
         int64_t value =
-            results->savedRegisters[UNW_AARCH64_RA_SIGN_STATE].value ^ 0x3;
+            results->getRegisterLocation(UNW_AARCH64_RA_SIGN_STATE).value ^ 0x3;
         results->setRegister(UNW_AARCH64_RA_SIGN_STATE, kRegisterIsPseudo,
                              value, initialState);
         // When using Feat_PAuthLR, the PC value needs to be captured so that
