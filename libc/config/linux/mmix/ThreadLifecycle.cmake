@@ -58,6 +58,7 @@ if(LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.pthread.pthread_join
     libc.src.pthread.pthread_detach
+    libc.src.threads.thrd_detach
     libc.src.pthread.pthread_exit)
 endif()
 if(LIBC_MMIX_BUILD_PTHREAD_MUTEX)

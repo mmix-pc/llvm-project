@@ -14,6 +14,7 @@ add_entrypoint_object(
 )
 
 set(thrd_create_source thrd_create.cpp)
+set(thrd_detach_source thrd_detach.cpp)
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${CMAKE_CURRENT_LIST_DIR}/linux/mmix/Creation.cmake)
 endif()
@@ -49,10 +50,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   thrd_detach
   SRCS
-    thrd_detach.cpp
+    ${thrd_detach_source}
   HDRS
     thrd_detach.h
   DEPENDS
+    ${thrd_detach_dependencies}
     libc.include.threads
     libc.src.__support.threads.thread
 )
