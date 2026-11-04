@@ -10,6 +10,7 @@
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_RESOURCES_H
 
 #include "src/__support/threads/linux/mmix/lifecycle.h"
+#include "src/__support/threads/linux/mmix/stack_policy.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -22,7 +23,7 @@ struct ThreadPreparation {
   ThreadRunner runner{};
   void *argument = nullptr;
   void *stack = nullptr;
-  size_t stack_size = 65536;
+  size_t stack_size = DEFAULT_STACK_SIZE;
   size_t guard_size = 8192;
   bool detached = false;
   bool apply_scheduling = false;

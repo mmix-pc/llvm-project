@@ -25,7 +25,6 @@ LLVM_LIBC_FUNCTION(int, pthread_create,
   if ((attr->__detachstate != PTHREAD_CREATE_JOINABLE &&
        attr->__detachstate != PTHREAD_CREATE_DETACHED) ||
       (attr->__stacksize && attr->__stacksize < PTHREAD_STACK_MIN) ||
-      attr->__guardsize % EXEC_PAGESIZE ||
       (attr->__inheritsched != PTHREAD_INHERIT_SCHED &&
        attr->__inheritsched != PTHREAD_EXPLICIT_SCHED))
     return EINVAL;

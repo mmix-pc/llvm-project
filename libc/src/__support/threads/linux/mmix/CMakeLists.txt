@@ -1,4 +1,10 @@
 add_header_library(
+  stack_policy
+  HDRS stack_policy.h
+  DEPENDS libc.hdr.types.size_t libc.src.__support.macros.config
+)
+
+add_header_library(
   credentials_h
   HDRS credentials.h
   DEPENDS libc.src.__support.macros.config libc.hdr.stdint_proxy
@@ -215,6 +221,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     SRCS resources.cpp
     HDRS resources.h
     DEPENDS
+      .stack_policy
       .lifecycle
       .tls
       libc.hdr.pthread_macros

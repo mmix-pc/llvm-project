@@ -6,14 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 #include "src/pthread/pthread_attr_init.h"
+#include "config/app.h"
 #include "src/__support/common.h"
-#include "src/__support/threads/thread.h"
+#include "src/__support/threads/linux/mmix/stack_policy.h"
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_attr_init, (pthread_attr_t * attr)) {
   *attr = {PTHREAD_CREATE_JOINABLE,
            nullptr,
-           Thread::DEFAULT_STACKSIZE,
-           Thread::DEFAULT_GUARDSIZE,
+           mmix::DEFAULT_STACK_SIZE,
+           app.page_size,
            0,
            0,
            PTHREAD_INHERIT_SCHED,

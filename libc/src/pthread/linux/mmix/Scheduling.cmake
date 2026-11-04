@@ -1,4 +1,6 @@
 set(pthread_attr_init_source linux/mmix/pthread_attr_init.cpp)
+set(pthread_attr_init_dependencies libc.config.app_h
+  libc.src.__support.threads.linux.mmix.stack_policy)
 if(NOT LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
   return()
 endif()

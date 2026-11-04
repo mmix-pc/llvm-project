@@ -65,6 +65,7 @@ add_entrypoint_object(
   HDRS
     pthread_attr_init.h
   DEPENDS
+    ${pthread_attr_init_dependencies}
     ${mmix_scheduling_dependency}
     libc.include.pthread
 )
