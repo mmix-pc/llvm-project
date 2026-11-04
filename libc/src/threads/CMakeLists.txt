@@ -155,7 +155,7 @@ add_entrypoint_object(
     tss_create.h
   DEPENDS
     libc.include.threads
-    libc.src.__support.threads.mutex
+    libc.src.__support.threads.thread
 )
 
 add_entrypoint_object(
@@ -166,7 +166,7 @@ add_entrypoint_object(
     tss_delete.h
   DEPENDS
     libc.include.threads
-    libc.src.__support.threads.mutex
+    libc.src.__support.threads.thread
 )
 
 add_entrypoint_object(
@@ -177,7 +177,7 @@ add_entrypoint_object(
     tss_get.h
   DEPENDS
     libc.include.threads
-    libc.src.__support.threads.mutex
+    libc.src.__support.threads.thread
 )
 
 add_entrypoint_object(
@@ -188,7 +188,7 @@ add_entrypoint_object(
     tss_set.h
   DEPENDS
     libc.include.threads
-    libc.src.__support.threads.mutex
+    libc.src.__support.threads.thread
 )
 
 add_entrypoint_object(
