@@ -21,7 +21,7 @@ static_assert(sizeof(thrd_t) == sizeof(LIBC_NAMESPACE::Thread),
 LLVM_LIBC_FUNCTION(int, thrd_detach, (thrd_t th)) {
   auto *thread = reinterpret_cast<Thread *>(&th);
   thread->detach();
-  return 0;
+  return thrd_success;
 }
 
 } // namespace LIBC_NAMESPACE_DECL

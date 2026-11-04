@@ -1,6 +1,19 @@
 add_libc_integration_test_suite(libc-threads-integration-tests)
 
 add_integration_test(
+  thrd_detach_test
+  SUITE
+    libc-threads-integration-tests
+  SRCS
+    thrd_detach_test.cpp
+  DEPENDS
+    libc.include.threads
+    libc.src.threads.thrd_create
+    libc.src.threads.thrd_detach
+    libc.src.__support.threads.thread
+)
+
+add_integration_test(
   mtx_test
   SUITE
     libc-threads-integration-tests
