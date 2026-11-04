@@ -41,6 +41,7 @@ if(LIBC_MMIX_BUILD_PTHREAD_CREATION)
     libc.src.pthread.pthread_equal
     libc.src.pthread.pthread_getstack_np
     libc.src.threads.thrd_current
+    libc.src.threads.thrd_create
     libc.src.threads.thrd_equal
     libc.src.pthread.pthread_attr_init
     libc.src.pthread.pthread_attr_destroy

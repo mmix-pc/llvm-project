@@ -13,16 +13,22 @@ add_entrypoint_object(
     libc.src.__support.threads.callonce
 )
 
+set(thrd_create_source thrd_create.cpp)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${CMAKE_CURRENT_LIST_DIR}/linux/mmix/Creation.cmake)
+endif()
+
 add_entrypoint_object(
   thrd_create
   SRCS
-    thrd_create.cpp
+    ${thrd_create_source}
   HDRS
     thrd_create.h
   DEPENDS
     libc.src.__support.threads.thread
     libc.include.threads
     libc.src.errno.errno
+    ${thrd_create_dependencies}
   COMPILE_OPTIONS
     ${libc_opt_high_flag}
     -fno-omit-frame-pointer # This allows us to sniff out the thread args from
