@@ -16,6 +16,11 @@ if(LIBC_MMIX_BUILD_CONCURRENCY_HINTS)
     libc.src.pthread.pthread_getconcurrency libc.src.pthread.pthread_setconcurrency)
 endif()
 if(LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
+  foreach(operation sched_get_priority_min sched_get_priority_max
+      sched_setaffinity sched_getaffinity sched_getcpu
+      __sched_setcpuzero __sched_setcpuset)
+    list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.sched.${operation})
+  endforeach()
   foreach(operation getschedparam setschedparam setschedprio
       attr_getschedparam attr_setschedparam attr_getschedpolicy attr_setschedpolicy
       attr_getinheritsched attr_setinheritsched attr_getscope attr_setscope)
