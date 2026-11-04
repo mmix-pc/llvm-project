@@ -6,12 +6,13 @@
 #--- selection.cmake
 cmake_minimum_required(VERSION 3.20)
 include(${SOURCE}/config/linux/mmix/Time.cmake)
-foreach(entry libc.src.sys.time.getitimer libc.src.sys.time.setitimer)
+foreach(entry libc.src.sys.time.getitimer libc.src.sys.time.setitimer
+              libc.src.time.clock_settime)
   if(LIBC_MMIX_BUILD_TIME AND NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
-    message(FATAL_ERROR "Missing selected interval timer: ${entry}")
+    message(FATAL_ERROR "Missing selected time provider: ${entry}")
   endif()
   if(NOT LIBC_MMIX_BUILD_TIME AND entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
-    message(FATAL_ERROR "Interval timer enabled outside time configuration")
+    message(FATAL_ERROR "Provider enabled outside time configuration: ${entry}")
   endif()
 endforeach()
 

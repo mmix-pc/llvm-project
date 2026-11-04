@@ -20,6 +20,7 @@ for name in ("stdint", "stdio"):
 resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).strip()
 sources = ["fcntl/linux/fcntl.cpp", "unistd/linux/sysconf.cpp",
            "__support/time/linux/mmix/clock_gettime.cpp", "sys/wait/linux/wait4.cpp",
+           "__support/time/linux/clock_settime.cpp", "time/linux/clock_settime.cpp",
            "sys/wait/linux/waitpid.cpp", "sys/wait/linux/wait.cpp", "errno/libc_errno.cpp",
            "unistd/linux/pread.cpp", "unistd/linux/pwrite.cpp", "unistd/linux/lseek.cpp",
            "sys/mman/linux/mmap.cpp", "sys/mman/linux/munmap.cpp", "sys/mman/linux/mprotect.cpp",
@@ -66,6 +67,7 @@ if len(sys.argv) == 4:
 #define SYS_pread64 67
 #define SYS_pwrite64 68
 #define SYS_clock_gettime 113
+#define SYS_clock_settime 112
 #define SYS_sched_getaffinity 123
 #define SYS_prctl 167
 #define SYS_sysinfo 179
@@ -139,6 +141,7 @@ struct sysinfo {
 #include "src/unistd/isatty.h"
 #include "hdr/sys_ioctl_macros.h"
 #include "src/__support/time/clock_gettime.h"
+#include "src/time/clock_settime.h"
 #include "src/__support/OSUtil/linux/auxv.h"
 #include "src/__support/libc_errno.h"
 #include "hdr/types/struct_rlimit.h"
@@ -249,6 +252,24 @@ extern "C" int main() {
   reply = -EINVAL;
   auto clock_error = internal::clock_gettime(-1, &now);
   require(!clock_error && clock_error.error() == EINVAL);
+
+  const timespec set_time{(time_t(1) << 33) + 7, 123456789};
+  reply = 0;
+  libc_errno = EDOM;
+  auto before_clock_set = calls;
+  require(service_test::clock_settime(CLOCK_REALTIME, &set_time) == 0);
+  require(calls == before_clock_set + 1 && number == SYS_clock_settime &&
+          arguments[0] == CLOCK_REALTIME &&
+          arguments[1] == reinterpret_cast<long>(&set_time));
+  require(libc_errno == EDOM && set_time.tv_sec == (time_t(1) << 33) + 7 &&
+          set_time.tv_nsec == 123456789);
+  const int clock_errors[] = {EINVAL, EPERM, EFAULT};
+  for (int error : clock_errors) {
+    reply = -error;
+    libc_errno = 0;
+    require(service_test::clock_settime(-1, nullptr) == -1 && libc_errno == error);
+    require(number == SYS_clock_settime && arguments[0] == -1 && arguments[1] == 0);
+  }
 
   char buffer[16];
   constexpr off_t offset = (off_t(1) << 40) + 8192;
