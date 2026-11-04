@@ -70,8 +70,13 @@ TEST(LlvmLibcPThreadattrTest, SetAndGetGuardSize) {
   ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_getguardsize(&attr, &guardsize), 0);
   ASSERT_EQ(guardsize, size_t(2 * EXEC_PAGESIZE));
 
-  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_setguardsize(&attr, EXEC_PAGESIZE / 2),
-            EINVAL);
+  const size_t requests[] = {0, 1, EXEC_PAGESIZE / 2, EXEC_PAGESIZE + 1,
+                             size_t(-1)};
+  for (size_t requested : requests) {
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_setguardsize(&attr, requested), 0);
+    ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_getguardsize(&attr, &guardsize), 0);
+    ASSERT_EQ(guardsize, requested);
+  }
 
   ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_destroy(&attr), 0);
 }

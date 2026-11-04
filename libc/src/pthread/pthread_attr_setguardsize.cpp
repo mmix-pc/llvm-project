@@ -9,18 +9,14 @@
 #include "pthread_attr_setguardsize.h"
 
 #include "src/__support/common.h"
-#include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
 
-#include <linux/param.h> // For EXEC_PAGESIZE.
 #include <pthread.h>
 
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, pthread_attr_setguardsize,
                    (pthread_attr_t *__restrict attr, size_t guardsize)) {
-  if (guardsize % EXEC_PAGESIZE != 0)
-    return EINVAL;
   attr->__guardsize = guardsize;
   return 0;
 }
