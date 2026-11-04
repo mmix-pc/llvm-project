@@ -17,7 +17,9 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(unsigned int, sleep, (unsigned int seconds)) {
   static_assert(sizeof(unsigned int) <= sizeof(time_t), "Avoids overflow");
   timespec request = {seconds, 0};
-  timespec remaining = {};
+  // Rejected handler cancellation can interrupt before the kernel writes a
+  // remainder. In that case the entire request is still unslept.
+  timespec remaining = request;
   long result = mmix::cancellation_syscall(
       SYS_nanosleep, reinterpret_cast<long>(&request),
       reinterpret_cast<long>(&remaining));

@@ -15,6 +15,15 @@ add_libc_test(
 
 if(LIBC_TARGET_OS_IS_LINUX)
   add_libc_test(
+    mmix_sleep_test
+    SUITE libc_unistd_unittests
+    SRCS mmix_sleep_test.cpp
+    DEPENDS
+      libc.hdr.errno_macros libc.hdr.limits_macros
+      libc.hdr.types.struct_timespec
+      libc.src.errno.errno libc.src.__support.OSUtil.osutil
+  )
+  add_libc_test(
     mmix_ttyname_syscall_test
     OVERLAY_BUILD_ONLY
     SUITE libc_unistd_unittests
