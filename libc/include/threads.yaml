@@ -45,6 +45,7 @@ functions:
       - type: mtx_t *__restrict
       - type: const struct timespec *__restrict
   - name: thrd_sleep
+    noexcept: false
     return_type: int
     arguments:
       - type: const struct timespec *
@@ -85,6 +86,7 @@ functions:
     arguments:
       - type: cnd_t *
   - name: cnd_timedwait
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -93,6 +95,7 @@ functions:
       - type: mtx_t *__restrict
       - type: const struct timespec *__restrict
   - name: cnd_wait
+    noexcept: false
     standards:
       - stdc
     return_type: int
@@ -158,12 +161,14 @@ functions:
       - type: thrd_t
       - type: thrd_t
   - name: thrd_exit
+    noexcept: false
     standards:
       - stdc
     return_type: _Noreturn void
     arguments:
       - type: int
   - name: thrd_join
+    noexcept: false
     standards:
       - stdc
     return_type: int
