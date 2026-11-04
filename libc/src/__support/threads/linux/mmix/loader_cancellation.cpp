@@ -76,12 +76,17 @@ long leave(uint64_t saved) {
 #ifdef LIBC_MMIX_SHARED_STARTUP
   {
     Mask mask;
-    if (!current_control || !current_control->loader_scopes.fetch_sub(1))
+    if (!current_control)
+      __builtin_trap();
+    // Do not expose a callback's enabled state between lifting the guard and
+    // restoring an originally disabled caller.
+    current_control->cancellation.set_enabled(saved == PTHREAD_CANCEL_ENABLE);
+    if (!current_control->loader_scopes.fetch_sub(1))
       __builtin_trap();
   }
 #endif
-  // Unlike notification masking alone, the disabled state also suppresses
-  // explicit testcancel/cancellation leaves inside loader callbacks.
+  // Restore the entry state only after dropping this scope. Remaining outer
+  // scopes independently block delivery even if a callback enabled it.
   return -set_cancel_state(static_cast<int>(saved), nullptr);
 }
 void begin_callback() {

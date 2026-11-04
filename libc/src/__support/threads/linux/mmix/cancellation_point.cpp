@@ -223,6 +223,7 @@ void notification(int signal, siginfo_t *info, void *context) {
   auto *control = current_control;
   if (!notification_origin_matches(signal, info, context, process_id) ||
       !control ||
+      control->loader_cancellation_blocked() ||
       !control->cancellation.ready() ||
       control->cancellation_suppression.load(cpp::MemoryOrder::ACQUIRE) ||
       control->cancellation_transfer.load(cpp::MemoryOrder::ACQUIRE))
@@ -349,6 +350,7 @@ bool cancellation_private_block() {
   auto *control = current_control;
   if (!control || !control->unwind_root.active ||
       control->cancellation.terminal() ||
+      control->loader_cancellation_blocked() ||
       control->cancellation_suppression.load(cpp::MemoryOrder::ACQUIRE))
     return true;
   mmix_rstack_query query{};
@@ -387,7 +389,8 @@ cancellation_syscall_impl(bool signal_wait, unsigned long number,
   if (cancellation_rejected)
     *cancellation_rejected = false;
   auto *control = current_control;
-  if (!control || !control->cancellation.enabled())
+  if (!control || !control->cancellation.enabled() ||
+      control->loader_cancellation_blocked())
     return __llvm_libc_mmix_syscall(number, a1, a2, a3, a4, a5, a6);
   bool signal_io = false;
   if (!signal_wait && cancellation_private_block()) {
@@ -556,6 +559,7 @@ SignalWaitResult signal_cancellation_wait_result(unsigned long number, long a1,
 void rearm_signal_cancellation() {
   auto *control = current_control;
   if (!control || !control->cancellation.ready() ||
+      control->loader_cancellation_blocked() ||
       control->cancellation.asynchronous() ||
       control->cancellation_suppression.load(cpp::MemoryOrder::ACQUIRE) ||
       control->cancellation_transfer.load(cpp::MemoryOrder::ACQUIRE))

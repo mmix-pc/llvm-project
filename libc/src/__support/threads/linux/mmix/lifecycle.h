@@ -133,6 +133,16 @@ struct ThreadControl {
   LifecycleWord creator_decision{uint32_t(CreatorDecision::Hold)};
   int child_error = 0;
 
+  // Loader callbacks may change the public state, but cannot unwind a live
+  // transaction. Nested scopes keep this delivery guard until the last leave.
+  bool loader_cancellation_blocked() {
+#ifdef LIBC_MMIX_SHARED_STARTUP
+    return loader_scopes.load(cpp::MemoryOrder::ACQUIRE) != 0;
+#else
+    return false;
+#endif
+  }
+
   void publish_prepared() {
     prepared.value.store(1, cpp::MemoryOrder::RELEASE);
   }

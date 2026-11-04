@@ -112,12 +112,6 @@ int set_cancel_state(int state, int *old_state) {
     return EINVAL;
   if (!current_control)
     return ENOTSUP;
-#ifdef LIBC_MMIX_SHARED_STARTUP
-  // Application callbacks cannot re-enable delivery inside a loader
-  // transaction.
-  if (state == PTHREAD_CANCEL_ENABLE && current_control->loader_scopes.load())
-    return EINVAL;
-#endif
   {
     SignalMask mask;
     bool enabled = current_control->cancellation.set_enabled(
@@ -128,6 +122,7 @@ int set_cancel_state(int state, int *old_state) {
   // An application handler can enable a pending request while its ordinary
   // caller is blocked. Queue the wake before returning to that caller's TRAP.
   if (state == PTHREAD_CANCEL_ENABLE && current_control->cancellation.ready() &&
+      !current_control->loader_cancellation_blocked() &&
       (current_control->cancellation.asynchronous() ||
        current_control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE))) {
     long pid = syscall_impl(SYS_getpid);
@@ -172,7 +167,8 @@ int set_cancel_type(int type, int *old_type) {
 
 [[gnu::noinline, clang::disable_tail_calls]] void test_cancel() {
   auto *control = current_control;
-  if (!control || !control->cancellation.ready())
+  if (!control || !control->cancellation.ready() ||
+      control->loader_cancellation_blocked())
     return;
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
   {

@@ -210,7 +210,7 @@ void invoke_callback(void (*callback)(void *), void *argument) noexcept {
 #if defined(LIBC_MMIX_SHARED_STARTUP) && defined(LIBC_MMIX_SIGNAL_CLEANUP)
 // Handler cleanup cannot enter a suspended loader transaction. Its lease uses
 // the signal-safe service, but callback execution still requires the same
-// disabled-state/re-enable exclusion as ordinary cleanup. All transitions are
+// private delivery guard as ordinary cleanup. All transitions are
 // made under RegistrationMask; callbacks run with the caller's mask restored.
 class CleanupCancellationScope {
   loader::LoaderCancellation hooks = loader_cancellation_hooks();
