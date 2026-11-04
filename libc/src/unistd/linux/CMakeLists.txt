@@ -939,6 +939,8 @@ add_entrypoint_object(
     sysconf.cpp
   HDRS
     ../sysconf.h
+    sysconf_limits.h
+    mmix/sysconf_limits.h
   DEPENDS
     libc.hdr.unistd_macros
     libc.hdr.limits_macros

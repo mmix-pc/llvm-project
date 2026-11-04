@@ -31,6 +31,7 @@
 #include "src/__support/OSUtil/linux/sysinfo.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
+#include "src/unistd/linux/sysconf_limits.h"
 #include <linux/limits.h>
 
 // In overlay mode, system headers (like glibc's <bits/local_lim.h>) may
@@ -642,6 +643,8 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
     return CHARCLASS_NAME_MAX;
   case _SC_HOST_NAME_MAX:
     return HOST_NAME_MAX;
+  case _SC_TTY_NAME_MAX:
+    return tty_name_max();
   case _SC_SEM_VALUE_MAX:
     return SEM_VALUE_MAX;
   case _SC_RTSIG_MAX:
@@ -666,7 +669,6 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
                : -1;
   case _SC_TZNAME_MAX:
   case _SC_LOGIN_NAME_MAX:
-  case _SC_TTY_NAME_MAX:
   case _SC_ATEXIT_MAX:
   case _SC_THREAD_THREADS_MAX:
   case _SC_SEM_NSEMS_MAX:

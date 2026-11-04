@@ -9,6 +9,11 @@
 #ifndef LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H
 #define LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX)
+// Maximum terminal-name storage, including the terminating NUL.
+#define TTY_NAME_MAX 4096
+#endif
+
 #if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024)
 // Highest supported signal plus one, not the public signal-set capacity.
 #define NSIG_MAX 65

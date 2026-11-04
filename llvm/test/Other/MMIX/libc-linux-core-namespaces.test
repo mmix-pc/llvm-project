@@ -23,13 +23,16 @@ for language in ("c", "c++"):
         ([], False, False, False),
         (["-D_POSIX_C_SOURCE=200809L"], True, False, False),
         (["-D_POSIX_C_SOURCE=202405L"], True, False, False),
+        (["-D_XOPEN_SOURCE=700"], True, True, False),
         (["-D_XOPEN_SOURCE=800"], True, True, False),
+        (["-D_DEFAULT_SOURCE"], True, True, False),
         (["-D_GNU_SOURCE"], True, True, True),
     ):
         source = '#include "__llvm-libc-common.h"\n'
         for header in ("limits-macros.h", "inttypes-macros.h", "assert-macros.h"):
             source += '#include "llvm-libc-macros/' + header + '"\n'
-        for macro, present in (("PATH_MAX", posix), ("NZERO", xsi),
+        for macro, present in (("PATH_MAX", posix), ("TTY_NAME_MAX", posix),
+                               ("NZERO", xsi),
                                ("NL_LANGMAX", xsi), ("IOV_MAX", xsi),
                                ("INT_WIDTH", gnu), ("UINT_MIN", gnu),
                                ("PRIbMAX", gnu), ("SCNbPTR", gnu)):
@@ -38,6 +41,9 @@ for language in ("c", "c++"):
         if gnu:
             source += 'const char *binary = PRIb64 " " PRIBMAX " " SCNbPTR;\n'
         source += '#if CHAR_BIT != 8 || INT_MAX != 2147483647\n#error limits\n#endif\n'
+        if posix:
+            source += ('#if TTY_NAME_MAX != 4096 || TTY_NAME_MAX != PATH_MAX || '
+                       'TTY_NAME_MAX < _POSIX_TTY_NAME_MAX\n#error terminal name storage including NUL\n#endif\n')
         command = [clang, "--no-default-config", "--target=mmix-unknown-linux",
                    "-nostdinc", "-I", str(include), "-x", language,
                    "-std=c17" if language == "c" else "-std=c++17",
@@ -56,8 +62,11 @@ for language in ("c", "c++"):
 # Without an explicit namespace policy, other targets retain their old macros.
 source = '#include "llvm-libc-macros/limits-macros.h"\n'
 source += '#ifndef INT_WIDTH\n#error changed generic visibility\n#endif\n'
-result = subprocess.run([clang, "--no-default-config", "--target=x86_64-linux-gnu",
-                         "-nostdinc", "-I", str(libc / "include"),
-                         "-x", "c", "-std=c17", "-fsyntax-only", "-"],
-                        input=source, text=True, capture_output=True)
-assert result.returncode == 0, result.stderr
+source += '#ifdef TTY_NAME_MAX\n#error changed generic terminal name limit\n#endif\n'
+for target in ("x86_64-linux-gnu", "aarch64-linux-gnu", "riscv64-linux-gnu",
+               "mmix-unknown-unknown"):
+    result = subprocess.run([clang, "--no-default-config", "--target=" + target,
+                             "-nostdinc", "-I", str(libc / "include"),
+                             "-x", "c", "-std=c17", "-fsyntax-only", "-"],
+                            input=source, text=True, capture_output=True)
+    assert result.returncode == 0, (target, result.stderr)

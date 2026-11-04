@@ -88,6 +88,34 @@ TEST(LlvmLibcSysconfLimitsTest, PositiveErrno) {
   query_error = 0;
 }
 
+TEST(LlvmLibcSysconfLimitsTest, TerminalNameLimit) {
+  const int errors[] = {0, EDOM};
+  for (int saved_errno : errors) {
+    for (int error : errors) {
+      query_error = error;
+      last_resource = -1;
+      libc_errno = saved_errno;
+      for (int repeat = 0; repeat < 2; ++repeat) {
+#ifdef LIBC_TARGET_ARCH_IS_MMIX
+        EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_TTY_NAME_MAX), 4096L);
+#ifdef LIBC_FULL_BUILD
+        static_assert(TTY_NAME_MAX == 4096);
+        static_assert(TTY_NAME_MAX == PATH_MAX);
+        static_assert(TTY_NAME_MAX >= _POSIX_TTY_NAME_MAX);
+        EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_TTY_NAME_MAX), long(TTY_NAME_MAX));
+#endif
+#else
+        // Host header definitions must not change the generic query policy.
+        EXPECT_EQ(LIBC_NAMESPACE::sysconf(_SC_TTY_NAME_MAX), -1L);
+#endif
+        EXPECT_EQ(int(libc_errno), saved_errno);
+        EXPECT_EQ(last_resource, -1);
+      }
+    }
+  }
+  query_error = 0;
+}
+
 TEST(LlvmLibcSysconfLimitsTest, IndeterminateStreamLimit) {
   query_error = EIO;
   const int errors[] = {0, EDOM};

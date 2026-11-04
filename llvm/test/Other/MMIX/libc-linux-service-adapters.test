@@ -147,9 +147,12 @@ struct sysinfo {
 #include "hdr/unistd_macros.h"
 #include "hdr/sys_resource_macros.h"
 #include "hdr/time_macros.h"
+#include "hdr/limits_macros.h"
 
 using namespace service_test;
 static_assert(_POSIX_THREADS == -1L);
+static_assert(TTY_NAME_MAX == 4096 && TTY_NAME_MAX == PATH_MAX);
+static_assert(TTY_NAME_MAX >= _POSIX_TTY_NAME_MAX);
 static unsigned long number, calls;
 static long arguments[6], reply;
 static bool directory_retry;
@@ -177,7 +180,7 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b, long c
   return reply;
 }
 
-int main() {
+extern "C" int main() {
   const char *path = "entry";
   reply = 0;
   libc_errno = EDOM;
@@ -218,6 +221,15 @@ int main() {
   libc_errno = EDOM;
   require(service_test::sysconf(_SC_THREADS) == -1 && libc_errno == EDOM);
   require(service_test::sysconf(_SC_ARG_MAX) == 131072 && libc_errno == EDOM);
+  before = calls;
+  const int saved_errors[] = {0, EDOM};
+  for (int saved_errno : saved_errors) {
+    libc_errno = saved_errno;
+    for (int repeat = 0; repeat < 2; ++repeat) {
+      require(service_test::sysconf(_SC_TTY_NAME_MAX) == TTY_NAME_MAX);
+      require(libc_errno == saved_errno && calls == before);
+    }
+  }
   require(service_test::sysconf(_SC_OPEN_MAX) == -1 && libc_errno == EBADF);
   require(service_test::sysconf(_SC_PHYS_PAGES) == -1 && libc_errno == EBADF);
   reply = 0;
