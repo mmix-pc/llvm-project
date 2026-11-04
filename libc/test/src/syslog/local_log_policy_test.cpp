@@ -14,17 +14,23 @@
 #include "src/stdio/vasprintf.h"
 #include "src/time/localtime_r.h"
 #include "src/time/time_func.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 #include "test/UnitTest/Test.h"
 
 void policy_free(void *);
 namespace LIBC_NAMESPACE_DECL {
 int policy_vasprintf(char **, const char *, va_list);
 int policy_asprintf(char **, const char *, ...);
+namespace policy_linux_syscalls {
+ErrorOr<int> close(int);
+}
 }
 #define free policy_free
 #define vasprintf policy_vasprintf
 #define asprintf policy_asprintf
+#define linux_syscalls policy_linux_syscalls
 #include "src/syslog/linux/log.cpp"
+#undef linux_syscalls
 #undef asprintf
 #undef vasprintf
 #undef free
@@ -36,7 +42,7 @@ int policy_asprintf(char **, const char *, ...);
 namespace {
 int sockets, connects, sends, closes, consoles, writes, live;
 int send_errors[2], connect_error, socket_error, write_error, console_error;
-int format_failure, clock_failure, throw_at;
+int format_failure, clock_failure, throw_at, close_error;
 int month, day, hour;
 char packet[8192];
 size_t packet_size;
@@ -146,9 +152,20 @@ ssize_t send(int fd, const void *data, size_t size, int flags) {
 }
 int close(int fd) {
   EXPECT_TRUE(fd == 42 || fd == 43);
+  unwind_at(5); // No descriptor has been consumed yet.
   ++closes;
-  libc_errno = EBADF;
+  libc_errno = close_error ? close_error : EBADF;
+  return close_error ? -1 : 0;
+}
+namespace policy_linux_syscalls {
+ErrorOr<int> close(int fd) {
+  if (fd != 42 && fd != 43)
+    return linux_syscalls::close(fd); // Real disposable fork-snapshot fd.
+  ++closes;
+  if (close_error)
+    return Error(close_error);
   return 0;
+}
 }
 int open(const char *path, int flags, ...) {
   ++consoles;
@@ -182,7 +199,7 @@ protected:
     sockets = connects = sends = closes = consoles = writes = live = 0;
     send_errors[0] = send_errors[1] = 0;
     connect_error = socket_error = write_error = console_error = 0;
-    format_failure = clock_failure = throw_at = 0;
+    format_failure = clock_failure = throw_at = close_error = 0;
     month = 10;
     day = 3;
     hour = 12;
@@ -351,7 +368,59 @@ TEST_F(LlvmLibcLocalLogPolicyTest, ChildSnapshotDropsOnlyConnection) {
 }
 
 // Resource cleanup and lock release on stack unwinding.
+TEST_F(LlvmLibcLocalLogPolicyTest, CloseErrorConsumesConnectionOnce) {
+  LIBC_NAMESPACE::openlog("app", LOG_NDELAY, LOG_USER);
+  close_error = EINTR;
+  LIBC_NAMESPACE::closelog();
+  EXPECT_EQ(closes, 1);
+  EXPECT_EQ(LIBC_NAMESPACE::local_log::descriptor, -1);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOENT);
+  // The consumed number may now belong to another thread. Do not close again.
+  LIBC_NAMESPACE::closelog();
+  EXPECT_EQ(closes, 1);
+  close_error = 0;
+  LIBC_NAMESPACE::openlog("new", LOG_NDELAY, LOG_USER);
+  EXPECT_EQ(sockets, 2);
+  LIBC_NAMESPACE::closelog();
+  EXPECT_EQ(closes, 2);
+}
+
 #ifdef __EXCEPTIONS
+TEST_F(LlvmLibcLocalLogPolicyTest, TransientRetirementDoesNotUnwindOrRetry) {
+  throw_at = 5; // An attempt to use public close would abandon the owner.
+  close_error = EINTR;
+  for (int fd = 42; fd <= 43; ++fd) {
+    LIBC_NAMESPACE::local_log::Descriptor owner;
+    owner.fd = fd;
+  }
+  throw_at = 0;
+  EXPECT_EQ(closes, 2);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOENT);
+}
+
+TEST_F(LlvmLibcLocalLogPolicyTest, UnwindBeforeCloseKeepsConnectionOwned) {
+  LIBC_NAMESPACE::openlog("app", LOG_NDELAY, LOG_USER);
+  throw_at = 5;
+  bool caught = false;
+  try {
+    LIBC_NAMESPACE::closelog();
+  } catch (int point) {
+    caught = true;
+    EXPECT_EQ(point, 5);
+  }
+  throw_at = 0;
+  EXPECT_TRUE(caught);
+  EXPECT_EQ(closes, 0);
+  EXPECT_EQ(LIBC_NAMESPACE::local_log::descriptor, 42);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOENT);
+  ASSERT_EQ(LIBC_NAMESPACE::local_log::mutex.try_lock(),
+            LIBC_NAMESPACE::MutexError::NONE);
+  LIBC_NAMESPACE::local_log::mutex.unlock();
+  LIBC_NAMESPACE::closelog();
+  EXPECT_EQ(closes, 1);
+  EXPECT_EQ(LIBC_NAMESPACE::local_log::descriptor, -1);
+}
+
 TEST_F(LlvmLibcLocalLogPolicyTest, UnwindReleasesResourcesAndLock) {
   for (int point = 1; point <= 4; ++point) {
     SetUp();

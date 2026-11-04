@@ -61,9 +61,11 @@ struct Buffer {
 
 struct Descriptor {
   int fd = -1;
-  ~Descriptor() noexcept(false) {
+  ~Descriptor() {
+    // A destructor cannot be its owner's last cancellation point: unwinding
+    // from close would abandon the descriptor without running us again.
     if (fd >= 0)
-      LIBC_NAMESPACE::close(fd);
+      (void)linux_syscalls::close(fd);
   }
 };
 
@@ -93,10 +95,11 @@ bool timestamp(char (&text)[16]) {
 }
 
 void disconnect() {
-  int old = descriptor;
+  // Keep ownership if close unwinds before consuming the descriptor. Linux
+  // close consumes it even on error; after a return, never retry that number.
+  if (descriptor >= 0)
+    LIBC_NAMESPACE::close(descriptor);
   descriptor = -1;
-  if (old >= 0)
-    LIBC_NAMESPACE::close(old);
 }
 
 bool connect() {

@@ -9,13 +9,19 @@
 // Intercept every transport boundary: never contact the host's log or console.
 #include "src/stdio/asprintf.h"
 #include "src/stdio/vasprintf.h"
+#include "src/__support/OSUtil/linux/syscall_wrappers/close.h"
 namespace LIBC_NAMESPACE_DECL {
 int checked_vasprintf(char **out, const char *format, va_list args);
 int checked_asprintf(char **out, const char *format, ...);
+namespace checked_linux_syscalls {
+ErrorOr<int> close(int);
+}
 } // namespace LIBC_NAMESPACE_DECL
 #define vasprintf checked_vasprintf
 #define asprintf checked_asprintf
+#define linux_syscalls checked_linux_syscalls
 #include "src/syslog/linux/log.cpp"
+#undef linux_syscalls
 #undef asprintf
 #undef vasprintf
 #include "src/syslog/closelog.cpp"
@@ -36,6 +42,13 @@ size_t fallback_size;
 } // namespace
 
 namespace LIBC_NAMESPACE_DECL {
+namespace checked_linux_syscalls {
+ErrorOr<int> close(int fd) {
+  EXPECT_TRUE(fd == 42 || fd == 43);
+  ++closes;
+  return 0;
+}
+}
 int checked_vasprintf(char **out, const char *format, va_list args) {
   if (format_failure == 1) {
     *out = nullptr;
