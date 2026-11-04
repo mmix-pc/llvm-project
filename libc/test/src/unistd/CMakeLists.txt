@@ -1029,9 +1029,11 @@ if(LIBC_TARGET_OS_IS_LINUX)
           libc_unistd_unittests
         SRCS
           sysconf_limits_test.cpp
+          sysconf_cpu_test.cpp
           ${LIBC_SOURCE_DIR}/src/unistd/linux/sysconf.cpp
         HDRS
           sysconf_test_syscall.h
+          sysconf_cpu_test_syscall.h
         COMPILE_OPTIONS
           ${sysconf_test_options}
         DEPENDS
@@ -1045,6 +1047,8 @@ if(LIBC_TARGET_OS_IS_LINUX)
           libc.hdr.types.off_t
           libc.src.errno.errno
           libc.src.__support.macros.attributes
+          libc.src.__support.CPP.atomic
+          libc.src.__support.CPP.string_view
           libc.src.__support.OSUtil.linux.auxv
           libc.src.__support.OSUtil.linux.sysinfo
           libc.src.__support.OSUtil.linux.syscall_wrappers.prlimit

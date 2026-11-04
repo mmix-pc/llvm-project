@@ -13,6 +13,7 @@
 #include "hdr/types/struct_rlimit.h"
 #include "hdr/types/struct_sysinfo.h"
 #include "src/__support/OSUtil/linux/syscall.h"
+#include "sysconf_cpu_test_syscall.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace linux_syscalls {

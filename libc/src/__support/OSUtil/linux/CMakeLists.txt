@@ -223,6 +223,7 @@ add_header_library(
     sysinfo.h
   DEPENDS
     libc.hdr.errno_macros
+    libc.hdr.limits_macros
     libc.src.__support.CPP.array
     libc.src.__support.CPP.bit
     libc.src.__support.CPP.optional

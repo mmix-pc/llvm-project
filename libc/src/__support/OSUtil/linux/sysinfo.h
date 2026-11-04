@@ -10,6 +10,7 @@
 #define LLVM_LIBC_SRC___SUPPORT_OSUTIL_LINUX_SYSINFO_H
 
 #include "hdr/errno_macros.h"
+#include "hdr/limits_macros.h"
 #include "src/__support/CPP/array.h"
 #include "src/__support/CPP/bit.h"
 #include "src/__support/CPP/optional.h"
@@ -29,15 +30,18 @@ LIBC_INLINE_VAR constexpr char ONLINE_NPROC_PATH[] =
     "/sys/devices/system/cpu/online";
 
 // Parses Linux CPU-list syntax:
-//   list  := item (',' item)*
+//   list  := item (',' item)* ['\n']
 //   item  := number | number '-' number
 //   number := [0-9]+
+// Kernel lists are ordered and disjoint. Reject malformed lists rather than
+// publishing a partial, wrapped or double-counted configured CPU count.
 class ProcParser {
   enum class ProcParserState {
     ParseUnstarted,
     ParseNumber,
     ParseRangeSeparator,
-    ParseRangeEnd
+    ParseRangeEnd,
+    ParseEnded
   };
 
   ProcParserState state;
@@ -48,13 +52,8 @@ class ProcParser {
   size_t cpu_count;
   size_t current_number;
   size_t range_start;
-  bool has_error;
-
-  LIBC_INLINE static int open_path(const char *path) {
-    ErrorOr<int> open_result =
-        linux_syscalls::open(path, O_RDONLY | O_CLOEXEC, 0);
-    return open_result ? *open_result : -1;
-  }
+  size_t previous_end;
+  int error;
 
   LIBC_INLINE cpp::optional<char> next_char() {
     if (fd < 0)
@@ -66,7 +65,7 @@ class ProcParser {
       if (!bytes_read) {
         if (bytes_read.error() == EINTR)
           continue;
-        has_error = true;
+        error = bytes_read.error();
         return cpp::nullopt;
       }
 
@@ -81,18 +80,25 @@ class ProcParser {
   }
 
   LIBC_INLINE bool finish_group() {
-    if (state == ProcParserState::ParseUnstarted)
-      return true;
-    if (state == ProcParserState::ParseRangeSeparator)
+    if (state != ProcParserState::ParseNumber &&
+        state != ProcParserState::ParseRangeEnd)
       return false;
 
+    size_t start = current_number;
     if (state == ProcParserState::ParseRangeEnd) {
       if (current_number < range_start)
         return false;
-      cpu_count += current_number - range_start + 1;
-    } else {
-      ++cpu_count;
+      start = range_start;
     }
+    if (cpu_count != 0 && start <= previous_end)
+      return false;
+    size_t count = current_number - start + 1;
+    if (count > static_cast<size_t>(LONG_MAX) - cpu_count) {
+      error = EOVERFLOW;
+      return false;
+    }
+    cpu_count += count;
+    previous_end = current_number;
 
     current_number = 0;
     range_start = 0;
@@ -101,10 +107,17 @@ class ProcParser {
   }
 
   LIBC_INLINE bool consume(char ch) {
+    if (state == ProcParserState::ParseEnded)
+      return false;
     if (internal::isdigit(ch)) {
       // Not using internal::strtointeger here because a number can be across
       // two reads in rare cases.
-      current_number = current_number * 10 + static_cast<size_t>(ch - '0');
+      size_t digit = static_cast<size_t>(ch - '0');
+      if (current_number > (static_cast<size_t>(LONG_MAX) - digit) / 10) {
+        error = EOVERFLOW;
+        return false;
+      }
+      current_number = current_number * 10 + digit;
       if (state == ProcParserState::ParseUnstarted)
         state = ProcParserState::ParseNumber;
       else if (state == ProcParserState::ParseRangeSeparator)
@@ -121,54 +134,68 @@ class ProcParser {
       return true;
     }
 
-    if (ch == ',' || ch == '\n')
-      return finish_group();
-
-    if (ch == ' ' || ch == '\t' || ch == '\r')
-      return state == ProcParserState::ParseUnstarted ? true : finish_group();
+    if (ch == ',' || ch == '\n') {
+      if (!finish_group())
+        return false;
+      if (ch == '\n')
+        state = ProcParserState::ParseEnded;
+      return true;
+    }
 
     return false;
   }
 
 public:
-  // Using string view isn't exactly correct because we demands null-terminated
-  // strings.
+  // The path must be null-terminated.
   LIBC_INLINE explicit ProcParser(const char *path)
-      : state(ProcParserState::ParseUnstarted), buffer{}, fd(open_path(path)),
+      : state(ProcParserState::ParseUnstarted), buffer{}, fd(-1),
         cursor(buffer.size()), buffer_end(buffer.size()), cpu_count(0),
-        current_number(0), range_start(0), has_error(fd < 0) {}
+        current_number(0), range_start(0), previous_end(0), error(0) {
+    for (;;) {
+      ErrorOr<int> result =
+          linux_syscalls::open(path, O_RDONLY | O_CLOEXEC, 0);
+      if (result) {
+        fd = *result;
+        break;
+      }
+      if (result.error() != EINTR) {
+        error = result.error();
+        break;
+      }
+    }
+  }
 
   LIBC_INLINE ~ProcParser() {
     if (fd >= 0)
       linux_syscalls::close(fd);
   }
 
-  LIBC_INLINE cpp::optional<size_t> parse() {
+  LIBC_INLINE ErrorOr<size_t> parse() {
     if (fd < 0)
-      return cpp::nullopt;
+      return Error(error);
 
     while (cpp::optional<char> ch = next_char())
       if (!consume(*ch))
-        return cpp::nullopt;
+        return Error(error ? error : EIO);
 
-    if (has_error)
-      return cpp::nullopt;
+    if (error)
+      return Error(error);
 
-    if (!finish_group())
-      return cpp::nullopt;
+    if (state != ProcParserState::ParseEnded && !finish_group())
+      return Error(error ? error : EIO);
 
     if (cpu_count == 0)
-      return cpp::nullopt;
+      return Error(EIO);
     return cpu_count;
   }
 };
 
-LIBC_INLINE cpp::optional<size_t> parse_nproc_from(const char *path) {
+LIBC_INLINE ErrorOr<size_t> parse_nproc_from(const char *path) {
   return ProcParser(path).parse();
 }
 
 LIBC_INLINE size_t parse_nproc_with_fallback_from(const char *path) {
-  if (cpp::optional<size_t> cpu_count = parse_nproc_from(path))
+  if (ErrorOr<size_t> cpu_count = parse_nproc_from(path))
     return *cpu_count;
 
   cpp::array<unsigned char, 128> mask_buffer = {};

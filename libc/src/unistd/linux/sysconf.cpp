@@ -25,6 +25,7 @@
 #include "hdr/types/struct_rlimit.h"
 #include "hdr/types/struct_sysinfo.h"
 #include "hdr/unistd_macros.h"
+#include "src/__support/CPP/atomic.h"
 #include "src/__support/OSUtil/linux/auxv.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/prlimit.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/sysinfo.h"
@@ -75,9 +76,33 @@ long get_page_size() {
   return -1;
 }
 
+// Zero means unqueried, not initialization in progress: a fork child never
+// waits for a vanished initializer. Only a verified positive count is cached.
+cpp::Atomic<long> configured_cpu_count{0};
+
 long get_nprocessors_conf() {
-  return static_cast<long>(
-      sysinfo::parse_nproc_with_fallback_from(sysinfo::POSSIBLE_NPROC_PATH));
+  long cached = configured_cpu_count.load(cpp::MemoryOrder::RELAXED);
+  if (cached != 0)
+    return cached;
+
+  // Linux's possible set describes the maximum CPUs that can be brought
+  // online. Neither the online set nor this thread's affinity is equivalent.
+  ErrorOr<size_t> count = sysinfo::parse_nproc_from(sysinfo::POSSIBLE_NPROC_PATH);
+  if (!count) {
+    cached = configured_cpu_count.load(cpp::MemoryOrder::RELAXED);
+    if (cached != 0)
+      return cached;
+    libc_errno = count.error();
+    return -1;
+  }
+
+  // The scalar is the entire published state. Racing successful readers must
+  // return the winner's value, even if they observed different CPU lists.
+  long value = static_cast<long>(*count);
+  if (!configured_cpu_count.compare_exchange_strong(
+          cached, value, cpp::MemoryOrder::RELAXED))
+    return cached;
+  return value;
 }
 
 long get_nprocessors_onln() {
