@@ -254,6 +254,24 @@ MutexError RobustMutex::unlock() {
   return MutexError::NONE;
 }
 
+void RobustMutex::abandon_unpublished() {
+  Operation operation(&link);
+  if (!is_robust() || is_priority_inherit() || lock_count != 1 ||
+      (futex.load(cpp::MemoryOrder::RELAXED) & FUTEX_TID_MASK) !=
+          uint32_t(internal::gettid()))
+    __builtin_trap();
+  bool died = is_inconsistent();
+  remove(*this);
+  set_flag(MUTEX_INCONSISTENT, false);
+  lock_count = 0;
+  // Pending remains active through the ownerword handoff. A subsequent owner
+  // must still recover the original owner's death, not see a poisoned mutex.
+  uint32_t old = futex.exchange(died ? uint32_t(FUTEX_OWNER_DIED) : 0,
+                                cpp::MemoryOrder::RELEASE);
+  if (old & FUTEX_WAITERS)
+    futex.notify_all(/*is_shared=*/true);
+}
+
 int RobustMutex::consistent() {
   if ((futex.load(cpp::MemoryOrder::RELAXED) & FUTEX_TID_MASK) !=
           uint32_t(internal::gettid()) ||

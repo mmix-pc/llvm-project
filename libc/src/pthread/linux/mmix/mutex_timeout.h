@@ -43,8 +43,7 @@ LIBC_INLINE int mutex_clocklock(pthread_mutex_t *storage, clockid_t clock,
     return EINVAL;
   LIBC_CRASH_ON_NULLPTR(storage);
 #ifdef LIBC_MMIX_PROTECT_MUTEX
-  if (uses_protect_mutex(storage)) {
-    auto *protect = reinterpret_cast<ProtectMutex *>(storage);
+  auto protected_wait = [&](auto *protect) {
     int initial = protect->acquire(cpp::nullopt, true);
     if (initial != EBUSY)
       return initial;
@@ -56,7 +55,11 @@ LIBC_INLINE int mutex_clocklock(pthread_mutex_t *storage, clockid_t clock,
                  ? EINVAL
                  : ETIMEDOUT;
     return protect->acquire(*timeout);
-  }
+  };
+  if (uses_robust_protect_mutex(storage))
+    return protected_wait(reinterpret_cast<RobustProtectMutex *>(storage));
+  if (uses_protect_mutex(storage))
+    return protected_wait(reinterpret_cast<ProtectMutex *>(storage));
 #endif
 #ifdef LIBC_MMIX_ROBUST_MUTEX
   if (uses_kernel_mutex(storage)) {

@@ -133,13 +133,22 @@ int priority_leave(int ceiling) {
   return apply(state);
 }
 int priority_replace(int previous, int replacement, bool condition_recovery) {
+  return priority_replace_checked(previous, replacement, false,
+                                  condition_recovery);
+}
+int priority_replace_checked(int previous, int replacement, bool check_base,
+                             bool condition_recovery) {
   auto &state = priority_protection_state();
   Guard guard(state);
   if (int error = prepare(state, condition_recovery))
     return error;
+  if (replacement < 1 || replacement > 127 ||
+      (check_base && state.base > replacement))
+    return EINVAL;
   if (!state.contributions[previous])
     __builtin_trap();
-  if (state.contributions[replacement] == cpp::numeric_limits<unsigned>::max())
+  if (previous != replacement &&
+      state.contributions[replacement] == cpp::numeric_limits<unsigned>::max())
     return EAGAIN;
   --state.contributions[previous];
   ++state.contributions[replacement];

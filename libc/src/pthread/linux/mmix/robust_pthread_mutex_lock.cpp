@@ -13,6 +13,8 @@
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_mutex_lock, (pthread_mutex_t * mutex)) {
 #ifdef LIBC_MMIX_PROTECT_MUTEX
+  if (mmix::uses_robust_protect_mutex(mutex))
+    return reinterpret_cast<mmix::RobustProtectMutex *>(mutex)->acquire();
   if (mmix::uses_protect_mutex(mutex))
     return reinterpret_cast<mmix::ProtectMutex *>(mutex)->acquire();
 #endif

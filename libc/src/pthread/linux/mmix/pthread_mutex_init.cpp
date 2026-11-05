@@ -23,6 +23,7 @@
 #ifdef LIBC_MMIX_PROTECT_MUTEX
 #include "src/__support/threads/linux/mmix/priority_protection_state.h"
 #include "src/__support/threads/linux/mmix/protect_mutex.h"
+#include "src/__support/threads/linux/mmix/robust_protect_mutex.h"
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
@@ -91,8 +92,6 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
 #endif
 #ifdef LIBC_MMIX_PROTECT_MUTEX
   if (protocol == PTHREAD_PRIO_PROTECT) {
-    if (get_mutexattr_robust(value) != PTHREAD_MUTEX_STALLED)
-      return ENOTSUP;
     int low, high;
     if (int error = mmix::priority_range(low, high))
       return error;
@@ -101,7 +100,11 @@ LLVM_LIBC_FUNCTION(int, pthread_mutex_init,
       ceiling = low;
     if (ceiling < low || ceiling > high)
       return EINVAL;
-    new (mutex) mmix::ProtectMutex(ceiling, recursive, shared, error_checking);
+    if (get_mutexattr_robust(value) == PTHREAD_MUTEX_ROBUST)
+      new (mutex)
+          mmix::RobustProtectMutex(ceiling, recursive, shared, error_checking);
+    else
+      new (mutex) mmix::ProtectMutex(ceiling, recursive, shared, error_checking);
     return 0;
   }
 #endif

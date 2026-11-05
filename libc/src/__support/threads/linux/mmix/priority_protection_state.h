@@ -27,6 +27,9 @@ int priority_enter(int ceiling, bool check_base = true,
 int priority_leave(int ceiling);
 int priority_replace(int previous, int replacement,
                      bool condition_recovery = false);
+// Replace a reservation and optionally validate base priority under one guard.
+int priority_replace_checked(int previous, int replacement, bool check_base,
+                             bool condition_recovery = false);
 // Kernel transport is separate from the ownership/state algorithm.
 int priority_kernel_read(int &policy, int &priority);
 int priority_kernel_set(int policy, int priority);

@@ -142,8 +142,8 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   if(LIBC_MMIX_BUILD_PROTECT_MUTEX)
     add_object_library(
       protect_mutex
-      SRCS protect_mutex.cpp
-      HDRS protect_mutex.h priority_protection_state.h mutex_flags.h
+      SRCS protect_mutex.cpp robust_protect_mutex.cpp
+      HDRS protect_mutex.h robust_protect_mutex.h priority_protection_state.h mutex_flags.h
       DEPENDS .priority_protection .lifecycle .robust_mutex libc.src.__support.OSUtil.osutil
         libc.include.sys_syscall
       COMPILE_OPTIONS -fno-lto -ftls-model=${mmix_runtime_tls_model}

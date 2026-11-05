@@ -18,8 +18,8 @@ namespace mmix {
 // Callers validate ownership before registering with CndVar. A release error
 // means ownership was dropped, so queue retirement and reacquisition still
 // belong to CndVar; the wait policies below must not sleep on that path.
-struct ProtectConditionMutex {
-  ProtectMutex &mutex;
+template <typename MutexType> struct ProtectConditionMutex {
+  MutexType &mutex;
   int release_error = 0, acquire_error = 0;
 
   MutexError unlock() {
@@ -28,6 +28,10 @@ struct ProtectConditionMutex {
   }
   MutexError lock() {
     acquire_error = mutex.acquire(cpp::nullopt, false, true);
+    if (acquire_error == EOWNERDEAD)
+      return MutexError::OWNER_DEAD;
+    if (acquire_error == ENOTRECOVERABLE)
+      return MutexError::NOT_RECOVERABLE;
     return acquire_error ? MutexError::BAD_LOCK_STATE : MutexError::NONE;
   }
   bool can_be_requeued() const { return false; }
@@ -49,14 +53,14 @@ struct ProtectConditionMutex {
   }
 };
 
-template <typename Wait, typename Check, typename SharedWait>
-inline int protect_condition_wait(CndVar *cond, ProtectMutex *mutex,
+template <typename MutexType, typename Wait, typename Check, typename SharedWait>
+inline int protect_condition_wait(CndVar *cond, MutexType *mutex,
                                   cpp::optional<CndVar::Timeout> timeout,
                                   Wait wait, Check check,
                                   SharedWait shared_wait) {
   if (!mutex->owned_by_current())
     return EPERM;
-  ProtectConditionMutex view{*mutex};
+  ProtectConditionMutex<MutexType> view{*mutex};
   auto private_policy = [&](RawMutex &barrier,
                             cpp::optional<CndVar::Timeout> deadline) {
     return view.release_error ? false : wait(barrier, deadline);

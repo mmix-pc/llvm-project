@@ -19,6 +19,7 @@
 #endif
 #ifdef LIBC_MMIX_PROTECT_MUTEX
 #include "protect_condition.h"
+#include "src/__support/threads/linux/mmix/robust_protect_mutex.h"
 #endif
 
 namespace LIBC_NAMESPACE_DECL {
@@ -95,6 +96,10 @@ inline int condition_wait_impl(CndVar *cond, WaitMutex *mutex,
 inline int condition_wait(CndVar *cond, pthread_mutex_t *mutex,
                           cpp::optional<CndVar::Timeout> timeout) {
 #ifdef LIBC_MMIX_PROTECT_MUTEX
+  if (uses_robust_protect_mutex(mutex))
+    return protect_condition_wait(
+        cond, reinterpret_cast<RobustProtectMutex *>(mutex), timeout,
+        condition_private_wait, [] { test_cancel(); }, condition_shared_wait);
   if (uses_protect_mutex(mutex))
     return protect_condition_wait(
         cond, reinterpret_cast<ProtectMutex *>(mutex), timeout,

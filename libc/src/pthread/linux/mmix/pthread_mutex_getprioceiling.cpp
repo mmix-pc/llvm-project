@@ -11,10 +11,15 @@
 #include "mutex_protocol.h"
 #include "src/__support/threads/linux/mmix/priority_protection_state.h"
 #include "src/__support/threads/linux/mmix/protect_mutex.h"
+#include "src/__support/threads/linux/mmix/robust_protect_mutex.h"
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_mutex_getprioceiling,
                    (const pthread_mutex_t *__restrict mutex,
                     int *__restrict value)) {
+  if (mmix::uses_robust_protect_mutex(mutex)) {
+    *value = reinterpret_cast<const mmix::RobustProtectMutex *>(mutex)->ceiling();
+    return 0;
+  }
   if (!mmix::uses_protect_mutex(mutex))
     return EINVAL;
   *value = reinterpret_cast<const mmix::ProtectMutex *>(mutex)->ceiling();

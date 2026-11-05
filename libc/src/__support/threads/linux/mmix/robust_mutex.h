@@ -31,11 +31,12 @@ struct RobustMutex {
   size_t lock_count;
 
   constexpr RobustMutex(bool recurse, bool shared, bool check,
-                        bool inherit = false, bool recoverable = true)
+                        bool inherit = false, bool recoverable = true,
+                        uint32_t extra_flags = 0)
       : futex(0),
         flags((inherit ? MUTEX_INHERIT : 0) | (recurse ? MUTEX_RECURSIVE : 0) |
               (recoverable ? MUTEX_ROBUST : 0) | (shared ? MUTEX_SHARED : 0) |
-              (check ? MUTEX_ERRORCHECK : 0)),
+              (check ? MUTEX_ERRORCHECK : 0) | extra_flags),
         link{nullptr}, lock_count(0) {}
   bool has_flag(uint32_t mask) const { return mutex_flags(this) & mask; }
   void set_flag(uint32_t mask, bool value) {
@@ -60,6 +61,8 @@ struct RobustMutex {
     return acquire(timeout, false);
   }
   MutexError unlock();
+  // Withdraw one unpublished, non-PI acquisition without poisoning recovery.
+  void abandon_unpublished();
   int consistent();
   int destroy();
   bool can_be_requeued() const { return false; }
