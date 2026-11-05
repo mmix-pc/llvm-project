@@ -31,6 +31,7 @@
 namespace LIBC_NAMESPACE_DECL {
 // A namespace to rwlock specific utilities.
 namespace rwlock {
+class RwLockTester;
 // The role of the thread in the RwLock.
 enum class Role { Reader = 0, Writer = 1 };
 
@@ -294,6 +295,7 @@ public:
 } // namespace rwlock
 
 class RawRwLock {
+  friend class rwlock::RwLockTester;
   using RwState = rwlock::RwState;
   using Role = rwlock::Role;
   using WaitingQueue = rwlock::WaitingQueue;
@@ -407,7 +409,9 @@ private:
       }
 
       // Phase 7: unregister ourselves as a pending reader/writer.
-      bool writer_serial_changed = false;
+      Futex *waiters_to_wake = nullptr;
+      bool wake_readers = false;
+      const bool shared = is_pshared;
       {
         // Similarly, the unregister operation should also be an atomic
         // transaction.
@@ -422,7 +426,22 @@ private:
         if constexpr (role == Role::Writer) {
           FutexWordType new_serial =
               guard.serialization<role>().load(cpp::MemoryOrder::RELAXED);
-          writer_serial_changed = new_serial != serial_number;
+          const bool writer_serial_changed = new_serial != serial_number;
+          if (timeout_flag && guard.pending_count<Role::Writer>() == 0 &&
+              guard.pending_count<Role::Reader>() != 0) {
+            // Removing the last waiting writer reopens reader admission even
+            // if active readers have not released the lock. Publish before
+            // leaving the queue transaction so a reader cannot miss the wake.
+            waiters_to_wake = &guard.serialization<Role::Reader>();
+            waiters_to_wake->fetch_add(1, cpp::MemoryOrder::RELEASE);
+            wake_readers = true;
+          } else if (timeout_flag && writer_serial_changed &&
+                     guard.pending_count<Role::Writer>() != 0) {
+            // A timeout may have consumed a writer wake. Select its replacement
+            // before unregistering permits another waiter to retire the lock.
+            waiters_to_wake = &guard.serialization<Role::Writer>();
+            waiters_to_wake->fetch_add(1, cpp::MemoryOrder::RELEASE);
+          }
         }
       }
 
@@ -432,8 +451,14 @@ private:
         // a wakeup signal. If this happens, we must wake up the next thread to
         // avoid a deadlock. This is only a problem for writers because readers
         // are woken up all at once and we prefer waking up writers first.
-        if (writer_serial_changed)
-          notify_pending_threads();
+        // Only the saved futex address and wake policy are used after leaving
+        // the queue; another admitted waiter may retire the lock's storage.
+        if (waiters_to_wake) {
+          if (wake_readers)
+            waiters_to_wake->notify_all(shared);
+          else
+            waiters_to_wake->notify_one(shared);
+        }
         return LockResult::TimedOut;
       }
 
