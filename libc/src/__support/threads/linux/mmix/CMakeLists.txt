@@ -280,7 +280,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     notification_mq
     SRCS notification_mq.cpp
     HDRS notification_mq.h
-    DEPENDS .notification_callback .thread_create
+    DEPENDS .notification_callback .thread_create .thread_reclaim
       libc.src.__support.threads.notification_registry
       libc.src.__support.threads.raw_mutex
       libc.src.__support.OSUtil.linux.notification_transport

@@ -14,6 +14,7 @@
 #include "src/stdlib/free.h"
 #include "src/stdlib/malloc.h"
 #include "thread_create.h"
+#include "thread_reclaim.h"
 #include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
@@ -45,19 +46,32 @@ NotificationMq::~NotificationMq() {
     __builtin_trap();
 }
 
-void NotificationMq::finish_waiter(Record &record, bool activate) {
+void NotificationMq::finish_waiter(Record &record, bool activate,
+                                   bool failed_registration) {
+  if (failed_registration && activate)
+    __builtin_trap();
   ThreadControl *control = record.waiter;
   record.waiter = nullptr;
   if (!control)
     return;
   // No table lock here. Activation and application-lifetime admission are one
   // registry operation. Failure to admit must still terminate the dormant task.
-  ThreadRegistryLock lock(thread_registry);
-  if ((!activate || !lock.activate_callback(*control)) &&
-      !lock.discard_callback(*control))
-    __builtin_trap();
-  if (!lock.drop_creator(*control))
-    __builtin_trap();
+  bool await_exit = failed_registration && record.callback->supplied_stack();
+  {
+    ThreadRegistryLock lock(thread_registry);
+    if ((!activate || !lock.activate_callback(*control)) &&
+        !lock.discard_callback(*control))
+      __builtin_trap();
+    if (!await_exit && !lock.drop_creator(*control))
+      __builtin_trap();
+  }
+  if (await_exit) {
+    // The creator pin prevents reaping while clear_tid is observed unlocked.
+    await_thread_clear(*control);
+    ThreadRegistryLock lock(thread_registry);
+    if (!lock.drop_creator(*control))
+      __builtin_trap();
+  }
   // Last control access above. Unlock publishes/wakes the process-lifetime
   // registry event; it must not notify through potentially reclaimed control.
 }
@@ -131,7 +145,7 @@ long NotificationMq::install(int mqdes, int socket_fd, const sigevent &event,
       __builtin_trap();
   }
   if (!admitted) {
-    finish_waiter(*record, false);
+    finish_waiter(*record, false, true);
     cleanup(*record);
     return EOVERFLOW;
   }
@@ -159,7 +173,8 @@ long NotificationMq::install(int mqdes, int socket_fd, const sigevent &event,
   // path retains exclusive ownership past the commit lock.
   if (terminal) {
     finish_waiter(*record,
-                  result == 0 && record->terminal == Record::Terminal::Woken);
+                  result == 0 && record->terminal == Record::Terminal::Woken,
+                  result < 0);
     cleanup(*record);
   }
   return result < 0 ? -result : 0;

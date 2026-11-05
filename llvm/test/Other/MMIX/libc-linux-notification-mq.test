@@ -38,9 +38,9 @@ for opt in ("0", "2"):
     subprocess.run([*host, *flags, "-D__mmix__", "-O" + opt,
         "-include", str(root / "base/transport.h"), *map(str, sources),
         str(root / "test.cpp"), str(bridge), "-o", str(exe)], check=True)
-    for mode in range(12):
+    for mode in range(14):
         subprocess.run([str(exe), str(mode)], check=True, timeout=10)
-    print(f"Notification MQ: 12 scenarios passed at O{opt}", flush=True)
+    print(f"Notification MQ: 14 scenarios passed at O{opt}", flush=True)
 
 #--- headers/sys/syscall.h
 #define SYS_mq_notify 184
@@ -59,6 +59,7 @@ extern "C" void host_free(void *p) { std::free(p); }
 #include "src/__support/threads/linux/mmix/thread_create.h"
 #include "src/__support/OSUtil/linux/kernel_sigevent.h"
 #include "hdr/errno_macros.h"
+#include "hdr/pthread_macros.h"
 using namespace mq_test;
 using namespace mq_test::mmix;
 using notification_transport::Event;
@@ -67,6 +68,8 @@ extern "C" void host_free(void *);
 static void check(bool b) { if (!b) __builtin_trap(); }
 static int mode, allocations, frees, attempts, syscalls, activations, discards;
 static int drops, wakes, callbacks, lock_depth;
+static int clear_waits;
+alignas(8) static unsigned char supplied_stack[131072];
 static bool cleanup_failure;
 static bool creator;
 static CallbackPhase phase = CallbackPhase::None;
@@ -113,6 +116,11 @@ bool ThreadRegistryLock::drop_creator(ThreadControl &c) {
   creator = false; changed = true; ++drops;
   return true;
 }
+void await_thread_clear(ThreadControl &c) {
+  check(mode >= 12 && &c == &control && creator && !lock_depth);
+  check(phase == CallbackPhase::Discarded && wakes == 1 && !drops);
+  check(!callbacks && !clear_waits++);
+}
 ThreadCreationResult create_callback_waiter(const ThreadPreparation &request,
                                             ThreadControl *&output) {
   check(!lock_depth && request.detached);
@@ -155,23 +163,32 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long number, long a, long b,
     if (mode == 9) table->consume({cookie, Event::MqRemoved, 0});
     check(!activations && !discards && !drops && !table->drained());
   }
-  return mode == 4 || mode == 5 ? -EBUSY : 0;
+  return mode == 4 || mode == 5 || mode == 12 ? -EBUSY : 0;
 }
 static void callback(sigval value) { check(value.sival_int == 73); ++callbacks; }
 extern "C" int main(int argc, char **argv) {
   check(argc == 2);
   for (const char *p = argv[1]; *p; ++p) mode = mode * 10 + *p - '0';
-  NotificationMq mq(mode == 8 ? UINT64_MAX : 0); table = &mq;
+  NotificationMq mq(mode == 8 || mode == 13 ? UINT64_MAX : 0); table = &mq;
   sigevent event{};
   event.sigev_notify = SIGEV_THREAD;
   event.sigev_notify_function = callback;
   event.sigev_value.sival_int = 73;
+  pthread_attr_t attr{};
+  if (mode >= 12) {
+    attr.__stack = supplied_stack;
+    attr.__stacksize = sizeof(supplied_stack);
+    attr.__inheritsched = PTHREAD_INHERIT_SCHED;
+    attr.__scope = PTHREAD_SCOPE_SYSTEM;
+    event.sigev_notify_attributes = &attr;
+  }
   cleanup_failure = mode == 11;
   long result = mq.install(5, 17, event, {}, 8192);
-  long expected = mode == 4 || mode == 5 ? EBUSY :
+  long expected = mode == 4 || mode == 5 || mode == 12 ? EBUSY :
                   mode == 6 || mode == 11 ? EAGAIN :
-                  mode == 8 ? EOVERFLOW : mode == 10 ? ENOMEM : 0;
+                  mode == 8 || mode == 13 ? EOVERFLOW : mode == 10 ? ENOMEM : 0;
   check(result == expected);
+  check(clear_waits == int(mode >= 12));
   if (mode == 0 || mode == 1 || mode == 7) {
     check(!mq.drained() && !drops);
     mq.consume({cookie + 1, Event::MqWokenUp, 0});
@@ -189,10 +206,10 @@ extern "C" int main(int argc, char **argv) {
     check(mq.retry_cleanup() == 0);
   }
   check(mq.drained() && mq.retry_cleanup() == 0);
-  check(syscalls == (mode == 6 || mode == 8 || mode == 10 || mode == 11 ? 0 : 1));
-  check(mq.last_issued_cookie() == (mode == 8 ? UINT64_MAX : uint64_t(syscalls)));
+  check(syscalls == (mode == 6 || mode == 8 || mode == 10 || mode == 11 || mode == 13 ? 0 : 1));
+  check(mq.last_issued_cookie() == (mode == 8 || mode == 13 ? UINT64_MAX : uint64_t(syscalls)));
   if (pending.resource_owner.context) {
-    check(drops == 1 && wakes == 1 && !creator);
+    check(drops == 1 && wakes == 1 + int(mode >= 12) && !creator);
     bool activated = mode == 0 || mode == 2 || mode == 9;
     check(activations == int(activated) && discards == int(!activated));
     // The transaction freed its record, but the resource owner still pins the

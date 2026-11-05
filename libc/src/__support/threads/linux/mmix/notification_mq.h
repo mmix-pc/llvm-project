@@ -37,7 +37,8 @@ class NotificationMq {
   Record *cleanup_head = nullptr;
   size_t outstanding = 0;
 
-  static void finish_waiter(Record &, bool activate);
+  static void finish_waiter(Record &, bool activate,
+                           bool failed_registration = false);
   long cleanup(Record &);
 
 public:
@@ -54,6 +55,7 @@ public:
   // transaction and every resulting registration. Precreates/validates the
   // managed waiter before publishing Installing and issuing raw mq_notify.
   // Failed cleanup is retained here, never substituted for the syscall error.
+  // Failed registration withdraws a caller-stack waiter before returning.
   long install(int mqdes, int socket_fd, const sigevent &, const TLSImage &,
                uintptr_t page_size);
 
