@@ -62,10 +62,8 @@ int ProtectMutex::acquire(cpp::optional<Futex::Timeout> timeout, bool try_only,
   if (actual != reserved) {
     // A setter may change the ceiling while we wait. Replace the reservation
     // only after ownership; do not retain a stale priority contribution.
-    auto &state = priority_protection_state();
-    int error = state.base > actual
-                    ? EINVAL
-                    : priority_replace(reserved, actual, condition_recovery);
+    int error = priority_replace_checked(reserved, actual, true,
+                                         condition_recovery);
     if (error) {
       RawMutex::unlock(shared);
       return withdraw(reserved, error);
