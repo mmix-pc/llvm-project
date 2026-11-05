@@ -2,13 +2,19 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
   add_subdirectory(${LIBC_TARGET_OS})
 endif()
 
+set(call_once_source call_once.cpp)
+if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(call_once_source linux/mmix/call_once.cpp)
+  set(call_once_dependencies libc.src.pthread.pthread_once)
+endif()
 add_entrypoint_object(
   call_once
   SRCS
-    call_once.cpp
+    ${call_once_source}
   HDRS
     call_once.h
   DEPENDS
+    ${call_once_dependencies}
     libc.include.threads
     libc.src.__support.threads.callonce
 )
