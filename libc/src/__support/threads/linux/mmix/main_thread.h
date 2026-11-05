@@ -86,6 +86,10 @@ void cleanup_main_thread();
 // a callback requests process exit. Does not unwind stacks or clean up peers.
 void cleanup_current_thread();
 
+// Normal process exit drains C++ TLS only, with the same once-only lifecycle
+// and fork continuation as thread exit. TSS destructors are not invoked.
+void cleanup_current_thread_for_process_exit();
+
 // Shared explicit/last-thread process finalization, implemented by MMIX exit.
 [[noreturn]] void exit_process(int status);
 

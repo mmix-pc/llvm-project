@@ -288,11 +288,11 @@ void begin_process_exit(int status, [[maybe_unused]] bool quick) {
       self.attrib == &control->attributes)
     worker_draining = self.attrib;
 #endif
-  cleanup_current_thread();
+  cleanup_current_thread_for_process_exit();
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_PLATFORM
   worker_draining = nullptr;
   // Workers never consult main's mutable phase. Bind completion only after
-  // their own TLS/TSS drain returned, not merely when callbacks_started rose.
+  // their own TLS drain returned, not merely when callbacks_started rose.
   control = mmix::current_control;
   if (control && !control->retains_resources_until_process_exit() &&
       self.attrib == &control->attributes)

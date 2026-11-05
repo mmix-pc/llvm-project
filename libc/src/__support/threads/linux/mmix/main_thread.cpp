@@ -368,17 +368,27 @@ bool activate_main_thread(MainThreadState &state) {
 }
 #endif
 
-void cleanup_main_thread() {
+namespace {
+enum class CleanupKind { ThreadExit, ProcessExit };
+
+void drain_callbacks(ThreadAttributes *attributes, CleanupKind kind) {
+  if (kind == CleanupKind::ProcessExit)
+    call_tls_atexit_callbacks(attributes);
+  else
+    call_atexit_callbacks(attributes);
+}
+
+void cleanup_main_thread(CleanupKind kind) {
   if (phase != Phase::Active)
     return;
   phase = Phase::Cleaning;
-  call_atexit_callbacks(active_attributes);
+  drain_callbacks(active_attributes, kind);
   phase = Phase::Finished;
 }
 
-void cleanup_current_thread() {
+void cleanup_current_thread(CleanupKind kind) {
 #if LIBC_THREAD_MODE == LIBC_THREAD_MODE_SINGLE
-  cleanup_main_thread();
+  cleanup_main_thread(kind);
 #else
   if (!self.attrib)
     return;
@@ -389,11 +399,11 @@ void cleanup_current_thread() {
     return;
   // Only main may access the main-thread lifecycle phase and attributes.
   if (control->retains_resources_until_process_exit())
-    cleanup_main_thread();
+    cleanup_main_thread(kind);
   else {
-    call_atexit_callbacks(self.attrib);
+    drain_callbacks(self.attrib, kind);
     // A fork inside this worker drain can promote only its child. Complete
-    // that copied activation after both TLS and TSS, without draining again.
+    // that copied activation after its selected drain, without draining again.
     if (control->retains_resources_until_process_exit()) {
       if (mmix::current_control != control ||
           !control->fork_recovery.is_child() ||
@@ -404,6 +414,16 @@ void cleanup_current_thread() {
     }
   }
 #endif
+}
+
+} // namespace
+
+void cleanup_main_thread() { cleanup_main_thread(CleanupKind::ThreadExit); }
+
+void cleanup_current_thread() { cleanup_current_thread(CleanupKind::ThreadExit); }
+
+void cleanup_current_thread_for_process_exit() {
+  cleanup_current_thread(CleanupKind::ProcessExit);
 }
 
 } // namespace internal

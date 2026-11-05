@@ -103,7 +103,7 @@ struct ExitStatus {
   int value;
 };
 uint64_t mask = 0x4000;
-unsigned tls_drains, process_drains, registrations;
+unsigned tls_drains, tss_drains, process_drains, registrations;
 unsigned during_forks;
 bool notifications_closed;
 bool recursive_during_child;
@@ -1565,8 +1565,9 @@ ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
   static ThreadAtExitCallbackMgr manager;
   return &manager;
 }
-void call_atexit_callbacks(ThreadAttributes *attributes) {
+static void simulate_callbacks(ThreadAttributes *attributes, bool tls_only) {
   if (helper_case()) {
+    assert(!tls_only);
     assert(attributes == self.attrib);
     if (helper_worker_case() && !snapshot_helper) {
       // Initial-thread cleanup before the worker becomes the sole owner.
@@ -1589,6 +1590,7 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
     return;
   }
   if (detached_after_case()) {
+    assert(!tls_only);
     auto &caller = *M::current_control;
     assert(attributes == self.attrib && !tls_drains++);
     assert(caller.terminal_cleanup_in_progress() &&
@@ -1620,6 +1622,7 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
     return;
   }
   if (initial_during_case()) {
+    assert(!tls_only);
     assert(attributes == self.attrib && !tls_drains++);
     const bool tls = selected == Case::InitialDuringTLS ||
                      selected == Case::InitialCancelTLS;
@@ -1638,6 +1641,7 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
   if (worker_case()) {
     assert(attributes == self.attrib);
     if (M::current_control->retains_resources_until_process_exit()) {
+      assert(!tls_only);
       assert(!normal_exit_fork_owner());
       assert(++main_drains == 1 && main_thread_cleanup_in_progress());
       return;
@@ -1652,9 +1656,11 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
     bool during = true;
     if (selected == Case::WorkerQuick || selected == Case::WorkerTerminal ||
         selected == Case::WorkerCleanupOnly) {
+      assert(!tls_only);
       assert(!normal_exit_fork_owner(&during) && !during);
       return;
     }
+    assert(tls_only);
     assert(normal_exit_fork_owner(&during) == attributes->tid && during);
     auto *draining = worker_draining;
     worker_draining = nullptr;
@@ -1709,15 +1715,17 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
   assert(!adopt_fork_survivor_during_cleanup());
   if (selected == Case::Quick || selected == Case::CleanupOnly ||
       selected == Case::LastThreadReturn) {
+    assert(!tls_only);
     assert(!normal_exit_fork_owner());
     assert(!last_thread_exit_fork_owner());
     return;
   }
 
+  assert(tls_only);
   auto &caller = *M::current_control;
   const pid_t owner = attributes->tid;
   assert(normal_exit_fork_owner() == owner && notifications_closed);
-  // A process-callback marker cannot certify an unfinished TLS/TSS drain.
+  // A process-callback marker cannot certify an unfinished TLS drain.
   normal_exit_phase = NormalExitPhase::ProcessCallbacks;
   assert(!normal_exit_fork_owner());
   normal_exit_phase = NormalExitPhase::ThreadCallbacks;
@@ -1748,7 +1756,7 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
       assert(!operation.error());
     }
     assert(!caller.cancellation_suppression.load() && mask == saved_mask);
-    // Shared TSS draining retains one cancellation scope, but no loader lock.
+    // A TLS callback may retain one loader scope, but not two.
     caller.loader_scopes.store(1);
     {
       M::ForkOperation operation(true);
@@ -1778,11 +1786,32 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
   if (selected == Case::DuringReturn || selected == Case::RecursiveDuringChild)
     fork_during_cleanup();
 }
+void call_tls_atexit_callbacks(ThreadAttributes *attributes) {
+  assert(notifications_closed);
+  const auto before = tss_drains;
+  simulate_callbacks(attributes, true);
+  assert(tss_drains == before);
+}
+void call_atexit_callbacks(ThreadAttributes *attributes) {
+  simulate_callbacks(attributes, false);
+  ++tss_drains;
+}
 [[noreturn]] void exit(int status) { throw ExitStatus{status}; }
 } // namespace internal
 
 extern "C" void mmix_normal_exit_test_finalize(void *dso) {
   assert(!dso && ++process_drains == 1 && tls_drains == 1);
+  // Count only ordinary thread drains preceding process finalization. Worker
+  // normal exit has already retired the initial thread, but skips its own TSS.
+  unsigned expected_tss = 0;
+  if (worker_case())
+    expected_tss = selected == Case::WorkerTerminal ? 2 : 1;
+  else if (helper_worker_case())
+    expected_tss = 2;
+  else if (helper_case() || initial_during_case() || detached_after_case() ||
+           selected == Case::LastThreadReturn)
+    expected_tss = 1;
+  assert(tss_drains == expected_tss);
   if (helper_case()) {
     auto &caller = *M::current_control;
     assert(drain_returns == 1 && after_roots == 1 && callback_returns == 1 &&
@@ -2364,6 +2393,7 @@ static void exercise_quick() {
   I::finish_quick_exit_callback();
   assert(!I::quick_exit_fork_owner() && c.cancellation_suppression.load() == 1 &&
          !tls_drains && !process_drains);
+  assert(tss_drains == (worker_case() ? 1u : 0u));
 }
 
 static void exercise(Case test) {
@@ -2497,8 +2527,9 @@ static void exercise(Case test) {
              !I::main_thread_cleanup_finished());
       assert(main_drains == 1 && tls_drains == 1 && process_drains == 0 &&
              !notifications_closed);
+      assert(tss_drains == 2);
       I::cleanup_current_thread();
-      assert(tls_drains == 1);
+      assert(tls_drains == 1 && tss_drains == 2);
       return;
     }
     if (test == Case::WorkerQuick) {
@@ -2535,6 +2566,7 @@ static void exercise(Case test) {
     assert(!I::normal_exit_fork_owner());
     assert(!I::rebind_normal_exit_fork_owner(caller.attributes.tid));
     assert(tls_drains == 1 && process_drains == 0 && !notifications_closed);
+    assert(tss_drains == 1);
     return;
   }
   if (test == Case::Quick) {
@@ -2551,6 +2583,7 @@ static void exercise(Case test) {
                                                         : 23;
     assert(status.value == expected);
     assert(tls_drains == 1);
+    assert(!tss_drains);
     assert(process_drains == (recursive_tls ? 0u : 1u));
     if (recursive_tls) {
       assert(I::main_thread_cleanup_in_progress());

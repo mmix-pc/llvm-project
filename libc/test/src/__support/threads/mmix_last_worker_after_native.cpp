@@ -29,6 +29,7 @@ namespace M = LIBC_NAMESPACE::mmix;
 namespace I = LIBC_NAMESPACE::internal;
 static M::ThreadControl initial, worker;
 static unsigned initial_callbacks, worker_callbacks, roots, registrations;
+static unsigned initial_tss, worker_tss;
 static uint64_t signal_mask = 0x1234;
 static int registered_tid;
 static bool detached;
@@ -61,6 +62,7 @@ static void retained_worker() {
   assert(worker.cancellation.terminal() && !worker.cancellation.ready());
   assert(worker.cancellation_identity == 9 && worker.cancellation_generation == 7);
   assert(initial_callbacks == 1 && worker_callbacks == 1 && roots == 1);
+  assert(initial_tss == 1 && worker_tss == 1);
   M::ThreadRegistryLock lock(M::thread_registry);
   assert(lock.callback_phase(worker) ==
          (mq ? M::CallbackPhase::Active : M::CallbackPhase::None));
@@ -173,7 +175,7 @@ namespace internal {
 ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
   return reinterpret_cast<ThreadAtExitCallbackMgr *>(0x1000);
 }
-void call_atexit_callbacks(ThreadAttributes *attributes) {
+void call_tls_atexit_callbacks(ThreadAttributes *attributes) {
   assert(attributes == self.attrib);
   if (attributes == &initial.attributes) {
     assert(!initial_callbacks++);
@@ -190,8 +192,16 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
     assert(lock.live_threads() == 1 && !lock.process_exiting());
   }
 }
+void call_atexit_callbacks(ThreadAttributes *attributes) {
+  call_tls_atexit_callbacks(attributes);
+  if (attributes == &initial.attributes)
+    assert(!initial_tss++);
+  else
+    assert(!worker_tss++);
+}
 [[noreturn]] void exit_process(int) { __builtin_trap(); }
 [[noreturn]] void exit_after_thread_cleanup() {
+  cleanup_current_thread_for_process_exit();
   retained_worker();
   assert(M::thread_registry.claim_process_cleanup());
   assert(!adopt_fork_survivor_after_worker_exit()); // Not a fork child yet.

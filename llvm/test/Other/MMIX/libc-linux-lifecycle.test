@@ -47,7 +47,8 @@ for opt in ("0", "2"):
                 ["llvm-nm", "-u", "--demangle", str(obj)], text=True)
             assert "startup_test::internal::exit(int)" in undefined, undefined
             if source == normal_exit:
-                assert "cleanup_current_thread()" in undefined, undefined
+                assert "cleanup_current_thread_for_process_exit()" in undefined, undefined
+                assert "cleanup_current_thread()" not in undefined, undefined
                 assert "__cxa_finalize" in undefined, undefined
             else:
                 for cleanup in ("cleanup_main_thread", "cleanup_current_thread", "exit_process"):
@@ -62,7 +63,7 @@ for opt in ("0", "2"):
     assert not subprocess.check_output(["llvm-nm", "-u", str(linked)], text=True).strip()
     symbols = subprocess.check_output(["llvm-nm", "--defined-only", "--demangle", str(linked)], text=True)
     assert "initialize_main_thread()" in symbols, symbols
-    assert "cleanup_main_thread()" in symbols, symbols
+    assert "cleanup_current_thread_for_process_exit()" in symbols, symbols
     for name in ("startup_test::exit(int)", "startup_test::_Exit(int)",
                  "startup_test::_exit(int)"):
         assert name in symbols, symbols
@@ -217,14 +218,14 @@ extern "C" int main(int argc, char **argv) {
     if (mode == 1 || mode == 2) { require(result == 1 && count == 0); return 0; }
     require(result == 2);
 #ifdef EMPTY_ARRAYS
-    int expected[] = {5, 9, 10, 11, 13};
-    int size = mode >= 5 ? 1 : 5;
+    int expected[] = {5, 9, 10, 13};
+    int size = mode >= 5 ? 1 : 4;
 #else
-    int expected[] = {1, 2, 3, 4, 5, 9, 10, 11, 13, 6, 7, 8};
-    int size = mode >= 5 ? 5 : 12;
+    int expected[] = {1, 2, 3, 4, 5, 9, 10, 13, 6, 7, 8};
+    int size = mode >= 5 ? 5 : 11;
     if (mode == 4) {
-      for (int i = 3; i != 10; ++i) expected[i] = expected[i + 2];
-      size = 10;
+      for (int i = 3; i != 9; ++i) expected[i] = expected[i + 2];
+      size = 9;
     }
 #endif
     require(count == size);

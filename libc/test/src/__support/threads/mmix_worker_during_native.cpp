@@ -30,6 +30,7 @@ namespace I = LIBC_NAMESPACE::internal;
 static M::ThreadControl initial, worker;
 static unsigned initial_callbacks, worker_callbacks, drain_roots, after_roots;
 static unsigned registrations, callback_progress;
+static unsigned initial_tss, worker_tss;
 static uint64_t signal_mask = 0x1234;
 static int registered_tid;
 static bool detached;
@@ -226,7 +227,7 @@ namespace internal {
 ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
   return reinterpret_cast<ThreadAtExitCallbackMgr *>(0x1000);
 }
-void call_atexit_callbacks(ThreadAttributes *attributes) {
+void call_tls_atexit_callbacks(ThreadAttributes *attributes) {
   assert(attributes == self.attrib);
   if (attributes == &initial.attributes) {
     assert(!initial_callbacks++);
@@ -238,7 +239,16 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
   ++callback_progress; // Inject a returning first TLS callback.
   copied_drain();
   during();
-  ++callback_progress; // Pending TLS work, then two TSS iterations.
+  ++callback_progress; // Pending TLS work.
+}
+void call_atexit_callbacks(ThreadAttributes *attributes) {
+  call_tls_atexit_callbacks(attributes);
+  if (attributes == &initial.attributes) {
+    assert(!initial_tss++);
+    return;
+  }
+  assert(!worker_tss++);
+  // Ordinary thread termination still performs both TSS iterations.
   during();
   ++callback_progress;
   during();
@@ -246,7 +256,9 @@ void call_atexit_callbacks(ThreadAttributes *attributes) {
 }
 [[noreturn]] void exit_process(int) { __builtin_trap(); }
 [[noreturn]] void exit_after_thread_cleanup() {
+  cleanup_current_thread_for_process_exit();
   backing();
+  assert(initial_tss == 1 && worker_tss == 1);
   assert(after_roots == 1 && callback_progress == 4 && worker.last_worker_cleanup_finished());
   assert(registrations == 3);
   {
