@@ -99,18 +99,27 @@ namespace process_test { namespace mmix {
 bool has_c_cleanup() { return false; }
 void run_with_unwind_root(ThreadControl &, RootBody *, void *) { __builtin_trap(); }
 void run_with_terminal_cleanup_root(ThreadControl &c, RootBody *body, void *p) {
-  require(&c == &main_control && !c.unwind_root.active && !drain_roots++);
-  require(c.terminal_cleanup_pending() && !initial_thread_during_fork_owner());
+  bool is_main = &c == &main_control;
+  require((is_main || &c == &worker) && !c.unwind_root.active);
+  require(drain_roots == drain_returns);
+  ++drain_roots;
+  require((is_main ? c.terminal_cleanup_pending() : c.worker_cleanup_pending()) &&
+          !initial_thread_during_fork_owner() && !worker_thread_during_fork_owner());
   c.unwind_root = {&c, 8, 16, 24, 4, 1, true,
                    UnwindRootKind::TerminalThreadCleanup};
   body(p);
-  require(!initial_thread_during_fork_owner() && internal::main_thread_cleanup_finished());
-  require(c.unwind_root.active && !drain_returns++);
+  require(!initial_thread_during_fork_owner() && !worker_thread_during_fork_owner());
+  require(is_main ? internal::main_thread_cleanup_finished() :
+                   c.worker_cleanup_in_progress());
+  require(c.unwind_root.active && drain_returns + 1 == drain_roots);
+  ++drain_returns;
   c.unwind_root.active = false;
 }
 [[noreturn]] void run_with_process_exit_root(ThreadControl &c, RootBody *body, void *p) {
-  require(&c == &main_control && !c.unwind_root.active);
-  require(!initial_thread_during_fork_owner() && c.terminal_cleanup_finished());
+  require((&c == &main_control || &c == &worker) && !c.unwind_root.active);
+  require(!initial_thread_during_fork_owner() && !worker_thread_during_fork_owner());
+  require(&c == &main_control ? c.terminal_cleanup_finished() :
+                               c.last_worker_cleanup_finished());
   require(drain_roots == drain_returns);
   c.unwind_root = {&c, 8, 16, 24, 4, c.unwind_root.generation + 1, true,
                    UnwindRootKind::LastThreadProcess};
@@ -149,6 +158,14 @@ void call_atexit_callbacks(ThreadAttributes *a) {
     cleanup_main_thread(); // Recursive main cleanup remains idempotent.
   } else {
     require(a == &worker.attributes && !clean_worker++);
+#ifdef LIBC_MMIX_UNWIND_ROOTS
+    if (worker.unwind_root.active) {
+      require(worker.worker_cleanup_in_progress());
+      require(worker_thread_during_fork_owner() == worker.attributes.tid);
+      require(!initial_thread_during_fork_owner());
+      require(drain_roots == drain_returns + 1);
+    }
+#endif
   }
 }
 [[noreturn]] void exit(int status) {
@@ -242,6 +259,8 @@ extern "C" int main(int argc, char **argv) {
   if (argv[1][1]) mode = mode * 10 + unsigned(argv[1][1]-'0');
   main_control.attributes.tid = 10;
   worker.attributes.tid = 20;
+  // The real thread startup initializes its TLS callback manager before entry.
+  worker.attributes.atexit_callback_mgr = internal::get_thread_atexit_callback_mgr();
   require(internal::activate_main_thread(main_control));
   {
     ThreadRegistryLock lock(thread_registry);
