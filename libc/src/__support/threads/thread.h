@@ -166,6 +166,9 @@ namespace internal {
 // returned by this function.
 ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr();
 
+// Drain C++ TLS callbacks without running TSS destructors at process exit.
+void call_tls_atexit_callbacks(ThreadAttributes *attrib);
+
 // Call the currently registered thread specific atexit callbacks. Useful for
 // implementing the thread_exit function.
 void call_atexit_callbacks(ThreadAttributes *attrib);

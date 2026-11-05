@@ -13,6 +13,15 @@
 using namespace LIBC_NAMESPACE;
 static unsigned rearm_key, context_key, calls;
 static int payload;
+static unsigned tls_calls;
+
+extern "C" int __cxa_thread_atexit_impl(void (*)(void *), void *, void *);
+
+static void tls_destructor(void *value) {
+  ASSERT_EQ(value, &payload);
+  ASSERT_EQ(get_tss_value(rearm_key), &payload);
+  ++tls_calls;
+}
 
 static void cleanup() {
   ThreadAttributes attributes;
@@ -22,6 +31,7 @@ static void cleanup() {
 static void fail_destructor(void *) { ASSERT_TRUE(false); }
 static void rearm(void *value) {
   ASSERT_EQ(value, &payload);
+  ASSERT_EQ(tls_calls, 2U);
   ASSERT_EQ(get_tss_value(rearm_key), nullptr);
   ASSERT_EQ(get_tss_value(context_key), &payload);
   ++calls;
@@ -67,7 +77,18 @@ TEST_MAIN() {
   rearm_key = *key;
   ASSERT_TRUE(set_tss_value(context_key, &payload));
   ASSERT_TRUE(set_tss_value(rearm_key, &payload));
+  ASSERT_EQ(__cxa_thread_atexit_impl(tls_destructor, &payload, nullptr), 0);
+  ThreadAttributes attributes;
+  attributes.atexit_callback_mgr = internal::get_thread_atexit_callback_mgr();
+  internal::call_tls_atexit_callbacks(&attributes);
+  ASSERT_EQ(tls_calls, 1U);
+  ASSERT_EQ(calls, 0U);
+  ASSERT_EQ(get_tss_value(rearm_key), &payload);
+  internal::call_tls_atexit_callbacks(&attributes);
+  ASSERT_EQ(tls_calls, 1U);
+  ASSERT_EQ(__cxa_thread_atexit_impl(tls_destructor, &payload, nullptr), 0);
   cleanup();
+  ASSERT_EQ(tls_calls, 2U);
   ASSERT_EQ(calls, unsigned(PTHREAD_DESTRUCTOR_ITERATIONS));
   ASSERT_EQ(get_tss_value(rearm_key), nullptr);
   cleanup();

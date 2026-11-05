@@ -89,8 +89,12 @@ ThreadAtExitCallbackMgr *get_thread_atexit_callback_mgr() {
   return &atexit_callback_mgr;
 }
 
-void call_atexit_callbacks(ThreadAttributes *attrib) {
+void call_tls_atexit_callbacks(ThreadAttributes *attrib) {
   attrib->atexit_callback_mgr->call();
+}
+
+void call_atexit_callbacks(ThreadAttributes *attrib) {
+  call_tls_atexit_callbacks(attrib);
   call_tss_destructors();
 }
 
