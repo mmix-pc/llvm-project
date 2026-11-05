@@ -17,8 +17,9 @@ if(LIBC_MMIX_BUILD_CONCURRENCY_HINTS)
 endif()
 if(LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
   foreach(operation sched_get_priority_min sched_get_priority_max
+      sched_getparam sched_getscheduler
       sched_setaffinity sched_getaffinity sched_getcpu
-      __sched_setcpuzero __sched_setcpuset)
+      __sched_setcpuzero __sched_setcpuset __sched_getcpuisset __sched_cpuequal)
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.sched.${operation})
   endforeach()
   foreach(operation getschedparam setschedparam setschedprio
