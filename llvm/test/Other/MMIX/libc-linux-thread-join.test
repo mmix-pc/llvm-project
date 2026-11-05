@@ -73,7 +73,8 @@ static void check(bool ok, unsigned line) {
   if (!ok) { printf("join check failed: %u\n", line); __builtin_abort(); }
 }
 #define require(x) check(bool(x), __LINE__)
-alignas(8192) static unsigned char control_mem[8192], stack_mem[73728], tls_mem[8192];
+alignas(8192) static unsigned char control_mem[8192],
+    stack_mem[DEFAULT_STACK_SIZE + 8192], tls_mem[8192];
 alignas(8) static unsigned char caller_stack[65536];
 static ThreadControl *control;
 static ThreadControl main_control;
@@ -96,6 +97,9 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n, long a, long b,
   if (n == SYS_mmap) {
     unsigned i = maps++; require(i < 3);
     auto *p = i == 0 ? control_mem : (mode == 19 || i == 2) ? tls_mem : stack_mem;
+    size_t capacity = p == control_mem ? sizeof(control_mem) :
+        p == tls_mem ? sizeof(tls_mem) : sizeof(stack_mem);
+    require(b > 0 && size_t(b) <= capacity);
     bases[i] = reinterpret_cast<uintptr_t>(p); sizes[i] = b;
     return bases[i];
   }
@@ -152,7 +156,11 @@ extern "C" int main(int argc, char **argv) {
   ThreadPreparation request;
   request.runner.posix_runner = runner;
   if (mode == 1) { request.style = ThreadStyle::STDC; request.runner.stdc_runner = int_runner; }
-  if (mode == 19) { request.stack = caller_stack; request.guard_size = 0; }
+  if (mode == 19) {
+    request.stack = caller_stack;
+    request.stack_size = sizeof(caller_stack);
+    request.guard_size = 0;
+  }
   require(prepare_thread(request, control).error == ThreadPrepareError::None);
   { ThreadRegistryLock lock(thread_registry);
     main_control.attributes.tid = 1;

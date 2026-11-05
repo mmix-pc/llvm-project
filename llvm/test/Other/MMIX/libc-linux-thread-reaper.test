@@ -93,6 +93,7 @@ extern "C" void concurrent(void (*fn)()) {
 #include "src/__support/threads/linux/mmix/thread_start.h"
 #include "src/__support/threads/linux/mmix/thread_join.h"
 #include "src/__support/threads/linux/mmix/thread_finish.h"
+#include "src/__support/threads/linux/mmix/credentials.h"
 #include "src/__support/threads/thread.h"
 #include "hdr/errno_macros.h"
 #include <linux/futex.h>
@@ -108,7 +109,7 @@ static void check(bool ok, unsigned line) {
   if (!ok) { printf("bootstrap check failed at %u\n",line); __builtin_abort(); }
 }
 #define require(x) check(bool(x),__LINE__)
-alignas(8192) static unsigned char memory[16][81920];
+alignas(8192) static unsigned char memory[16][DEFAULT_STACK_SIZE + 8192];
 static size_t sizes[16];
 static bool freed[16];
 static cpp::Atomic<unsigned> maps{0}, clones{0}, helper_clones{0}, workers{0}, unmaps{0};
@@ -116,6 +117,7 @@ static cpp::Atomic<unsigned> failures{0};
 static unsigned mode;
 static bool inject = true;
 static thread_local uint64_t mask = 0x1234;
+static constexpr uint64_t lifecycle_mask = UINT64_MAX & ~CREDENTIAL_MASK;
 static ThreadControl main_control, *helper;
 static ThreadControl *worker;
 static unsigned fault, map_start, runners, callbacks;
@@ -138,7 +140,7 @@ namespace reaper_test { namespace internal {
 void cleanup_main_thread() { __builtin_trap(); }
 void call_atexit_callbacks(ThreadAttributes *a) {
   if (mode == 32) {
-    require(a == &helper->attributes && mask == UINT64_MAX);
+    require(a == &helper->attributes && mask == lifecycle_mask);
     ++callbacks;
     return;
   }
@@ -148,16 +150,22 @@ void call_atexit_callbacks(ThreadAttributes *a) {
 void cleanup_current_thread() { call_atexit_callbacks(self.attrib); }
 } }
 namespace reaper_test { namespace mmix {
+// Native lifecycle transport only; credential runtime semantics are not tested.
+CredentialGate::CredentialGate() { owned = true; }
+CredentialGate::~CredentialGate() { release(); }
+void CredentialGate::release() { owned = false; }
+void register_credentials(ThreadControl &) {}
+void unregister_credentials(ThreadControl &) {}
 [[noreturn]] void terminate_after_thread_cleanup() { __builtin_trap(); }
 } }
 extern "C" void __llvm_libc_mmix_reaper_loop() {
-  require(mask == UINT64_MAX && internal::self.attrib == &helper->attributes);
+  require(mask == lifecycle_mask && internal::self.attrib == &helper->attributes);
   if (mode == 32) { require(reaper_stop_requested()); return; }
   if (mode == 11) throw Done{};
   require(mode == 10); // A returning service must be fatal.
 }
 extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
-  require(mode >= 28 && mask == UINT64_MAX);
+  require(mode >= 28 && mask == lifecycle_mask);
   throw Done{}; // Simulate terminal entry, not kernel retirement.
 }
 static void run_worker() {
@@ -177,7 +185,8 @@ extern "C" long __llvm_libc_mmix_clone_thread(unsigned long,uintptr_t sp,
     uint32_t *parent,uint32_t *clear,uintptr_t tp) {
   unsigned clone_index = clones.fetch_add(1);
   auto *c = reinterpret_cast<ThreadControl *>(reinterpret_cast<TLSHeader *>(tp)->thread_state);
-  require(c->is_prepared() && sp == c->stack_top && tp == c->tls.tp && mask == UINT64_MAX);
+  require(c->is_prepared() && sp == c->stack_top && tp == c->tls.tp &&
+          mask == lifecycle_mask);
   bool is_helper = c->runner.posix_runner != user_runner;
   if (is_helper) { helper_clones.fetch_add(1); helper = c; require(c->saved_signal_mask == UINT64_MAX); }
   else { workers.fetch_add(1); require(helper && helper->acquire_decision() == CreatorDecision::Go);
@@ -201,7 +210,8 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n,long a,long b,long c,lo
     mask = *reinterpret_cast<uint64_t *>(b); return 0;
   }
   if (n == SYS_mmap) {
-    unsigned i = maps.fetch_add(1); require(i < 16 && b <= 81920);
+    unsigned i = maps.fetch_add(1);
+    require(i < 16 && b > 0 && size_t(b) <= sizeof(memory[0]));
     if (mode == 13 && i == 0) { inject = false; return -ENOMEM; }
     if (inject && mode >= 1 && mode <= 3 && i+1 == mode) return -ENOMEM;
     if (inject && mode >= 14 && fault >= 1 && fault <= 3) {
@@ -215,7 +225,9 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n,long a,long b,long c,lo
   if (n == SYS_mprotect)
     return inject && (mode == 4 || mode == 12 || fault == 4) ? -EINVAL : 0;
   if (n == SYS_munmap) {
-    require(mask == UINT64_MAX);
+    // Creator rollback keeps credential delivery open; explicit test-owned
+    // join/reap paths below enter with all signals blocked.
+    require(mask == (mode >= 28 ? UINT64_MAX : lifecycle_mask));
     unsigned i = (reinterpret_cast<unsigned char *>(a)-memory[0])/sizeof(memory[0]);
     require(i < maps.load() && !freed[i] && sizes[i] == size_t(b));
     if (mode == 12) return -EINVAL;
@@ -229,11 +241,13 @@ extern "C" long __llvm_libc_mmix_syscall(unsigned long n,long a,long b,long c,lo
         a == reinterpret_cast<long>(&helper->clear_tid.value.val) &&
         b == FUTEX_WAIT_BITSET) {
       auto *saved = internal::self.attrib;
+      uint64_t saved_mask = mask;
       internal::self.attrib = &helper->attributes;
       try { __llvm_libc_mmix_thread_run(helper); __builtin_abort(); }
       catch (Done &) {}
       helper->clear_tid.value.store(0, cpp::MemoryOrder::RELEASE);
       internal::self.attrib = saved;
+      mask = saved_mask;
       return -EAGAIN;
     }
     if (early_run && worker && a == reinterpret_cast<long>(&worker->creator_decision.value.val)) {
@@ -306,6 +320,7 @@ extern "C" int main(int argc,char **argv) {
     ThreadPreparation r;
     r.runner.posix_runner = user_runner;
     r.argument = reinterpret_cast<void *>(42);
+    r.stack_size = sizeof(supplied);
     if (supplied_stack) r.stack = supplied;
     ThreadAttributes *out = reinterpret_cast<ThreadAttributes *>(1);
     if (mode < 28) {
@@ -382,7 +397,7 @@ extern "C" int main(int argc,char **argv) {
       internal::self.attrib=&helper->attributes;
       mask=UINT64_MAX;
       try { __llvm_libc_mmix_thread_run(helper); __builtin_abort(); }
-      catch(Done &) { require(mode==11 && mask==UINT64_MAX); }
+      catch(Done &) { require(mode==11 && mask==lifecycle_mask); }
     }
     require(!fatal);
   }

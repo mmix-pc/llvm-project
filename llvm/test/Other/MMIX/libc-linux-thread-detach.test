@@ -73,7 +73,7 @@ static void check(bool ok,unsigned line) {
   if (!ok) { printf("detach check failed at %u\n",line); __builtin_abort(); }
 }
 #define require(x) check(bool(x),__LINE__)
-alignas(8192) static unsigned char memory[6][81920];
+alignas(8192) static unsigned char memory[6][DEFAULT_STACK_SIZE + 8192];
 alignas(8) static unsigned char supplied[65536];
 static size_t sizes[6];
 static bool freed[6];
@@ -107,7 +107,8 @@ static void complete(ThreadControl &c) {
   require(!lock.exit_ready(c,ThreadReturnValue(43)));
 }
 extern "C" long __llvm_libc_mmix_syscall(unsigned long n,long a,long b,long c,long d,long e,long f) {
-  if(n==SYS_mmap) { unsigned i=maps++; require(i<6 && b<=81920);
+  if(n==SYS_mmap) { unsigned i=maps++;
+    require(i<6 && b>0 && size_t(b)<=sizeof(memory[0]));
     sizes[i]=b; return reinterpret_cast<long>(memory[i]); }
   if(n==SYS_mprotect) return 0;
   if(n==SYS_munmap) {
@@ -178,7 +179,9 @@ extern "C" int main(int argc,char **argv) {
     ThreadPreparation r; r.runner.posix_runner=runner;
     owners[i].first = maps;
     r.resource_owner = {&owners[i], retain_owner, release_owner};
-    if(mode==14) { r.stack=supplied; r.guard_size=0; }
+    if(mode==14) {
+      r.stack=supplied; r.stack_size=sizeof(supplied); r.guard_size=0;
+    }
     require(prepare_thread(r,records[i]).error==ThreadPrepareError::None);
     owners[i].count = maps - owners[i].first;
     require(owners[i].references == 2);
