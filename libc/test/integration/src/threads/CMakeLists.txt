@@ -1,6 +1,25 @@
 add_libc_integration_test_suite(libc-threads-integration-tests)
 
 add_integration_test(
+  cnd_timedwait_expired_test
+  SUITE libc-threads-integration-tests
+  SRCS cnd_timedwait_expired_test.cpp
+  DEPENDS
+    libc.include.threads
+    libc.include.time
+    libc.src.threads.cnd_destroy
+    libc.src.threads.cnd_init
+    libc.src.threads.cnd_timedwait
+    libc.src.threads.mtx_destroy
+    libc.src.threads.mtx_init
+    libc.src.threads.mtx_lock
+    libc.src.threads.mtx_trylock
+    libc.src.threads.mtx_unlock
+    libc.src.threads.thrd_create
+    libc.src.threads.thrd_join
+)
+
+add_integration_test(
   thrd_detach_test
   SUITE
     libc-threads-integration-tests

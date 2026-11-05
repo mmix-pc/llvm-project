@@ -36,11 +36,12 @@ LLVM_LIBC_FUNCTION(int, cnd_timedwait,
   if (!timeout.has_value()) {
     switch (timeout.error()) {
     case internal::AbsTimeout::Error::BeforeEpoch:
-      return thrd_timedout;
+      // Even an expired wait must release and reacquire the mutex.
+      timeout = internal::AbsTimeout::from_timespec({0, 0}, /*realtime=*/true);
+      break;
     case internal::AbsTimeout::Error::Invalid:
       return thrd_error;
     }
-    __builtin_unreachable();
   }
 
   switch (cndvar->wait(mutex, timeout.value())) {
