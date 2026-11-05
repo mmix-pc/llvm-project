@@ -12,6 +12,7 @@
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/signal/linux/mmix/private_signals.h"
 #include "thread_create.h"
+#include "thread_reclaim.h"
 #include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
@@ -124,6 +125,29 @@ void AioNotification::discard() {
   ThreadRegistryLock lock(thread_registry);
   if (!lock.discard_callback(*control) || !lock.drop_creator(*control))
     __builtin_trap();
+}
+
+void AioNotification::withdraw_failed_admission() {
+  if (!waiter || !callback->supplied_stack()) {
+    discard();
+    return;
+  }
+  ThreadControl *control = waiter;
+  waiter = nullptr;
+  state = State::Terminal;
+  {
+    ThreadRegistryLock lock(thread_registry);
+    if (!lock.discard_callback(*control))
+      __builtin_trap();
+  }
+  // Keep the creator pin across the unlocked wait: detached reaping must not
+  // reclaim the control containing clear_tid before this observer finishes.
+  await_thread_clear(*control);
+  {
+    ThreadRegistryLock lock(thread_registry);
+    if (!lock.drop_creator(*control))
+      __builtin_trap();
+  }
 }
 
 long AioNotification::cleanup() {

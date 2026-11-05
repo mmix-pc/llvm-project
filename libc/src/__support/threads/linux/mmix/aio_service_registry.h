@@ -46,6 +46,10 @@ namespace mmix {
 // callback may use the service on its own thread. Preparation must not wait for
 // accepted I/O. Allocator follows AioStorage's concurrent detached-block
 // contract.
+// Failed admission synchronously calls withdraw_failed_admission() without
+// any gate or operation lock. It accepts Fresh, failed prepare and Prepared
+// notifications, stops caller-stack threads without callbacks, and leaves
+// independent cleanup resources owned by the notification for maintain().
 //
 // SlotsPerBlock is allocation granularity, not an admission limit. Kernel
 // credits bound in-flight work, independently of retained results/rollback.
@@ -381,8 +385,25 @@ private:
         if (!admitted)
           error = admitted.error();
       }
-      record.phase = error ? Phase::Rollback : Phase::Accepted;
-      if (error && retain_failure) {
+      if (!error) {
+        record.phase = Phase::Accepted;
+        if (observation) {
+          if (!record.request.state().retain(observation->reference))
+            __builtin_trap();
+          observation->owner = this;
+          observation->request = &record.request;
+        }
+        return {};
+      }
+    }
+    // Preparing pins the owner across withdrawal, including reentrant workers.
+    // Do not publish even a rejected result until caller-stack use has stopped.
+    record.notification.withdraw_failed_admission();
+    {
+      StateGuard guard(gate);
+      record.phase = Phase::Rollback;
+      record.notification_terminal = true;
+      if (retain_failure) {
         auto rejected = engine.admit_rejected(record.request, input, error);
         if (rejected)
           record.phase = Phase::Rejected;
@@ -398,7 +419,7 @@ private:
         observation->request = &record.request;
       }
     }
-    return error ? ErrorOr<void>(Error(error)) : ErrorOr<void>();
+    return Error(error);
   }
 
   LIBC_INLINE int retain(typename Engine::Request &request,
@@ -532,7 +553,7 @@ private:
   // Called with the sole maintainer claim, not a held mutex. Preparing records
   // are pinned by their submitting caller; only this maintainer may destroy
   // accepted/rollback records. A terminal notification has been handed off by
-  // the notifier and will never be accessed by it again.
+  // admission or the notifier and will never be accessed by that owner again.
   LIBC_INLINE int maintain_record(Record &record) {
     bool rollback, rejected;
     {
@@ -688,7 +709,8 @@ public:
   // Consumes the preparation on success OR failure. Ordinary admission errors
   // become queryable local results, with no further allocation. Failure caused
   // by conflicting aiocb reuse preserves the existing binding instead. Failed
-  // callback/resource preparation is retained for worker cleanup as usual.
+  // notification is synchronously withdrawn; independent resources remain
+  // owned for worker cleanup.
   // normalize has the same contract as admit, including on retained failure.
   template <class Prepare, class Normalize = NoNormalization>
   LIBC_INLINE ErrorOr<void>
@@ -771,11 +793,13 @@ public:
     if (!error)
       error = int(prepare(group->notification));
     if (error) {
+      group->notification.withdraw_failed_admission();
       for (size_t i = 0; i < prepared; ++i)
         if (abandon_member(group->items()[i].prepared))
           __builtin_trap();
       StateGuard guard(gate);
       group->released = true;
+      group->notification_terminal = true;
       group->phase = ListGroup::Phase::Rollback;
       return Error(error);
     }
@@ -796,6 +820,7 @@ public:
     if (group.owner != this || group.phase != ListGroup::Phase::Preparing)
       return EINVAL;
     int error = 0;
+    bool accepted = false;
     for (size_t i = 0; i < group.count; ++i) {
       auto &item = group.items()[i];
       auto result = item.error ? reject_member(item.prepared, item.error,
@@ -810,14 +835,20 @@ public:
                                        return normalize(i, descriptor, input);
                                      });
       int failure = item.error ? item.error : (result ? 0 : result.error());
+      accepted |= !failure;
       if (failure == EAGAIN || failure == ENOMEM || failure == EMFILE ||
           failure == ENFILE)
         error = EAGAIN;
       else if (failure && !error)
         error = EIO;
     }
+    const bool withdraw = group.count && !accepted;
+    if (withdraw)
+      group.notification.withdraw_failed_admission();
     StateGuard guard(gate);
     group.error = error;
+    group.notification_terminal = withdraw;
+    // Even all-rejected groups own observations, released by the Active path.
     group.phase = ListGroup::Phase::Active;
     update_list(group);
     return error;

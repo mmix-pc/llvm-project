@@ -160,16 +160,20 @@ struct NotificationState {
   int prepare_error = 0, activate_error = 0, cleanup_error = 0;
   unsigned prepared = 0, activated = 0, discarded = 0, cleaned = 0;
   unsigned destroyed = 0;
+  unsigned withdrawn = 0;
+  bool caller_stack_live = false;
   bool callback_resources = false;
   bool rollback_resources = false;
   bool busy = false;
   void *owner = nullptr;
   void (*on_activate)(void *) = nullptr;
   void (*on_discard)(void *) = nullptr;
+  void (*on_withdraw)(void *) = nullptr;
   void (*on_cleanup)(void *) = nullptr;
   void *context = nullptr;
 };
 struct Notification {
+  static inline unsigned fresh_withdrawn = 0;
   NotificationState *state = nullptr;
   bool prepared = false, resources = false;
 
@@ -178,6 +182,7 @@ struct Notification {
     state = &s;
     s.owner = this;
     ++s.prepared;
+    s.caller_stack_live = true;
     resources = true;
     prepared = !s.prepare_error;
     return s.prepare_error;
@@ -191,10 +196,29 @@ struct Notification {
     ++state->activated;
     if (state->on_activate)
       state->on_activate(state->context);
-    if (state->activate_error != EAGAIN && state->activate_error != EBUSY)
+    if (state->activate_error != EAGAIN && state->activate_error != EBUSY) {
       prepared = false;
+      state->caller_stack_live = false;
+    }
     state->busy = false;
     return state->activate_error;
+  }
+  void withdraw_failed_admission() {
+    EXPECT_FALSE(CheckedGate::held);
+    if (state) {
+      EXPECT_EQ(state->owner, static_cast<void *>(this));
+      EXPECT_FALSE(state->busy);
+      state->busy = true;
+      ++state->withdrawn;
+      if (state->on_withdraw)
+        state->on_withdraw(state->context);
+      state->caller_stack_live = false;
+      state->busy = false;
+    } else {
+      ++fresh_withdrawn;
+    }
+    prepared = false;
+    // Stack use stops synchronously; independent resources still need cleanup.
   }
   void discard() {
     EXPECT_FALSE(CheckedGate::held);
@@ -233,8 +257,10 @@ struct Notification {
   ~Notification() {
     EXPECT_FALSE(CheckedGate::held);
     EXPECT_TRUE(drained());
-    if (state)
+    if (state) {
+      EXPECT_FALSE(state->caller_stack_live);
       ++state->destroyed;
+    }
   }
 };
 
@@ -580,11 +606,13 @@ TEST(LlvmLibcAioServiceRegistryTest, ListPreparationFailureStartsNothing) {
   NotificationState group;
   // Group storage plus the first two-member block; fail the next block.
   f.allocator.fail_after = 2;
+  unsigned before = Notification::fresh_withdrawn;
   auto list = f.service.prepare_list(
       inputs, 3, [&](Notification &n) { return n.prepare(group); });
   EXPECT_FALSE(bool(list));
   EXPECT_EQ(list.error(), ENOMEM);
   EXPECT_EQ(group.prepared, 0U);
+  EXPECT_EQ(Notification::fresh_withdrawn, before + 1);
   EXPECT_EQ(f.resources.duplicated, 0U);
   EXPECT_EQ(f.ring.tail, 0U);
   for (auto &key : cb)
@@ -604,6 +632,9 @@ TEST(LlvmLibcAioServiceRegistryTest, ListGroupNotificationFailureRollsBack) {
   auto list = f.service.prepare_list(
       inputs, 2, [&](Notification &n) { return n.prepare(group); });
   EXPECT_EQ(list.error(), EAGAIN);
+  EXPECT_EQ(group.withdrawn, 1U);
+  EXPECT_FALSE(group.caller_stack_live);
+  EXPECT_EQ(group.cleaned, 0U);
   EXPECT_EQ(f.resources.duplicated, 0U);
   EXPECT_EQ(f.ring.tail, 0U);
   ASSERT_EQ(f.maintain(), EIO);
@@ -611,7 +642,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ListGroupNotificationFailureRollsBack) {
   EXPECT_EQ(group.activated, 0U);
   group.cleanup_error = 0;
   ASSERT_EQ(f.maintain(), 0);
-  EXPECT_EQ(group.discarded, 1U);
+  EXPECT_EQ(group.discarded, 0U);
   EXPECT_EQ(group.destroyed, 1U);
 }
 
@@ -635,6 +666,11 @@ TEST(LlvmLibcAioServiceRegistryTest, ListPartialFailureRetainsAllResults) {
   EXPECT_EQ(*f.service.error(&cb[1]), EINVAL);
   EXPECT_EQ(*f.service.error(&cb[2]), EAGAIN);
   EXPECT_EQ(members[1].prepared, 0U);
+  EXPECT_EQ(group.withdrawn, 0U);
+  EXPECT_EQ(members[0].withdrawn, 0U);
+  EXPECT_EQ(members[2].withdrawn, 1U);
+  EXPECT_FALSE(members[2].caller_stack_live);
+  EXPECT_EQ(members[2].cleaned, 0U);
   EXPECT_EQ(f.resources.duplicated, 2U);
   EXPECT_EQ(f.service.list_result(**list).error(), EINPROGRESS);
   EXPECT_EQ(f.service.take_result(&cb[1])->error, EINVAL);
@@ -709,6 +745,7 @@ TEST(LlvmLibcAioServiceRegistryTest, ListCompletionSurvivesNotificationRetry) {
                                  }),
             0);
   EXPECT_EQ(*f.service.list_result(**list), 0);
+  EXPECT_EQ(group.withdrawn, 0U); // An empty list still delivers notification.
   ASSERT_EQ(f.maintain(), EAGAIN);
   EXPECT_EQ(*f.service.list_result(**list), 0);
   ASSERT_EQ(f.service.finish_list(**list), 0);
@@ -898,7 +935,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(*f.service.error(&cb[0]), EINPROGRESS);
   EXPECT_EQ(*f.service.error(&cb[1]), EAGAIN);
   ASSERT_EQ(f.maintain(), 0);
-  EXPECT_EQ(notifications[1].discarded, 1U);
+  EXPECT_EQ(notifications[1].withdrawn, 1U);
   EXPECT_EQ(notifications[1].activated, 0U);
   EXPECT_EQ(f.service.take_result(&cb[1])->error, EAGAIN);
   ASSERT_EQ(f.service.submit(), 0);
@@ -1047,7 +1084,7 @@ TEST(LlvmLibcAioServiceRegistryTest, PreparedMemberRetainsPreparationErrors) {
   EXPECT_EQ(f.service.take_result(&cb[0])->error, EBADF);
   EXPECT_EQ(f.service.take_result(&cb[1])->error, ENOMEM);
   ASSERT_EQ(f.maintain(), 0);
-  EXPECT_EQ(notifications[1].discarded, 1U);
+  EXPECT_EQ(notifications[1].withdrawn, 1U);
   EXPECT_EQ(notifications[1].destroyed, 1U);
   EXPECT_EQ(f.resources.closed, 1U);
 }
@@ -1088,7 +1125,7 @@ TEST(LlvmLibcAioServiceRegistryTest,
   ASSERT_EQ(f.maintain(), 0);
   EXPECT_EQ(f.service.retained(), size_t(1));
   EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
-  EXPECT_EQ(conflicting.discarded, 1U);
+  EXPECT_EQ(conflicting.withdrawn, 1U);
   ASSERT_EQ(f.service.submit(), 0);
   f.finish(0);
   ASSERT_EQ(f.service.submit(), 0);
@@ -1869,12 +1906,17 @@ TEST(LlvmLibcAioServiceRegistryTest, PreparationRollbackHasIndependentOwners) {
   f.ring.unregister_error = EBUSY;
   f.resources.close_error = EINTR;
   EXPECT_EQ(f.admit(&cb, notification).error(), ENOTSUP);
+  EXPECT_EQ(notification.withdrawn, 1U);
+  EXPECT_FALSE(notification.caller_stack_live);
+  EXPECT_EQ(notification.cleaned, 0U);
+  EXPECT_EQ(f.resources.closed, 0U);
+  EXPECT_EQ(f.ring.personalities, 1U);
   EXPECT_EQ(f.service.complete(&cb).error(), EINVAL);
   EXPECT_EQ(f.maintain(), EIO);
   EXPECT_EQ(f.maintain(), EIO);
   EXPECT_EQ(f.resources.closed, 1U);
   EXPECT_EQ(f.ring.personalities, 1U);
-  EXPECT_EQ(notification.discarded, 1U);
+  EXPECT_EQ(notification.withdrawn, 1U);
   EXPECT_EQ(notification.activated, 0U);
   EXPECT_EQ(notification.destroyed, 0U);
   notification.cleanup_error = 0;
@@ -1908,7 +1950,7 @@ TEST(LlvmLibcAioServiceRegistryTest, DuplicateRevalidatedAfterPreparation) {
   EXPECT_EQ(*f.service.error(&cb), EINPROGRESS);
   EXPECT_EQ(f.ring.tail, 0U);
   ASSERT_EQ(f.maintain(), 0);
-  EXPECT_EQ(first.discarded, 1U);
+  EXPECT_EQ(first.withdrawn, 1U);
   EXPECT_EQ(first.destroyed, 1U);
   EXPECT_EQ(second.discarded, 0U);
   EXPECT_EQ(f.service.retained(), size_t(1));
@@ -2413,46 +2455,170 @@ TEST(LlvmLibcAioServiceRegistryTest,
   EXPECT_EQ(current.destroyed, 1U);
 }
 
-TEST(LlvmLibcAioServiceRegistryTest, InFlightDiscardPinsRecordAndList) {
-  for (unsigned list = 0; list < 2; ++list) {
+TEST(LlvmLibcAioServiceRegistryTest, InFlightWithdrawalPinsRecordAndList) {
+  // Failed prepare for plain/member/group admission, then Prepared engine
+  // rejection for plain/member admission.
+  for (unsigned mode = 0; mode < 5; ++mode) {
     Fixture f;
     ASSERT_TRUE(bool(f.service.initialize(2)));
     int cb{};
     NotificationState notification;
-    notification.prepare_error = EINVAL;
-    if (list) {
-      auto group = f.service.prepare_list(
-          nullptr, 0, [&](Notification &n) { return n.prepare(notification); });
-      ASSERT_EQ(group.error(), EINVAL);
-    } else {
-      ASSERT_EQ(f.admit(&cb, notification).error(), EINVAL);
-    }
+    notification.prepare_error = mode < 3 ? EINVAL : 0;
+    auto value = input(&cb);
+    if (mode >= 3)
+      value.size = size_t(INT32_MAX) + 1;
     struct Reclaim {
       Fixture *fixture;
       NotificationState *notification;
+      const void *key;
       unsigned calls = 0;
       static void run(void *context) {
         auto &self = *static_cast<Reclaim *>(context);
         ++self.calls;
-        EXPECT_EQ(self.fixture->service.dispatch_notifications(), EBUSY);
+        EXPECT_EQ(self.fixture->service.error(self.key).error(), EINVAL);
+        EXPECT_EQ(self.fixture->service.dispatch_notifications(), 0);
         EXPECT_EQ(self.fixture->service.maintain(), 0);
+        EXPECT_EQ(self.fixture->service.submit(), 0);
         EXPECT_EQ(self.notification->cleaned, 0U);
         EXPECT_EQ(self.notification->destroyed, 0U);
         EXPECT_TRUE(self.notification->busy);
+        EXPECT_TRUE(self.notification->caller_stack_live);
         EXPECT_EQ(self.fixture->resources.closed, 0U);
         EXPECT_EQ(self.fixture->allocator.freed, 0U);
       }
-    } reclaim{&f, &notification};
-    notification.on_discard = Reclaim::run;
+    } reclaim{&f, &notification, &cb};
+    notification.on_withdraw = Reclaim::run;
     notification.context = &reclaim;
-    ASSERT_EQ(f.service.maintain(), 0);
-    EXPECT_EQ(notification.discarded, 0U);
-    ASSERT_EQ(f.service.dispatch_notifications(), 0);
+    if (mode == 2) {
+      Service::ListInput entries[] = {{input(&cb)}};
+      auto group = f.service.prepare_list(
+          entries, 1, [&](Notification &n) { return n.prepare(notification); });
+      ASSERT_EQ(group.error(), EINVAL);
+    } else if (mode == 1 || mode == 4) {
+      Service::PreparedMember member;
+      ASSERT_TRUE(bool(f.service.prepare_member(member, value)));
+      EXPECT_EQ(f.service
+                    .start_member(member, [&](Notification &n) {
+                      return n.prepare(notification);
+                    })
+                    .error(),
+                EINVAL);
+      EXPECT_EQ(*f.service.error(&cb), EINVAL);
+      ASSERT_TRUE(bool(f.service.take_result(&cb)));
+    } else {
+      ASSERT_EQ(f.service
+                    .admit(value, [&](Notification &n) {
+                      return n.prepare(notification);
+                    })
+                    .error(),
+                EINVAL);
+    }
+    // No worker pass after admission is needed to stop caller-stack use.
     EXPECT_EQ(reclaim.calls, 1U);
-    EXPECT_EQ(notification.discarded, 1U);
+    EXPECT_EQ(notification.withdrawn, 1U);
+    EXPECT_FALSE(notification.caller_stack_live);
+    EXPECT_EQ(notification.cleaned, 0U);
+    EXPECT_EQ(notification.destroyed, 0U);
+    ASSERT_EQ(f.service.dispatch_notifications(), 0);
+    EXPECT_EQ(notification.discarded, 0U);
     EXPECT_EQ(notification.activated, 0U);
     ASSERT_EQ(f.service.maintain(), 0);
     EXPECT_EQ(notification.destroyed, 1U);
+  }
+}
+
+TEST(LlvmLibcAioServiceRegistryTest, FreshAdmissionFailuresWithdrawBeforeReturn) {
+  for (unsigned mode = 0; mode < 2; ++mode) {
+    Fixture f;
+    ASSERT_TRUE(bool(f.service.initialize(2)));
+    int cb{};
+    NotificationState notification;
+    unsigned before = Notification::fresh_withdrawn;
+    if (mode == 0)
+      f.resources.duplicate_error = EBADF;
+    auto result = f.service.admit(
+        input(&cb), [&](Notification &n) { return n.prepare(notification); },
+        [](int, Service::Input &) { return EIO; });
+    EXPECT_EQ(result.error(), mode == 0 ? EBADF : EIO);
+    EXPECT_EQ(Notification::fresh_withdrawn, before + 1);
+    EXPECT_EQ(notification.prepared, 0U);
+    EXPECT_EQ(f.service.error(&cb).error(), EINVAL);
+    EXPECT_EQ(f.resources.closed, 0U);
+    ASSERT_EQ(f.service.maintain(), 0);
+    EXPECT_EQ(f.service.retained(), size_t(0));
+    EXPECT_EQ(f.resources.closed, mode == 0 ? 0U : 1U);
+  }
+}
+
+TEST(LlvmLibcAioServiceRegistryTest,
+     AllFailedListWithdrawsGroupButReleasesMemberObservations) {
+  // Include all-malformed lists and successfully prepared notifications whose
+  // engine admission fails. Neither case may activate the group notification.
+  for (unsigned malformed = 0; malformed < 2; ++malformed) {
+    Fixture f;
+    ASSERT_TRUE(bool(f.service.initialize(2)));
+    int cb[3]{};
+    NotificationState blocker, group, members[2];
+    ASSERT_TRUE(bool(f.admit(&cb[2], blocker))); // Exhaust admission credit.
+    Service::ListInput inputs[] = {
+        {input(&cb[0]), malformed ? EBADF : 0},
+        {input(&cb[1]), malformed ? EBADF : 0}};
+    auto list = f.service.prepare_list(
+        inputs, 2, [&](Notification &n) { return n.prepare(group); });
+    ASSERT_TRUE(bool(list));
+    struct Reclaim {
+      Fixture *fixture;
+      Service::ListGroup *group;
+      NotificationState *notification;
+      int *keys;
+      static void run(void *context) {
+        auto &self = *static_cast<Reclaim *>(context);
+        auto &f = *self.fixture;
+        EXPECT_EQ(f.service.list_result(*self.group).error(), EINVAL);
+        EXPECT_EQ(f.service.finish_list(*self.group), EINVAL);
+        for (unsigned i = 0; i < 2; ++i)
+          EXPECT_TRUE(bool(f.service.take_result(&self.keys[i])));
+        EXPECT_EQ(f.service.dispatch_notifications(), 0);
+        EXPECT_EQ(f.service.maintain(), 0);
+        // The Preparing group still pins both consumed member results.
+        EXPECT_EQ(f.service.retained(), size_t(3));
+        EXPECT_EQ(self.notification->cleaned, 0U);
+        EXPECT_EQ(self.notification->destroyed, 0U);
+      }
+    } reclaim{&f, *list, &group, cb};
+    group.on_withdraw = Reclaim::run;
+    group.context = &reclaim;
+    EXPECT_EQ(f.service.start_list(**list,
+                                   [&](size_t i, Notification &n) {
+                                     return n.prepare(members[i]);
+                                   }),
+              malformed ? EIO : EAGAIN);
+    EXPECT_EQ(group.withdrawn, 1U);
+    EXPECT_FALSE(group.caller_stack_live);
+    EXPECT_EQ(group.activated, 0U);
+    EXPECT_EQ(group.cleaned, 0U);
+    for (auto &member : members) {
+      EXPECT_EQ(member.withdrawn, malformed ? 0U : 1U);
+      EXPECT_FALSE(member.caller_stack_live);
+      EXPECT_EQ(member.activated, 0U);
+    }
+    EXPECT_EQ(*f.service.list_result(**list), malformed ? EIO : EAGAIN);
+    group.cleanup_error = EIO;
+    ASSERT_EQ(f.service.finish_list(**list), 0);
+    EXPECT_EQ(f.service.maintain(), EIO);
+    EXPECT_EQ(f.service.retained(), size_t(1));
+    EXPECT_TRUE(f.service.has_list_groups());
+    group.cleanup_error = 0;
+    ASSERT_EQ(f.service.maintain(), 0);
+    EXPECT_FALSE(f.service.has_list_groups());
+    EXPECT_EQ(group.destroyed, 1U);
+    ASSERT_EQ(f.service.submit(), 0);
+    f.finish(0);
+    ASSERT_EQ(f.service.submit(), 0);
+    ASSERT_TRUE(bool(f.service.take_result(&cb[2])));
+    ASSERT_EQ(f.maintain(), 0);
+    EXPECT_EQ(blocker.withdrawn, 0U);
+    EXPECT_EQ(blocker.activated, 1U);
   }
 }
 

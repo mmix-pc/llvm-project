@@ -71,6 +71,12 @@ public:
   // harmless.
   void discard();
 
+  // Failed registration must return a borrowed stack only after its dormant
+  // waiter has exited. Call outside service/registry locks, with application
+  // signals blocked and cancellation suppressed. Independent cleanup can still
+  // be retried later; successful or activated notifications are not withdrawn.
+  void withdraw_failed_admission();
+
   // EBUSY while prepared. Otherwise release independent preparation rollback
   // resources and the envelope reference; failed releases remain owned for
   // retry. Never waits for or reclaims a running/discarded callback thread.

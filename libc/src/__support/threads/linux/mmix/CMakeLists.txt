@@ -249,7 +249,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     aio_notification
     SRCS aio_notification.cpp
     HDRS aio_notification.h
-    DEPENDS .notification_callback .thread_create .resources .lifecycle
+    DEPENDS .notification_callback .thread_create .thread_reclaim .resources .lifecycle
       libc.hdr.types.siginfo_t libc.hdr.errno_macros libc.hdr.signal_macros
       libc.src.signal.linux.mmix.private_signals
       libc.src.__support.OSUtil.linux.mmix.syscall libc.include.sys_syscall

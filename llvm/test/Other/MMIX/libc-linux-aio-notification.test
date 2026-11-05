@@ -35,7 +35,7 @@ scenarios = ("none", "signal-int", "signal-pointer", "pid-mismatch",
              "allocation-failure", "null-callback", "bad-attributes",
              "bad-page-size", "bad-notify-mode", "signal-retry",
              "signal-retry-discard", "reaped-first", "slot-reuse",
-             "envelope-release-retry")
+             "envelope-release-retry", "failed-supplied-stack")
 for shared, opt in ((s, o) for s in (False, True) for o in ("0", "2")):
     variant = "shared" if shared else "static"
     build_flags = flags + (["-DLIBC_MMIX_SHARED_STARTUP"] if shared else [])
@@ -94,13 +94,14 @@ enum Scenario {
   Thread, CopyAttributes, Discard, PrepareFailure, RetainedPrepareFailure,
   CleanupRetry, ActivationRetry, AllocationFailure, NullCallback,
   BadAttributes, BadPageSize, BadNotifyMode, SignalRetry, SignalRetryDiscard,
-  ReapedFirst, SlotReuse, EnvelopeReleaseRetry,
+  ReapedFirst, SlotReuse, EnvelopeReleaseRetry, FailedSuppliedStack,
   ScenarioCount
 };
 static int mode, allocations, frees, allocation_attempts, attempts;
 static int activations, activation_attempts, discards, drops, wakes, callbacks;
 static int lock_depth, locks, releases, retains, owner_releases;
 static int pid_calls, uid_calls, sends;
+static int clear_waits;
 static bool cleanup_failure, activation_failure, creator, deciding;
 static bool image_release_failure;
 static unsigned image_retains, image_releases;
@@ -175,6 +176,11 @@ bool ThreadRegistryLock::drop_creator(ThreadControl &c) {
   changed = true;
   ++drops;
   return true;
+}
+void await_thread_clear(ThreadControl &c) {
+  check(mode == FailedSuppliedStack && &c == &control);
+  check(!lock_depth && deciding && creator && !drops && wakes == 1);
+  check(phase == CallbackPhase::Discarded && !callbacks && !clear_waits++);
 }
 ThreadCreationResult create_callback_waiter(const ThreadPreparation &request,
                                             ThreadControl *&output) {
@@ -295,7 +301,8 @@ extern "C" int main(int argc, char **argv) {
     event.sigev_notify_function = wrong_callback;
     event.sigev_notify_attributes = reinterpret_cast<pthread_attr_t *>(1);
     if (mode == SignalPointer) event.sigev_value.sival_ptr = &payload;
-  } else if (mode == CopyAttributes || mode == BadAttributes) {
+  } else if (mode == CopyAttributes || mode == BadAttributes ||
+             mode == FailedSuppliedStack) {
     attr.__detachstate = PTHREAD_CREATE_JOINABLE;
     attr.__stack = supplied_stack;
     attr.__stacksize = mode == BadAttributes ? 1 : sizeof(supplied_stack);
@@ -390,13 +397,27 @@ extern "C" int main(int argc, char **argv) {
   check(attempts == 1 && allocations == 1 && allocation_attempts == 1);
   check(creator && phase == CallbackPhase::Waiting && retains == 1);
   check(!pid_calls && !uid_calls && !sends && !frees);
-  if (mode == CopyAttributes) {
+  if (mode == CopyAttributes || mode == FailedSuppliedStack) {
     check_snapshot(pending);
     auto *envelope = static_cast<NotificationCallback *>(pending.argument);
     check_snapshot(envelope->thread_preparation());
   } else {
     check(pending.detached && !pending.stack && pending.stack_size == 2 * 1024 * 1024);
     check(pending.guard_size == 8192 && !pending.apply_scheduling);
+  }
+  if (mode == FailedSuppliedStack) {
+    deciding = true;
+    notification.withdraw_failed_admission();
+    notification.withdraw_failed_admission();
+    deciding = false;
+    check(clear_waits == 1 && discards == 1 && drops == 1 && wakes == 2);
+    check(locks == 2 && !creator && !callbacks && !activations);
+    check(notification.cleanup() == 0 && notification.drained());
+    check(!frees);
+    check(pending.resource_owner.release(pending.resource_owner.context) == 0);
+    ++owner_releases;
+    check_closed();
+    return 0;
   }
   if (mode == ActivationRetry) {
     activation_failure = true;
