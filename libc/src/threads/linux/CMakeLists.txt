@@ -1,3 +1,16 @@
+add_entrypoint_object(
+  mtx_timedlock
+  SRCS
+    mtx_timedlock.cpp
+  HDRS
+    ../mtx_timedlock.h
+  DEPENDS
+    libc.include.threads
+    libc.src.__support.macros.null_check
+    libc.src.__support.threads.mutex
+    libc.src.__support.time.abs_timeout
+)
+
 add_header_library(
   threads_utils
   HDRS

@@ -20,6 +20,36 @@ add_integration_test(
 )
 
 add_integration_test(
+  mtx_timedlock_test
+  SUITE
+    libc-threads-integration-tests
+  SRCS
+    mtx_timedlock_test.cpp
+  DEPENDS
+    libc.include.threads
+    libc.src.threads.mtx_destroy
+    libc.src.threads.mtx_init
+    libc.src.threads.mtx_timedlock
+    libc.src.threads.mtx_trylock
+    libc.src.threads.mtx_unlock
+    libc.src.threads.thrd_create
+    libc.src.threads.thrd_join
+)
+
+add_integration_test(
+  thrd_sleep_test
+  SUITE
+    libc-threads-integration-tests
+  SRCS
+    thrd_sleep_test.cpp
+  DEPENDS
+    libc.src.errno.errno
+    libc.src.threads.thrd_sleep
+    libc.src.threads.thrd_yield
+    libc.src.time.clock_gettime
+)
+
+add_integration_test(
   thrd_detach_test
   SUITE
     libc-threads-integration-tests
