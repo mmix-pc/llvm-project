@@ -68,6 +68,9 @@ int Thread::join(ThreadReturnValue &retval) {
       (style != ThreadStyle::POSIX && style != ThreadStyle::STDC))
     __builtin_trap();
   // The forced-exit pthread provider bypasses this retained direct-exit path.
+  control->result_kind = style == ThreadStyle::STDC
+                             ? mmix::ThreadResultKind::Integer
+                             : mmix::ThreadResultKind::Pointer;
   mmix::exit_thread(*control, retval);
 }
 

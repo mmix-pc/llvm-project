@@ -12,10 +12,10 @@
 #include "src/__support/macros/config.h"
 #include <stdint.h>
 
-#if defined(LIBC_MMIX_SIGNAL_UNWIND) &&                                       \
-    (!defined(LIBC_MMIX_SIGNAL_CLEANUP) ||                                    \
-     !defined(_LIBUNWIND_USE_METADATA_POLICY) ||                              \
-     (!defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) &&                             \
+#if defined(LIBC_MMIX_SIGNAL_UNWIND) &&                                        \
+    (!defined(LIBC_MMIX_SIGNAL_CLEANUP) ||                                     \
+     !defined(_LIBUNWIND_USE_METADATA_POLICY) ||                               \
+     (!defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) &&                              \
       !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)))
 #error "Signal unwind requires matched cleanup, metadata and cursor providers"
 #endif
@@ -25,6 +25,7 @@ struct UnwindMetadataPolicyToken;
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 struct ThreadControl;
+enum class ThreadResultKind { Unpublished, Pointer, Integer, Canceled };
 struct ForcedCleanupWitness;
 enum class UnwindRootKind { Thread, TerminalThreadCleanup, LastThreadProcess };
 
@@ -63,9 +64,10 @@ bool validate_forced_cleanup(ThreadControl &control,
 // Application signals must be blocked. No ownership or registry admission is
 // supplied here. End before the operation's stack storage or signals resume.
 bool capture_active_fork_cleanup(ThreadControl &control, const void *operation);
-bool validate_active_fork_cleanup(ThreadControl &control, const void *operation);
+bool validate_active_fork_cleanup(ThreadControl &control,
+                                  const void *operation);
 bool quarantine_active_fork_cleanup(ThreadControl &control,
-                                     const void *operation);
+                                    const void *operation);
 void end_active_fork_cleanup(const void *operation);
 bool last_thread_fork_context(ThreadControl &control);
 bool last_worker_fork_context(ThreadControl &control);
@@ -82,12 +84,14 @@ run_with_terminal_cleanup_root(ThreadControl &control, RootBody *body,
 // does not initialize cancellation windows or resume a thread cleanup drain.
 // An ordinary last worker needs its separate completed-drain/election proof.
 [[noreturn, gnu::visibility("hidden")]] void
-run_with_process_exit_root(ThreadControl &control, RootBody *body, void *argument);
+run_with_process_exit_root(ThreadControl &control, RootBody *body,
+                           void *argument);
 
 // Shared root bridge. Only the selected forced-exit composition connects public
 // pthread_exit here; retained C-only packages keep their direct finish path.
 extern "C" [[noreturn, gnu::visibility("hidden")]] void
 __llvm_libc_mmix_unwind_to_root(void *result);
+[[noreturn]] void unwind_integer_to_root(int result);
 [[noreturn, gnu::visibility("hidden")]] void
 unwind_after_cleanup_claim(void *result, uint64_t callback_mask);
 #ifdef LIBC_MMIX_SIGNAL_UNWIND
@@ -106,9 +110,8 @@ bool try_signal_cancellation(uint64_t final_mask);
 // All blockable signals must remain blocked throughout stack cleanup, including
 // callbacks and destructors. Public admission/mask policy is a separate task.
 // Restore final_mask | CANCEL_MASK only before normal TLS/TSS root capture.
-[[noreturn, gnu::visibility("hidden")]] void
-unwind_signal_after_cleanup_claim(void *result, UnwindMetadataPolicyToken *token,
-                                 uint64_t final_mask);
+[[noreturn, gnu::visibility("hidden")]] void unwind_signal_after_cleanup_claim(
+    void *result, UnwindMetadataPolicyToken *token, uint64_t final_mask);
 #endif
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

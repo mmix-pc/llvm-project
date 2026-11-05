@@ -575,6 +575,16 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     HDRS thread_detach.h
     DEPENDS .lifecycle libc.hdr.errno_macros
   )
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    add_header_library(
+      cancellable_join
+      HDRS cancellable_join.h
+      DEPENDS .thread_join .cancellation_point
+        libc.hdr.signal_macros
+        libc.src.__support.OSUtil.linux.mmix.syscall
+        libc.include.sys_syscall
+    )
+  endif()
   add_object_library(
     thread_signal
     SRCS thread_signal.cpp

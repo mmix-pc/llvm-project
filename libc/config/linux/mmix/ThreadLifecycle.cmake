@@ -43,6 +43,7 @@ if(LIBC_MMIX_BUILD_PTHREAD_CREATION)
     libc.src.threads.thrd_current
     libc.src.threads.thrd_create
     libc.src.threads.thrd_equal
+    libc.src.threads.thrd_yield
     libc.src.pthread.pthread_attr_init
     libc.src.pthread.pthread_attr_destroy
     libc.src.pthread.pthread_attr_getdetachstate
@@ -55,6 +56,12 @@ if(LIBC_MMIX_BUILD_PTHREAD_CREATION)
     libc.src.pthread.pthread_attr_setstacksize)
 endif()
 if(LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE)
+  if(LIBC_MMIX_BUILD_FORCED_EXIT)
+    list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.threads.thrd_exit)
+  endif()
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.threads.thrd_join)
+  endif()
   list(APPEND TARGET_LIBC_ENTRYPOINTS
     libc.src.pthread.pthread_join
     libc.src.pthread.pthread_detach
@@ -63,6 +70,7 @@ if(LIBC_MMIX_BUILD_PTHREAD_LIFECYCLE)
 endif()
 if(LIBC_MMIX_BUILD_PTHREAD_MUTEX)
   foreach(operation init destroy lock trylock unlock)
+    list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.threads.mtx_${operation})
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_mutex_${operation})
   endforeach()
   foreach(operation init destroy gettype settype getrobust setrobust getpshared setpshared)
@@ -85,6 +93,11 @@ if(LIBC_MMIX_BUILD_PROTECT_MUTEX)
     libc.src.pthread.pthread_mutex_setprioceiling)
 endif()
 if(LIBC_MMIX_BUILD_PTHREAD_COND)
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    foreach(operation init destroy wait signal broadcast timedwait)
+      list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.threads.cnd_${operation})
+    endforeach()
+  endif()
   foreach(operation init destroy wait signal broadcast timedwait clockwait)
     list(APPEND TARGET_LIBC_ENTRYPOINTS libc.src.pthread.pthread_cond_${operation})
   endforeach()
@@ -94,6 +107,7 @@ if(LIBC_MMIX_BUILD_PTHREAD_COND)
 endif()
 if(LIBC_MMIX_BUILD_TIMED_MUTEX)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.threads.mtx_timedlock
     libc.src.pthread.pthread_mutex_timedlock
     libc.src.pthread.pthread_mutex_clocklock)
 endif()

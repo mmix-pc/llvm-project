@@ -102,6 +102,7 @@ struct ThreadControl {
   // Thread::attrib identifies this embedded object. Lookup compares addresses;
   // it must never use container_of on an unpinned caller-supplied handle.
   ThreadAttributes attributes;
+  ThreadResultKind result_kind = ThreadResultKind::Unpublished;
   ThreadRunner runner{};
   void *argument = nullptr;
   uint64_t saved_signal_mask = 0;

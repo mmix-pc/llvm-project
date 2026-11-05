@@ -39,6 +39,8 @@ struct ForcedExit {
   _Unwind_Exception exception{};
   UnwindRoot root{};
   void *result = nullptr;
+  int integer_result = 0;
+  ThreadResultKind result_kind = ThreadResultKind::Unpublished;
   bool active = false;
 #if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
     defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
@@ -386,7 +388,11 @@ _Unwind_Reason_Code stop(int version, _Unwind_Action actions,
     }
 #endif
     // Never return through consumed frames or release the current backing.
-    complete_thread_cleanup(*control, ThreadReturnValue(state.result));
+    control->result_kind = state.result_kind;
+    complete_thread_cleanup(*control,
+                            state.result_kind == ThreadResultKind::Integer
+                                ? ThreadReturnValue(state.integer_result)
+                                : ThreadReturnValue(state.result));
   }
   return _URC_NO_REASON;
 }
@@ -447,6 +453,8 @@ bool snapshot_forced_cleanup(ThreadControl &control, ForcedCleanupWitness &out) 
     return false;
   observed.root = forced.root;
   observed.result = forced.result;
+  observed.integer_result = forced.integer_result;
+  observed.result_kind = forced.result_kind;
   observed.base = forced.cursor_base;
   out = observed;
   return true;
@@ -463,6 +471,8 @@ bool validate_forced_cleanup(ThreadControl &control,
     defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   return ordinary_forced_cleanup(control) &&
          witness.root.matches(forced.root) && witness.result == forced.result &&
+         witness.integer_result == forced.integer_result &&
+         witness.result_kind == forced.result_kind &&
          same_cursor_base(witness.base, forced.cursor_base) &&
          __libunwind_mmix_forced_validate(
              &forced.cursor_base, &forced.exception,
@@ -646,6 +656,8 @@ unwind_signal_after_cleanup_claim(void *result, UnwindMetadataPolicyToken *token
   if (!signal_segment(forced, signal_chain(forced)))
     __builtin_trap();
   forced.result = result;
+  forced.result_kind = ThreadResultKind::Canceled;
+  forced.integer_result = 0;
   forced.final_mask = final_mask;
   forced.exception = {};
   forced.exception.exception_class = 0x4c4c564d50544852ULL; // LLVMPTHR.
@@ -785,7 +797,9 @@ run_with_process_exit_root(ThreadControl &control, RootBody *body,
 }
 
 [[noreturn]] static void force_exit(void *result, bool cleanup_claimed,
-                                  uint64_t callback_mask = 0) {
+                                  uint64_t callback_mask = 0,
+                                  ThreadResultKind kind = ThreadResultKind::Pointer,
+                                  int integer_result = 0) {
   auto *control = current_control;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   // Constructor/finalizer exit would abandon a published initializing batch.
@@ -811,6 +825,8 @@ run_with_process_exit_root(ThreadControl &control, RootBody *body,
 #endif
   forced.root = control->unwind_root;
   forced.result = result;
+  forced.result_kind = kind;
+  forced.integer_result = integer_result;
   forced.active = true;
   forced.exception.exception_class = 0x4c4c564d50544852ULL; // LLVMPTHR.
   forced.exception.exception_cleanup = disposed;
@@ -842,11 +858,15 @@ extern "C" [[noreturn]] void __llvm_libc_mmix_unwind_to_root(void *result) {
   force_exit(result, false);
 }
 
+[[noreturn]] void unwind_integer_to_root(int result) {
+  force_exit(nullptr, false, 0, ThreadResultKind::Integer, result);
+}
+
 [[noreturn]] void unwind_after_cleanup_claim(void *result,
                                            uint64_t callback_mask) {
   // The claim transfers a full mask. Publish forced ownership before restoring
   // callback signals, so no handler observes a partially initialized exit.
-  force_exit(result, true, callback_mask);
+  force_exit(result, true, callback_mask, ThreadResultKind::Canceled);
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

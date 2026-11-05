@@ -181,7 +181,7 @@ static void inspect(unsigned expected_phase) {
 
   // Every saved identity is compared, including unused token slots and the
   // entire pre-forced base. Poisoned borrowed pointers must never be followed.
-  for (unsigned field = 0; field != 27; ++field) {
+  for (unsigned field = 0; field != 29; ++field) {
     auto wrong = saved;
     switch (field) {
     case 0: wrong.root.owner = nullptr; break;
@@ -211,6 +211,12 @@ static void inspect(unsigned expected_phase) {
     case 24: ++wrong.continuation.held_fallback_token; break;
     case 25: ++wrong.continuation.phase; break;
     case 26: wrong.root.generation = 0; break;
+    case 27: ++wrong.integer_result; break;
+    case 28:
+      wrong.result_kind = saved.result_kind == M::ThreadResultKind::Integer
+                              ? M::ThreadResultKind::Pointer
+                              : M::ThreadResultKind::Integer;
+      break;
     }
     ReadOnly readonly;
     assert(!M::validate_forced_cleanup(control, wrong));

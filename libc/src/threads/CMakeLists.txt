@@ -42,6 +42,8 @@ add_entrypoint_object(
 
 set(thrd_create_source thrd_create.cpp)
 set(thrd_detach_source thrd_detach.cpp)
+set(thrd_join_source thrd_join.cpp)
+set(thrd_exit_source thrd_exit.cpp)
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   include(${CMAKE_CURRENT_LIST_DIR}/linux/mmix/Creation.cmake)
 endif()
@@ -66,12 +68,15 @@ add_entrypoint_object(
 add_entrypoint_object(
   thrd_join
   SRCS
-    thrd_join.cpp
+    ${thrd_join_source}
   HDRS
     thrd_join.h
   DEPENDS
     libc.include.threads
     libc.src.__support.threads.thread
+    ${thrd_join_dependencies}
+  COMPILE_OPTIONS
+    ${thrd_join_options}
 )
 
 add_entrypoint_object(
@@ -111,12 +116,14 @@ add_entrypoint_object(
 add_entrypoint_object(
   thrd_exit
   SRCS
-    thrd_exit.cpp
+    ${thrd_exit_source}
   HDRS
     thrd_exit.h
   DEPENDS
     libc.include.threads
     libc.src.__support.threads.thread
+    ${thrd_exit_dependencies}
+  COMPILE_OPTIONS ${thrd_exit_options}
 )
 
 add_entrypoint_object(

@@ -9,8 +9,8 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_FORCED_CLEANUP_H
 #define LLVM_LIBC_SRC___SUPPORT_THREADS_LINUX_MMIX_FORCED_CLEANUP_H
 
-#include "unwind_root.h"
 #include "mmix/CursorLifetime.h"
+#include "unwind_root.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
@@ -18,6 +18,8 @@ namespace mmix {
 struct ForcedCleanupWitness {
   UnwindRoot root{};
   void *result = nullptr;
+  int integer_result = 0;
+  ThreadResultKind result_kind = ThreadResultKind::Unpublished;
   MMIXCursorCheckpoint base{};
   MMIXForcedCheckpoint continuation{};
 };
@@ -26,7 +28,8 @@ struct ForcedCleanupWitness {
 // and keep the same forced activation suspended. Discard when it advances or
 // ends; equality is not an ABA/history guarantee. Neither call changes masks,
 // looks up metadata, locks, retains/releases images or dereferences saved
-// pointers. Capture failure leaves out unchanged; untracked builds return false.
+// pointers. Capture failure leaves out unchanged; untracked builds return
+// false.
 //
 // Requires a terminal cleanup claim; the cancellation type bit alone neither
 // proves nor excludes synchronous forced exit. Binds the current Thread root,
@@ -37,8 +40,8 @@ struct ForcedCleanupWitness {
 // Landing borrows persistent held tokens, never a fabricated stack cursor.
 //
 // This is not callback certification, exit/cancel provenance, registry census,
-// loader-accounting validation or fork/child continuation authority. It does not
-// reset forced ownership or authorize restoring an ordinary fork context.
+// loader-accounting validation or fork/child continuation authority. It does
+// not reset forced ownership or authorize restoring an ordinary fork context.
 
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

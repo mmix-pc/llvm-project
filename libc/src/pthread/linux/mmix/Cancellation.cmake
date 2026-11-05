@@ -18,6 +18,7 @@ if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
     set(${operation}_source linux/mmix/cancellation_${operation}.cpp)
   endforeach()
   set(mmix_wait_dependencies
+    libc.src.__support.threads.linux.mmix.cancellable_join
     libc.src.__support.threads.linux.mmix.cancellation_point
     libc.src.__support.threads.linux.mmix.cancellation
     libc.src.__support.threads.linux.mmix.thread_join

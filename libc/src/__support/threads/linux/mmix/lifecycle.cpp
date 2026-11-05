@@ -698,9 +698,10 @@ bool ThreadRegistryLock::join_result(ThreadControl &c,
       c.execution != ThreadExecution::ExitReady || c.leases_open || c.leases ||
       c.clear_tid.value.load(cpp::MemoryOrder::ACQUIRE) != 0)
     return false;
-  if (c.attributes.style == ThreadStyle::POSIX)
+  if (c.result_kind == ThreadResultKind::Pointer ||
+      c.result_kind == ThreadResultKind::Canceled)
     result = ThreadReturnValue(c.attributes.retval.posix_retval);
-  else if (c.attributes.style == ThreadStyle::STDC)
+  else if (c.result_kind == ThreadResultKind::Integer)
     result = ThreadReturnValue(c.attributes.retval.stdc_retval);
   else
     return false;
@@ -765,6 +766,10 @@ bool ThreadRegistryLock::exit_ready(ThreadControl &c,
       c.leases_open || c.leases)
     return false;
   c.attributes.retval = result;
+  if (c.result_kind == ThreadResultKind::Unpublished)
+    c.result_kind = c.attributes.style == ThreadStyle::STDC
+                        ? ThreadResultKind::Integer
+                        : ThreadResultKind::Pointer;
   c.execution = ThreadExecution::ExitReady;
   enqueue_completed(c);
   if (c.counted) {

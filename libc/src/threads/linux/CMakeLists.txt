@@ -1,3 +1,9 @@
+set(cnd_wait_source cnd_wait.cpp)
+set(cnd_timedwait_source cnd_timedwait.cpp)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  include(${CMAKE_CURRENT_LIST_DIR}/mmix/Waits.cmake)
+endif()
+
 add_entrypoint_object(
   mtx_timedlock
   SRCS
@@ -52,19 +58,21 @@ add_entrypoint_object(
 add_entrypoint_object(
   cnd_wait
   SRCS
-    cnd_wait.cpp
+    ${cnd_wait_source}
   HDRS
     ../cnd_wait.h
   DEPENDS
     libc.include.threads
     libc.src.__support.threads.mutex
     libc.src.__support.threads.CndVar
+    ${cnd_wait_dependencies}
+  COMPILE_OPTIONS ${cnd_wait_options}
 )
 
 add_entrypoint_object(
   cnd_timedwait
   SRCS
-    cnd_timedwait.cpp
+    ${cnd_timedwait_source}
   HDRS
     ../cnd_timedwait.h
   DEPENDS
@@ -73,6 +81,8 @@ add_entrypoint_object(
     libc.src.__support.threads.CndVar
     libc.src.__support.time.abs_timeout
     libc.src.__support.macros.null_check
+    ${cnd_wait_dependencies}
+  COMPILE_OPTIONS ${cnd_wait_options}
 )
 
 add_entrypoint_object(
