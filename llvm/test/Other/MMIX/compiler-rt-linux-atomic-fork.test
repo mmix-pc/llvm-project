@@ -1,0 +1,67 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-clang
+# RUN: %python %s %S/../../../../compiler-rt/lib/builtins %S/Inputs/compiler-runtime/linux-atomic-fork.c %t "%mmix_host_cxx"
+
+# Source-level lock-state coverage only, not a guest fork/signal/cancellation
+# qualification. Compile the unmodified provider separately for MMIX ELF checks.
+import pathlib
+import subprocess
+import sys
+
+builtins, harness, out = map(pathlib.Path, sys.argv[1:4])
+host = sys.argv[4]
+out.mkdir(parents=True, exist_ok=True)
+
+
+def run(*args):
+    return subprocess.check_output([str(arg) for arg in args], text=True)
+
+
+generic = {"__atomic_" + op for op in
+           ("load", "store", "exchange", "compare_exchange", "is_lock_free")}
+operations = ("load", "store", "exchange", "compare_exchange", "fetch_add",
+              "fetch_sub", "fetch_and", "fetch_or", "fetch_xor", "fetch_nand")
+public = generic | {"__atomic_" + op + "_" + str(size)
+                    for op in operations for size in (1, 2, 4, 8)}
+hooks = {"__llvm_libc_mmix_atomic_try_prepare_fork",
+         "__llvm_libc_mmix_atomic_finish_fork"}
+flags = ("--no-default-config", "-std=c17", "-ffreestanding", "-fno-builtin",
+         "-fPIC", "-fvisibility=default", "-fno-lto", "-fno-stack-protector")
+
+for opt in ("0", "2"):
+    target = out / ("mmix-O" + opt + ".o")
+    run("clang", *flags, "--target=mmix-unknown-linux", "-O" + opt,
+        "-c", builtins / "mmix/linux_atomic.c", "-o", target)
+    assert not run("llvm-nm", "--undefined-only", target).strip()
+    symbols = {}
+    for line in run("llvm-readelf", "--symbols", "--wide", target).splitlines():
+        fields = line.split()
+        if len(fields) == 8 and fields[0].endswith(":"):
+            symbols[fields[7]] = fields
+    for name in public | hooks:
+        fields = symbols[name]
+        assert fields[3:6] == ["FUNC", "GLOBAL",
+                              "HIDDEN" if name in hooks else "DEFAULT"], fields
+        assert fields[6] != "UND", fields
+    defined = {line.split()[-1] for line in
+               run("llvm-nm", "--defined-only", "--extern-only", target).splitlines()}
+    assert defined == public | hooks, defined ^ (public | hooks)
+
+    # Use Clang's C atomics on the gated native x86-64 Linux host. Rename all
+    # public atomic definitions before linking so the host CRT cannot use them.
+    native = out / ("host-O" + opt + ".o")
+    renamed = out / ("host-renamed-O" + opt + ".o")
+    exe = out / ("host-O" + opt)
+    run(host, "-x", "c", *flags, "--target=x86_64-unknown-linux-gnu", "-O" + opt,
+        "-I", builtins, "-c", harness, "-o", native)
+    assert not run("llvm-nm", "--undefined-only", native).strip()
+    defined = {line.split()[-1] for line in
+               run("llvm-nm", "--defined-only", "--extern-only", native).splitlines()}
+    assert defined == public | hooks | {"main"}, defined
+    renames = ["--redefine-sym=" + name + "=test_" + name for name in sorted(public)]
+    run("llvm-objcopy", *renames, native, renamed)
+    defined = {line.split()[-1] for line in
+               run("llvm-nm", "--defined-only", "--extern-only", renamed).splitlines()}
+    assert defined == {"test_" + name for name in public} | hooks | {"main"}, defined
+    run(host, "--no-default-config", "--target=x86_64-unknown-linux-gnu",
+        renamed, "-o", exe)
+    subprocess.run([str(exe)], check=True, timeout=5)
