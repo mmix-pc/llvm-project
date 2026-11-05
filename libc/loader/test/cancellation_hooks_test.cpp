@@ -8,6 +8,7 @@
 
 #include "src/__support/CPP/atomic.h"
 #include "src/__support/macros/config.h"
+#include "src/__support/threads/linux/mmix/cancellation_state.h"
 #include <asm/rstack.h>
 #include <cerrno>
 #include <cstdlib>
@@ -27,6 +28,7 @@ static uint64_t active_chain = 7, signal_mask;
 static long query_failure;
 static int cancel_state = PTHREAD_CANCEL_ENABLE;
 static unsigned changes;
+static int expected_enabled_on_unmask = -1;
 static void check(bool ok, int line = __builtin_LINE()) {
   if (!ok) {
     std::fprintf(stderr, "cancellation hook check at %d\n", line);
@@ -36,16 +38,19 @@ static void check(bool ok, int line = __builtin_LINE()) {
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 struct ThreadControl {
+  CancellationState cancellation;
   uint64_t loader_chain = 7;
   cpp::Atomic<uint64_t> loader_scopes{0}, loader_callbacks{0};
 };
 static ThreadControl control;
 static ThreadControl *current_control = &control;
 int set_cancel_state(int state, int *previous) {
-  check(state == PTHREAD_CANCEL_DISABLE || !control.loader_scopes.load());
+  check(state == PTHREAD_CANCEL_DISABLE || !control.loader_scopes.load() ||
+        control.loader_callbacks.load());
   if (previous)
     *previous = cancel_state;
   cancel_state = state;
+  control.cancellation.set_enabled(state == PTHREAD_CANCEL_ENABLE);
   ++changes;
   return 0;
 }
@@ -63,6 +68,11 @@ long syscall_impl(long number, long how, long set, long old, long size) {
     *reinterpret_cast<uint64_t *>(old) = signal_mask;
   if (set) {
     uint64_t value = *reinterpret_cast<uint64_t *>(set);
+    if (how == SIG_SETMASK && expected_enabled_on_unmask != -1) {
+      check(mmix::control.cancellation.enabled() ==
+            bool(expected_enabled_on_unmask));
+      expected_enabled_on_unmask = -1;
+    }
     signal_mask = how == SIG_BLOCK ? signal_mask | value : value;
   }
   return 0;
@@ -135,6 +145,20 @@ int main() {
   check(fast_calls == 2 && slow_calls == 1);
   check(cancel_state == PTHREAD_CANCEL_ENABLE && !control.loader_scopes.load());
   check(signal_mask == 0x40);
+  // A callback may enable cancellation, but an originally disabled caller
+  // must regain its state before the loader scope unmasks signals.
+  check(!set_cancel_state(PTHREAD_CANCEL_DISABLE, nullptr));
+  check(!hooks.enter(&saved) && saved == PTHREAD_CANCEL_DISABLE);
+  hooks.begin_callback();
+  check(!set_cancel_state(PTHREAD_CANCEL_ENABLE, nullptr));
+  hooks.end_callback();
+  check(control.cancellation.enabled());
+  expected_enabled_on_unmask = 0;
+  check(!hooks.leave(saved));
+  check(expected_enabled_on_unmask == -1 && !control.cancellation.enabled());
+  check(cancel_state == PTHREAD_CANCEL_DISABLE && !control.loader_scopes.load());
+  check(signal_mask == 0x40);
+  check(!set_cancel_state(PTHREAD_CANCEL_ENABLE, nullptr));
   current_control = nullptr;
   check(hooks.enter(&saved) == -ENOTSUP && signal_mask == 0x40);
   current_control = &control;
