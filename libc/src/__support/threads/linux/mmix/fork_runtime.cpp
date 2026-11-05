@@ -30,6 +30,10 @@
 #include "src/dlfcn/linux/mmix/loading.h"
 #endif
 #include <sys/syscall.h>
+extern "C" bool __llvm_libc_mmix_atomic_try_prepare_fork()
+    __attribute__((weak, visibility("hidden")));
+extern "C" void __llvm_libc_mmix_atomic_finish_fork()
+    __attribute__((weak, visibility("hidden")));
 namespace LIBC_NAMESPACE_DECL {
 // Optional providers must not be pulled into a static link merely by fork.
 extern Mutex handler_list_mtx __attribute__((weak));
@@ -332,6 +336,11 @@ int ForkOperation::prepare_runtime() {
       return EAGAIN;
     log_locked = true;
   }
+  if (__llvm_libc_mmix_atomic_try_prepare_fork) {
+    if (!__llvm_libc_mmix_atomic_try_prepare_fork())
+      return EAGAIN;
+    atomic_locked = true;
+  }
   if (!allocator_fork_try_prepare())
     return EAGAIN;
   allocator = true;
@@ -462,6 +471,10 @@ void ForkOperation::restore_runtime(bool child) {
   if (allocator) {
     allocator_fork_release();
     allocator = false;
+  }
+  if (atomic_locked) {
+    __llvm_libc_mmix_atomic_finish_fork();
+    atomic_locked = false;
   }
   if (log_locked) {
     internal::finish_log_fork(child);

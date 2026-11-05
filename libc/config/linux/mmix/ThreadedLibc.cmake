@@ -7,6 +7,7 @@ if(NOT LIBC_MMIX_BUILD_THREADED_LIBC)
   return()
 endif()
 mmix_check_runtime_mode()
+include(${CMAKE_CURRENT_LIST_DIR}/AtomicFallback.cmake)
 
 # The Linux CRT owns the AT_RANDOM guard and its failure entrypoint. The
 # internal archive's fixed-guard fallback must not enter this composition.
@@ -99,7 +100,10 @@ set(TARGET_LLVMLIBC_ENTRYPOINTS ${TARGET_LIBC_ENTRYPOINTS})
 set(mmix_threaded_entrypoints ${TARGET_LIBC_ENTRYPOINTS})
 
 function(mmix_configure_threaded_libc)
+  mmix_configure_atomic_fallback()
   get_all_object_file_deps(public_objects "${mmix_threaded_entrypoints}")
+  target_sources(libc PRIVATE $<TARGET_OBJECTS:mmix_linux_atomic>)
+  list(APPEND public_objects mmix_linux_atomic)
   get_property(internal_objects DIRECTORY PROPERTY MMIX_THREAD_SUPPORT_OBJECTS)
   # Archive collection does not traverse header-library object dependencies.
   # Built-in UTF-8 locales need these tables as well as the public wrappers.

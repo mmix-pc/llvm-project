@@ -31,6 +31,7 @@ class ForkOperation {
   bool random48_locked = false;
   bool random_locked = false;
   bool log_locked = false;
+  bool atomic_locked = false;
   internal::ForkRecovery child_recovery = internal::ForkRecovery::child();
 #ifdef LIBC_MMIX_SHARED_STARTUP
   bool loader_locked = false;
