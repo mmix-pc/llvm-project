@@ -14,6 +14,7 @@
 #include "src/__support/macros/null_check.h"
 #include "src/__support/threads/unix_rwlock.h"
 #include "src/__support/time/abs_timeout.h"
+#include "src/__support/time/clock_gettime.h"
 #include <pthread.h>
 
 namespace LIBC_NAMESPACE_DECL {
@@ -43,10 +44,23 @@ LIBC_INLINE int rwlock_clocklock(pthread_rwlock_t *storage, clockid_t clock,
     timeout =
         internal::AbsTimeout::from_timespec({0, 0}, clock == CLOCK_REALTIME);
   }
-  // The common path preserves writer deadlock checks and absolute EINTR
-  // retries.
-  auto result = role == rwlock::Role::Reader ? rw->read_lock(*timeout)
-                                             : rw->write_lock(*timeout);
+  const timespec limit = timeout->get_timespec();
+  auto expired = [clock, limit]() {
+    timespec now;
+    // Both accepted clocks are mandatory on this platform, and storage is
+    // local. A failed internal query is not a successful lock operation.
+    if (!internal::clock_gettime(clock, &now).has_value())
+      __builtin_trap();
+    return now.tv_sec > limit.tv_sec ||
+           (now.tv_sec == limit.tv_sec && now.tv_nsec >= limit.tv_nsec);
+  };
+  // Keep initial acquisition precedence. Once queued, expiry must withdraw
+  // even if an interrupted futex wait observes a changed word and returns zero.
+  auto result = role == rwlock::Role::Reader
+                    ? rw->read_lock(*timeout, LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
+                                    expired)
+                    : rw->write_lock(*timeout, LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
+                                     expired);
   return static_cast<int>(result);
 }
 

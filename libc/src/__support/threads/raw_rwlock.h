@@ -44,6 +44,11 @@ enum class LockResult : int {
   PermissionDenied = EPERM,
 };
 
+// Platforms can supply a deadline check before withdrawing a queued waiter.
+struct NoTimeoutCheck {
+  LIBC_INLINE bool operator()() const { return false; }
+};
+
 // A waiting queue to keep track of the pending readers and writers.
 class WaitingQueue final : private RawMutex {
   /* FutexWordType raw_mutex;  (from base class) */
@@ -377,10 +382,10 @@ private:
     }
   }
 
-  template <Role role>
+  template <Role role, class TimeoutCheck>
   LIBC_INLINE LockResult
-  lock_slow(cpp::optional<Futex::Timeout> timeout = cpp::nullopt,
-            unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT) {
+  lock_slow(cpp::optional<Futex::Timeout> timeout,
+            unsigned spin_count, TimeoutCheck timeout_expired) {
 #ifdef LIBC_COPT_TIMEOUT_ENSURE_MONOTONICITY
     // Phase 2: convert the timeout if necessary.
     if (timeout)
@@ -438,6 +443,12 @@ private:
         timeout_flag =
             (!wait_result.has_value() && wait_result.error() == ETIMEDOUT);
       }
+
+      // An interrupted wait can finish normally after its word changes. A
+      // platform deadline check must precede withdrawal so timeout replacement
+      // wakes and pending-count cleanup use the same transaction.
+      if (timeout && !timeout_flag)
+        timeout_flag = timeout_expired();
 
       // Phase 7: unregister ourselves as a pending reader/writer.
       Futex *waiters_to_wake = nullptr;
@@ -550,24 +561,28 @@ public:
     return try_lock<Role::Writer>(old);
   }
 
+  template <class TimeoutCheck = rwlock::NoTimeoutCheck>
   [[nodiscard]]
   LIBC_INLINE LockResult
   read_lock(cpp::optional<Futex::Timeout> timeout = cpp::nullopt,
-            unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT) {
+            unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
+            TimeoutCheck timeout_expired = {}) {
     LockResult result = try_read_lock();
     if (LIBC_LIKELY(result != LockResult::Busy))
       return result;
-    return lock_slow<Role::Reader>(timeout, spin_count);
+    return lock_slow<Role::Reader>(timeout, spin_count, timeout_expired);
   }
 
+  template <class TimeoutCheck = rwlock::NoTimeoutCheck>
   [[nodiscard]]
   LIBC_INLINE LockResult
   write_lock(cpp::optional<Futex::Timeout> timeout = cpp::nullopt,
-             unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT) {
+             unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
+            TimeoutCheck timeout_expired = {}) {
     LockResult result = try_write_lock();
     if (LIBC_LIKELY(result != LockResult::Busy))
       return result;
-    return lock_slow<Role::Writer>(timeout, spin_count);
+    return lock_slow<Role::Writer>(timeout, spin_count, timeout_expired);
   }
 
   [[nodiscard]]

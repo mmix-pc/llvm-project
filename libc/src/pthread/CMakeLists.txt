@@ -884,11 +884,13 @@ add_entrypoint_object(
 )
 
 set(pthread_rwlock_target_headers)
+set(pthread_rwlock_target_dependencies)
 foreach(operation init timedrdlock timedwrlock clockrdlock clockwrlock)
   set(pthread_rwlock_${operation}_source pthread_rwlock_${operation}.cpp)
 endforeach()
 if(LIBC_TARGET_OS STREQUAL "linux" AND LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(pthread_rwlock_target_headers linux/mmix/rwlock_timeout.h)
+  set(pthread_rwlock_target_dependencies libc.src.__support.time.clock_gettime)
   foreach(operation init timedrdlock timedwrlock clockrdlock clockwrlock)
     set(pthread_rwlock_${operation}_source linux/mmix/pthread_rwlock_${operation}.cpp)
   endforeach()
@@ -937,6 +939,7 @@ add_entrypoint_object(
     pthread_rwlock_clockrdlock.h
     ${pthread_rwlock_target_headers}
   DEPENDS
+    ${pthread_rwlock_target_dependencies}
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock
 )
@@ -949,6 +952,7 @@ add_entrypoint_object(
     pthread_rwlock_clockwrlock.h
     ${pthread_rwlock_target_headers}
   DEPENDS
+    ${pthread_rwlock_target_dependencies}
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock
 )
@@ -961,6 +965,7 @@ add_entrypoint_object(
     pthread_rwlock_timedrdlock.h
     ${pthread_rwlock_target_headers}
   DEPENDS
+    ${pthread_rwlock_target_dependencies}
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock
     libc.src.errno.errno
@@ -974,6 +979,7 @@ add_entrypoint_object(
     pthread_rwlock_timedwrlock.h
     ${pthread_rwlock_target_headers}
   DEPENDS
+    ${pthread_rwlock_target_dependencies}
     libc.include.pthread
     libc.src.__support.threads.unix_rwlock
 )

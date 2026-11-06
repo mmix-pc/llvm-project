@@ -138,3 +138,21 @@ TEST(LlvmLibcSupportThreadsRawRwLockTest, TimeoutWithoutDeadlockDetection) {
   ASSERT_EQ(rwlock.read_lock(*timeout), LockResult::TimedOut);
   ASSERT_EQ(rwlock.unlock(), LockResult::Success);
 }
+
+TEST(LlvmLibcSupportThreadsRawRwLockTest, ImmediateAcquisitionSkipsDeadlineCheck) {
+  LIBC_NAMESPACE::RawRwLock rwlock;
+  using LockResult = LIBC_NAMESPACE::RawRwLock::LockResult;
+  auto timeout = LIBC_NAMESPACE::internal::AbsTimeout::from_timespec({0, 0}, true);
+  ASSERT_TRUE(timeout.has_value());
+  unsigned checks = 0;
+  auto expired = [&]() {
+    ++checks;
+    return true;
+  };
+  ASSERT_EQ(rwlock.read_lock(*timeout, 0, expired), LockResult::Success);
+  ASSERT_EQ(checks, 0u);
+  ASSERT_EQ(rwlock.unlock(), LockResult::Success);
+  ASSERT_EQ(rwlock.write_lock(*timeout, 0, expired), LockResult::Success);
+  ASSERT_EQ(checks, 0u);
+  ASSERT_EQ(rwlock.unlock(), LockResult::Success);
+}

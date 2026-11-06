@@ -48,23 +48,27 @@ public:
     return result;
   }
 
+  template <class TimeoutCheck = rwlock::NoTimeoutCheck>
   [[nodiscard]]
   LIBC_INLINE LockResult
   read_lock(cpp::optional<Futex::Timeout> timeout = cpp::nullopt,
-            unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT) {
+            unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
+            TimeoutCheck timeout_expired = {}) {
     if (get_writer_tid() == internal::gettid())
       return LockResult::Deadlock;
-    return raw.read_lock(timeout, spin_count);
+    return raw.read_lock(timeout, spin_count, timeout_expired);
   }
 
+  template <class TimeoutCheck = rwlock::NoTimeoutCheck>
   [[nodiscard]]
   LIBC_INLINE LockResult
   write_lock(cpp::optional<Futex::Timeout> timeout = cpp::nullopt,
-             unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT) {
+             unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
+            TimeoutCheck timeout_expired = {}) {
     if (get_writer_tid() == internal::gettid())
       return LockResult::Deadlock;
 
-    LockResult result = raw.write_lock(timeout, spin_count);
+    LockResult result = raw.write_lock(timeout, spin_count, timeout_expired);
     if (result == LockResult::Success)
       set_writer_tid(internal::gettid());
     return result;
