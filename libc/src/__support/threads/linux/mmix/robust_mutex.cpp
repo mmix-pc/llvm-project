@@ -79,6 +79,11 @@ void remove(RobustMutex &mutex) {
 }
 } // namespace
 
+bool RobustMutex::is_valid_wait_owner() {
+  return (futex.load(cpp::MemoryOrder::RELAXED) & FUTEX_TID_MASK) ==
+         uint32_t(internal::gettid());
+}
+
 bool robust_list_empty() {
   return !registered ||
          (!head.list_op_pending && head.list.next == &head.list);

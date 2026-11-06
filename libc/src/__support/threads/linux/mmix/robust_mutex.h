@@ -52,6 +52,7 @@ struct RobustMutex {
   bool is_error_checking() const { return has_flag(MUTEX_ERRORCHECK); }
   bool is_inconsistent() const { return has_flag(MUTEX_INCONSISTENT); }
   bool is_unrecoverable() const { return has_flag(MUTEX_UNRECOVERABLE); }
+  bool is_valid_wait_owner();
   MutexError acquire(cpp::optional<Futex::Timeout> timeout, bool try_only);
   MutexError acquire_pi(cpp::optional<Futex::Timeout> timeout, bool try_only);
   MutexError release_pi();

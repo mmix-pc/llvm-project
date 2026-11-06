@@ -76,6 +76,8 @@ condition_shared_wait(Futex &futex, FutexWordType expected,
 template <typename WaitMutex>
 inline int condition_wait_impl(CndVar *cond, WaitMutex *mutex,
                                cpp::optional<CndVar::Timeout> timeout) {
+  if (!mutex->is_valid_wait_owner())
+    return EPERM;
   switch (cond->wait_with(
       mutex, timeout, condition_private_wait, [] { test_cancel(); },
       condition_shared_wait)) {
