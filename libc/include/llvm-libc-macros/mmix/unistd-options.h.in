@@ -8,6 +8,11 @@
 
 #ifndef LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H
 #define LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H
+// The MMIX Linux C ABI uses int32, long64, off_t64 and 64-bit C pointers.
+// These describe the compilation model, not whole POSIX conformance or a
+// particular thread implementation. No alternate data model is selected.
+#define _POSIX_V7_LP64_OFF64 1
+#define _POSIX_V8_LP64_OFF64 1
 #define _POSIX_THREADS @MMIX_POSIX_THREADS@
 #define _POSIX_THREAD_ATTR_STACKADDR @MMIX_POSIX_THREAD_ATTR_STACKADDR@
 #define _POSIX_THREAD_ATTR_STACKSIZE @MMIX_POSIX_THREAD_ATTR_STACKSIZE@
