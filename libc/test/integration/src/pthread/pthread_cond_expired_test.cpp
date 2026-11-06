@@ -47,6 +47,32 @@ static void check_unlocked() {
 }
 
 TEST_MAIN() {
+  constexpr bool choices[] = {false, true};
+  for (bool shared : choices) {
+    for (bool recursive : choices) {
+      Mutex mutex{false, recursive, false, shared, !recursive};
+      CndVar cond{shared};
+      unsigned char original[sizeof(cond)];
+      const auto *bytes = reinterpret_cast<const unsigned char *>(&cond);
+      for (size_t i = 0; i < sizeof(cond); ++i)
+        original[i] = bytes[i];
+      observed = false;
+      waiting_mutex = &mutex;
+      observe_wait = check_unlocked;
+      ASSERT_EQ(pthread_cond_utils::wait(&cond, &mutex, cpp::nullopt), EPERM);
+      for (bool realtime : choices) {
+        const timespec expired{0, 0};
+        ASSERT_EQ(pthread_cond_utils::timed_wait(&cond, &mutex, &expired,
+                                                realtime), EPERM);
+      }
+      observe_wait = nullptr;
+      ASSERT_FALSE(observed);
+      for (size_t i = 0; i < sizeof(cond); ++i)
+        ASSERT_EQ(bytes[i], original[i]);
+      ASSERT_EQ(mutex.try_lock(), MutexError::NONE);
+      ASSERT_EQ(mutex.unlock(), MutexError::NONE);
+    }
+  }
   for (int clock = 0; clock != 2; ++clock) {
     Mutex mutex{false, false, false, false};
     CndVar cond{false, bool(clock)};

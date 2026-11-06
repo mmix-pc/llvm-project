@@ -134,6 +134,12 @@ public:
   }
 
   LIBC_INLINE bool is_robust() const { return this->robust; }
+  // Ordinary mutexes do not track owners. Checked and recursive mutexes must
+  // reject a nonowner before a condition wait publishes or releases anything.
+  LIBC_INLINE bool is_valid_wait_owner() {
+    return (!is_error_checking() && !is_recursive()) ||
+           owner.load(cpp::MemoryOrder::RELAXED) == internal::gettid();
+  }
   // Child-only repair of a private libc lock whose acquisition was captured
   // by the fork coordinator. Preserve the surviving caller's recursion depth.
   LIBC_INLINE bool rebind_owner_after_fork(pid_t previous, pid_t survivor) {

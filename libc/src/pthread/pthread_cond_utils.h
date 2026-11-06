@@ -59,6 +59,8 @@ LIBC_INLINE bool is_realtime_clock(clockid_t clock_id) {
 
 LIBC_INLINE int wait(CndVar *cond, Mutex *mutex,
                      cpp::optional<CndVar::Timeout> timeout) {
+  if (!mutex->is_valid_wait_owner())
+    return EPERM;
   switch (cond->wait(mutex, timeout)) {
   case CndVarResult::Success:
     return 0;
