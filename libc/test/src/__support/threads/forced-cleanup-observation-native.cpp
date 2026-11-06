@@ -278,13 +278,17 @@ static void inspect(unsigned expected_phase) {
   assert(!M::snapshot_forced_cleanup(foreign, saved));
   assert(!M::validate_forced_cleanup(foreign, saved));
 
-  // Remove only the claim for this negative; async type by itself is valid.
+  // Remove the terminal claim for this negative, then rebuild the original
+  // pre-claim state. A successful claim disables cancellation and async mode.
   control.cancellation.restore_after_fork();
   rejected(saved);
+  control.cancellation.set_enabled(true);
+  control.cancellation.set_async(async_type);
   if (claimed_entry)
     assert(control.cancellation.request());
   assert(control.cancellation.claim(claimed_entry));
-  assert(control.cancellation.asynchronous() == async_type);
+  assert(!control.cancellation.asynchronous());
+  assert(!control.cancellation.enabled());
   M::forced.result = nullptr;
   assert(!M::validate_forced_cleanup(control, saved));
   M::forced.result = Result;
@@ -506,8 +510,8 @@ extern "C" _Unwind_Reason_Code test_forced_unwind(
   assert(exception == &M::forced.exception && argument == &M::forced);
   assert(stop == M::stop && M::forced.active && signal_mask == CallbackMask);
   assert(M::current_control->cancellation.terminal());
-  assert(M::current_control->cancellation.asynchronous() == async_type);
-  assert(M::current_control->cancellation.enabled());
+  assert(!M::current_control->cancellation.asynchronous());
+  assert(!M::current_control->cancellation.enabled());
   exception->private_1 = reinterpret_cast<uintptr_t>(stop);
   exception->private_2 = reinterpret_cast<uintptr_t>(argument);
   const uintptr_t stop_id = reinterpret_cast<uintptr_t>(stop);

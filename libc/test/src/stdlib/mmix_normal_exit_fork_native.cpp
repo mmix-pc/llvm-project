@@ -284,7 +284,7 @@ void fork_with_helper_snapshot() {
     assert(I::active_attributes == active && I::phase == phase);
     assert(root.matches(caller.unwind_root) && caller.unwind_root.active);
     assert(caller.retains_resources_until_process_exit() == !helper_worker_case());
-    assert(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+    assert(caller.cancellation.terminal() && !caller.cancellation.enabled() &&
            !caller.cancellation.ready() && !caller.cancellation.asynchronous());
     assert(caller.cancellation_identity == 19 &&
            caller.cancellation_generation == 23);
@@ -495,7 +495,7 @@ void check_initial_during() {
   assert(!I::process_cleanup_tid && !I::normal_exit_fork_owner() &&
          !I::last_thread_exit_fork_owner());
   assert(!notifications_closed && M::thread_registry.admit_signal_notification());
-  assert(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+  assert(caller.cancellation.terminal() && !caller.cancellation.enabled() &&
          !caller.cancellation.ready());
   assert(caller.cancellation_identity == 19 && caller.cancellation_generation == 23);
   assert(!caller.cancellation_point.load() && !caller.cancellation_transfer.load());
@@ -646,7 +646,7 @@ void initial_during_callback() {
 void check_terminal_child_state(M::ThreadControl &caller) {
   assert(caller.terminal_cleanup_finished());
   assert(caller.cancellation.terminal() && !caller.cancellation.ready());
-  assert(!caller.cancellation.enabled() && caller.cancellation.asynchronous());
+  assert(!caller.cancellation.enabled() && !caller.cancellation.asynchronous());
   assert(!caller.cancellation.request());
   assert(caller.cancellation_identity == 19 &&
          caller.cancellation_generation == 23);
@@ -674,7 +674,7 @@ void check_detached_initial_after() {
   assert(I::main_thread_cleanup_finished() &&
          !I::main_thread_cleanup_in_progress());
   assert(caller.attributes.retval.posix_retval == terminal_result());
-  assert(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+  assert(caller.cancellation.terminal() && !caller.cancellation.enabled() &&
          !caller.cancellation.asynchronous() && !caller.cancellation.ready());
   assert(!caller.cancellation.request() && !caller.cancellation_transfer.load() &&
          !caller.cancellation_point.load() &&
@@ -2161,7 +2161,7 @@ static void exercise_active_cleanup() {
            !c.terminal_cleanup_finished() &&
            !I::main_thread_cleanup_in_progress() &&
            !I::main_thread_cleanup_finished());
-    assert(c.cancellation.terminal() && c.cancellation.enabled() &&
+    assert(c.cancellation.terminal() && !c.cancellation.enabled() &&
            !c.cancellation.ready() && !c.cancellation.asynchronous());
     assert(c.cancellation_identity == 19 && c.cancellation_generation == 23 &&
            !c.cancellation_suppression.load() && !c.cancellation_point.load() &&

@@ -390,7 +390,7 @@ static void terminal_exec_only_registry(bool initial_owner, bool with_helpers,
     assert(!caller.last_worker_cleanup_finished() && !caller.record_worker_cleanup_finished());
     assert(!caller.unwind_root.active);
     assert(!caller.cancellation.terminal() && !caller.cancellation.ready());
-    assert(caller.cancellation.enabled() && caller.cancellation.asynchronous());
+    assert(!caller.cancellation.enabled() && !caller.cancellation.asynchronous());
     assert(!caller.cancellation_identity && !caller.cancellation_generation);
     assert(!caller.cancellation_point.load() && !caller.cancellation_transfer.load());
     assert(caller.attributes.atexit_callback_mgr == manager);

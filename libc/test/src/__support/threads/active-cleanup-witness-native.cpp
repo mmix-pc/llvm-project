@@ -724,7 +724,7 @@ static void nested_pop_checks() {
     assert(state.callbacks == 4 && !M::active_dispatch && !M::dispatching);
     assert(control.cancellation.terminal() == (profile != 0));
     assert(control.cancellation.asynchronous() == (profile == 2));
-    assert(control.cancellation.enabled());
+    assert(control.cancellation.enabled() == (profile == 0));
     stale(state.outer);
     stale(state.inner);
     {
@@ -1004,7 +1004,8 @@ static void pending_checks() {
   }
   assert(!M::head.record && !M::active_dispatch && !M::dispatching);
   assert(acquired == released && !scopes && signal_mask == 0x400);
-  assert(control.cancellation.terminal() && control.cancellation.enabled());
+  assert(control.cancellation.terminal() && !control.cancellation.enabled());
+  assert(!control.cancellation.asynchronous());
   M::current_control = saved_control;
   capture_frame = saved_frame;
 }
@@ -1161,7 +1162,8 @@ int main() {
 #ifndef LIBC_MMIX_SHARED_STARTUP
   assert(!acquired && !released);
 #endif
-  assert(control.cancellation.enabled() && !M::dispatching);
+  assert(!control.cancellation.enabled() && !M::dispatching);
+  assert(!control.cancellation.asynchronous());
   assert(!M::active_dispatch);
   MmixCleanupLink checkpoint;
   assert(M::snapshot_c_cleanup(checkpoint) && !checkpoint.record);
