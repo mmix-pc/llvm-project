@@ -368,6 +368,50 @@ int main(int argc, char **argv) {
   uint64_t image_pin = 0;
   const auto *main_image = registry.snapshot()->images[0];
   const uintptr_t callback_address = reinterpret_cast<uintptr_t>(function);
+  // Notification callbacks retain only their code image (null DSO). Also
+  // exercise two distinct images: rejected release admission must preserve
+  // the entire ticket set and leave the same token usable by a later retry.
+  auto rejected_image_release = [&](uintptr_t dso) {
+    const auto before_image =
+        image->ownership.owners(ModuleOwnership::Kind::Runtime);
+    const auto before_main =
+        main_image->ownership.owners(ModuleOwnership::Kind::Runtime);
+    const auto before_disabled = disabled;
+    uint64_t token = 0;
+    check(!image_api.retain(image_api.context, dso, callback_address, hooks,
+                            &token));
+    check(token);
+    auto retained = [&]() {
+      check(image->ownership.owners(ModuleOwnership::Kind::Runtime) ==
+            before_image + 1);
+      check(main_image->ownership.owners(ModuleOwnership::Kind::Runtime) ==
+            before_main + (dso != 0));
+      check(disabled == before_disabled);
+    };
+    retained();
+    LoaderCancellation rejected{
+        [](uint64_t *) -> long { return -EAGAIN; },
+        [](uint64_t) -> long {
+          check(false);
+          return 0;
+        }};
+    for (unsigned attempt = 0; attempt != 2; ++attempt) {
+      check(image_api.release(image_api.context, token, rejected) == EAGAIN);
+      retained();
+    }
+    check(image_api.release(image_api.context, token, {nullptr, leave}) ==
+          EINVAL);
+    retained();
+    check(!image_api.release(image_api.context, token, hooks));
+    check(image_api.release(image_api.context, token, hooks) == EINVAL);
+    check(image->ownership.owners(ModuleOwnership::Kind::Runtime) ==
+          before_image);
+    check(main_image->ownership.owners(ModuleOwnership::Kind::Runtime) ==
+          before_main);
+    check(disabled == before_disabled);
+  };
+  rejected_image_release(0);
+  rejected_image_release(bias + 0x4000);
   {
     RuntimeAPI interrupted(page, registry, scopes, initializers, stack,
                             environment, {nullptr, resolve});
