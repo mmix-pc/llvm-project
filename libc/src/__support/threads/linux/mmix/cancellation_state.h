@@ -17,7 +17,7 @@ namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 
 // Keep signal-visible state in one naturally aligned, lock-free octa. Only
-// the owner changes enable/type; request and terminal updates preserve it.
+// the owner changes enable/type; terminal claiming disables both atomically.
 class CancellationState {
   static constexpr uint64_t ENABLED = 1, PENDING = 2, TERMINAL = 4, ASYNC = 8;
   cpp::Atomic<uint64_t> bits{ENABLED};
@@ -67,7 +67,8 @@ public:
       if ((old & TERMINAL) ||
           (cancellation && (old & (ENABLED | PENDING)) != (ENABLED | PENDING)))
         return false;
-      if (bits.compare_exchange_weak(old, old | TERMINAL,
+      const auto next = (old | TERMINAL) & ~(ENABLED | ASYNC);
+      if (bits.compare_exchange_weak(old, next,
                                      cpp::MemoryOrder::ACQ_REL))
         return true;
     }

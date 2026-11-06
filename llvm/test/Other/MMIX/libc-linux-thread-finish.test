@@ -303,7 +303,7 @@ extern "C" [[noreturn]] void __llvm_libc_mmix_thread_exit() {
     if (waiter()) {
       require(lock.callback_phase(control) ==
               (discarded() ? CallbackPhase::Discarded : CallbackPhase::Active));
-      require(control.cancellation.enabled() == !discarded());
+      require(!control.cancellation.enabled() && !control.cancellation.asynchronous());
       // Even after simulated kernel completion, the registration owner still
       // holds its creator pin. The worker must not have consumed it.
       control.clear_tid.value.store(0);

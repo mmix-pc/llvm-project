@@ -975,8 +975,9 @@ static void terminal_during_fork_admission(bool detached, bool cancel) {
       require(process.freeze_for_fork(caller, 1, &single, true, kind) && single);
       process.restore_fork_child(caller, internal::ForkRecovery::child(true, true), kind);
       require(root.matches(caller.unwind_root));
-      // claim() need not clear ENABLED. TERMINAL alone prevents delivery.
-      require(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+      // Fork continuation retains the disabled/deferred cleanup state.
+      require(caller.cancellation.terminal() && !caller.cancellation.enabled() &&
+              !caller.cancellation.asynchronous() &&
               !caller.cancellation.ready() && !caller.cancellation.request());
       ThreadRegistryLock lock(process);
       require(lock.live_threads() == 1 && !lock.process_exiting());
@@ -1266,7 +1267,7 @@ static void terminal_exit_fork_admission() {
       require(root.matches(caller.unwind_root));
       require(caller.terminal_cleanup_finished() && caller.cancellation.terminal());
       require(!caller.cancellation.enabled() && !caller.cancellation.ready());
-      require(caller.cancellation.asynchronous() && !caller.cancellation.request());
+      require(!caller.cancellation.asynchronous() && !caller.cancellation.request());
       ThreadRegistryLock lock(process);
       require(lock.live_threads() == 0 && lock.leases_drained(caller));
       require(!lock.reserve() && !lock.begin_helper_creation());
@@ -1579,7 +1580,8 @@ static void last_worker_after_fork_admission() {
                 !caller.retains_resources_until_process_exit() &&
                 !caller.terminal_cleanup_pending() &&
                 !caller.terminal_cleanup_finished());
-        require(caller.cancellation.terminal() && caller.cancellation.enabled() &&
+        require(caller.cancellation.terminal() && !caller.cancellation.enabled() &&
+                !caller.cancellation.asynchronous() &&
                 !caller.cancellation.ready() && !caller.cancellation.request());
         require(caller.control_mapping.base == 0x2000 &&
                 caller.stack_mapping.base == 0x4000 && caller.tls.addr == 0x6000 &&
@@ -2006,7 +2008,31 @@ static void terminal_peer_snapshot() {
   }
 }
 
+static void terminal_cancel_state() {
+  for (unsigned flags = 0; flags != 16; ++flags) {
+    CancellationState state;
+    const bool enabled = flags & 1, asynchronous = flags & 2;
+    const bool pending = flags & 4, cancellation = flags & 8;
+    state.set_enabled(enabled);
+    state.set_async(asynchronous);
+    if (pending) require(state.request());
+    const bool accepted = !cancellation || (enabled && pending);
+    require(state.claim(cancellation) == accepted);
+    if (!accepted) {
+      require(!state.terminal() && state.enabled() == enabled &&
+              state.asynchronous() == asynchronous);
+      continue;
+    }
+    require(state.terminal() && !state.enabled() && !state.asynchronous() &&
+            !state.ready() && !state.request() && !state.claim(false));
+    state.restore_after_fork();
+    require(!state.terminal() && !state.enabled() && !state.asynchronous() &&
+            !state.ready());
+  }
+}
+
 extern "C" int main() {
+  terminal_cancel_state();
   active_cleanup_census();
   layout_and_publication();
   ownership();
