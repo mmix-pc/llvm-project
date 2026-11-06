@@ -446,6 +446,9 @@ public:
   bool detach(ThreadControl &control);
   bool start(ThreadControl &control);
   bool begin_cleanup(ThreadControl &control, bool cancellation = false);
+  // Pinned public joinable completion, including an outstanding join claim.
+  // No sender lease or kernel-clear observation is needed for this no-op.
+  bool cancellation_completed(const ThreadControl &control) const;
   // Peers own a pin and lease; owner=true requires the current live activation.
   int request_cancellation(ThreadControl &control, bool owner = false);
   bool exit_ready(ThreadControl &control, ThreadReturnValue result);

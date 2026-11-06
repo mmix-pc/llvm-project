@@ -81,6 +81,13 @@ int cancel_thread(ThreadAttributes *handle) {
     control = lock.pin(handle);
     if (!control)
       return error;
+    if (lock.cancellation_completed(*control)) {
+      // Completion already fixed the result and closed sender leases. The
+      // still-valid joinable identity needs neither a request nor a TID signal.
+      if (!lock.unpin(*control))
+        __builtin_trap();
+      return 0;
+    }
     if (lock.acquire_lease(*control)) {
       error = lock.request_cancellation(*control);
       tid = control->attributes.tid;

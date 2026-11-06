@@ -748,6 +748,12 @@ bool ThreadRegistry::try_signal_cleanup_impl(ThreadControl &c) {
   return claimed;
 }
 
+bool ThreadRegistryLock::cancellation_completed(const ThreadControl &c) const {
+  return belongs(c) && c.listed && c.api_pins && !c.internal_helper &&
+         (c.owner == ThreadOwner::Joinable || c.owner == ThreadOwner::JoinOwner) &&
+         c.execution == ThreadExecution::ExitReady;
+}
+
 int ThreadRegistryLock::request_cancellation(ThreadControl &c, bool owner) {
   if (!belongs(c) || (!owner && (!c.api_pins || !c.leases)) ||
       c.internal_helper || c.callback_phase == CallbackPhase::Waiting ||
