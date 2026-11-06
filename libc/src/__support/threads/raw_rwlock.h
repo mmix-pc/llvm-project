@@ -169,12 +169,33 @@ public:
   LIBC_INLINE constexpr bool has_pending_writer() const {
     return state & PENDING_WRITER_BIT;
   }
+  LIBC_INLINE constexpr bool has_pending_reader() const {
+    return state & PENDING_READER_BIT;
+  }
   LIBC_INLINE constexpr bool has_pending() const {
     return state & PENDING_MASK;
   }
 
   LIBC_INLINE constexpr RwState set_writer_bit() const {
     return RwState(state | ACTIVE_WRITER_BIT);
+  }
+
+  // The otherwise impossible writer+reader combination marks a handoff. It
+  // retains exclusive ownership without reducing the reader-count limit.
+  LIBC_INLINE constexpr RwState unlock_handoff() const {
+    return RwState((state & PENDING_MASK) | ACTIVE_WRITER_BIT |
+                   ACTIVE_READER_COUNT_UNIT);
+  }
+  LIBC_INLINE constexpr bool is_unlock_handoff() const {
+    return has_active_writer() && (state & ACTIVE_READER_COUNT_UNIT);
+  }
+  template <Role role> LIBC_INLINE constexpr RwState with_pending_bit() const {
+    return RwState(state | (role == Role::Reader ? PENDING_READER_BIT
+                                                : PENDING_WRITER_BIT));
+  }
+  LIBC_INLINE constexpr RwState after_unlock() const {
+    return has_active_writer() ? RwState(state & PENDING_MASK)
+                               : RwState(state - ACTIVE_READER_COUNT_UNIT);
   }
 
   // The preference parameter changes the behavior of the lock acquisition
@@ -208,18 +229,18 @@ public:
   }
 
   // Utilities to do atomic operations on the state.
-  LIBC_INLINE static RwState fetch_sub_reader_count(cpp::Atomic<int> &target,
+  LIBC_INLINE static RwState fetch_sub_reader_count(Futex &target,
                                                     cpp::MemoryOrder order) {
     return RwState(target.fetch_sub(ACTIVE_READER_COUNT_UNIT, order));
   }
 
-  LIBC_INLINE static RwState load(cpp::Atomic<int> &target,
+  LIBC_INLINE static RwState load(Futex &target,
                                   cpp::MemoryOrder order) {
     return RwState(target.load(order));
   }
 
   template <Role role>
-  LIBC_INLINE static RwState fetch_set_pending_bit(cpp::Atomic<int> &target,
+  LIBC_INLINE static RwState fetch_set_pending_bit(Futex &target,
                                                    cpp::MemoryOrder order) {
     if constexpr (role == Role::Reader)
       return RwState(target.fetch_or(PENDING_READER_BIT, order));
@@ -227,7 +248,7 @@ public:
       return RwState(target.fetch_or(PENDING_WRITER_BIT, order));
   }
   template <Role role>
-  LIBC_INLINE static RwState fetch_clear_pending_bit(cpp::Atomic<int> &target,
+  LIBC_INLINE static RwState fetch_clear_pending_bit(Futex &target,
                                                      cpp::MemoryOrder order) {
     if constexpr (role == Role::Reader)
       return RwState(target.fetch_and(~PENDING_READER_BIT, order));
@@ -235,23 +256,25 @@ public:
       return RwState(target.fetch_and(~PENDING_WRITER_BIT, order));
   }
 
-  LIBC_INLINE static RwState fetch_clear_active_writer(cpp::Atomic<int> &target,
-                                                       cpp::MemoryOrder order) {
-    return RwState(target.fetch_and(~ACTIVE_WRITER_BIT, order));
+  LIBC_INLINE static RwState finish_unlock_handoff(Futex &target) {
+    return RwState(target.fetch_and(PENDING_MASK, cpp::MemoryOrder::RELEASE));
   }
 
-  LIBC_INLINE bool compare_exchange_weak_with(cpp::Atomic<int> &target,
+  LIBC_INLINE bool compare_exchange_weak_with(Futex &target,
                                               RwState desired,
                                               cpp::MemoryOrder success_order,
                                               cpp::MemoryOrder failure_order) {
-    return target.compare_exchange_weak(state, desired, success_order,
-                                        failure_order);
+    FutexWordType expected = state;
+    bool exchanged = target.compare_exchange_weak(
+        expected, FutexWordType(int(desired)), success_order, failure_order);
+    state = int(expected);
+    return exchanged;
   }
 
   // Utilities to spin and reload the state.
 private:
   template <class F>
-  LIBC_INLINE static RwState spin_reload_until(cpp::Atomic<int> &target,
+  LIBC_INLINE static RwState spin_reload_until(Futex &target,
                                                F &&func, unsigned spin_count) {
     for (;;) {
       auto state = RwState::load(target, cpp::MemoryOrder::RELAXED);
@@ -264,7 +287,7 @@ private:
 
 public:
   template <Role role>
-  LIBC_INLINE static RwState spin_reload(cpp::Atomic<int> &target,
+  LIBC_INLINE static RwState spin_reload(Futex &target,
                                          Role preference, unsigned spin_count) {
     if constexpr (role == Role::Reader) {
       // Return the reader state if either the lock is available or there is
@@ -316,7 +339,7 @@ private:
   LIBC_PREFERED_TYPE(Role)
   unsigned preference : 1;
   // RwState to keep track of the RwLock.
-  cpp::Atomic<int> state;
+  Futex state;
   // Waiting queue to keep track of the  readers and writers.
   WaitingQueue queue;
 
@@ -402,8 +425,16 @@ private:
       // reached.
       bool timeout_flag = false;
       if (!old.can_acquire<role>(get_preference())) {
-        ErrorOr<int> wait_result =
-            queue.wait<role>(serial_number, timeout, is_pshared);
+        // A registration after serial publication but before ownership release
+        // must wait for the handoff itself. Its new serial will not change
+        // again, and it may enter the kernel after the role-queue wake.
+        ErrorOr<int> wait_result = [&]() {
+          if (old.is_unlock_handoff())
+            return state.wait(
+                FutexWordType(int(old.with_pending_bit<role>())), timeout,
+                is_pshared);
+          return queue.wait<role>(serial_number, timeout, is_pshared);
+        }();
         timeout_flag =
             (!wait_result.has_value() && wait_result.error() == ETIMEDOUT);
       }
@@ -448,9 +479,8 @@ private:
       // Phase 8: exit the loop if timeout is reached.
       if (timeout_flag) {
         // A timed out (but not unregistered) thread can still be the target of
-        // a wakeup signal. If this happens, we must wake up the next thread to
-        // avoid a deadlock. This is only a problem for writers because readers
-        // are woken up all at once and we prefer waking up writers first.
+        // a wakeup signal. If this happens, notify another writer as well;
+        // readers already use broadcast. Wakeups never transfer ownership.
         // Only the saved futex address and wake policy are used after leaving
         // the queue; another admitted waiter may retire the lock's storage.
         if (waiters_to_wake) {
@@ -472,36 +502,30 @@ private:
   // Since notifcation routine is colder we mark it as noinline explicitly.
   [[gnu::noinline]]
   LIBC_INLINE void notify_pending_threads() {
-    // We wake up writers first. This ordering is relevant for the correctness
-    // of timeout handling in lock_slow. Because writers are preferred, we do
-    // not need to handle reader timeouts specially:
-    // 1. If there are pending writers, they are woken up first, so a reader
-    //    cannot steal their wake-up signal.
-    // 2. If there are only pending readers, they are all woken up together
-    //    (via notify_all), so a timed-out reader cannot steal other readers'
-    //    wake-up signals.
-    enum class WakeTarget { Readers, Writers, None };
-    WakeTarget status;
-
+    // Retain the writer bit until all queue memory accesses have finished.
+    // Serial changes prevent a waiter entering the kernel after the wake from
+    // sleeping on a stale value. A waiter can withdraw/re-register between the
+    // queue transaction and release, so notify both roles present at release.
+    const bool shared = is_pshared;
+    Futex *handoff = &state;
+    Futex *readers;
+    Futex *writers;
     {
-      WaitingQueue::Guard guard = queue.acquire(is_pshared);
-      if (guard.pending_count<Role::Writer>() != 0) {
-        guard.serialization<Role::Writer>().fetch_add(
-            1, cpp::MemoryOrder::RELEASE);
-        status = WakeTarget::Writers;
-      } else if (guard.pending_count<Role::Reader>() != 0) {
-        guard.serialization<Role::Reader>().fetch_add(
-            1, cpp::MemoryOrder::RELEASE);
-        status = WakeTarget::Readers;
-      } else {
-        status = WakeTarget::None;
-      }
+      WaitingQueue::Guard guard = queue.acquire(shared);
+      readers = &guard.serialization<Role::Reader>();
+      writers = &guard.serialization<Role::Writer>();
+      readers->fetch_add(1, cpp::MemoryOrder::RELEASE);
+      writers->fetch_add(1, cpp::MemoryOrder::RELEASE);
     }
-
-    if (status == WakeTarget::Readers)
-      queue.notify<Role::Reader>(is_pshared);
-    else if (status == WakeTarget::Writers)
-      queue.notify<Role::Writer>(is_pshared);
+    RwState released = RwState::finish_unlock_handoff(state);
+    // Only saved addresses and values may be used after ownership publication.
+    // A successor can already have destroyed or reused the lock. Futex wakes
+    // may consequently fail or be spurious, but must not read object storage.
+    handoff->notify_all(shared);
+    if (released.has_pending_reader())
+      readers->notify_all(shared);
+    if (released.has_pending_writer())
+      writers->notify_all(shared);
   }
 
 public:
@@ -549,27 +573,21 @@ public:
   [[nodiscard]]
   LIBC_INLINE LockResult unlock() {
     RwState old = RwState::load(state, cpp::MemoryOrder::RELAXED);
-    if (old.has_active_writer()) {
-      // The lock is held by a writer.
-      // clear the writer bit.
-      old =
-          RwState::fetch_clear_active_writer(state, cpp::MemoryOrder::RELEASE);
-      // If there is no pending readers or writers, we are done.
-      if (!old.has_pending())
+    for (;;) {
+      if (!old.has_active_owner())
+        return LockResult::PermissionDenied;
+      const bool handoff = old.has_pending() &&
+                           (old.has_active_writer() || old.has_last_reader());
+      RwState desired = handoff ? old.unlock_handoff() : old.after_unlock();
+      if (old.compare_exchange_weak_with(
+              state, desired,
+              handoff ? cpp::MemoryOrder::RELAXED : cpp::MemoryOrder::RELEASE,
+              cpp::MemoryOrder::RELAXED)) {
+        if (handoff)
+          notify_pending_threads();
         return LockResult::Success;
-    } else if (old.has_active_reader()) {
-      // The lock is held by readers.
-      // Decrease the reader count.
-      old = RwState::fetch_sub_reader_count(state, cpp::MemoryOrder::RELEASE);
-      // If there is no pending readers or writers, we are done.
-      if (!old.has_last_reader() || !old.has_pending())
-        return LockResult::Success;
-    } else {
-      return LockResult::PermissionDenied;
+      }
     }
-
-    notify_pending_threads();
-    return LockResult::Success;
   }
 
   [[nodiscard]]

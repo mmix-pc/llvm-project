@@ -15,6 +15,35 @@ namespace LIBC_NAMESPACE_DECL {
 namespace rwlock {
 class RwLockTester {
 public:
+  static void handoff(bool shared) {
+    static_assert(sizeof(Futex) == sizeof(cpp::Atomic<int>));
+    static_assert(alignof(Futex) == alignof(cpp::Atomic<int>));
+    RawRwLock lock(Role::Reader, shared);
+    ASSERT_EQ(lock.read_lock(), LockResult::Success);
+    auto old = RwState::load(lock.state, cpp::MemoryOrder::RELAXED);
+    lock.state.store(int(old.unlock_handoff()));
+    EXPECT_TRUE(RwState::load(lock.state, cpp::MemoryOrder::RELAXED)
+                    .is_unlock_handoff());
+    EXPECT_EQ(lock.try_read_lock(), LockResult::Busy);
+    EXPECT_EQ(lock.try_write_lock(), LockResult::Busy);
+    lock.notify_pending_threads();
+    EXPECT_EQ(lock.try_write_lock(), LockResult::Success);
+    EXPECT_EQ(lock.unlock(), LockResult::Success);
+    {
+      auto guard = lock.queue.acquire(shared);
+      EXPECT_EQ(guard.serialization<Role::Reader>().load(), 1u);
+      EXPECT_EQ(guard.serialization<Role::Writer>().load(), 1u);
+    }
+    // Handoff uses an otherwise impossible writer+reader combination, not a
+    // bit taken from the ordinary reader count.
+    const int maximum = cpp::numeric_limits<int>::max() & ~3;
+    lock.state.store(maximum);
+    EXPECT_EQ(lock.try_read_lock(), LockResult::Overflow);
+    EXPECT_EQ(int(lock.state.load()), maximum);
+    lock.state.store(0);
+    EXPECT_EQ(lock.check_for_destroy(), LockResult::Success);
+  }
+
   static void last_writer_timeout(bool shared, bool another_writer) {
     RawRwLock lock(Role::Writer, shared);
     ASSERT_EQ(lock.read_lock(), LockResult::Success);
@@ -61,6 +90,11 @@ public:
 };
 } // namespace rwlock
 } // namespace LIBC_NAMESPACE_DECL
+
+TEST(LlvmLibcSupportThreadsRawRwLockTest, HandoffRetainsOwnership) {
+  LIBC_NAMESPACE::rwlock::RwLockTester::handoff(false);
+  LIBC_NAMESPACE::rwlock::RwLockTester::handoff(true);
+}
 
 TEST(LlvmLibcSupportThreadsRawRwLockTest, LastWriterTimeoutPublishesReaders) {
   const bool values[] = {false, true};
