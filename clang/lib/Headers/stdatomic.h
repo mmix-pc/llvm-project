@@ -87,7 +87,8 @@ void atomic_signal_fence(memory_order);
 
 /* 7.17.5 Lock-free property */
 
-#define atomic_is_lock_free(obj) __c11_atomic_is_lock_free(sizeof(*(obj)))
+#define atomic_is_lock_free(obj) \
+  ((void)(obj), __c11_atomic_is_lock_free(sizeof(*(obj))))
 
 /* 7.17.6 Atomic integer types */
 
