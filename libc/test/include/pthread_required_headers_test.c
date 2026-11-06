@@ -17,7 +17,11 @@ struct tm calendar;
 struct itimerspec timer;
 struct sched_param priority;
 struct timespec timestamp;
-int (*yield_function)(void) = sched_yield;
-int (*clock_function)(clockid_t, struct timespec *) = clock_gettime;
-time_t (*time_function)(time_t *) = time;
+_Static_assert(_Generic(&sched_yield, int (*)(void): 1, default: 0),
+               "scheduling prototype");
+_Static_assert(_Generic(&clock_gettime,
+                       int (*)(clockid_t, struct timespec *): 1, default: 0),
+               "clock prototype");
+_Static_assert(_Generic(&time, time_t (*)(time_t *): 1, default: 0),
+               "time prototype");
 int main(void) { return 0; }
