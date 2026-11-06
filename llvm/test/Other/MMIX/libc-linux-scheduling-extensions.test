@@ -77,5 +77,19 @@ int main() {
     assert(policy == 1 && priority == 10);
   }
   assert(mmix::scheduling_validate(4, 0) == EINVAL);
-  assert(mmix::scheduling_validate(6, 0) == EINVAL);
+  assert(mmix::scheduling_validate(6, 0) == ENOTSUP);
+  for (int boosted = 0; boosted < 2; ++boosted) {
+    if (boosted)
+      assert(!mmix::priority_enter(20));
+    int before = writes;
+    int effective = boosted ? 20 : 10;
+    assert(mmix::scheduling_write(state, 42, 6, 0) == ENOTSUP);
+    assert(writes == before && policy == 1 && priority == effective);
+    assert(state.policy == 1 && state.base == 10 && state.applied == effective);
+    assert(mmix::scheduling_write(state, 42, 4, 0) == EINVAL);
+    assert(writes == before && policy == 1 && priority == effective);
+    if (boosted)
+      assert(!mmix::priority_leave(20));
+    assert(policy == 1 && priority == 10);
+  }
 }

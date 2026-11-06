@@ -167,6 +167,10 @@ int priority_replace_checked(int previous, int replacement, bool check_base,
 }
 #ifdef LIBC_MMIX_PTHREAD_SCHEDULING
 int scheduling_validate(int policy, int priority) {
+  // DEADLINE is a published Linux policy, but sched_param cannot supply its
+  // runtime/deadline/period attributes through the pthread scheduling API.
+  if (policy == 6)
+    return ENOTSUP;
   if (policy == 0 || policy == 3 || policy == 5) // OTHER, BATCH, IDLE.
     return priority == 0 ? 0 : EINVAL;
   if (policy != 1 && policy != 2)
