@@ -11,7 +11,7 @@
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_attr_setschedpolicy,
                    (pthread_attr_t * attr, int value)) {
-  if (value != 0 && value != 1 && value != 2)
+  if (value != 0 && value != 1 && value != 2 && value != 3 && value != 5)
     return EINVAL;
   attr->__schedpolicy = value;
   return 0;

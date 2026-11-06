@@ -1,0 +1,81 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %python %t/run.py %S/../../../.. %t %mmix_host_cxx
+
+# Inject kernel permission results into the production priority ledger.
+# Actual BATCH/IDLE scheduling and thread entry require target execution.
+#--- run.py
+import pathlib
+import shlex
+import subprocess
+import sys
+
+source, out = map(pathlib.Path, sys.argv[1:3])
+directory = source / "libc/src/__support/threads/linux/mmix"
+for opt in ("0", "2"):
+    exe = out / ("scheduling-O" + opt)
+    subprocess.run([
+        *shlex.split(sys.argv[3]), "-std=c++17", "-UNDEBUG", "-O" + opt,
+        "-pthread", "-I", str(source / "libc"),
+        "-DLIBC_NAMESPACE=scheduling_extension_test",
+        "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+        "-DLIBC_MMIX_PTHREAD_SCHEDULING", str(out / "test.cpp"),
+        str(directory / "robust_mutex.cpp"),
+        str(directory / "priority_protection.cpp"), "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, timeout=30)
+
+#--- test.cpp
+#include "src/__support/threads/linux/mmix/priority_protection_state.h"
+#include "hdr/errno_macros.h"
+#include <assert.h>
+
+static int policy = 0, priority = 0, error = 0, writes = 0;
+namespace LIBC_NAMESPACE_DECL {
+namespace mmix {
+int priority_range(int &low, int &high) { low = 1; high = 99; return 0; }
+int priority_kernel_read(int &p, int &n) { p = policy; n = priority; return 0; }
+int priority_kernel_set(int p, int n) {
+  ++writes;
+  if (error) return error;
+  policy = p; priority = n; return 0;
+}
+int priority_kernel_read_for(int tid, int &p, int &n) {
+  assert(tid == 42);
+  return priority_kernel_read(p, n);
+}
+int priority_kernel_set_for(int tid, int p, int n) {
+  assert(tid == 42);
+  return priority_kernel_set(p, n);
+}
+}
+}
+using namespace LIBC_NAMESPACE;
+int main() {
+  auto &state = mmix::priority_protection_state();
+  const int extensions[] = {3, 5};
+  for (int extension : extensions) {
+    assert(!mmix::scheduling_validate(extension, 0));
+    assert(mmix::scheduling_validate(extension, -1) == EINVAL);
+    assert(mmix::scheduling_validate(extension, 1) == EINVAL);
+    assert(!mmix::scheduling_write(state, 42, extension, 0));
+    int p = -1, n = -1;
+    assert(!mmix::scheduling_read(state, 42, p, n));
+    assert(p == extension && n == 0);
+    assert(!mmix::scheduling_write(state, 42, 0, 0, true));
+    assert(policy == extension && priority == 0);
+    assert(mmix::priority_enter(20) == EINVAL);
+    error = EPERM;
+    assert(mmix::scheduling_write(state, 42, 0, 0) == EPERM);
+    assert(state.policy == extension && state.base == 0 && state.applied == 0);
+    error = 0;
+    assert(!mmix::scheduling_write(state, 42, 1, 10));
+    assert(!mmix::priority_enter(20));
+    int before = writes;
+    assert(mmix::scheduling_write(state, 42, extension, 0) == EINVAL);
+    assert(writes == before && policy == 1 && priority == 20);
+    assert(!mmix::priority_leave(20));
+    assert(policy == 1 && priority == 10);
+  }
+  assert(mmix::scheduling_validate(4, 0) == EINVAL);
+  assert(mmix::scheduling_validate(6, 0) == EINVAL);
+}

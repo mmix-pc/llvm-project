@@ -91,7 +91,7 @@ int prepare(PriorityProtectionState &state, bool condition_recovery = false) {
     return EINVAL;
   }
   if (policy != 1 && policy != 2)
-    return EINVAL; // FIFO or RR, never promote OTHER.
+    return EINVAL; // FIFO or RR, never promote a non-realtime policy.
   return 0;
 }
 } // namespace
@@ -167,7 +167,7 @@ int priority_replace_checked(int previous, int replacement, bool check_base,
 }
 #ifdef LIBC_MMIX_PTHREAD_SCHEDULING
 int scheduling_validate(int policy, int priority) {
-  if (policy == 0)
+  if (policy == 0 || policy == 3 || policy == 5) // OTHER, BATCH, IDLE.
     return priority == 0 ? 0 : EINVAL;
   if (policy != 1 && policy != 2)
     return EINVAL;
@@ -206,7 +206,7 @@ int scheduling_write(PriorityProtectionState &state, int tid, int policy,
     policy = state.policy;
   if (int error = scheduling_validate(policy, priority))
     return error;
-  if (policy == 0 && !empty(state))
+  if (policy != 1 && policy != 2 && !empty(state))
     return EINVAL;
   int target = priority;
   for (int i = 127; i > target; --i)
