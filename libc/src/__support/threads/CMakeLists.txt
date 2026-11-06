@@ -221,6 +221,7 @@ if(TARGET libc.src.__support.threads.${LIBC_TARGET_OS}.thread)
       .${LIBC_TARGET_OS}.thread
       ${thread_atexit_dependency}
       ${thread_tss_dependencies}
+      libc.hdr.errno_macros
       libc.hdr.limits_macros
       libc.hdr.stdint_proxy
       libc.src.__support.common

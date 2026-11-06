@@ -19,9 +19,11 @@ namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, pthread_key_create,
                    (pthread_key_t * key, __pthread_tss_dtor_t dtor)) {
+  int saved_errno = libc_errno;
   auto k = LIBC_NAMESPACE::new_tss_key(dtor);
+  libc_errno = saved_errno;
   if (!k)
-    return EAGAIN;
+    return k.error();
   *key = *k;
   return 0;
 }

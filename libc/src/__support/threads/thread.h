@@ -36,7 +36,7 @@ using TSSDtor = void(void *);
 // Create a new TSS key and associate the |dtor| as the corresponding
 // destructor. Can be used to implement public functions like
 // pthread_key_create.
-cpp::optional<unsigned int> new_tss_key(TSSDtor *dtor);
+ErrorOr<unsigned int> new_tss_key(TSSDtor *dtor);
 
 // Delete the |key|. Can be used to implement public functions like
 // pthread_key_delete.

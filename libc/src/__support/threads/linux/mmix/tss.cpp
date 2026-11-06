@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/threads/tss.h"
+#include "hdr/errno_macros.h"
 #include "hdr/limits_macros.h"
 #include "loader_cancellation.h"
 #include "src/__support/CPP/array.h"
@@ -80,17 +81,20 @@ void release_invocation(Registration *record) {
 }
 } // namespace
 
-cpp::optional<unsigned int> new_tss_key(TSSDtor *callback) {
+ErrorOr<unsigned int> new_tss_key(TSSDtor *callback) {
   CancellationScope scope;
   uint64_t pin = 0;
-  if (callback && mmix::retain_shared_tls_destructor(
-                      nullptr, reinterpret_cast<uintptr_t>(callback), &pin))
-    return cpp::nullopt;
+  if (callback) {
+    long error = mmix::retain_shared_tls_destructor(
+        nullptr, reinterpret_cast<uintptr_t>(callback), &pin);
+    if (error)
+      return Error(int(error));
+  }
   void *memory = LIBC_NAMESPACE::malloc(sizeof(Registration));
   if (!memory) {
     if (pin && mmix::release_shared_tls_destructor(pin))
       __builtin_trap();
-    return cpp::nullopt;
+    return Error(ENOMEM);
   }
   auto *record = new (memory) Registration{callback, pin};
   {
@@ -106,7 +110,7 @@ cpp::optional<unsigned int> new_tss_key(TSSDtor *callback) {
     }
   }
   destroy(record);
-  return cpp::nullopt;
+  return Error(EAGAIN);
 }
 
 bool tss_key_delete(unsigned int key) {

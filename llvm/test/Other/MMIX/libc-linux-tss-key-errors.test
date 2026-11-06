@@ -1,0 +1,49 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-host
+# RUN: %python %s %S/../../../../libc %t %mmix_host_cxx
+
+# POSIX251: real common/shared key registries and public wrappers, with only
+# shared allocator/loader/cancellation dependencies injected. Single-thread
+# mutex mode: not concurrency, loader integration, or MMIX execution evidence.
+import hashlib
+import json
+import pathlib
+import shlex
+import subprocess
+import sys
+
+libc, root = map(pathlib.Path, sys.argv[1:3])
+host = shlex.split(sys.argv[3])
+root.mkdir(parents=True, exist_ok=True)
+report = {"status": "running", "scope": "Native injected TSS errors, not MMIX execution",
+          "inputs": {}, "cases": []}
+def record(path):
+    path = path.resolve()
+    report["inputs"][str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+record(pathlib.Path(__file__))
+for variant in ("common", "shared"):
+    for opt in ("0", "2"):
+        exe = root / (variant + "-O" + opt)
+        defines = ["-DTSS_TEST_SHARED"] if variant == "shared" else []
+        dependency = root / (variant + "-O" + opt + ".d")
+        command = [
+            *host, "-std=c++17", "-UNDEBUG", "-O" + opt,
+            "-I", str(libc), "-DLIBC_NAMESPACE=tss_key_errors_test",
+            "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_SINGLE",
+            "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL", *defines,
+            "-MD", "-MF", str(dependency),
+            str(libc / "test/src/__support/threads/tss-key-errors-native.cpp"),
+            "-o", str(exe),
+        ]
+        # Include the errno implementation in the test TU, keeping a complete
+        # single-source dependency file for the executed input receipt.
+        subprocess.run(command, check=True)
+        record(dependency)
+        for item in shlex.split(dependency.read_text().replace("\\\n", " ").split(":", 1)[1]):
+            record(pathlib.Path(item))
+        record(exe)
+        subprocess.run([str(exe)], check=True, timeout=30)
+        report["cases"].append({"variant": variant, "optimization": "O" + opt,
+                                "command": command, "exit_status": 0})
+report["status"] = "passed"
+(root / "report.json").write_text(json.dumps(report, indent=2) + "\n")

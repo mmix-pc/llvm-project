@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/__support/threads/tss.h"
+#include "hdr/errno_macros.h"
 #include "hdr/limits_macros.h"
 #include "src/__support/CPP/array.h"
 #include "src/__support/CPP/limits.h"
@@ -44,7 +45,7 @@ public:
       : mtx(/*is_priority_inherit=*/false, /*is_recursive=*/false,
             /*is_robust=*/false, /*is_pshared=*/false) {}
 
-  cpp::optional<unsigned int> new_key(TSSDtor *dtor) {
+  ErrorOr<unsigned int> new_key(TSSDtor *dtor) {
     cpp::lock_guard lock(mtx);
     for (unsigned int i = 0; i < TSS_KEY_COUNT; ++i) {
       TSSKeyUnit &u = units[i];
@@ -56,7 +57,7 @@ public:
         return i;
       }
     }
-    return cpp::optional<unsigned int>();
+    return Error(EAGAIN);
   }
 
   cpp::optional<TSSKeyUnit> get_key(unsigned int key) {
@@ -122,7 +123,7 @@ void call_tss_destructors() {
 }
 } // namespace internal
 
-cpp::optional<unsigned int> new_tss_key(TSSDtor *dtor) {
+ErrorOr<unsigned int> new_tss_key(TSSDtor *dtor) {
   return tss_key_mgr.new_key(dtor);
 }
 

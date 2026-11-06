@@ -45,6 +45,7 @@ for opt in ("0", "2"):
 
 #--- linux/errno.h
 // Linux error values; independently checked against the exported MMIX UAPI.
+#define EAGAIN 11
 #define EINVAL 22
 #define EFAULT 14
 #define ENOSYS 38
