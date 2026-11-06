@@ -862,3 +862,12 @@ foreach(target ${TARGET_PUBLIC_HEADERS})
     )
   endforeach()
 endforeach()
+
+add_libc_test(
+  stdint_constant_macros_test
+  C_TEST
+  SUITE libc_include_tests
+  SRCS stdint_constant_macros_test.c
+  COMPILE_OPTIONS -std=c17
+  DEPENDS libc.include.llvm-libc-macros.stdint_macros
+)

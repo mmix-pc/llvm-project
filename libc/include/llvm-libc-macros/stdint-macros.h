@@ -267,6 +267,8 @@ typedef __UINTMAX_TYPE__ uintmax_t;
  * claims of the C standard (see C++ 18.3.1p2, [cstdint.syn]).
  */
 
+// Integer constant macros have the promoted least type. If int represents
+// every value, an unsigned suffix would prevent the required promotion.
 #define __int_c_join(a, b) a##b
 #define __int_c(v, suffix) __int_c_join(v, suffix)
 #define __uint_c(v, suffix) __int_c_join(v##U, suffix)
@@ -287,11 +289,16 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #ifdef __int_least64_t
 #ifdef __int64_c_suffix
 #define INT64_C(v) __int_c(v, __int64_c_suffix)
-#define UINT64_C(v) __uint_c(v, __int64_c_suffix)
 #else
 #define INT64_C(v) v
-#define UINT64_C(v) v##U
 #endif /* __int64_c_suffix */
+#if __UINT_LEAST64_MAX__ <= __INT_MAX__
+#define UINT64_C(v) v
+#elif defined(__int64_c_suffix)
+#define UINT64_C(v) __uint_c(v, __int64_c_suffix)
+#else
+#define UINT64_C(v) v##U
+#endif
 #endif /* __int_least64_t */
 
 #ifdef __INT56_TYPE__
@@ -356,11 +363,16 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #ifdef __int_least32_t
 #ifdef __int32_c_suffix
 #define INT32_C(v) __int_c(v, __int32_c_suffix)
-#define UINT32_C(v) __uint_c(v, __int32_c_suffix)
 #else
 #define INT32_C(v) v
-#define UINT32_C(v) v##U
 #endif /* __int32_c_suffix */
+#if __UINT_LEAST32_MAX__ <= __INT_MAX__
+#define UINT32_C(v) v
+#elif defined(__int32_c_suffix)
+#define UINT32_C(v) __uint_c(v, __int32_c_suffix)
+#else
+#define UINT32_C(v) v##U
+#endif
 #endif /* __int_least32_t */
 
 #ifdef __INT24_TYPE__
@@ -389,11 +401,16 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #ifdef __int_least16_t
 #ifdef __int16_c_suffix
 #define INT16_C(v) __int_c(v, __int16_c_suffix)
-#define UINT16_C(v) __uint_c(v, __int16_c_suffix)
 #else
 #define INT16_C(v) v
-#define UINT16_C(v) v##U
 #endif /* __int16_c_suffix */
+#if __UINT_LEAST16_MAX__ <= __INT_MAX__
+#define UINT16_C(v) v
+#elif defined(__int16_c_suffix)
+#define UINT16_C(v) __uint_c(v, __int16_c_suffix)
+#else
+#define UINT16_C(v) v##U
+#endif
 #endif /* __int_least16_t */
 
 #ifdef __INT8_TYPE__
@@ -406,11 +423,16 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #ifdef __int_least8_t
 #ifdef __int8_c_suffix
 #define INT8_C(v) __int_c(v, __int8_c_suffix)
-#define UINT8_C(v) __uint_c(v, __int8_c_suffix)
 #else
 #define INT8_C(v) v
-#define UINT8_C(v) v##U
 #endif /* __int8_c_suffix */
+#if __UINT_LEAST8_MAX__ <= __INT_MAX__
+#define UINT8_C(v) v
+#elif defined(__int8_c_suffix)
+#define UINT8_C(v) __uint_c(v, __int8_c_suffix)
+#else
+#define UINT8_C(v) v##U
+#endif
 #endif /* __int_least8_t */
 
 /* C99 7.18.2.1 Limits of exact-width integer types.
