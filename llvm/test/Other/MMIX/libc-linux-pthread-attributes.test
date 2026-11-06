@@ -2,6 +2,8 @@
 # RUN: split-file %s %t
 # RUN: %python %t/check.py %S/../../../../libc %t
 # RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/pthread.h %S/../../../../libc/include/pthread.yaml
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/sched.h %S/../../../../libc/include/sched.yaml
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/time.h %S/../../../../libc/include/time.yaml
 # RUN: clang --target=mmix-unknown-linux -std=c17 -ffreestanding -nostdlibinc -I %t -I %S/../../../../libc/include -fsyntax-only %t/public.c
 # RUN: clang --target=mmix-unknown-unknown -std=c17 -ffreestanding -nostdlibinc -I %S/../../../../libc/include -fsyntax-only %t/retained-layout.c
 # RUN: clang --target=x86_64-unknown-linux -std=c17 -ffreestanding -nostdlibinc -I %S/../../../../libc/include -fsyntax-only %t/retained-layout.c
