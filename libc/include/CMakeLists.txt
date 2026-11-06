@@ -682,10 +682,28 @@ add_header_macro(
 )
 
 add_header_macro(
+  sched
+  ../libc/include/sched.yaml
+  sched.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-macros.sched_macros
+    .llvm-libc-types.cpu_set_t
+    .llvm-libc-types.pid_t
+    .llvm-libc-types.size_t
+    .llvm-libc-types.struct_sched_param
+    # Needed according to posix standard
+    .llvm-libc-types.time_t
+    .llvm-libc-types.struct_timespec
+)
+
+add_header_macro(
   pthread
   ../libc/include/pthread.yaml
   pthread.h
   DEPENDS
+    .sched
+    .time
     .llvm-libc-macros.pthread_macros
     .llvm-libc-types.__atfork_callback_t
     .llvm-libc-types.__pthread_once_func_t
@@ -744,22 +762,6 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "x86_64" OR
       .ucontext
   )
 endif()
-
-add_header_macro(
-  sched
-  ../libc/include/sched.yaml
-  sched.h
-  DEPENDS
-    .llvm_libc_common_h
-    .llvm-libc-macros.sched_macros
-    .llvm-libc-types.cpu_set_t
-    .llvm-libc-types.pid_t
-    .llvm-libc-types.size_t
-    .llvm-libc-types.struct_sched_param
-    # Needed according to posix standard
-    .llvm-libc-types.time_t
-    .llvm-libc-types.struct_timespec
-)
 
 add_header_macro(
   aio
