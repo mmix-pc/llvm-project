@@ -133,7 +133,11 @@ static void *run(void *p) {
   owner_alive();
   require(p == &control && !discarded() && !runners++);
   require(mask == (waiter() ? waiting_mask & ~cancel_mask : 0x1234));
-  require(masks == 1 + waiter_masks && control.cancellation.enabled());
+  require(masks == 1 + waiter_masks);
+  // Mode 10 deliberately enters with cleanup already claimed. Claiming
+  // cleanup disables cancellation; the second cleanup must still trap.
+  require(mode == 10 ? !control.cancellation.enabled()
+                     : control.cancellation.enabled());
   if (waiter()) {
     ThreadRegistryLock lock(thread_registry);
     require(lock.callback_phase(control) == CallbackPhase::Active);

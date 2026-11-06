@@ -1,0 +1,8 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-host
+# RUN: split-file %S/libc-linux-thread-finish.test %t
+# RUN: split-file %S/libc-linux-synchronization.test %t/sync
+# RUN: %python %t/run.py %S/../../../../libc %t %mmix_host_cxx
+
+# Exercise the production completion paths with injected transport at O0/O2,
+# with cancellation windows and unwind roots independently enabled/disabled.
+# Fatal cases must terminate with the expected trap, not a fixture assertion.
