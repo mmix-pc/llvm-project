@@ -1055,9 +1055,17 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E) {
       // user to multiply by sizeof(T).
       QualType Val1Ty = E->getVal1()->getType();
       llvm::Value *Val1Scalar = EmitScalarExpr(E->getVal1());
-      CharUnits PointeeIncAmt =
-          getContext().getTypeSizeInChars(MemTy->getPointeeType());
-      Val1Scalar = Builder.CreateMul(Val1Scalar, CGM.getSize(PointeeIncAmt));
+      QualType PointeeTy = MemTy->getPointeeType();
+      llvm::Value *PointeeIncAmt;
+      if (const auto *VAT = getContext().getAsVariableArrayType(PointeeTy)) {
+        auto VlaSize = getVLASize(VAT);
+        PointeeIncAmt = Builder.CreateMul(
+            VlaSize.NumElts,
+            CGM.getSize(getContext().getTypeSizeInChars(VlaSize.Type)));
+      } else {
+        PointeeIncAmt = CGM.getSize(getContext().getTypeSizeInChars(PointeeTy));
+      }
+      Val1Scalar = Builder.CreateMul(Val1Scalar, PointeeIncAmt);
       auto Temp = CreateMemTempWithoutCast(Val1Ty, ".atomictmp");
       Val1 = Temp;
       EmitStoreOfScalar(Val1Scalar, MakeAddrLValue(Temp, Val1Ty));
