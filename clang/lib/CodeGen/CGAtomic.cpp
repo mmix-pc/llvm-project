@@ -212,7 +212,10 @@ namespace {
       if (hasPadding())
         addr = CGF.Builder.CreateStructGEP(addr, 0);
 
-      return LValue::MakeAddr(addr, getValueType(), CGF.getContext(),
+      QualType ValueTy = getValueType();
+      if (LVal.isVolatileQualified())
+        ValueTy.addVolatile();
+      return LValue::MakeAddr(addr, ValueTy, CGF.getContext(),
                               LVal.getBaseInfo(), LVal.getTBAAInfo());
     }
 
