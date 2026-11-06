@@ -100,6 +100,22 @@ target_link_libraries(loader-runtime-unwind-test PRIVATE Threads::Threads)
 add_test(NAME loader-runtime-unwind COMMAND loader-runtime-unwind-test)
 set_tests_properties(loader-runtime-unwind PROPERTIES TIMEOUT 30)
 
+add_executable(loader-unwind-cursor-service-test unwind_cursor_service_test.cpp
+  ../../../libunwind/src/mmix/CursorLifetime.cpp
+  ../../../libunwind/src/mmix/StartupImages.cpp
+  ../linux/runtime_unwind.cpp ../linux/runtime_scopes.cpp ../linux/unwind_images.cpp
+  ../linux/image_registry.cpp ../linux/tls_layout.cpp ../linux/symbols.cpp
+  ../linux/arena.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/mmix/target.cpp)
+target_include_directories(loader-unwind-cursor-service-test PRIVATE ../..)
+target_compile_definitions(loader-unwind-cursor-service-test PRIVATE
+  LIBC_NAMESPACE=__llvm_libc _LIBUNWIND_MMIX_STARTUP_IMAGES
+  _LIBUNWIND_MMIX_CURSOR_LIFETIME)
+target_compile_options(loader-unwind-cursor-service-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS})
+target_compile_features(loader-unwind-cursor-service-test PRIVATE cxx_std_17)
+target_link_libraries(loader-unwind-cursor-service-test PRIVATE Threads::Threads)
+add_test(NAME loader-unwind-cursor-service COMMAND loader-unwind-cursor-service-test)
+set_tests_properties(loader-unwind-cursor-service PROPERTIES TIMEOUT 30)
+
 add_executable(loader-unwind-cursor-test unwind_cursor_test.cpp
   ../../../libunwind/src/mmix/CursorLifetime.cpp
   ../../../libunwind/src/mmix/StartupImages.cpp)
