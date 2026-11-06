@@ -11,6 +11,10 @@
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_attr_setschedpolicy,
                    (pthread_attr_t * attr, int value)) {
+  // Linux exposes DEADLINE, but pthread attributes do not carry its runtime,
+  // deadline and period parameters. Distinguish it from an invalid policy.
+  if (value == 6)
+    return ENOTSUP;
   if (value != 0 && value != 1 && value != 2 && value != 3 && value != 5)
     return EINVAL;
   attr->__schedpolicy = value;
