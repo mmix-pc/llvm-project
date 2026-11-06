@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "dynamic_fixture.h"
+#include "timer_image_test.h"
 #include "loader/linux/runtime_api.h"
 #include "loader/linux/runtime_unwind.h"
 #include "src/dlfcn/dladdr.h"
@@ -166,6 +167,9 @@ static void *worker(void *opaque) {
   check(!client::loader_error() && !disabled);
   return nullptr;
 }
+extern "C" void *timer_image_allocate(size_t size) { return std::malloc(size); }
+extern "C" void timer_image_free(void *pointer) { std::free(pointer); }
+
 int main(int argc, char **argv) {
   check(argc == 4);
   static_assert(RTLD_LAZY == OpenLazy && RTLD_NOW == OpenNow &&
@@ -368,6 +372,29 @@ int main(int argc, char **argv) {
   uint64_t image_pin = 0;
   const auto *main_image = registry.snapshot()->images[0];
   const uintptr_t callback_address = reinterpret_cast<uintptr_t>(function);
+  struct TimerContext {
+    LoaderImageAPI api;
+    LoaderCancellation hooks;
+    const ImageRegistry::Image *image;
+    uint64_t owners;
+  } timer_context{image_api, hooks, image, image->ownership.owners()};
+  check_timer_image_composition(
+      {&timer_context,
+       [](void *p, uintptr_t code, uint64_t *token) -> long {
+         auto &c = *static_cast<TimerContext *>(p);
+         return c.api.retain(c.api.context, 0, code, c.hooks, token);
+       },
+       [](void *p, uint64_t token) -> long {
+         auto &c = *static_cast<TimerContext *>(p);
+         return c.api.release(c.api.context, token, c.hooks);
+       },
+       [](void *p, unsigned extra) {
+         auto &c = *static_cast<TimerContext *>(p);
+         check(c.image->ownership.owners() == c.owners + extra);
+       }},
+      callback_address);
+  std::puts("Timer/image composition: three failure/retry paths passed");
+
   // Notification callbacks retain only their code image (null DSO). Also
   // exercise two distinct images: rejected release admission must preserve
   // the entire ticket set and leave the same token usable by a later retry.

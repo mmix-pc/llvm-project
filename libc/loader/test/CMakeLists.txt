@@ -194,6 +194,23 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     ../../src/dlfcn/linux/mmix/dlsym.cpp ../../src/dlfcn/linux/mmix/dlerror.cpp
     ../../src/dlfcn/linux/mmix/dlclose.cpp ../../src/dlfcn/linux/mmix/dladdr.cpp
     ../../src/dlfcn/linux/mmix/dlinfo.cpp ../../src/dlfcn/linux/mmix/dl_iterate_phdr.cpp)
+  # Keep full-build timer ABI types separate from the host loader test TU.
+  # Only syscalls, allocation and the shared service transport are injected.
+  add_library(loader-timer-image-components OBJECT timer_image_test.cpp
+    ../../src/__support/threads/linux/mmix/notification_timers.cpp
+    ../../src/__support/threads/linux/mmix/notification_callback.cpp)
+  target_include_directories(loader-timer-image-components PRIVATE ../.. ../../include)
+  target_compile_definitions(loader-timer-image-components PRIVATE
+    LIBC_NAMESPACE=timer_image_test LIBC_FULL_BUILD LIBC_MMIX_SHARED_STARTUP
+    LIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM
+    LIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL __mmix__)
+  target_compile_features(loader-timer-image-components PRIVATE cxx_std_17)
+  # Native and MMIX architecture macros coexist in this injection fixture.
+  target_compile_options(loader-timer-image-components PRIVATE -fPIE
+    -ffreestanding -fno-builtin -Wno-macro-redefined
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/Inputs/timer-images/native.h)
+  target_sources(loader-runtime-api-test PRIVATE
+    $<TARGET_OBJECTS:loader-timer-image-components>)
   target_include_directories(loader-runtime-api-test PRIVATE ../..)
   target_compile_definitions(loader-runtime-api-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
   target_compile_features(loader-runtime-api-test PRIVATE cxx_std_17)
