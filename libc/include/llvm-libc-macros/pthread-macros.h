@@ -9,7 +9,11 @@
 #ifndef LLVM_LIBC_MACROS_PTHREAD_MACRO_H
 #define LLVM_LIBC_MACROS_PTHREAD_MACRO_H
 
-#define PTHREAD_NULL {0}
+#ifdef __cplusplus
+#define PTHREAD_NULL (pthread_t{})
+#else
+#define PTHREAD_NULL ((pthread_t){0})
+#endif
 
 #define PTHREAD_CREATE_JOINABLE 0
 #define PTHREAD_CREATE_DETACHED 1
