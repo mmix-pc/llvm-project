@@ -82,6 +82,10 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
   if(LIBC_MMIX_BUILD_COORDINATED_FORK)
     set(mmix_fork_unwind_dependency)
     set(mmix_fork_unwind_options)
+    set(mmix_fork_robust_options)
+    if(LIBC_MMIX_BUILD_ROBUST_MUTEX)
+      set(mmix_fork_robust_options -DLIBC_MMIX_ROBUST_MUTEX)
+    endif()
     if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
       set(mmix_fork_unwind_dependency .unwind_root)
       set(mmix_fork_unwind_options -DLIBC_MMIX_UNWIND_ROOTS -funwind-tables)
@@ -103,7 +107,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
         libc.src.stdio.stdin libc.src.stdio.stdout libc.src.stdio.stderr
         libc.src.__support.CPP.new libc.include.sys_syscall ${mmix_loader_fork_dependency}
         ${mmix_callback_ownership_dependency} ${mmix_fork_unwind_dependency}
-      COMPILE_OPTIONS -fno-lto ${mmix_fork_unwind_options}
+      COMPILE_OPTIONS -fno-lto ${mmix_fork_unwind_options} ${mmix_fork_robust_options}
     )
   endif()
   if(LIBC_MMIX_BUILD_PTHREAD_CLOCKS)

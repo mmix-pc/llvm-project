@@ -15,6 +15,9 @@
 #include "hdr/signal_macros.h"
 #include "main_thread.h"
 #include "once.h"
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+#include "robust_mutex.h"
+#endif
 #include "src/__support/CPP/new.h"
 #include "src/__support/File/file.h"
 #include "src/__support/OSUtil/exit.h"
@@ -437,6 +440,13 @@ long ForkOperation::create_child(bool wait_for_exec) {
 }
 
 void ForkOperation::restore_runtime(bool child) {
+#ifdef LIBC_MMIX_ROBUST_MUTEX
+  // Fork does not transfer ownership of application robust mutexes. Reset
+  // once before child restoration; later adoption only re-registers this head
+  // and must preserve any new child-owned entries and their capacity count.
+  if (child && reset_robust_list_after_fork())
+    internal::exit(127);
+#endif
   const bool active = continuation == ForkContinuation::ActiveStackCleanup;
   const bool exec_only = snapshot == ForkSnapshot::TerminalExecOnly;
   // Release completion/query exclusion before ordinary restoration; admission

@@ -319,7 +319,7 @@ bool restore_main_thread_after_fork() {
     return false;
   // No peer, reaper or creation reservation has ever existed. All pointers and
   // unlocked runtime objects remain valid in the copied address space.
-  return register_fork_child(*control, RobustInheritance::Preserve);
+  return register_fork_child(*control, RobustInheritance::Discard);
 }
 
 bool adopt_fork_survivor() {
