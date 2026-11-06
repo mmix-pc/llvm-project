@@ -129,10 +129,69 @@ struct FixtureState {
   }
 };
 
+static void admission_guards(FixtureState &f) {
+  ThreadTLSAllocation output{};
+  const ThreadTLSAllocation empty{};
+  unsigned before_maps = maps, before_unmaps = unmaps;
+  auto unchanged = [&](const ThreadTLSAllocation &expected) {
+    check(!std::memcmp(&output, &expected, sizeof(output)));
+    check(maps == before_maps && unmaps == before_unmaps);
+    check(!f.scopes.active_readers());
+  };
+  check(prepare_runtime_thread_tls(nullptr, &f, &output) == EINVAL);
+  check(prepare_runtime_thread_tls(&f.context, &f, nullptr) == EINVAL);
+  check(release_runtime_thread_tls(nullptr, &output) == EINVAL);
+  check(release_runtime_thread_tls(&f.context, nullptr) == EINVAL);
+  unchanged(empty);
+  check(!release_runtime_thread_tls(&f.context, &output));
+  unchanged(empty);
+
+  ThreadTLSContext invalid = f.context;
+  invalid.startup.page_size = 0;
+  check(prepare_runtime_thread_tls(&invalid, &f, &output) == EINVAL);
+  unchanged(empty);
+  invalid = f.context;
+  invalid.scopes = nullptr;
+  check(prepare_runtime_thread_tls(&invalid, &f, &output) == EINVAL);
+  unchanged(empty);
+  RuntimeScopes unpublished{page};
+  invalid.scopes = &unpublished;
+  check(prepare_runtime_thread_tls(&invalid, &f, &output) == EINVAL);
+  unchanged(empty);
+  check(!unpublished.active_readers());
+
+  // No runtime owner exists: even a lone residual field must not be dropped
+  // as an empty descriptor, dereferenced or passed to munmap.
+  Address ThreadTLSAllocation::*fields[] = {
+      &ThreadTLSAllocation::tp, &ThreadTLSAllocation::tls_mapping_base,
+      &ThreadTLSAllocation::tls_mapping_size,
+      &ThreadTLSAllocation::dtv_mapping_base,
+      &ThreadTLSAllocation::dtv_mapping_size,
+      &ThreadTLSAllocation::registry_cookie};
+  for (auto field : fields) {
+    output = {};
+    output.*field = 1;
+    ThreadTLSAllocation saved = output;
+    check(prepare_runtime_thread_tls(&f.context, &f, &output) == EBUSY);
+    unchanged(saved);
+    check(release_runtime_thread_tls(&f.context, &output) == EINVAL);
+    unchanged(saved);
+  }
+}
+
 extern "C" int main() {
   FixtureState f;
+  admission_guards(f);
   ThreadTLSAllocation old{}, newly{};
   check(!prepare_runtime_thread_tls(&f.context, &f, &old));
+  // A valid owned descriptor may only be released through its original
+  // context. Rejection must leave it usable by the subsequent success path.
+  ThreadTLSContext wrong_context = f.context;
+  ThreadTLSAllocation saved_owner = old;
+  unsigned before_wrong_maps = maps, before_wrong_unmaps = unmaps;
+  check(release_runtime_thread_tls(&wrong_context, &old) == EINVAL);
+  check(!std::memcmp(&old, &saved_owner, sizeof(old)));
+  check(maps == before_wrong_maps && unmaps == before_wrong_unmaps);
   check(prepare_runtime_thread_tls(&f.context, &f, &old) == EBUSY);
   auto *startup = f.lookup(old, 1);
   *startup = 19;
