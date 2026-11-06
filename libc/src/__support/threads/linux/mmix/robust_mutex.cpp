@@ -18,6 +18,9 @@ namespace mmix {
 namespace {
 LIBC_CONSTINIT LIBC_THREAD_LOCAL robust_list_head head{};
 LIBC_CONSTINIT LIBC_THREAD_LOCAL bool registered = false;
+// Linux bounds exit-time list traversal. Count distinct linked locks, not
+// recursive acquisitions; cancellation is masked while this list is changed.
+LIBC_CONSTINIT LIBC_THREAD_LOCAL unsigned owned_count = 0;
 
 // Block only the runtime cancellation signal. Ordinary application handlers
 // remain deliverable; they must not use pthread mutex APIs (not signal-safe).
@@ -59,13 +62,18 @@ public:
 };
 
 void insert(RobustMutex &mutex) {
+  if (owned_count >= ROBUST_LIST_LIMIT)
+    __builtin_trap();
   mutex.link.next = head.list.next;
   auto *tagged = reinterpret_cast<robust_list *>(
       reinterpret_cast<uintptr_t>(&mutex.link) | mutex.is_priority_inherit());
   __atomic_store_n(&head.list.next, tagged, __ATOMIC_SEQ_CST);
+  ++owned_count;
 }
 
 void remove(RobustMutex &mutex) {
+  if (!owned_count)
+    __builtin_trap();
   robust_list *previous = &head.list;
   while ((reinterpret_cast<uintptr_t>(previous->next) & ~uintptr_t(1)) !=
          reinterpret_cast<uintptr_t>(&mutex.link)) {
@@ -76,6 +84,7 @@ void remove(RobustMutex &mutex) {
   }
   __atomic_store_n(&previous->next, mutex.link.next, __ATOMIC_SEQ_CST);
   mutex.link.next = nullptr;
+  --owned_count;
 }
 } // namespace
 
@@ -96,6 +105,7 @@ int register_robust_list(bool force) {
     head.list.next = &head.list;
     head.futex_offset = -long(__builtin_offsetof(RobustMutex, link));
     head.list_op_pending = nullptr;
+    owned_count = 0;
   }
   long result = syscall_impl<long>(SYS_set_robust_list, &head, sizeof(head));
   if (result < 0)
@@ -154,6 +164,12 @@ MutexError RobustMutex::acquire(cpp::optional<Futex::Timeout> timeout,
       }
 #endif
     }
+    // Recursion and self-lock behavior above do not add a new list entry.
+    // Refuse before taking ownership or publishing a waiter bit, including
+    // the PI syscall path. Paused waits cannot add locks on this thread.
+    if (is_robust() && (value & FUTEX_TID_MASK) != tid &&
+        owned_count >= ROBUST_LIST_LIMIT)
+      return MutexError::OVERFLOW;
 #ifdef LIBC_MMIX_PI_MUTEX
     if (is_priority_inherit()) {
       operation.pause();
