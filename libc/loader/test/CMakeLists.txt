@@ -124,12 +124,14 @@ target_link_libraries(loader-unwind-cursor-test PRIVATE Threads::Threads)
 add_test(NAME loader-unwind-cursor COMMAND loader-unwind-cursor-test)
 set_tests_properties(loader-unwind-cursor PROPERTIES TIMEOUT 30)
 
-add_executable(loader-thread-tls-test thread_tls_test.cpp
+set(LOADER_THREAD_TLS_TEST_SOURCES
   ../linux/thread_tls.cpp ../linux/runtime_tls.cpp ../linux/dtv.cpp
   ../linux/tls_allocation.cpp ../linux/tls_layout.cpp ../linux/runtime_scopes.cpp
   ../linux/image_registry.cpp ../linux/arena.cpp ../linux/symbols.cpp
   ../linux/relocation.cpp ../linux/dynamic.cpp ../linux/elf.cpp ../linux/io.cpp
   ../linux/mmix/target.cpp)
+add_executable(loader-thread-tls-test thread_tls_test.cpp
+  ${LOADER_THREAD_TLS_TEST_SOURCES})
 target_include_directories(loader-thread-tls-test PRIVATE ../..)
 target_compile_definitions(loader-thread-tls-test PRIVATE LIBC_NAMESPACE=__llvm_libc)
 target_compile_options(loader-thread-tls-test PRIVATE ${LIBC_LOADER_COMPILE_OPTIONS} -fno-pie)
@@ -137,6 +139,26 @@ target_link_options(loader-thread-tls-test PRIVATE -no-pie)
 target_compile_features(loader-thread-tls-test PRIVATE cxx_std_17)
 add_test(NAME loader-thread-tls COMMAND loader-thread-tls-test)
 set_tests_properties(loader-thread-tls PROPERTIES TIMEOUT 30)
+
+# Exercise the real libc resource -> shared bridge -> loader owner composition.
+# Native transports replace only target syscalls, TP and startup installation.
+add_executable(loader-shared-thread-resources-test shared_thread_resources_test.cpp
+  ../../src/__support/threads/linux/mmix/resources.cpp
+  ${LOADER_THREAD_TLS_TEST_SOURCES})
+target_include_directories(loader-shared-thread-resources-test PRIVATE
+  Inputs/cancellation ../.. ../../..)
+target_compile_definitions(loader-shared-thread-resources-test PRIVATE
+  LIBC_NAMESPACE=__llvm_libc LIBC_MMIX_SHARED_STARTUP
+  LIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM)
+target_compile_options(loader-shared-thread-resources-test PRIVATE
+  ${LIBC_LOADER_COMPILE_OPTIONS} -fno-pie -ffunction-sections -fdata-sections
+  -include ${CMAKE_CURRENT_SOURCE_DIR}/Inputs/shared-resources/native.h)
+target_link_options(loader-shared-thread-resources-test PRIVATE -no-pie
+  -Wl,--gc-sections)
+target_compile_features(loader-shared-thread-resources-test PRIVATE cxx_std_17)
+add_test(NAME loader-shared-thread-resources
+  COMMAND loader-shared-thread-resources-test)
+set_tests_properties(loader-shared-thread-resources PROPERTIES TIMEOUT 30)
 
 add_executable(loader-runtime-tls-test runtime_tls_test.cpp
   ../linux/runtime_tls.cpp ../linux/dtv.cpp ../linux/tls_layout.cpp
