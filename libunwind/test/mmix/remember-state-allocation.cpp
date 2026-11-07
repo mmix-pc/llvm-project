@@ -56,9 +56,11 @@ static void check(unsigned failure, uintptr_t pc, bool success,
   const uint8_t fdeCode[] = {
       DW_CFA_remember_state, DW_CFA_def_cfa_offset, 24,
       DW_CFA_advance_loc | 1, DW_CFA_restore_state,
-      tail == Tail::ReallocateAndReject ? DW_CFA_remember_state
-                                       : DW_CFA_restore_state,
-      tail == Tail::Underflow ? DW_CFA_restore_state : uint8_t(0x17)};
+      static_cast<uint8_t>(tail == Tail::ReallocateAndReject
+                               ? DW_CFA_remember_state
+                               : DW_CFA_restore_state),
+      static_cast<uint8_t>(tail == Tail::Underflow ? DW_CFA_restore_state
+                                                 : 0x17)};
   Parser::CIE_Info cie = {};
   cie.cieStart = cie.cieInstructions = (uintptr_t)cieCode;
   cie.cieLength = sizeof(cieCode);
