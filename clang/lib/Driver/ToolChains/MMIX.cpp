@@ -439,6 +439,9 @@ void MMIXToolChain::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
 
 void MMIXToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
                                               ArgStringList &CC1Args) const {
+  // The driver owns the target's system include paths. In particular, an
+  // absent sysroot must not enable the frontend's legacy host directories.
+  CC1Args.push_back("-nostdsysteminc");
   const Driver &D = getDriver();
   if (D.SysRoot.empty() || DriverArgs.hasArg(options::OPT_nostdinc))
     return;
