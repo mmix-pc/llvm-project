@@ -38,3 +38,13 @@ for opt in ("0", "2"):
                         str(source / "test" / fixture), *objects, "-ldl",
                         "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True, timeout=30)
+    for stage, symbol in enumerate(("__unw_getcontext", "__unw_init_local",
+                                    "__unw_step")):
+        exe = root / ("initialization-failure-" + str(stage) + "-O" + opt)
+        subprocess.run([*host, "-std=c++17", "-O" + opt, "-UNDEBUG",
+                        "-DFAILURE_STAGE=" + str(stage), "-pthread",
+                        "-I", str(source / "include"),
+                        str(source / "test/Inputs/forced-initialization-failure.cpp"),
+                        *objects, "-Wl,--wrap=" + symbol, "-ldl",
+                        "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
