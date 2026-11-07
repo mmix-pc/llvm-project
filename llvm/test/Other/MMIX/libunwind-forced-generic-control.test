@@ -38,6 +38,35 @@ for opt in ("0", "2"):
                         str(source / "test" / fixture), *objects, "-ldl",
                         "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True, timeout=30)
+
+    # Compose the native unwinder with the production static MMIX lifetime
+    # state machine. This checks C scope cleanup and retry, not target metadata
+    # discovery, a shared image lease or MMIX execution.
+    managed = []
+    defines = ["-D_LIBUNWIND_IS_NATIVE_ONLY",
+               "-D_LIBUNWIND_MMIX_CURSOR_LIFETIME"]
+    for name in ("UnwindLevel1.c", "UnwindLevel1-gcc-ext.c", "libunwind.cpp",
+                 "UnwindRegistersSave.S", "UnwindRegistersRestore.S",
+                 "mmix/CursorLifetime.cpp"):
+        obj = root / (name.replace("/", "-") + "-managed-O" + opt + ".o")
+        language = (["-x", "c", "-std=c11"] if name.endswith(".c") else
+                    ["-x", "c++", "-std=c++17", "-fno-exceptions", "-fno-rtti"]
+                    if name.endswith(".cpp") else [])
+        subprocess.run([*host, *language, "-O" + opt, "-UNDEBUG", *defines,
+                        "-pthread", "-I", str(source / "include"), "-c",
+                        str(source / "src" / name), "-o", str(obj)], check=True)
+        managed.append(str(obj))
+    for stage, symbol in enumerate(("__unw_getcontext", "__unw_init_local",
+                                    "__unw_step")):
+        exe = root / ("managed-initialization-failure-" + str(stage) + "-O" + opt)
+        subprocess.run([*host, "-std=c++17", "-O" + opt, "-UNDEBUG", *defines,
+                        "-DTEST_MANAGED_CURSOR", "-DFAILURE_STAGE=" + str(stage),
+                        "-pthread", "-I", str(source / "include"),
+                        "-I", str(source / "src"),
+                        str(source / "test/Inputs/forced-initialization-failure.cpp"),
+                        *managed, "-Wl,--wrap=" + symbol, "-ldl",
+                        "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True, timeout=30)
     for stage, symbol in enumerate(("__unw_getcontext", "__unw_init_local",
                                     "__unw_step")):
         exe = root / ("initialization-failure-" + str(stage) + "-O" + opt)
