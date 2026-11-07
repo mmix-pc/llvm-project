@@ -213,7 +213,7 @@ _LIBUNWIND_TRACE_NO_INLINE
 static _Unwind_Reason_Code
 unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor,
               _Unwind_Exception *exception_object) {
-  if (__unw_init_local(cursor, uc) != UNW_ESUCCESS)
+  if (uc && __unw_init_local(cursor, uc) != UNW_ESUCCESS)
     return _URC_FATAL_PHASE2_ERROR;
 
   _LIBUNWIND_TRACE_UNWINDING("unwind_phase2(ex_obj=%p)",
@@ -351,6 +351,31 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor,
   return _URC_FATAL_PHASE2_ERROR;
 }
 
+// Release the captured register context before invoking forced-unwind stop
+// callbacks. The cursor owns its register copy; retaining both objects during
+// callbacks needlessly compounds the stack cost of a nested unwind.
+static __attribute__((noinline)) int
+init_phase2_cursor(unw_cursor_t *cursor, _Unwind_Exception *exception_object,
+                   _Unwind_Stop_Fn stop, void *stop_parameter, bool forced) {
+  unw_context_t context;
+  if (__unw_getcontext(&context) != UNW_ESUCCESS)
+    return UNW_EUNSPEC;
+  // Preserve capture-failure ordering: exception state is published only once
+  // capture succeeds, and ownership is entered before any metadata lookup.
+  if (forced) {
+    exception_object->private_1 = (uintptr_t)stop;
+    exception_object->private_2 = (uintptr_t)stop_parameter;
+    if (!_LIBUNWIND_FORCED_ENTER(cursor, exception_object, stop, stop_parameter))
+      return UNW_EUNSPEC;
+  }
+  if (__unw_init_local(cursor, &context) != UNW_ESUCCESS)
+    return UNW_EUNSPEC;
+  // This helper is still live while stepping to its caller. The resulting
+  // cursor describes _Unwind_ForcedUnwind or _Unwind_Resume, as in the
+  // direct capture path.
+  return __unw_step(cursor) == UNW_STEP_SUCCESS ? UNW_ESUCCESS : UNW_EUNSPEC;
+}
+
 #if defined(_LIBUNWIND_USE_GCS)
 // Enable the GCS target feature to permit gcspop instructions to be used.
 __attribute__((target("+gcs")))
@@ -360,18 +385,22 @@ _LIBUNWIND_TRACE_NO_INLINE
 static _Unwind_Reason_Code
 unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                      _Unwind_Exception *exception_object, _Unwind_Stop_Fn stop,
-                     void *stop_parameter, bool processCurrentFrame) {
+                     void *stop_parameter, bool processCurrentFrame,
+                     bool initialized) {
   // A resumed managed cleanup must reuse its retained image view even if the
   // loader has since removed those images from the current published snapshot.
-  if (!_LIBUNWIND_FORCED_ENTER(cursor, exception_object, stop, stop_parameter))
+  if (!initialized &&
+      !_LIBUNWIND_FORCED_ENTER(cursor, exception_object, stop, stop_parameter))
     return _URC_FATAL_PHASE2_ERROR;
-  int initResult;
+  int initResult = UNW_ESUCCESS;
+  if (!initialized) {
 #if defined(_LIBUNWIND_SUPPORT_SAVED_CONTEXT)
-  if (processCurrentFrame)
-    initResult = __unw_init_local_current(cursor, uc);
-  else
+    if (processCurrentFrame)
+      initResult = __unw_init_local_current(cursor, uc);
+    else
 #endif
-    initResult = __unw_init_local(cursor, uc);
+      initResult = __unw_init_local(cursor, uc);
+  }
   if (initResult != UNW_ESUCCESS)
     return _URC_FATAL_PHASE2_ERROR;
 
@@ -544,18 +573,20 @@ _Unwind_Resume(_Unwind_Exception *exception_object) {
   if (!_LIBUNWIND_FORCED_RESUME(exception_object, exception_object->private_1,
                               (void *)exception_object->private_2))
     _LIBUNWIND_ABORT("_Unwind_Resume() has no matching managed continuation");
-  unw_context_t uc;
   unw_cursor_t cursor;
   _LIBUNWIND_CURSOR_SCOPE_WITH_STOP(cursor, exception_object->private_1);
-  if (__unw_getcontext(&uc) != UNW_ESUCCESS)
-    _LIBUNWIND_ABORT("_Unwind_Resume() could not capture context");
+  if (init_phase2_cursor(&cursor, exception_object,
+                         (_Unwind_Stop_Fn)exception_object->private_1,
+                         (void *)exception_object->private_2,
+                         exception_object->private_1 != 0) != UNW_ESUCCESS)
+    _LIBUNWIND_ABORT("_Unwind_Resume() could not initialize cursor");
 
   if (exception_object->private_1 != 0)
-    unwind_phase2_forced(&uc, &cursor, exception_object,
+    unwind_phase2_forced(NULL, &cursor, exception_object,
                          (_Unwind_Stop_Fn) exception_object->private_1,
-                         (void *)exception_object->private_2, false);
+                         (void *)exception_object->private_2, false, true);
   else
-    unwind_phase2(&uc, &cursor, exception_object);
+    unwind_phase2(NULL, &cursor, exception_object);
 
   // Clients assume _Unwind_Resume() does not return, so all we can do is abort.
   _LIBUNWIND_ABORT("_Unwind_Resume() can't return");
@@ -571,20 +602,15 @@ _Unwind_ForcedUnwind(_Unwind_Exception *exception_object,
                      _Unwind_Stop_Fn stop, void *stop_parameter) {
   _LIBUNWIND_TRACE_API("_Unwind_ForcedUnwind(ex_obj=%p, stop=%p)",
                        (void *)exception_object, (void *)(uintptr_t)stop);
-  unw_context_t uc;
   unw_cursor_t cursor;
   _LIBUNWIND_CURSOR_SCOPE_WITH_STOP(cursor, stop);
-  if (__unw_getcontext(&uc) != UNW_ESUCCESS)
+
+  if (init_phase2_cursor(&cursor, exception_object, stop, stop_parameter, true) !=
+      UNW_ESUCCESS)
     return _URC_FATAL_PHASE2_ERROR;
 
-  // Mark that this is a forced unwind, so _Unwind_Resume() can do
-  // the right thing.
-  exception_object->private_1 = (uintptr_t) stop;
-  exception_object->private_2 = (uintptr_t) stop_parameter;
-
-  // do it
-  return unwind_phase2_forced(&uc, &cursor, exception_object, stop,
-                              stop_parameter, false);
+  return unwind_phase2_forced(NULL, &cursor, exception_object, stop,
+                              stop_parameter, false, true);
 }
 
 
@@ -704,7 +730,7 @@ _LIBUNWIND_HIDDEN _Unwind_Reason_Code __unw_forcedunwind_from_context(
   exception_object->private_1 = (uintptr_t)stop;
   exception_object->private_2 = (uintptr_t)stop_parameter;
   return unwind_phase2_forced(current_context, &cursor, exception_object, stop,
-                              stop_parameter, true);
+                              stop_parameter, true, false);
 #else
   // In particular, do not derive a physical shadow-stack count from this seed.
   (void)exception_object;

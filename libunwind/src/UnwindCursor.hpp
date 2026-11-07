@@ -1844,10 +1844,13 @@ bool UnwindCursor<A, R>::getInfoFromEHABISection(
 
 #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
 template <typename A, typename R>
-bool UnwindCursor<A, R>::getInfoFromFdeCie(
+__attribute__((noinline)) bool UnwindCursor<A, R>::getInfoFromFdeCie(
     const typename CFI_Parser<A>::FDE_Info &fdeInfo,
     const typename CFI_Parser<A>::CIE_Info &cieInfo,
     typename R::link_hardened_reg_arg_t pc, uintptr_t dso_base) {
+  // Keep the large parsing state out of callers that can also reach this
+  // function indirectly through section lookup. Inlining both paths reserves
+  // multiple PrologInfo objects along the same initialization call chain.
   typename CFI_Parser<A>::PrologInfo prolog;
   typename R::link_reg_t rowPC = pc;
   if (_isIPBeforeInstruction)

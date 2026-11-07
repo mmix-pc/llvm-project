@@ -28,7 +28,8 @@ for opt in ("0", "2"):
                         "-I", str(source / "include"), "-c",
                         str(source / "src" / name), "-o", str(obj)], check=True)
         objects.append(str(obj))
-    for fixture in ("forceunwind.pass.cpp", "forced-continuation-control.pass.cpp"):
+    for fixture in ("forceunwind.pass.cpp", "forced-continuation-control.pass.cpp",
+                    "unwind_minimum_stack.pass.cpp"):
         exe = root / (fixture + "-O" + opt)
         subprocess.run([*host, "-std=c++17", "-O" + opt, "-UNDEBUG",
                         "-fexceptions", "-funwind-tables",
