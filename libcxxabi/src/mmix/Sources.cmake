@@ -8,6 +8,9 @@ if(MMIX_LINUX_SHARED_RUNTIME_VALIDATED)
   list(REMOVE_ITEM LIBCXXABI_SOURCES cxa_thread_atexit.cpp)
   list(APPEND LIBCXXABI_SOURCES mmix/cxa_thread_atexit.cpp mmix/loader_callbacks.cpp)
   list(APPEND LIBCXXABI_SOURCES mmix/ExceptionStorage.cpp)
+  list(APPEND LIBCXXABI_SOURCES mmix/ForcedCatch.cpp)
+  set_property(SOURCE cxa_exception.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS _LIBCXXABI_MMIX_FORCED_CATCH)
   set_property(SOURCE cxa_exception.cpp APPEND PROPERTY
     COMPILE_DEFINITIONS _LIBCXXABI_MMIX_EXCEPTION_OWNERS)
   set_source_files_properties(mmix/cxa_thread_atexit.cpp PROPERTIES
@@ -35,6 +38,9 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
 endif()
 list(REMOVE_ITEM LIBCXXABI_SOURCES cxa_thread_atexit.cpp)
 list(APPEND LIBCXXABI_SOURCES mmix/cxa_thread_atexit.cpp)
+list(APPEND LIBCXXABI_SOURCES mmix/ForcedCatch.cpp)
+set_property(SOURCE cxa_exception.cpp APPEND PROPERTY
+  COMPILE_DEFINITIONS _LIBCXXABI_MMIX_FORCED_CATCH)
 # Registration calls only the nonthrowing libc provider, never user callbacks.
 # Do not pull exception globals or a personality into this C ABI leaf.
 set_source_files_properties(mmix/cxa_thread_atexit.cpp PROPERTIES

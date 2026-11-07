@@ -20,6 +20,10 @@
 #include "exception_storage.h"
 #include "include/atomic_support.h" // from libc++
 
+#if defined(_LIBCXXABI_MMIX_FORCED_CATCH)
+#include "mmix/ForcedCatch.h"
+#endif
+
 #if __has_feature(address_sanitizer)
 #include <sanitizer/asan_interface.h>
 #endif
@@ -462,6 +466,11 @@ __cxa_begin_catch(void* unwind_arg) throw()
     _Unwind_Exception* unwind_exception = static_cast<_Unwind_Exception*>(unwind_arg);
     bool native_exception = __isOurExceptionClass(unwind_exception);
     __cxa_eh_globals* globals = __cxa_get_globals();
+#if defined(_LIBCXXABI_MMIX_FORCED_CATCH)
+    void* result;
+    if (mmix::begin_forced_catch(unwind_exception, globals, result))
+        return result;
+#endif
     // exception_header is a hackish offset from a foreign exception, but it
     //   works as long as we're careful not to try to access any __cxa_exception
     //   parts.
@@ -539,6 +548,10 @@ void __cxa_end_catch() {
                 "the layout of __cxa_exception must match the layout of "
                 "__cxa_dependent_exception");
     __cxa_eh_globals* globals = __cxa_get_globals_fast(); // __cxa_get_globals called in __cxa_begin_catch
+#if defined(_LIBCXXABI_MMIX_FORCED_CATCH)
+    if (mmix::end_forced_catch(globals))
+        return;
+#endif
     __cxa_exception* exception_header = globals->caughtExceptions;
     // If we've rethrown a foreign exception, then globals->caughtExceptions
     //    will have been made an empty stack by __cxa_rethrow() and there is
@@ -634,6 +647,9 @@ If the exception is native:
 */
 void __cxa_rethrow() {
     __cxa_eh_globals* globals = __cxa_get_globals();
+#if defined(_LIBCXXABI_MMIX_FORCED_CATCH)
+    mmix::rethrow_forced_catch(globals);
+#endif
     __cxa_exception* exception_header = globals->caughtExceptions;
     if (NULL == exception_header)
         std::terminate();      // throw; called outside of a exception handler
