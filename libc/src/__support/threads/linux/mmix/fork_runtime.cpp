@@ -87,6 +87,18 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
     error_code = ENOTSUP;
     return;
   }
+  // Mask before the minimal census too: its try_lock can succeed, and a
+  // handler must not reenter the registry while this thread owns that lock.
+  uint64_t full = minimal ? UINT64_MAX : UINT64_MAX & ~CREDENTIAL_MASK;
+  long result = syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &full,
+                                   &saved_mask, sizeof(saved_mask));
+  if (result < 0) {
+    error_code = int(-result);
+    return;
+  }
+  if (result)
+    __builtin_trap();
+  masked = true;
   if (minimal) {
 #ifdef LIBC_MMIX_UNWIND_ROOTS
     // Reject interrupted execution before acquiring runtime locks. The census
@@ -123,17 +135,6 @@ ForkOperation::ForkOperation(bool minimal) : minimal(minimal) {
     }
 #endif
   }
-  // Do not leave the serializer owned if async delivery interrupts admission.
-  uint64_t full = minimal ? UINT64_MAX : UINT64_MAX & ~CREDENTIAL_MASK;
-  long result = syscall_impl<long>(SYS_rt_sigprocmask, SIG_SETMASK, &full,
-                                   &saved_mask, sizeof(saved_mask));
-  if (result < 0) {
-    error_code = int(-result);
-    return;
-  }
-  if (result)
-    __builtin_trap();
-  masked = true;
   if (!serializer.mutex.try_lock()) {
     error_code = EAGAIN;
     return;

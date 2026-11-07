@@ -65,6 +65,7 @@ namespace I = LIBC_NAMESPACE::internal;
 
 namespace {
 enum class Case {
+  MinimalAdmissionMask,
   Return,
   RecursiveProcessExit,
   RecursiveTLSExit,
@@ -106,6 +107,8 @@ uint64_t mask = 0x4000;
 unsigned tls_drains, tss_drains, process_drains, registrations;
 unsigned during_forks;
 bool notifications_closed;
+bool reject_minimal_context;
+unsigned minimal_context_queries;
 bool recursive_during_child;
 unsigned main_drains;
 unsigned worker_drain_returns;
@@ -1485,6 +1488,12 @@ void end_active_fork_cleanup(const void *operation) {
   mock_borrow = {};
 }
 bool ordinary_fork_context(ThreadControl &c) {
+  if (selected == Case::MinimalAdmissionMask) {
+    ++minimal_context_queries;
+    assert(mask == UINT64_MAX);
+    if (reject_minimal_context)
+      return false;
+  }
   // This injected chain query, like production's syscall, does not enter the
   // loader and is also safe for the final frozen identity recheck.
   return selected != Case::ActiveCleanup && current_control == &c &&
@@ -2408,6 +2417,34 @@ static void exercise(Case test) {
   assert(!I::main_thread_cleanup_in_progress());
   assert(!I::adopt_fork_survivor_after_cleanup());
   assert(!I::adopt_fork_survivor_during_cleanup());
+  if (test == Case::MinimalAdmissionMask) {
+    caller.unwind_root.active = true;
+    caller.unwind_root.owner = &caller;
+    const uint64_t original = mask;
+    // Reject before serializer/suppression ownership, then retry. Context and
+    // masks are injected; the production registry/operation lifetimes are real.
+    reject_minimal_context = true;
+    {
+      M::ForkOperation operation(true);
+      assert(operation.error() == EAGAIN && mask == UINT64_MAX);
+    }
+    assert(minimal_context_queries && mask == original);
+    reject_minimal_context = false;
+    {
+      M::ThreadRegistryLock held(M::thread_registry);
+      M::ForkOperation operation(true);
+      assert(operation.error() == EAGAIN && mask == UINT64_MAX);
+    }
+    assert(mask == original && !caller.cancellation_suppression.load());
+    {
+      M::ForkOperation operation(true);
+      assert(!operation.error() && mask == UINT64_MAX);
+      assert(caller.cancellation_suppression.load() == 1);
+    }
+    assert(mask == original && !caller.cancellation_suppression.load());
+    assert(!M::ForkOperation::active_on_this_thread());
+    return;
+  }
   if (test == Case::ActiveCleanup) {
     exercise_active_cleanup();
     return;
@@ -2600,7 +2637,8 @@ static void exercise(Case test) {
 }
 
 int main() {
-  const Case cases[] = {Case::Return,
+  const Case cases[] = {Case::MinimalAdmissionMask,
+                        Case::Return,
                         Case::RecursiveProcessExit,
                         Case::RecursiveTLSExit,
                         Case::Terminal,

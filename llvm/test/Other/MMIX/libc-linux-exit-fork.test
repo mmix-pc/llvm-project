@@ -3,6 +3,8 @@
 # RUN: %python %t/run.py %S/../../../../libc %t %mmix_host_cxx
 
 # Injected private lifecycle hooks, not guest fork-continuation qualification.
+# Minimal admission masks before context/census checks; rejection and busy-registry
+# rollback restore the caller mask and allow a later admission.
 # Includes initial-thread terminal AFTER rollback, exact owner/root binding,
 # nested terminal children, closed leases/cancellation and no drain replay.
 # Initial-thread terminal DURING additionally runs production ForkOperation
