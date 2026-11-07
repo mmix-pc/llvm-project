@@ -56,6 +56,14 @@ for opt in ("0", "2"):
                         "-pthread", "-I", str(source / "include"), "-c",
                         str(source / "src" / name), "-o", str(obj)], check=True)
         managed.append(str(obj))
+    exe = root / ("managed-admission-O" + opt)
+    subprocess.run([*host, "-std=c++17", "-O" + opt, "-UNDEBUG", *defines,
+                    "-pthread", "-I", str(source / "include"),
+                    "-I", str(source / "src"),
+                    str(source / "test/mmix/forced-admission.cpp"),
+                    *managed, "-Wl,--wrap=__unw_init_local", "-ldl",
+                    "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, timeout=30)
     for stage, symbol in enumerate(("__unw_getcontext", "__unw_init_local",
                                     "__unw_step")):
         exe = root / ("managed-initialization-failure-" + str(stage) + "-O" + opt)
