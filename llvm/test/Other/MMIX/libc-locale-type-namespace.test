@@ -1,0 +1,30 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+for target in ("mmix-unknown-linux", "x86_64-linux-gnu", "i386-linux-gnu"):
+    for language in ("c", "c++"):
+        for defined in (False, True):
+            source = "#define NUM_LOCALE_CATEGORIES 19\n" if defined else ""
+            source += '#include "llvm-libc-types/locale_t.h"\n'
+            if defined:
+                source += "#if NUM_LOCALE_CATEGORIES != 19\n#error application macro changed\n#endif\n"
+            else:
+                source += "#ifdef NUM_LOCALE_CATEGORIES\n#error internal macro exposed\n#endif\n"
+                source += "enum { NUM_LOCALE_CATEGORIES = 19 };\n"
+            assertion = "_Static_assert" if language == "c" else "static_assert"
+            source += assertion + '(sizeof(struct __locale_t) == 6 * sizeof(void *), "locale layout");\n'
+            source += assertion + '(sizeof(locale_t) == sizeof(void *), "locale handle");\n'
+            command = [clang, "--no-default-config", "--target=" + target,
+                       "-nostdinc", "-I", str(libc / "include"), "-x", language,
+                       "-std=c17" if language == "c" else "-std=c++17",
+                       "-Werror", "-fsyntax-only", "-"]
+            result = subprocess.run(command, input=source, text=True, capture_output=True)
+            assert result.returncode == 0, (command, defined, result.stderr)
