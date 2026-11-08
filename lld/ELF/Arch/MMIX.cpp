@@ -1104,6 +1104,11 @@ std::optional<uint8_t> MMIX::resolveRegister(const Relocation &rel,
 
 RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
                          const uint8_t *loc) const {
+  // Pre-GC input validation can run after LTO extracts a native archive
+  // definition but before the cached preemptibility is recomputed. Definitions
+  // in an executable bind locally even if their former lazy symbol did not.
+  const bool isPreemptible =
+      s.isPreemptible && (!s.isDefined() || ctx.arg.shared);
   if (isLinux()) {
     switch (type) {
     case R_MMIX_RELATIVE:
@@ -1139,7 +1144,7 @@ RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
           }
         }
         if ((type == R_MMIX_TLSLD_PC64 || type == R_MMIX_DTPOFF64) &&
-            (!s.isDefined() || s.isPreemptible)) {
+            (!s.isDefined() || isPreemptible)) {
           Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
                    << " requires a nonpreemptible local TLS definition: " << &s;
           return R_NONE;
@@ -1174,7 +1179,7 @@ RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
     }
     return R_GOT_PC;
   }
-  if (s.isPreemptible &&
+  if (isPreemptible &&
       (isTerminalRelocation(type) || getRelaxationSequence(type) ||
        isStubbableCall(type) || type == R_MMIX_PC_64)) {
     Err(ctx) << getErrorLoc(ctx, loc) << "relocation " << type
@@ -1195,7 +1200,7 @@ RelExpr MMIX::getRelExpr(RelType type, const Symbol &s,
     }
     if (!ctx.arg.relocatable) {
       const auto *d = dyn_cast<Defined>(&s);
-      if (!d || s.isPreemptible || !d->section ||
+      if (!d || isPreemptible || !d->section ||
           d->section == &InputSection::discarded ||
           !d->section->isLive() ||
           (d->section->flags & (SHF_ALLOC | SHF_TLS)) !=

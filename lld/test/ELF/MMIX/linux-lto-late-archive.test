@@ -1,0 +1,37 @@
+# REQUIRES: mmix
+# RUN: split-file %s %t
+# RUN: llvm-as %t/entry.ll -o %t/entry.bc
+# RUN: llc -filetype=obj %t/entry.ll -o %t/entry.o
+# RUN: llvm-mc -triple=mmix-unknown-linux -filetype=obj %t/provider.s -o %t/provider.o
+# RUN: llvm-ar rcs %t/provider.a %t/provider.o
+
+## memcpy is not referenced until code generation lowers the intrinsic. Its
+## lazy archive symbol must not remain preemptible after extraction in an
+## executable. Direct native input and non-LTO extraction are controls.
+# RUN: ld.lld -m elf64mmix_linux --threads=1 --lto-O0 %t/entry.bc %t/provider.a -o %t/o0
+# RUN: ld.lld -m elf64mmix_linux --threads=1 --lto-O2 %t/entry.bc %t/provider.a -o %t/o2
+# RUN: ld.lld -m elf64mmix_linux --threads=1 --lto-O2 %t/entry.bc %t/provider.o -o %t/direct
+# RUN: ld.lld -m elf64mmix_linux %t/entry.o %t/provider.a -o %t/native
+# RUN: llvm-readobj --symbols --relocations %t/o0 %t/o2 %t/direct %t/native | FileCheck %s --check-prefix=EXE
+# EXE-COUNT-4: Name: memcpy
+
+## A default-visible definition in a shared object remains preemptible. The
+## static code's direct call is still invalid, including before section GC.
+# RUN: not ld.lld -m elf64mmix_linux -shared %t/entry.o %t/provider.a -o /dev/null 2>&1 | FileCheck %s --check-prefix=SHARED
+# RUN: not ld.lld -m elf64mmix_linux -shared --gc-sections %t/entry.o %t/provider.a -o /dev/null 2>&1 | FileCheck %s --check-prefix=SHARED
+# SHARED: relocation R_MMIX_GETA cannot bind directly to preemptible symbol memcpy; use a GOT-relative address
+
+#--- entry.ll
+target datalayout = "E-m:e-p:64:64-i64:64-n64-S64"
+target triple = "mmix-unknown-linux"
+declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)
+define void @_start(ptr %dst, ptr %src, i64 %n) {
+  call void @llvm.memcpy.p0.p0.i64(ptr %dst, ptr %src, i64 %n, i1 false)
+  ret void
+}
+
+#--- provider.s
+.globl memcpy
+.type memcpy,@function
+memcpy:
+  POP 0,0
