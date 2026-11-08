@@ -23,6 +23,8 @@
 #define SCHED_IDLE 5
 #define SCHED_DEADLINE 6
 
+// These names are outside the POSIX sched_/SCHED_ reserved namespace.
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_GNU)
 // Linux-specific flags for clone.
 #define CLONE_CHILD_CLEARTID 0x00200000
 #define CLONE_CHILD_SETTID 0x01000000
@@ -82,5 +84,7 @@
   ((((count) + NCPUBITS - 1) / NCPUBITS) * sizeof(__cpu_set_mask_t))
 #define CPU_ALLOC(count) __sched_cpualloc(count)
 #define CPU_FREE(set) __sched_cpufree(set)
+
+#endif // GNU extensions
 
 #endif // LLVM_LIBC_MACROS_LINUX_SCHED_MACROS_H

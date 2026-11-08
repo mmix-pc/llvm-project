@@ -1,0 +1,44 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+header = libc / "include/llvm-libc-macros/linux/sched-macros.h"
+text = header.read_text()
+names = set(re.findall(r"^#define ((?:CLONE_|CPU_)\w+|NCPUBITS)\b", text, re.M))
+assert {"CLONE_VM", "CPU_SET", "CPU_ALLOC_SIZE", "NCPUBITS"} <= names
+policies = set(re.findall(r"^#define (SCHED_\w+)\b", text, re.M))
+assert {"SCHED_OTHER", "SCHED_FIFO", "SCHED_RR"} <= policies
+
+for target in ("mmix-unknown-linux", "x86_64-linux-gnu", "aarch64-linux-gnu"):
+    for language in ("c", "c++"):
+        for explicit, gnu in ((False, False), (True, False), (True, True)):
+            source = ""
+            if explicit:
+                source += "#define __LIBC_EXPLICIT_NAMESPACE 1\n"
+            if gnu:
+                source += "#define __LIBC_USE_GNU 1\n"
+            source += '#include "llvm-libc-macros/sched-macros.h"\n'
+            for name in sorted(names):
+                source += ("#ifndef " if gnu or not explicit else "#ifdef ") + name
+                source += "\n#error extension visibility\n#endif\n"
+            for name in sorted(policies):
+                source += "#ifndef " + name + "\n#error missing scheduling policy\n#endif\n"
+            if explicit and not gnu:
+                source += "enum { CLONE_VM = 17, NCPUBITS = 19 };\n"
+                source += "int CPU_SET(int value) { return value + CLONE_VM + NCPUBITS; }\n"
+            else:
+                source += "#if CLONE_VM != 0x100\n#error clone value\n#endif\n"
+            command = [clang, "--no-default-config", "--target=" + target,
+                       "-nostdinc", "-I", str(libc / "include"), "-x", language,
+                       "-std=c17" if language == "c" else "-std=c++17",
+                       "-U_GNU_SOURCE", "-Werror", "-fsyntax-only", "-"]
+            result = subprocess.run(command, input=source, text=True, capture_output=True)
+            assert result.returncode == 0, (command, explicit, gnu, result.stderr)
