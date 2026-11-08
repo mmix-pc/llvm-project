@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_H
-#define LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_H
+#ifndef __LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_H
+#define __LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_H
 
 struct __llvm_libc_mmix_cleanup_frame {
   void *owner;
@@ -125,4 +125,4 @@ public:
   while (0)
 #endif
 
-#endif // LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_H
+#endif // __LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_H

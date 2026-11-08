@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_CPU_SET_T_H
-#define LLVM_LIBC_TYPES_CPU_SET_T_H
+#ifndef __LLVM_LIBC_TYPES_CPU_SET_T_H
+#define __LLVM_LIBC_TYPES_CPU_SET_T_H
 
 #define __CPU_SETSIZE 1024
 #define __NCPUBITS (8 * sizeof(unsigned long))
@@ -17,4 +17,4 @@ typedef struct {
   __cpu_set_mask_t __mask[__CPU_SETSIZE / __NCPUBITS];
 } cpu_set_t;
 
-#endif // LLVM_LIBC_TYPES_CPU_SET_T_H
+#endif // __LLVM_LIBC_TYPES_CPU_SET_T_H

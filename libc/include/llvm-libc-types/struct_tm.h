@@ -11,8 +11,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_STRUCT_TM_H
-#define LLVM_LIBC_TYPES_STRUCT_TM_H
+#ifndef __LLVM_LIBC_TYPES_STRUCT_TM_H
+#define __LLVM_LIBC_TYPES_STRUCT_TM_H
 
 /// Structure holding a calendar date and time broken down into its components.
 struct tm {
@@ -37,4 +37,4 @@ struct tm {
 #endif
 };
 
-#endif // LLVM_LIBC_TYPES_STRUCT_TM_H
+#endif // __LLVM_LIBC_TYPES_STRUCT_TM_H

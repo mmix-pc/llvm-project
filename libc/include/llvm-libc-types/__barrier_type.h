@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES__BARRIER_TYPE_H
-#define LLVM_LIBC_TYPES__BARRIER_TYPE_H
+#ifndef __LLVM_LIBC_TYPES__BARRIER_TYPE_H
+#define __LLVM_LIBC_TYPES__BARRIER_TYPE_H
 
 #include <stdbool.h>
 
@@ -20,4 +20,4 @@ typedef struct __attribute__((aligned(8 /* alignof (Barrier) */))) {
   char mutex[24 /* sizeof (Mutex) */];
 } __barrier_type;
 
-#endif // LLVM_LIBC_TYPES__BARRIER_TYPE_H
+#endif // __LLVM_LIBC_TYPES__BARRIER_TYPE_H

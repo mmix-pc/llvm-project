@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_LINUX_TIME_MACROS_H
-#define LLVM_LIBC_MACROS_LINUX_TIME_MACROS_H
+#ifndef __LLVM_LIBC_MACROS_LINUX_TIME_MACROS_H
+#define __LLVM_LIBC_MACROS_LINUX_TIME_MACROS_H
 
 #include <_time.h>
 
-#endif // LLVM_LIBC_MACROS_LINUX_TIME_MACROS_H
+#endif // __LLVM_LIBC_MACROS_LINUX_TIME_MACROS_H

@@ -11,9 +11,9 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_TIMER_T_H
-#define LLVM_LIBC_TYPES_TIMER_T_H
+#ifndef __LLVM_LIBC_TYPES_TIMER_T_H
+#define __LLVM_LIBC_TYPES_TIMER_T_H
 
 typedef void *timer_t;
 
-#endif // LLVM_LIBC_TYPES_TIMER_T_H
+#endif // __LLVM_LIBC_TYPES_TIMER_T_H

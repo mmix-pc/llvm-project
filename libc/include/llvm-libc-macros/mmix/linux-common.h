@@ -6,11 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MMIX_LINUX_COMMON_H
-#define LLVM_LIBC_MMIX_LINUX_COMMON_H
+#ifndef __LLVM_LIBC_MMIX_LINUX_COMMON_H
+#define __LLVM_LIBC_MMIX_LINUX_COMMON_H
 
 // Installed at the public include root as __llvm-libc-common.h.
 #include "llvm-libc-macros/mmix/linux-features.h"
 #include "llvm-libc-macros/mmix/common-base.h"
 
-#endif // LLVM_LIBC_MMIX_LINUX_COMMON_H
+#endif // __LLVM_LIBC_MMIX_LINUX_COMMON_H

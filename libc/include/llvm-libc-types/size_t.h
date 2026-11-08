@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_SIZE_T_H
-#define LLVM_LIBC_TYPES_SIZE_T_H
+#ifndef __LLVM_LIBC_TYPES_SIZE_T_H
+#define __LLVM_LIBC_TYPES_SIZE_T_H
 
 typedef __SIZE_TYPE__ size_t;
 
-#endif // LLVM_LIBC_TYPES_SIZE_T_H
+#endif // __LLVM_LIBC_TYPES_SIZE_T_H

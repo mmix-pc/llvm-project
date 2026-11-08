@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_STRUCT_SIGEVENT_H
-#define LLVM_LIBC_TYPES_STRUCT_SIGEVENT_H
+#ifndef __LLVM_LIBC_TYPES_STRUCT_SIGEVENT_H
+#define __LLVM_LIBC_TYPES_STRUCT_SIGEVENT_H
 
 #include "pid_t.h"
 #include "pthread_attr_t.h"
@@ -33,4 +33,4 @@ struct sigevent {
 // Self-define for compatibility with code assuming a macro.
 #define sigev_notify_thread_id sigev_notify_thread_id
 
-#endif // LLVM_LIBC_TYPES_STRUCT_SIGEVENT_H
+#endif // __LLVM_LIBC_TYPES_STRUCT_SIGEVENT_H

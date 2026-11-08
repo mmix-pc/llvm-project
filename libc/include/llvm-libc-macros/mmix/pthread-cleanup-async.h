@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_ASYNC_H
-#define LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_ASYNC_H
+#ifndef __LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_ASYNC_H
+#define __LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_ASYNC_H
 #define __LIBC_MMIX_REGISTER_CPP_CLEANUP 1
 #include "pthread-cleanup-base.h"
 #endif

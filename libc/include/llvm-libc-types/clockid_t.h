@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_CLOCKID_T_H
-#define LLVM_LIBC_TYPES_CLOCKID_T_H
+#ifndef __LLVM_LIBC_TYPES_CLOCKID_T_H
+#define __LLVM_LIBC_TYPES_CLOCKID_T_H
 
 #if defined(__APPLE__)
 // Darwin provides its own defintion for clockid_t . Use that to prevent
@@ -17,4 +17,4 @@
 typedef int clockid_t;
 #endif // __APPLE__
 
-#endif // LLVM_LIBC_TYPES_CLOCKID_T_H
+#endif // __LLVM_LIBC_TYPES_CLOCKID_T_H

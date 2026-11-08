@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_STRUCT_SCHED_PARAM_H
-#define LLVM_LIBC_TYPES_STRUCT_SCHED_PARAM_H
+#ifndef __LLVM_LIBC_TYPES_STRUCT_SCHED_PARAM_H
+#define __LLVM_LIBC_TYPES_STRUCT_SCHED_PARAM_H
 
 #include "pid_t.h"
 #include "struct_timespec.h"
@@ -18,4 +18,4 @@ struct sched_param {
   int sched_priority;
 };
 
-#endif // LLVM_LIBC_TYPES_STRUCT_SCHED_PARAM_H
+#endif // __LLVM_LIBC_TYPES_STRUCT_SCHED_PARAM_H

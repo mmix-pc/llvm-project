@@ -5,8 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLVM_LIBC_TYPES_PTHREAD_CONDATTR_T_H
-#define LLVM_LIBC_TYPES_PTHREAD_CONDATTR_T_H
+#ifndef __LLVM_LIBC_TYPES_PTHREAD_CONDATTR_T_H
+#define __LLVM_LIBC_TYPES_PTHREAD_CONDATTR_T_H
 
 #include "clockid_t.h"
 
@@ -15,4 +15,4 @@ typedef struct {
   int pshared;
 } pthread_condattr_t;
 
-#endif // LLVM_LIBC_TYPES_PTHREAD_CONDATTR_T_H
+#endif // __LLVM_LIBC_TYPES_PTHREAD_CONDATTR_T_H

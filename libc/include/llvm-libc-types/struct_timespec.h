@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_STRUCT_TIMESPEC_H
-#define LLVM_LIBC_TYPES_STRUCT_TIMESPEC_H
+#ifndef __LLVM_LIBC_TYPES_STRUCT_TIMESPEC_H
+#define __LLVM_LIBC_TYPES_STRUCT_TIMESPEC_H
 
 #if defined(__APPLE__)
 // Darwin provides its own definition for struct timespec. Include it directly
@@ -24,4 +24,4 @@ struct timespec {
 };
 #endif // __APPLE__
 
-#endif // LLVM_LIBC_TYPES_STRUCT_TIMESPEC_H
+#endif // __LLVM_LIBC_TYPES_STRUCT_TIMESPEC_H

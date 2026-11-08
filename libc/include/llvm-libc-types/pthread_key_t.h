@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_PTHREAD_KEY_T_H
-#define LLVM_LIBC_TYPES_PTHREAD_KEY_T_H
+#ifndef __LLVM_LIBC_TYPES_PTHREAD_KEY_T_H
+#define __LLVM_LIBC_TYPES_PTHREAD_KEY_T_H
 
 typedef unsigned int pthread_key_t;
 
-#endif // LLVM_LIBC_TYPES_PTHREAD_KEY_T_H
+#endif // __LLVM_LIBC_TYPES_PTHREAD_KEY_T_H

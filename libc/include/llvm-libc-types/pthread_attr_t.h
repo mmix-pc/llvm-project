@@ -9,8 +9,8 @@
 #if defined(__mmix__) && defined(__linux__)
 #include "linux/mmix/pthread_attr_t.h"
 #else
-#ifndef LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
-#define LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
+#ifndef __LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
+#define __LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
 
 #include "size_t.h"
 
@@ -21,5 +21,5 @@ typedef struct {
   size_t __guardsize;
 } pthread_attr_t;
 
-#endif // LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
+#endif // __LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
 #endif // defined(__mmix__) && defined(__linux__)

@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_STDINT_MACROS_H
-#define LLVM_LIBC_MACROS_STDINT_MACROS_H
+#ifndef __LLVM_LIBC_MACROS_STDINT_MACROS_H
+#define __LLVM_LIBC_MACROS_STDINT_MACROS_H
 
 // These definitions are copied directly from the clang implementation located
 // at 'clang/lib/Headers/stdint.h'. We provide it here again for compatibility.
@@ -897,4 +897,4 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #define WCHAR_WIDTH __WCHAR_WIDTH__
 #define WINT_WIDTH __WINT_WIDTH__
 #endif
-#endif // LLVM_LIBC_MACROS_STDINT_MACROS_H
+#endif // __LLVM_LIBC_MACROS_STDINT_MACROS_H

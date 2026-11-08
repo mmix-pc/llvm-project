@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
-#define LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
+#ifndef __LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
+#define __LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
 
 #include "llvm-libc-types/size_t.h"
 

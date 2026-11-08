@@ -11,10 +11,10 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_TM_GMFTOFF_T_H
-#define LLVM_LIBC_TYPES_TM_GMFTOFF_T_H
+#ifndef __LLVM_LIBC_TYPES_TM_GMFTOFF_T_H
+#define __LLVM_LIBC_TYPES_TM_GMFTOFF_T_H
 
 /// Type for timezone offset in seconds.
 typedef long tm_gmtoff_t;
 
-#endif // LLVM_LIBC_TYPES_TM_GMFTOFF_T_H
+#endif // __LLVM_LIBC_TYPES_TM_GMFTOFF_T_H

@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_PTHREAD_MACRO_H
-#define LLVM_LIBC_MACROS_PTHREAD_MACRO_H
+#ifndef __LLVM_LIBC_MACROS_PTHREAD_MACRO_H
+#define __LLVM_LIBC_MACROS_PTHREAD_MACRO_H
 
 #ifdef __cplusplus
 #define PTHREAD_NULL (pthread_t{})
@@ -88,4 +88,4 @@
 // llvm libc extensions
 #define PTHREAD_STACK_DYNAMIC_NP 0
 
-#endif // LLVM_LIBC_MACROS_PTHREAD_MACRO_H
+#endif // __LLVM_LIBC_MACROS_PTHREAD_MACRO_H

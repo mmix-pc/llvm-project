@@ -1,0 +1,107 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+include = out / "include"
+for directory in ("llvm-libc-macros", "llvm-libc-types"):
+    shutil.copytree(libc / "include" / directory, include / directory,
+                    dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-cleanup.h",
+                include / "llvm-libc-macros/mmix/pthread-cleanup-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-cleanup-async.h",
+                include / "llvm-libc-macros/mmix/pthread-cleanup.h")
+for name in ("pthread", "sched", "time"):
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include" / (name + ".yaml")), "--visibility",
+                    str(libc / "config/linux/mmix/HeaderVisibility.yaml"),
+                    "-o", str(include / (name + ".h"))], check=True)
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"],
+                                   text=True).strip()
+# These application identifiers are not reserved by the included interfaces.
+application_names = """
+LLVM_LIBC_MACROS_LINUX_SCHED_MACROS_H
+LLVM_LIBC_MACROS_LINUX_TIME_MACROS_H
+LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H
+LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_ASYNC_H
+LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_H
+LLVM_LIBC_MACROS_MMIX_PTHREAD_MACROS_H
+LLVM_LIBC_MACROS_NULL_MACRO_H
+LLVM_LIBC_MACROS_PTHREAD_MACRO_H
+LLVM_LIBC_MACROS_SCHED_MACROS_H
+LLVM_LIBC_MACROS_STDINT_MACROS_H
+LLVM_LIBC_MACROS_TIME_MACROS_H
+LLVM_LIBC_MMIX_LINUX_COMMON_H
+LLVM_LIBC_TYPES_CLOCKID_T_H
+LLVM_LIBC_TYPES_CLOCK_T_H
+LLVM_LIBC_TYPES_CPU_SET_T_H
+LLVM_LIBC_TYPES_LOCALE_T_H
+LLVM_LIBC_TYPES_PID_T_H
+LLVM_LIBC_TYPES_PTHREAD_ATTR_T_H
+LLVM_LIBC_TYPES_PTHREAD_BARRIERATTR_T_H
+LLVM_LIBC_TYPES_PTHREAD_BARRIER_T_H
+LLVM_LIBC_TYPES_PTHREAD_CONDATTR_T_H
+LLVM_LIBC_TYPES_PTHREAD_COND_T_H
+LLVM_LIBC_TYPES_PTHREAD_ID_NP_T_H
+LLVM_LIBC_TYPES_PTHREAD_KEY_T_H
+LLVM_LIBC_TYPES_PTHREAD_MUTEXATTR_T_H
+LLVM_LIBC_TYPES_PTHREAD_MUTEX_T_H
+LLVM_LIBC_TYPES_PTHREAD_ONCE_T_H
+LLVM_LIBC_TYPES_PTHREAD_RWLOCKATTR_T_H
+LLVM_LIBC_TYPES_PTHREAD_RWLOCK_T_H
+LLVM_LIBC_TYPES_PTHREAD_SPINLOCK_T_H
+LLVM_LIBC_TYPES_PTHREAD_T_H
+LLVM_LIBC_TYPES_SIZE_T_H
+LLVM_LIBC_TYPES_STRUCT_ITIMERSPEC_H
+LLVM_LIBC_TYPES_STRUCT_SCHED_PARAM_H
+LLVM_LIBC_TYPES_STRUCT_SIGEVENT_H
+LLVM_LIBC_TYPES_STRUCT_TIMESPEC_H
+LLVM_LIBC_TYPES_STRUCT_TM_H
+LLVM_LIBC_TYPES_TIMER_T_H
+LLVM_LIBC_TYPES_TIME_T_64_H
+LLVM_LIBC_TYPES_TM_GMFTOFF_T_H
+LLVM_LIBC_TYPES_UNION_SIGVAL_H
+LLVM_LIBC_TYPES__BARRIER_TYPE_H
+LLVM_LIBC_TYPES___ATFORK_CALLBACK_T_H
+LLVM_LIBC_TYPES___FUTEX_WORD_H
+LLVM_LIBC_TYPES___MUTEX_TYPE_H
+LLVM_LIBC_TYPES___PTHREAD_ONCE_FUNC_T_H
+LLVM_LIBC_TYPES___PTHREAD_START_T_H
+LLVM_LIBC_TYPES___PTHREAD_TSS_DTOR_T_H
+LLVM_LIBC_TYPES___THREAD_TYPE_H
+""".split()
+for target in ("mmix-unknown-linux", "x86_64-linux-gnu", "i386-linux-gnu"):
+    for language in ("c", "c++"):
+        for feature in ("-D_POSIX_C_SOURCE=202405L", "-D_XOPEN_SOURCE=800"):
+            for predefined in (False, True):
+                for order in (("pthread", "sched", "time"), ("time", "sched", "pthread")):
+                    source = ""
+                    if predefined:
+                        source += "".join("#define " + name + " 19\n" for name in application_names)
+                    for name in (*order, *reversed(order)):
+                        source += "#include <" + name + ".h>\n"
+                    for name in application_names:
+                        source += ("#if " + name + " != 19\n#error application name changed\n#endif\n"
+                                   if predefined else "#ifdef " + name + "\n#error unreserved guard exposed\n#endif\n")
+                    source += "pthread_t thread = PTHREAD_NULL;\n"
+                    source += "pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;\n"
+                    source += "pthread_cond_t cond = PTHREAD_COND_INITIALIZER;\n"
+                    source += "pthread_once_t once = PTHREAD_ONCE_INIT;\n"
+                    source += "int (*equal_fn)(pthread_t, pthread_t) = &pthread_equal;\n"
+                    command = [clang, "--no-default-config", "--target=" + target,
+                               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                               "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+                               "-U_GNU_SOURCE", feature, "-Werror", "-fsyntax-only", "-"]
+                    result = subprocess.run(command, input=source, text=True, capture_output=True)
+                    assert result.returncode == 0, (command, predefined, order, result.stderr)

@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_PTHREAD_SPINLOCK_T_H
-#define LLVM_LIBC_TYPES_PTHREAD_SPINLOCK_T_H
+#ifndef __LLVM_LIBC_TYPES_PTHREAD_SPINLOCK_T_H
+#define __LLVM_LIBC_TYPES_PTHREAD_SPINLOCK_T_H
 #include "pid_t.h"
 typedef struct {
   unsigned char __lockword;
   pid_t __owner;
 } pthread_spinlock_t;
 
-#endif // LLVM_LIBC_TYPES_PTHREAD_SPINLOCK_T_H
+#endif // __LLVM_LIBC_TYPES_PTHREAD_SPINLOCK_T_H

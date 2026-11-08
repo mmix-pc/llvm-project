@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_LOCALE_T_H
-#define LLVM_LIBC_TYPES_LOCALE_T_H
+#ifndef __LLVM_LIBC_TYPES_LOCALE_T_H
+#define __LLVM_LIBC_TYPES_LOCALE_T_H
 
 struct __locale_data;
 
@@ -17,4 +17,4 @@ struct __locale_t {
 
 typedef struct __locale_t *locale_t;
 
-#endif // LLVM_LIBC_TYPES_LOCALE_T_H
+#endif // __LLVM_LIBC_TYPES_LOCALE_T_H

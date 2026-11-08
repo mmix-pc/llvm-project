@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H
-#define LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H
+#ifndef __LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H
+#define __LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H
 
 // These are namespace requests, not runtime capability or conformance claims.
 #define __LIBC_EXPLICIT_NAMESPACE 1
@@ -130,4 +130,4 @@
 #define __LIBC_USE_POSIX2024_OR_DEFAULT_OR_C23 1
 #endif
 
-#endif // LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H
+#endif // __LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H

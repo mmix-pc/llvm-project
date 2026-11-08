@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES___FUTEX_WORD_H
-#define LLVM_LIBC_TYPES___FUTEX_WORD_H
+#ifndef __LLVM_LIBC_TYPES___FUTEX_WORD_H
+#define __LLVM_LIBC_TYPES___FUTEX_WORD_H
 
 #include "../__llvm-libc-common.h"
 
@@ -19,4 +19,4 @@ typedef struct {
                : _Alignof(__UINT32_TYPE__)) __UINT32_TYPE__ __word;
 } __futex_word;
 
-#endif // LLVM_LIBC_TYPES___FUTEX_WORD_H
+#endif // __LLVM_LIBC_TYPES___FUTEX_WORD_H

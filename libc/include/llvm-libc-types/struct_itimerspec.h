@@ -11,8 +11,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_STRUCT_ITIMERSPEC_H
-#define LLVM_LIBC_TYPES_STRUCT_ITIMERSPEC_H
+#ifndef __LLVM_LIBC_TYPES_STRUCT_ITIMERSPEC_H
+#define __LLVM_LIBC_TYPES_STRUCT_ITIMERSPEC_H
 
 #include "struct_timespec.h"
 
@@ -21,4 +21,4 @@ struct itimerspec {
   struct timespec it_value;
 };
 
-#endif // LLVM_LIBC_TYPES_STRUCT_ITIMERSPEC_H
+#endif // __LLVM_LIBC_TYPES_STRUCT_ITIMERSPEC_H

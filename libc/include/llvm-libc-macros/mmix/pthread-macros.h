@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_MMIX_PTHREAD_MACROS_H
-#define LLVM_LIBC_MACROS_MMIX_PTHREAD_MACROS_H
+#ifndef __LLVM_LIBC_MACROS_MMIX_PTHREAD_MACROS_H
+#define __LLVM_LIBC_MACROS_MMIX_PTHREAD_MACROS_H
 
 #include "mmix/pthread-base-macros.h"
 #include "mmix/pthread-cleanup.h"
@@ -19,4 +19,4 @@
 #define PTHREAD_CANCEL_ASYNCHRONOUS 1
 #define PTHREAD_CANCELED ((void *)-1)
 
-#endif // LLVM_LIBC_MACROS_MMIX_PTHREAD_MACROS_H
+#endif // __LLVM_LIBC_MACROS_MMIX_PTHREAD_MACROS_H

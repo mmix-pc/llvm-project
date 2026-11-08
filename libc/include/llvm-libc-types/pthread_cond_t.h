@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_PTHREAD_COND_T_H
-#define LLVM_LIBC_TYPES_PTHREAD_COND_T_H
+#ifndef __LLVM_LIBC_TYPES_PTHREAD_COND_T_H
+#define __LLVM_LIBC_TYPES_PTHREAD_COND_T_H
 
 #include "__futex_word.h"
 #include "size_t.h"
@@ -23,4 +23,4 @@ typedef struct {
   char __padding[2];
 } pthread_cond_t;
 
-#endif // LLVM_LIBC_TYPES_PTHREAD_COND_T_H
+#endif // __LLVM_LIBC_TYPES_PTHREAD_COND_T_H

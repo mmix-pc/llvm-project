@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_TIME_T_64_H
-#define LLVM_LIBC_TYPES_TIME_T_64_H
+#ifndef __LLVM_LIBC_TYPES_TIME_T_64_H
+#define __LLVM_LIBC_TYPES_TIME_T_64_H
 
 #if defined(__APPLE__)
 // Darwin provides its own definition for time_t. Include it directly
@@ -17,4 +17,4 @@
 typedef __INT64_TYPE__ time_t;
 #endif // __APPLE__
 
-#endif // LLVM_LIBC_TYPES_TIME_T_64_H
+#endif // __LLVM_LIBC_TYPES_TIME_T_64_H

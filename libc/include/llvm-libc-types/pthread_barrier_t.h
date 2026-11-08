@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_PTHREAD_BARRIER_T_H
-#define LLVM_LIBC_TYPES_PTHREAD_BARRIER_T_H
+#ifndef __LLVM_LIBC_TYPES_PTHREAD_BARRIER_T_H
+#define __LLVM_LIBC_TYPES_PTHREAD_BARRIER_T_H
 
 #include "__barrier_type.h"
 typedef __barrier_type pthread_barrier_t;
 
-#endif // LLVM_LIBC_TYPES_PTHREAD_BARRIER_T_H
+#endif // __LLVM_LIBC_TYPES_PTHREAD_BARRIER_T_H
