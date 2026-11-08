@@ -60,7 +60,7 @@ for language in ("c", "c++"):
                 ("time", "TIMER_ABSTIME", posix >= 199309),
                 ("time", "CLOCK_MONOTONIC_RAW", default),
                 ("time", "asctime_r", default or 199506 <= posix < 202405),
-                ("time", "timegm", posix >= 202405),
+                ("time", "timegm", default),
                 ("time", "getdate", xsi > 0),
                 ("time", "getdate_err", xsi > 0),
                 ("unistd", "gettid", gnu),

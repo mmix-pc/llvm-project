@@ -116,7 +116,7 @@ time.h:
     nanosleep: __LIBC_USE_POSIX1993
     strftime_l: __LIBC_USE_POSIX2008
     strptime: __LIBC_USE_XOPEN
-    timegm: __LIBC_USE_POSIX2024_OR_DEFAULT_OR_C23
+    timegm: __LIBC_USE_DEFAULT_OR_C23
     timer_create: __LIBC_USE_POSIX1993
     timer_delete: __LIBC_USE_POSIX1993
     timer_getoverrun: __LIBC_USE_POSIX1993

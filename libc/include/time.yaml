@@ -62,7 +62,7 @@ functions:
     arguments:
       - type: timer_t
   - name: timegm
-    standards: [posix]
+    standards: [stdc]
     return_type: time_t
     arguments:
       - type: struct tm *
