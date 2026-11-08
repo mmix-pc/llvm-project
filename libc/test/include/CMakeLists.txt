@@ -196,6 +196,18 @@ if(LIBC_TARGET_OS_IS_LINUX)
     DEPENDS libc.include.sys_stat
   )
 
+  foreach(language IN ITEMS c cpp)
+    add_libc_test(
+      cmsg_macros_${language}_test
+      C_TEST
+      FULL_BUILD_ONLY
+      SUITE libc_include_tests
+      SRCS cmsg_macros_test.${language}
+      HDRS cmsg_macros_test.h
+      DEPENDS libc.include.sys_socket
+    )
+  endforeach()
+
   add_libc_test(
     socket_length_test
     SUITE libc_include_tests

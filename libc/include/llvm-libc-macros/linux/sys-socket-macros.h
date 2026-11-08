@@ -9,6 +9,9 @@
 #ifndef LLVM_LIBC_MACROS_LINUX_SYS_SOCKET_MACROS_H
 #define LLVM_LIBC_MACROS_LINUX_SYS_SOCKET_MACROS_H
 
+#include "../../llvm-libc-types/struct_cmsghdr.h"
+#include "../../llvm-libc-types/struct_msghdr.h"
+
 // IEEE Std 1003.1-2017 - basedefs/sys_socket.h.html
 // Macro values come from the Linux syscall interface.
 
@@ -173,17 +176,45 @@
 #define CMSG_LEN(len) (sizeof(struct cmsghdr) + (len))
 #define CMSG_SPACE(len) (sizeof(struct cmsghdr) + CMSG_ALIGN(len))
 
-#define CMSG_FIRSTHDR(msg)                                                     \
-  ((msg)->msg_controllen >= sizeof(struct cmsghdr)                             \
-       ? (struct cmsghdr *)(msg)->msg_control                                  \
-       : 0)
-#define __CMSG_NXTHDR_CANDIDATE(cmsg)                                          \
-  ((struct cmsghdr *)((unsigned char *)(cmsg) + CMSG_ALIGN((cmsg)->cmsg_len)))
-#define CMSG_NXTHDR(msg, cmsg)                                                 \
-  ((char *)(__CMSG_NXTHDR_CANDIDATE(cmsg) + 1) <=                              \
-           ((char *)((msg)->msg_control) + (msg)->msg_controllen)              \
-       ? __CMSG_NXTHDR_CANDIDATE(cmsg)                                         \
-       : 0)
+// Inline helpers evaluate each macro operand once, including in C++ file-scope
+// initializers, where a statement expression would not be valid.
+static inline struct cmsghdr *
+__llvm_libc_cmsg_firsthdr(const struct msghdr *__msg) {
+  return __msg->msg_controllen >= sizeof(struct cmsghdr)
+             ? (struct cmsghdr *)__msg->msg_control
+             : 0;
+}
+
+static inline struct cmsghdr *
+__llvm_libc_cmsg_nxthdr(const struct msghdr *__msg,
+                        const struct cmsghdr *__cmsg) {
+  if (!__cmsg)
+    return __llvm_libc_cmsg_firsthdr(__msg);
+
+  // The current header belongs to this control buffer. Check remaining lengths
+  // before forming the next pointer, including alignment padding, so a short
+  // trailing header or an overflowing length cannot produce an out-of-bounds
+  // pointer. A complete next header with a truncated payload is returned.
+  size_t __offset =
+      (const unsigned char *)__cmsg - (const unsigned char *)__msg->msg_control;
+  if (__offset > __msg->msg_controllen)
+    return 0;
+  size_t __remaining = __msg->msg_controllen - __offset;
+  if (__remaining < sizeof(struct cmsghdr))
+    return 0;
+  size_t __length = __cmsg->cmsg_len;
+  if (__length < sizeof(struct cmsghdr) || __length > __remaining)
+    return 0;
+  __remaining -= __length;
+  size_t __padding = (-__length) & (sizeof(size_t) - 1);
+  if (__padding > __remaining ||
+      __remaining - __padding < sizeof(struct cmsghdr))
+    return 0;
+  return (struct cmsghdr *)((unsigned char *)__cmsg + __length + __padding);
+}
+
+#define CMSG_FIRSTHDR(msg) (__llvm_libc_cmsg_firsthdr((msg)))
+#define CMSG_NXTHDR(msg, cmsg) (__llvm_libc_cmsg_nxthdr((msg), (cmsg)))
 #define CMSG_DATA(cmsg) ((unsigned char *)((struct cmsghdr *)(cmsg) + 1))
 
 #endif // LLVM_LIBC_MACROS_LINUX_SYS_SOCKET_MACROS_H
