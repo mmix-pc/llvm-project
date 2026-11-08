@@ -65,6 +65,7 @@ namespace I = LIBC_NAMESPACE::internal;
 
 namespace {
 enum class Case {
+  AtomicRollback,
   MinimalAdmissionMask,
   Return,
   RecursiveProcessExit,
@@ -1381,7 +1382,7 @@ void finish_loader_fork(bool child, bool resume) {
 }
 int prepare_notification_fork(bool minimal, bool *drained, bool retire_helpers) {
   assert((!minimal || selected == Case::Quick || selected == Case::WorkerQuick ||
-          selected == Case::ActiveCleanup) &&
+          selected == Case::ActiveCleanup || selected == Case::AtomicRollback) &&
          !notification_snapshot);
   assert(retire_helpers == !(helper_case() || restricted_checkpoint));
   ++notification_prepares;
@@ -1399,7 +1400,7 @@ void finish_notification_fork(bool child) {
 // Snapshot ownership only: no real service, actors, CQEs or invocation disposal.
 int prepare_aio_fork(bool minimal, bool *drained, bool retire_helpers) {
   assert((!minimal || selected == Case::Quick || selected == Case::WorkerQuick ||
-          selected == Case::ActiveCleanup) &&
+          selected == Case::ActiveCleanup || selected == Case::AtomicRollback) &&
          !aio_snapshot && !aio_frozen && notification_snapshot);
   assert(retire_helpers == !(helper_case() || restricted_checkpoint));
   ++aio_prepares;
@@ -2680,4 +2681,5 @@ int main() {
     }
     wait_success(child);
   }
+  return 0;
 }

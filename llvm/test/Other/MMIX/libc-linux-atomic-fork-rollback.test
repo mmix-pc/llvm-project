@@ -1,0 +1,42 @@
+# REQUIRES: mmix-registered-target, mmix-native-linux-clang
+# RUN: %python %s %S/../../../../libc %S/../../../../compiler-rt/lib/builtins %S/Inputs/compiler-runtime/linux-atomic-fork-state.c %t "%mmix_host_cxx"
+
+# Production atomic-provider/ForkOperation composition. Other services and the
+# kernel remain the exit-fork harness's injected boundaries, not guest evidence.
+import pathlib
+import shlex
+import subprocess
+import sys
+
+libc, builtins, provider, out = map(pathlib.Path, sys.argv[1:5])
+host = shlex.split(sys.argv[5])
+out.mkdir(parents=True, exist_ok=True)
+for opt in ("0", "2"):
+    obj = out / ("atomic-O" + opt + ".o")
+    renamed = out / ("atomic-renamed-O" + opt + ".o")
+    exe = out / ("native-O" + opt)
+    subprocess.run([*host, "-x", "c", "-std=c17", "-ffreestanding",
+                    "-fno-builtin", "-fno-lto", "-O" + opt, "-I", str(builtins),
+                    "-MD", "-MF", str(obj) + ".d",
+                    "-c", str(provider), "-o", str(obj)], check=True)
+    names = subprocess.check_output(["llvm-nm", "--defined-only", "--extern-only",
+                                    str(obj)], text=True)
+    public = [line.split()[-1] for line in names.splitlines()
+              if line.split()[-1].startswith("__atomic_")]
+    operations = ("load", "store", "exchange", "compare_exchange", "fetch_add",
+                  "fetch_sub", "fetch_and", "fetch_or", "fetch_xor", "fetch_nand")
+    expected = {"__atomic_" + name for name in
+                ("load", "store", "exchange", "compare_exchange", "is_lock_free")}
+    expected |= {"__atomic_" + name + "_" + str(size)
+                 for name in operations for size in (1, 2, 4, 8)}
+    assert set(public) == expected, set(public) ^ expected
+    subprocess.run(["llvm-objcopy", *["--redefine-sym=" + name + "=test_" + name
+                                     for name in public], str(obj), str(renamed)],
+                   check=True)
+    subprocess.run([*host, "-std=c++17", "-fexceptions", "-UNDEBUG", "-O" + opt,
+                    "-I", str(libc), "-DLIBC_NAMESPACE=exit_fork_test",
+                    "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+                    "-DLIBC_ERRNO_MODE=LIBC_ERRNO_MODE_THREAD_LOCAL",
+                    str(libc / "test/src/stdlib/mmix_atomic_fork_rollback_native.cpp"),
+                    str(renamed), "-MD", "-MF", str(exe) + ".d", "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, timeout=30)
