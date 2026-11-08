@@ -119,9 +119,9 @@ void release_locale_category(__locale_data *data) {
 
 bool retain_locale(const __locale_t &locale) {
   for (int i = 0; i != LOCALE_CATEGORY_COUNT; ++i) {
-    if (!retain_locale_category(locale.data[i])) {
+    if (!retain_locale_category(locale.__data[i])) {
       while (i)
-        release_locale_category(locale.data[--i]);
+        release_locale_category(locale.__data[--i]);
       return false;
     }
   }
@@ -129,7 +129,7 @@ bool retain_locale(const __locale_t &locale) {
 }
 
 void release_locale(const __locale_t &locale) {
-  for (auto *category : locale.data)
+  for (auto *category : locale.__data)
     release_locale_category(category);
 }
 

@@ -240,7 +240,7 @@ struct Fixture {
     if (!record)
       return false;
     category = *record;
-    object.data[LC_CTYPE] = category;
+    object.__data[LC_CTYPE] = category;
     return true;
   }
   ~Fixture() {

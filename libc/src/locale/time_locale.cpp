@@ -16,7 +16,7 @@ namespace internal {
 const TimeLocaleData *time_locale(locale_t locale) {
 #ifdef LIBC_FULL_BUILD
   auto snapshot = locale_snapshot(locale);
-  const auto &data = snapshot.data[LC_TIME]->time;
+  const auto &data = snapshot.__data[LC_TIME]->time;
   return data ? &*data : nullptr;
 #else
   // Overlay builds cannot interpret another libc's opaque locale objects.

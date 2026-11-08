@@ -54,13 +54,13 @@ LLVM_LIBC_FUNCTION(struct lconv *, localeconv, ()) {
     return const_cast<char *>(
         reinterpret_cast<const char *>(item.bytes.data()));
   };
-  auto *numeric = locale.data[LC_NUMERIC];
+  auto *numeric = locale.__data[LC_NUMERIC];
   if (numeric->numeric) {
     result.decimal_point = text(numeric->numeric->decimal_point);
     result.thousands_sep = text(numeric->numeric->thousands_sep);
     result.grouping = numeric->grouping;
   }
-  auto *monetary = locale.data[LC_MONETARY];
+  auto *monetary = locale.__data[LC_MONETARY];
   if (monetary->monetary) {
     const auto &data = *monetary->monetary;
     using M = internal::MonetaryLocaleData;

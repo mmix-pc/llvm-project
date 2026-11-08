@@ -116,22 +116,22 @@ MmixCleanupFrame owner_frame(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
 }
 
 bool same_frame(const MmixCleanupFrame &a, const MmixCleanupFrame &b) {
-  return a.owner == b.owner && a.ro == b.ro && a.procedure == b.procedure &&
-         a.sp == b.sp && a.chain == b.chain && a.generation == b.generation;
+  return a.__owner == b.__owner && a.__ro == b.__ro && a.__procedure == b.__procedure &&
+         a.__sp == b.__sp && a.__chain == b.__chain && a.__generation == b.__generation;
 }
 
 bool same_link(const MmixCleanupLink &a, const MmixCleanupLink &b) {
-  return a.record == b.record && a.serial == b.serial &&
-         same_frame(a.frame, b.frame) && a.frame.limit == b.frame.limit;
+  return a.__record == b.__record && a.__serial == b.__serial &&
+         same_frame(a.__frame, b.__frame) && a.__frame.__limit == b.__frame.__limit;
 }
 
 MmixCleanupLink segment_checkpoint(const MmixCleanupFrame &frame) {
 #if defined(LIBC_MMIX_SIGNAL_CLEANUP)
-  if (frame.chain != current_control->unwind_root.chain) {
+  if (frame.__chain != current_control->unwind_root.chain) {
     auto *entry = current_signal_entry();
     if (!entry || !entry->cleanup_tracked ||
-        frame.chain != entry->point.child_chain ||
-        frame.generation != entry->point.generation)
+        frame.__chain != entry->point.child_chain ||
+        frame.__generation != entry->point.generation)
       __builtin_trap();
     return entry->parent_cleanup;
   }
@@ -183,7 +183,7 @@ capture(MmixCleanupRecord *record) {
       parent_sp - address < sizeof(*record) || (address & 7))
     __builtin_trap();
   auto frame = owner_frame(ro, procedure.start_ip, sp);
-  frame.limit = parent_sp;
+  frame.__limit = parent_sp;
 #ifdef LIBC_MMIX_SHARED_STARTUP
   __libunwind_mmix_cursor_end(&lifetime);
 #ifdef LIBC_MMIX_SIGNAL_CLEANUP
@@ -195,11 +195,11 @@ capture(MmixCleanupRecord *record) {
 }
 
 void validate_link(const MmixCleanupLink &link) {
-  uintptr_t address = reinterpret_cast<uintptr_t>(link.record);
-  if (!link.serial || !link.record || (address & 7) ||
-      address < link.frame.sp || address > link.frame.limit ||
-      link.frame.limit - address < sizeof(*link.record) ||
-      link.record->serial != link.serial || !link.record->callback)
+  uintptr_t address = reinterpret_cast<uintptr_t>(link.__record);
+  if (!link.__serial || !link.__record || (address & 7) ||
+      address < link.__frame.__sp || address > link.__frame.__limit ||
+      link.__frame.__limit - address < sizeof(*link.__record) ||
+      link.__record->__serial != link.__serial || !link.__record->__callback)
     __builtin_trap();
 }
 
@@ -257,7 +257,7 @@ void remove(bool execute, RegistrationMask *mask = nullptr,
   validate_link(head);
 #ifdef LIBC_MMIX_SIGNAL_CLEANUP
   CleanupCancellationScope cancellation_scope(
-      head.frame.chain != current_control->unwind_root.chain);
+      head.__frame.__chain != current_control->unwind_root.chain);
 #else
   CallbackOwnershipScope cancellation_scope;
 #endif
@@ -266,18 +266,18 @@ void remove(bool execute, RegistrationMask *mask = nullptr,
   CleanupActivation activation;
   auto &witness = activation.entry;
   validate_link(head);
-  auto *record = head.record;
-  if (record->previous.record && record->previous.serial >= head.serial)
+  auto *record = head.__record;
+  if (record->__previous.__record && record->__previous.__serial >= head.__serial)
     __builtin_trap();
-  auto callback = record->callback;
-  auto argument = record->argument;
+  auto callback = record->__callback;
+  auto argument = record->__argument;
   auto executing = head;
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  if (!callback_owners.detach(record, head.serial, owner))
+  if (!callback_owners.detach(record, head.__serial, owner))
     __builtin_trap();
 #endif
-  head = record->previous;
-  record->serial = 0;
+  head = record->__previous;
+  record->__serial = 0;
   const bool observe = synchronous_dispatch || (execute && mask);
   if (observe) {
     if (synchronous_dispatch && (!dispatching || !execute || mask))
@@ -341,21 +341,21 @@ void publish(MmixCleanupRecord *record, MmixCleanupOwner *storage,
   uint64_t newer = identifier;
   auto boundary = segment_checkpoint(frame);
   for (auto link = head; !same_link(link, boundary);
-       link = link.record->previous) {
-    if (!link.record)
+       link = link.__record->__previous) {
+    if (!link.__record)
       __builtin_trap();
-    if (link.record == record || link.serial >= newer ||
-        link.frame.owner != frame.owner || link.frame.chain != frame.chain ||
-        link.frame.generation != frame.generation || link.frame.ro > frame.ro)
+    if (link.__record == record || link.__serial >= newer ||
+        link.__frame.__owner != frame.__owner || link.__frame.__chain != frame.__chain ||
+        link.__frame.__generation != frame.__generation || link.__frame.__ro > frame.__ro)
       __builtin_trap();
     validate_link(link);
-    newer = link.serial;
+    newer = link.__serial;
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
   uintptr_t address = reinterpret_cast<uintptr_t>(storage);
   uintptr_t record_address = reinterpret_cast<uintptr_t>(record);
-  if (!storage || address % alignof(MmixCleanupOwner) || address < frame.sp ||
-      address > frame.limit || frame.limit - address < sizeof(*storage) ||
+  if (!storage || address % alignof(MmixCleanupOwner) || address < frame.__sp ||
+      address > frame.__limit || frame.__limit - address < sizeof(*storage) ||
       !(address + sizeof(*storage) <= record_address ||
         record_address + sizeof(*record) <= address))
     __builtin_trap();
@@ -398,7 +398,7 @@ extern "C" [[gnu::noinline, clang::disable_tail_calls]] void
 __llvm_libc_mmix_thread_cleanup_pop(MmixCleanupRecord *record, int execute) {
   RegistrationMask mask;
   auto frame = capture(record);
-  if (dispatching || head.record != record || !same_frame(head.frame, frame))
+  if (dispatching || head.__record != record || !same_frame(head.__frame, frame))
     __builtin_trap();
   validate_link(head);
   remove(execute, &mask);
@@ -411,17 +411,17 @@ void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
   dispatching = true;
   auto boundary = segment_checkpoint(frame);
   while (!same_link(head, boundary)) {
-    if (!head.record)
+    if (!head.__record)
       __builtin_trap();
-    if (head.frame.owner != frame.owner || head.frame.chain != frame.chain ||
-        head.frame.generation != frame.generation || head.frame.ro > ro)
+    if (head.__frame.__owner != frame.__owner || head.__frame.__chain != frame.__chain ||
+        head.__frame.__generation != frame.__generation || head.__frame.__ro > ro)
       __builtin_trap();
-    if (head.frame.ro != ro)
+    if (head.__frame.__ro != ro)
       break;
-    if (!same_frame(head.frame, frame))
+    if (!same_frame(head.__frame, frame))
       __builtin_trap();
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
-    if (head.serial & 1)
+    if (head.__serial & 1)
       break;
 #endif
     remove(true, nullptr, true);
@@ -429,7 +429,7 @@ void dispatch_c_cleanup(uintptr_t ro, uintptr_t procedure, uintptr_t sp) {
   dispatching = false;
 }
 
-bool has_c_cleanup() { return head.record != nullptr; }
+bool has_c_cleanup() { return head.__record != nullptr; }
 
 bool snapshot_c_cleanup(MmixCleanupLink &checkpoint) {
   if (dispatching)
@@ -473,20 +473,20 @@ bool snapshot_active_c_cleanup(const UnwindRoot &root,
 
   // Validate frame bounds before reading consumed or pending record storage.
   auto frame_valid = [&](const MmixCleanupLink &link) {
-    auto address = reinterpret_cast<uintptr_t>(link.record);
-    const auto &frame = link.frame;
-    return link.record && link.serial && !(address & 7) &&
-           frame.owner == root.owner && frame.chain == root.chain &&
-           frame.generation == root.generation && frame.ro >= root.ro &&
-           !(frame.ro & 7) && frame.sp && !(frame.sp & 7) &&
-           frame.procedure && address >= frame.sp && address <= frame.limit &&
-           frame.limit - address >= sizeof(*link.record);
+    auto address = reinterpret_cast<uintptr_t>(link.__record);
+    const auto &frame = link.__frame;
+    return link.__record && link.__serial && !(address & 7) &&
+           frame.__owner == root.owner && frame.__chain == root.chain &&
+           frame.__generation == root.generation && frame.__ro >= root.ro &&
+           !(frame.__ro & 7) && frame.__sp && !(frame.__sp & 7) &&
+           frame.__procedure && address >= frame.__sp && address <= frame.__limit &&
+           frame.__limit - address >= sizeof(*link.__record);
   };
   auto outside = [](const MmixCleanupFrame &outer,
                     const MmixCleanupFrame &inner) {
-    return outer.ro <= inner.ro && outer.sp >= inner.sp &&
-           (outer.ro != inner.ro ||
-            (same_frame(outer, inner) && outer.limit == inner.limit));
+    return outer.__ro <= inner.__ro && outer.__sp >= inner.__sp &&
+           (outer.__ro != inner.__ro ||
+            (same_frame(outer, inner) && outer.__limit == inner.__limit));
   };
 
   ActiveCleanupWitness now = active->entry;
@@ -499,21 +499,21 @@ bool snapshot_active_c_cleanup(const UnwindRoot &root,
   const uint64_t last_identifier = serial;
 #endif
   uint64_t newer = UINT64_MAX;
-  auto inner = active->entry.executing.frame;
+  auto inner = active->entry.executing.__frame;
   for (auto *entry = active; entry; entry = entry->previous) {
     const auto &saved = entry->entry;
     const auto &executing = saved.executing;
     if (saved.kind != now.kind || saved.dispatch != entry ||
         !root.matches(saved.root) || saved.registration_serial > serial ||
-        !frame_valid(executing) || executing.serial > last_identifier ||
-        executing.serial >= newer ||
-        !outside(executing.frame, inner) || executing.record->serial ||
-        executing.record->callback != saved.callback ||
-        executing.record->argument != saved.argument ||
-        !same_link(executing.record->previous, saved.remaining))
+        !frame_valid(executing) || executing.__serial > last_identifier ||
+        executing.__serial >= newer ||
+        !outside(executing.__frame, inner) || executing.__record->__serial ||
+        executing.__record->__callback != saved.callback ||
+        executing.__record->__argument != saved.argument ||
+        !same_link(executing.__record->__previous, saved.remaining))
       return false;
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
-    if (c_dispatch && (executing.serial & 1))
+    if (c_dispatch && (executing.__serial & 1))
       return false;
 #endif
 #ifdef LIBC_MMIX_SHARED_STARTUP
@@ -521,8 +521,8 @@ bool snapshot_active_c_cleanup(const UnwindRoot &root,
     if (!saved.ownership.invocation ||
         !callback_owners.snapshot(*saved.ownership.invocation, ownership) ||
         !CleanupOwners::same_invocation(ownership, saved.ownership) ||
-        ownership.record != executing.record ||
-        ownership.serial != executing.serial)
+        ownership.record != executing.__record ||
+        ownership.serial != executing.__serial)
       return false;
     if (entry == active)
       now.ownership = ownership;
@@ -531,8 +531,8 @@ bool snapshot_active_c_cleanup(const UnwindRoot &root,
       return false;
 #endif
     ++now.invocation_depth;
-    newer = executing.serial;
-    inner = executing.frame;
+    newer = executing.__serial;
+    inner = executing.__frame;
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (now.ownership.invocations != now.invocation_depth)
@@ -544,29 +544,29 @@ bool snapshot_active_c_cleanup(const UnwindRoot &root,
   // The immutable activation chain comes from TLS, never from a saved witness.
   const auto *boundary = active;
   newer = UINT64_MAX;
-  inner = head.frame;
+  inner = head.__frame;
   auto link = head;
-  while (link.record) {
-    if (!frame_valid(link) || link.serial > last_identifier ||
-        link.serial >= newer || !outside(link.frame, inner))
+  while (link.__record) {
+    if (!frame_valid(link) || link.__serial > last_identifier ||
+        link.__serial >= newer || !outside(link.__frame, inner))
       return false;
     while (boundary && same_link(link, boundary->entry.remaining)) {
-      if (link.serial >= boundary->entry.executing.serial ||
-          !outside(link.frame, boundary->entry.executing.frame))
+      if (link.__serial >= boundary->entry.executing.__serial ||
+          !outside(link.__frame, boundary->entry.executing.__frame))
         return false;
       boundary = boundary->previous;
     }
     if ((boundary &&
-         (link.serial <= boundary->entry.executing.serial ||
-          !outside(boundary->entry.executing.frame, link.frame))) ||
+         (link.__serial <= boundary->entry.executing.__serial ||
+          !outside(boundary->entry.executing.__frame, link.__frame))) ||
 #ifdef LIBC_MMIX_SHARED_STARTUP
-        !CleanupOwners::match_record(node, link.record, link.serial) ||
+        !CleanupOwners::match_record(node, link.__record, link.__serial) ||
 #endif
-        link.record->serial != link.serial || !link.record->callback)
+        link.__record->__serial != link.__serial || !link.__record->__callback)
       return false;
-    newer = link.serial;
-    inner = link.frame;
-    link = link.record->previous;
+    newer = link.__serial;
+    inner = link.__frame;
+    link = link.__record->__previous;
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (node)
@@ -633,34 +633,34 @@ bool snapshot_pending_cleanup(const UnwindRoot &root,
   const uint64_t last_identifier = serial;
 #endif
   uint64_t newer = UINT64_MAX;
-  auto inner = head.frame;
+  auto inner = head.__frame;
   auto link = head;
-  while (link.record) {
-    auto address = reinterpret_cast<uintptr_t>(link.record);
-    const auto &frame = link.frame;
+  while (link.__record) {
+    auto address = reinterpret_cast<uintptr_t>(link.__record);
+    const auto &frame = link.__frame;
     // Check storage and frame ordering before dereferencing any record.
-    if (!link.serial || link.serial > last_identifier || link.serial >= newer ||
-        (address & 7) || frame.owner != root.owner ||
-        frame.chain != root.chain || frame.generation != root.generation ||
-        frame.ro < root.ro || (frame.ro & 7) || !frame.sp || (frame.sp & 7) ||
-        !frame.procedure || address < frame.sp || address > frame.limit ||
-        frame.limit - address < sizeof(*link.record) || frame.limit > root.sp ||
+    if (!link.__serial || link.__serial > last_identifier || link.__serial >= newer ||
+        (address & 7) || frame.__owner != root.owner ||
+        frame.__chain != root.chain || frame.__generation != root.generation ||
+        frame.__ro < root.ro || (frame.__ro & 7) || !frame.__sp || (frame.__sp & 7) ||
+        !frame.__procedure || address < frame.__sp || address > frame.__limit ||
+        frame.__limit - address < sizeof(*link.__record) || frame.__limit > root.sp ||
         (!current_control->retains_resources_until_process_exit() &&
-         (frame.sp < current_control->stack_bottom ||
-          frame.limit > current_control->stack_top)) ||
-        frame.ro > inner.ro || frame.sp < inner.sp ||
-        (frame.ro == inner.ro &&
-         (!same_frame(frame, inner) || frame.limit != inner.limit)))
+         (frame.__sp < current_control->stack_bottom ||
+          frame.__limit > current_control->stack_top)) ||
+        frame.__ro > inner.__ro || frame.__sp < inner.__sp ||
+        (frame.__ro == inner.__ro &&
+         (!same_frame(frame, inner) || frame.__limit != inner.__limit)))
       return false;
     if (
 #ifdef LIBC_MMIX_SHARED_STARTUP
-        !CleanupOwners::match_record(node, link.record, link.serial) ||
+        !CleanupOwners::match_record(node, link.__record, link.__serial) ||
 #endif
-        link.record->serial != link.serial || !link.record->callback)
+        link.__record->__serial != link.__serial || !link.__record->__callback)
       return false;
-    newer = link.serial;
+    newer = link.__serial;
     inner = frame;
-    link = link.record->previous;
+    link = link.__record->__previous;
   }
 #ifdef LIBC_MMIX_SHARED_STARTUP
   if (node)
@@ -702,18 +702,18 @@ bool validate_fork_cleanup(const UnwindRoot &root) {
           unw_get_reg(&cursor, UNW_REG_SP, &sp) ||
           unw_get_proc_info(&cursor, &procedure) || ro < root.ro)
         break;
-      while (link.record && link.frame.ro >= ro) {
-        if (link.serial >= newer || link.frame.owner != root.owner ||
-            link.frame.chain != root.chain ||
-            link.frame.generation != root.generation || link.frame.ro != ro ||
-            link.frame.sp != sp || link.frame.procedure != procedure.start_ip)
+      while (link.__record && link.__frame.__ro >= ro) {
+        if (link.__serial >= newer || link.__frame.__owner != root.owner ||
+            link.__frame.__chain != root.chain ||
+            link.__frame.__generation != root.generation || link.__frame.__ro != ro ||
+            link.__frame.__sp != sp || link.__frame.__procedure != procedure.start_ip)
           goto done;
         validate_link(link);
-        newer = link.serial;
-        link = link.record->previous;
+        newer = link.__serial;
+        link = link.__record->__previous;
       }
       if (ro == root.ro) {
-        valid = !link.record && sp == root.sp &&
+        valid = !link.__record && sp == root.sp &&
                 procedure.start_ip == root.procedure;
         break;
       }
@@ -742,15 +742,15 @@ void dispatch_async_cleanup(uintptr_t interrupted_ro,
   async_dispatching = true;
   uint64_t newer = UINT64_MAX;
   uintptr_t inner_ro = interrupted_ro;
-  while (head.record) {
-    if (head.frame.owner != control || head.frame.chain != query.chain_id ||
-        head.frame.generation != control->unwind_root.generation ||
-        head.frame.ro < control->unwind_root.ro ||
-        head.frame.ro > interrupted_ro || head.frame.sp < interrupted_sp ||
-        head.serial >= newer || head.frame.ro > inner_ro)
+  while (head.__record) {
+    if (head.__frame.__owner != control || head.__frame.__chain != query.chain_id ||
+        head.__frame.__generation != control->unwind_root.generation ||
+        head.__frame.__ro < control->unwind_root.ro ||
+        head.__frame.__ro > interrupted_ro || head.__frame.__sp < interrupted_sp ||
+        head.__serial >= newer || head.__frame.__ro > inner_ro)
       __builtin_trap();
-    newer = head.serial;
-    inner_ro = head.frame.ro;
+    newer = head.__serial;
+    inner_ro = head.__frame.__ro;
     remove(true);
   }
   async_dispatching = false;

@@ -29,12 +29,12 @@ int CompiledRegex::compile(cpp::string_view pattern, int flags) {
   // regcomp publishes a fresh object only after compilation succeeds. The
   // application still synchronizes changes to the selected global locale.
   auto locale = locale_snapshot(thread_locale);
-  if (!retain_locale_category(locale.data[LC_CTYPE]))
+  if (!retain_locale_category(locale.__data[LC_CTYPE]))
     return REG_ESPACE;
-  categories.ctype = locale.data[LC_CTYPE];
-  if (!retain_locale_category(locale.data[LC_COLLATE]))
+  categories.ctype = locale.__data[LC_CTYPE];
+  if (!retain_locale_category(locale.__data[LC_COLLATE]))
     return REG_ESPACE;
-  categories.collate = locale.data[LC_COLLATE];
+  categories.collate = locale.__data[LC_COLLATE];
   converter = categories.ctype->chinese_encoding
                   ? RestartableConverter(*categories.ctype->chinese_encoding)
                   : RestartableConverter(categories.ctype->utf8);

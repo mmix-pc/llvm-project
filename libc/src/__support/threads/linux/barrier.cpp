@@ -23,12 +23,12 @@ int Barrier::init(Barrier *b, const pthread_barrierattr_t *attr,
   b->waiting = 0;
   b->blocking = true;
 
-  new (&b->entering) CndVar(attr ? attr->pshared : false);
-  new (&b->exiting) CndVar(attr ? attr->pshared : false);
+  new (&b->entering) CndVar(attr ? attr->__pshared : false);
+  new (&b->exiting) CndVar(attr ? attr->__pshared : false);
 
   new (&b->m) Mutex(/*is_priority_inherit=*/false, /*is_recursive=*/false,
                     /*is_robust=*/false,
-                    /*is_pshared=*/attr ? attr->pshared : false);
+                    /*is_pshared=*/attr ? attr->__pshared : false);
 
   return 0;
 }

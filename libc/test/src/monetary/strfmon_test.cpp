@@ -40,7 +40,7 @@ struct Selection {
     for (unsigned i = 0; i != M::NUMBER_COUNT; ++i)
       data.numbers[i] = values[i];
     category.monetary = LIBC_NAMESPACE::cpp::optional<M>(data);
-    locale.data[LC_MONETARY] = &category;
+    locale.__data[LC_MONETARY] = &category;
     previous = LIBC_NAMESPACE::uselocale(&locale);
   }
   ~Selection() { LIBC_NAMESPACE::uselocale(previous); }

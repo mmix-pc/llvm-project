@@ -22,7 +22,7 @@ namespace internal {
 
 #ifdef LIBC_FULL_BUILD
 const __locale_data *explicit_collation(locale_t locale) {
-  return locale_snapshot(locale).data[LC_COLLATE];
+  return locale_snapshot(locale).__data[LC_COLLATE];
 }
 #endif
 

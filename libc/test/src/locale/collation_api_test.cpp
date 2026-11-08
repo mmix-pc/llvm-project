@@ -106,7 +106,7 @@ struct Fixture {
     if (!record)
       return false;
     category = *record;
-    object.data[LC_COLLATE] = category;
+    object.__data[LC_COLLATE] = category;
     return true;
   }
   ~Fixture() {
@@ -188,7 +188,7 @@ TEST(LlvmLibcCollationAPITest, OwnedCategoryCanInheritBuiltinOrdering) {
   auto inherited = create_locale_category(*f.category->storage, false);
   ASSERT_TRUE(inherited.has_value());
   release_locale_category(f.category);
-  f.object.data[LC_COLLATE] = f.category = *inherited;
+  f.object.__data[LC_COLLATE] = f.category = *inherited;
   libc_errno = EDOM;
   EXPECT_LT(LIBC_NAMESPACE::strcoll_l("a", "z", &f.object), 0);
   EXPECT_LT(LIBC_NAMESPACE::wcscoll_l(L"a", L"z", &f.object), 0);

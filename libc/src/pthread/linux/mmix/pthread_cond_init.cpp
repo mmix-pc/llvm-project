@@ -28,15 +28,15 @@ LLVM_LIBC_FUNCTION(int, pthread_cond_init,
   if (attr)
     value = *attr;
   if ((value.clock != CLOCK_REALTIME && value.clock != CLOCK_MONOTONIC) ||
-      (value.pshared != PTHREAD_PROCESS_PRIVATE &&
-       value.pshared != PTHREAD_PROCESS_SHARED))
+      (value.__pshared != PTHREAD_PROCESS_PRIVATE &&
+       value.__pshared != PTHREAD_PROCESS_SHARED))
     return EINVAL;
   // Do not construct a usable-looking object for an unqualified shared mode.
 #ifndef LIBC_MMIX_PROCESS_SHARED
-  if (value.pshared == PTHREAD_PROCESS_SHARED)
+  if (value.__pshared == PTHREAD_PROCESS_SHARED)
     return ENOTSUP;
 #endif
-  new (cond) CndVar(value.pshared == PTHREAD_PROCESS_SHARED,
+  new (cond) CndVar(value.__pshared == PTHREAD_PROCESS_SHARED,
                     value.clock == CLOCK_REALTIME);
   return 0;
 }

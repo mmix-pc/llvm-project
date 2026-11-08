@@ -81,14 +81,14 @@ TEST(LlvmLibcLocaleOwnershipTest, WideStreamOwnsCategoryUntilReopenOrClose) {
   ASSERT_TRUE(first.has_value());
   ASSERT_TRUE(second.has_value());
   auto object = locale_from_mask(0);
-  object.data[LC_CTYPE] = *first;
+  object.__data[LC_CTYPE] = *first;
   auto previous = thread_locale;
   thread_locale = &object;
   EncodingFile file;
   using Orientation = LIBC_NAMESPACE::File::Orientation;
   EXPECT_EQ(file.try_set_orientation(Orientation::WIDE), Orientation::WIDE);
   EXPECT_EQ((*first)->references.load(), 2U);
-  object.data[LC_CTYPE] = *second;
+  object.__data[LC_CTYPE] = *second;
   EXPECT_EQ(file.try_set_orientation(Orientation::WIDE), Orientation::WIDE);
   EXPECT_EQ((*first)->references.load(), 2U);
   EXPECT_EQ((*second)->references.load(), 1U);
@@ -108,7 +108,7 @@ TEST(LlvmLibcLocaleOwnershipTest, FailedStreamCaptureDoesNotSetOrientation) {
   auto category = fixture.category();
   ASSERT_TRUE(category.has_value());
   auto object = locale_from_mask(0);
-  object.data[LC_CTYPE] = *category;
+  object.__data[LC_CTYPE] = *category;
   auto previous = thread_locale;
   thread_locale = &object;
   (*category)->references.store(~0U, MemoryOrder::RELAXED);
@@ -133,15 +133,15 @@ TEST(LlvmLibcLocaleOwnershipTest, DuplicateRetainsIndependentObject) {
   ASSERT_TRUE(category.has_value());
   locale_t object = LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "C", nullptr);
   ASSERT_NE(object, nullptr);
-  object->data[LC_CTYPE] = *category;
+  object->__data[LC_CTYPE] = *category;
   auto copy = LIBC_NAMESPACE::duplocale(object);
   ASSERT_NE(copy, nullptr);
   EXPECT_NE(copy, object);
   EXPECT_EQ((*category)->references.load(), 2U);
   LIBC_NAMESPACE::freelocale(object);
-  EXPECT_STREQ(copy->data[LC_CTYPE]->name, "sample");
-  EXPECT_EQ(copy->data[LC_CTYPE]->references.load(), 1U);
-  EXPECT_STREQ(copy->data[LC_CTYPE]->storage->view().name(), "sample");
+  EXPECT_STREQ(copy->__data[LC_CTYPE]->name, "sample");
+  EXPECT_EQ(copy->__data[LC_CTYPE]->references.load(), 1U);
+  EXPECT_STREQ(copy->__data[LC_CTYPE]->storage->view().name(), "sample");
   LIBC_NAMESPACE::freelocale(copy);
 }
 
@@ -151,15 +151,15 @@ TEST(LlvmLibcLocaleOwnershipTest, ReplacementPreservesUnselectedReferences) {
   ASSERT_TRUE(category.has_value());
   locale_t base = LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "C", nullptr);
   ASSERT_NE(base, nullptr);
-  base->data[LC_CTYPE] = *category;
+  base->__data[LC_CTYPE] = *category;
   EXPECT_EQ(LIBC_NAMESPACE::newlocale(LC_NUMERIC_MASK, "C.UTF-8", base), base);
-  EXPECT_EQ(base->data[LC_CTYPE], *category);
+  EXPECT_EQ(base->__data[LC_CTYPE], *category);
   EXPECT_EQ((*category)->references.load(), 1U);
-  EXPECT_TRUE(base->data[LC_NUMERIC]->utf8);
-  auto old = base->data[LC_NUMERIC];
+  EXPECT_TRUE(base->__data[LC_NUMERIC]->utf8);
+  auto old = base->__data[LC_NUMERIC];
   EXPECT_EQ(LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "missing", base), nullptr);
-  EXPECT_EQ(base->data[LC_NUMERIC], old);
-  EXPECT_EQ(base->data[LC_CTYPE], *category);
+  EXPECT_EQ(base->__data[LC_NUMERIC], old);
+  EXPECT_EQ(base->__data[LC_CTYPE], *category);
   EXPECT_EQ((*category)->references.load(), 1U);
   LIBC_NAMESPACE::freelocale(base);
 }
@@ -170,9 +170,9 @@ TEST(LlvmLibcLocaleOwnershipTest, RepeatedCategoryAndBorrowedThreadSelection) {
   ASSERT_TRUE(category.has_value());
   locale_t object = LIBC_NAMESPACE::newlocale(LC_ALL_MASK, "C", nullptr);
   ASSERT_NE(object, nullptr);
-  object->data[LC_CTYPE] = *category;
+  object->__data[LC_CTYPE] = *category;
   ASSERT_TRUE(retain_locale_category(*category));
-  object->data[LC_NUMERIC] = *category;
+  object->__data[LC_NUMERIC] = *category;
   auto previous = LIBC_NAMESPACE::uselocale(object);
   EXPECT_EQ((*category)->references.load(), 2U);
   EXPECT_EQ(LIBC_NAMESPACE::uselocale(nullptr), object);
@@ -192,8 +192,8 @@ TEST(LlvmLibcLocaleOwnershipTest, SaturatedReferenceRollsBackPrefix) {
   ASSERT_TRUE(a.has_value());
   ASSERT_TRUE(b.has_value());
   auto object = locale_from_mask(0);
-  object.data[LC_CTYPE] = *a;
-  object.data[LC_NUMERIC] = *b;
+  object.__data[LC_CTYPE] = *a;
+  object.__data[LC_NUMERIC] = *b;
   (*b)->references.store(~0U, MemoryOrder::RELAXED);
   EXPECT_FALSE(retain_locale(object));
   EXPECT_EQ((*a)->references.load(), 1U);
@@ -203,8 +203,8 @@ TEST(LlvmLibcLocaleOwnershipTest, SaturatedReferenceRollsBackPrefix) {
   EXPECT_EQ(static_cast<int>(LIBC_NAMESPACE::libc_errno), ENOMEM);
   EXPECT_EQ((*a)->references.load(), 1U);
   EXPECT_EQ(LIBC_NAMESPACE::newlocale(LC_TIME_MASK, "C", &object), nullptr);
-  EXPECT_EQ(object.data[LC_CTYPE], *a);
-  EXPECT_EQ(object.data[LC_NUMERIC], *b);
+  EXPECT_EQ(object.__data[LC_CTYPE], *a);
+  EXPECT_EQ(object.__data[LC_NUMERIC], *b);
   EXPECT_EQ((*a)->references.load(), 1U);
   (*b)->references.store(1, MemoryOrder::RELAXED);
   release_locale(object);
@@ -213,10 +213,10 @@ TEST(LlvmLibcLocaleOwnershipTest, SaturatedReferenceRollsBackPrefix) {
 TEST(LlvmLibcLocaleOwnershipTest, NamesAreNotEncodingIdentity) {
   __locale_data first("en_US.UTF-8", true), second("tr_TR.UTF-8", true);
   __locale_t object;
-  for (auto *&entry : object.data)
+  for (auto *&entry : object.__data)
     entry = &first;
   EXPECT_STREQ(locale_name(object, LC_ALL), "en_US.UTF-8");
-  object.data[LC_NUMERIC] = &second;
+  object.__data[LC_NUMERIC] = &second;
   EXPECT_STREQ(locale_name(object, LC_ALL),
                "LC_CTYPE=en_US.UTF-8;LC_NUMERIC=tr_TR.UTF-8;"
                "LC_TIME=en_US.UTF-8;LC_COLLATE=en_US.UTF-8;"
@@ -231,18 +231,18 @@ TEST(LlvmLibcLocaleOwnershipTest, GlobalPublicationRetainsCategories) {
   auto previous = global_locale_snapshot();
   ASSERT_TRUE(retain_locale(previous));
   auto next = locale_from_mask(0);
-  next.data[LC_CTYPE] = next.data[LC_NUMERIC] = *category;
+  next.__data[LC_CTYPE] = next.__data[LC_NUMERIC] = *category;
   EXPECT_TRUE(publish_global_locale(next));
   EXPECT_EQ((*category)->references.load(), 3U);
   release_locale_category(*category);
-  EXPECT_EQ(global_locale_snapshot().data[LC_CTYPE], *category);
+  EXPECT_EQ(global_locale_snapshot().__data[LC_CTYPE], *category);
   auto duplicate = LIBC_NAMESPACE::duplocale(LC_GLOBAL_LOCALE);
   EXPECT_NE(duplicate, nullptr);
   EXPECT_TRUE(publish_global_locale(previous));
   release_locale(previous);
   if (duplicate) {
-    EXPECT_STREQ(duplicate->data[LC_CTYPE]->name, "sample");
-    EXPECT_EQ(duplicate->data[LC_CTYPE]->references.load(), 2U);
+    EXPECT_STREQ(duplicate->__data[LC_CTYPE]->name, "sample");
+    EXPECT_EQ(duplicate->__data[LC_CTYPE]->references.load(), 2U);
     LIBC_NAMESPACE::freelocale(duplicate);
   }
 }
@@ -254,12 +254,12 @@ TEST(LlvmLibcLocaleOwnershipTest, GlobalPublicationFailurePreservesState) {
   ASSERT_TRUE(second.has_value());
   auto previous = global_locale_snapshot();
   auto next = previous;
-  next.data[LC_CTYPE] = *first;
-  next.data[LC_NUMERIC] = *second;
+  next.__data[LC_CTYPE] = *first;
+  next.__data[LC_NUMERIC] = *second;
   (*second)->references.store(~0U, MemoryOrder::RELAXED);
   EXPECT_FALSE(publish_global_locale(next));
   for (int i = 0; i != LOCALE_CATEGORY_COUNT; ++i)
-    EXPECT_EQ(global_locale_snapshot().data[i], previous.data[i]);
+    EXPECT_EQ(global_locale_snapshot().__data[i], previous.__data[i]);
   EXPECT_EQ((*first)->references.load(), 1U);
   (*second)->references.store(1, MemoryOrder::RELAXED);
   release_locale_category(*first);
@@ -278,7 +278,7 @@ TEST(LlvmLibcLocaleOwnershipTest, MaximumLengthCompositeName) {
                              {names[4], true}, {names[5], true}};
   __locale_t object;
   for (unsigned i = 0; i != LOCALE_CATEGORY_COUNT; ++i)
-    object.data[i] = &records[i];
+    object.__data[i] = &records[i];
   LIBC_NAMESPACE::cpp::string_view result(locale_name(object, LC_ALL));
   for (unsigned i = 0; i != LOCALE_CATEGORY_COUNT; ++i) {
     LIBC_NAMESPACE::cpp::string_view key(category_names[i]);
@@ -347,7 +347,7 @@ TEST(LlvmLibcLocaleOwnershipTest, AllocationFailureAndLastRelease) {
   tracking = false;
   ASSERT_TRUE(category.has_value());
   ASSERT_NE(object, nullptr);
-  object->data[LC_CTYPE] = *category;
+  object->__data[LC_CTYPE] = *category;
   EXPECT_EQ(live, 4);
   calls = 0;
   fail_call = 1;
@@ -386,7 +386,7 @@ TEST(LlvmLibcLocaleOwnershipTest, PublicObjectAllocationErrors) {
     EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), ENOMEM);
     EXPECT_EQ(live, 0);
     for (int i = 0; i != LOCALE_CATEGORY_COUNT; ++i)
-      EXPECT_EQ(global_locale_snapshot().data[i], global.data[i]);
+      EXPECT_EQ(global_locale_snapshot().__data[i], global.__data[i]);
   }
   calls = fail_call = 0;
   tracking = true;

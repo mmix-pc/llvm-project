@@ -15,7 +15,7 @@ LLVM_LIBC_FUNCTION(int, pthread_barrierattr_init,
                    (pthread_barrierattr_t * attr)) {
   if (!attr)
     return EINVAL;
-  attr->pshared = false;
+  attr->__pshared = false;
   return 0;
 }
 } // namespace LIBC_NAMESPACE_DECL

@@ -28,7 +28,7 @@ LLVM_LIBC_FUNCTION(int, pthread_rwlock_init,
   if (attr)
     selected = *attr;
   rwlock::Role preference;
-  switch (selected.pref) {
+  switch (selected.__pref) {
   case PTHREAD_RWLOCK_PREFER_READER_NP:
     preference = rwlock::Role::Reader;
     break;
@@ -39,14 +39,14 @@ LLVM_LIBC_FUNCTION(int, pthread_rwlock_init,
     return EINVAL;
   }
 #ifndef LIBC_MMIX_PROCESS_SHARED
-  if (selected.pshared == PTHREAD_PROCESS_SHARED)
+  if (selected.__pshared == PTHREAD_PROCESS_SHARED)
     return ENOTSUP;
 #endif
-  if (selected.pshared != PTHREAD_PROCESS_PRIVATE &&
-      selected.pshared != PTHREAD_PROCESS_SHARED)
+  if (selected.__pshared != PTHREAD_PROCESS_PRIVATE &&
+      selected.__pshared != PTHREAD_PROCESS_SHARED)
     return EINVAL;
   // Preserve the destination when attributes select an unsupported mode.
-  new (rwlock) RwLock(preference, selected.pshared == PTHREAD_PROCESS_SHARED);
+  new (rwlock) RwLock(preference, selected.__pshared == PTHREAD_PROCESS_SHARED);
   return 0;
 }
 

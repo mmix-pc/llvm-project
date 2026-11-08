@@ -12,12 +12,12 @@
 #include <stdbool.h>
 
 typedef struct __attribute__((aligned(8 /* alignof (Barrier) */))) {
-  unsigned expected;
-  unsigned waiting;
-  bool blocking;
-  char entering[24 /* sizeof (CndVar) */];
-  char exiting[24 /* sizeof (CndVar) */];
-  char mutex[24 /* sizeof (Mutex) */];
+  unsigned __expected;
+  unsigned __waiting;
+  bool __blocking;
+  char __entering[24 /* sizeof (CndVar) */];
+  char __exiting[24 /* sizeof (CndVar) */];
+  char __mutex[24 /* sizeof (Mutex) */];
 } __barrier_type;
 
 #endif // __LLVM_LIBC_TYPES__BARRIER_TYPE_H

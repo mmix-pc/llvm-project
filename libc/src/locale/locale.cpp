@@ -27,14 +27,14 @@ const char *const category_names[LOCALE_CATEGORY_COUNT] = {
 __locale_t locale_from_mask(unsigned mask) {
   __locale_t result;
   for (int i = 0; i < LOCALE_CATEGORY_COUNT; ++i)
-    result.data[i] = mask & (1U << i) ? &utf8_data : &c_data;
+    result.__data[i] = mask & (1U << i) ? &utf8_data : &c_data;
   return result;
 }
 
 unsigned locale_mask(const __locale_t &loc) {
   unsigned mask = 0;
   for (int i = 0; i < LOCALE_CATEGORY_COUNT; ++i)
-    if (loc.data[i]->utf8)
+    if (loc.__data[i]->utf8)
       mask |= 1U << i;
   return mask;
 }
@@ -54,11 +54,11 @@ __locale_t locale_snapshot(locale_t loc) {
 }
 
 bool locale_is_utf8() {
-  return locale_snapshot(thread_locale).data[LC_CTYPE]->utf8;
+  return locale_snapshot(thread_locale).__data[LC_CTYPE]->utf8;
 }
 
 const ChineseEncodingData *locale_chinese_encoding() {
-  auto *category = locale_snapshot(thread_locale).data[LC_CTYPE];
+  auto *category = locale_snapshot(thread_locale).__data[LC_CTYPE];
   return category->chinese_encoding ? &*category->chinese_encoding : nullptr;
 }
 
@@ -71,16 +71,16 @@ void format_locale_name(const __locale_t &loc, int category,
   };
   bool same_name = true;
   for (int i = 1; i < LOCALE_CATEGORY_COUNT; ++i)
-    same_name &= cpp::string_view(loc.data[i]->name) == loc.data[0]->name;
+    same_name &= cpp::string_view(loc.__data[i]->name) == loc.__data[0]->name;
   if (category != LC_ALL || same_name) {
-    append(loc.data[category == LC_ALL ? LC_CTYPE : category]->name);
+    append(loc.__data[category == LC_ALL ? LC_CTYPE : category]->name);
   } else {
     for (int i = 0; i < LOCALE_CATEGORY_COUNT; ++i) {
       if (i)
         *out++ = ';';
       append(category_names[i]);
       *out++ = '=';
-      append(loc.data[i]->name);
+      append(loc.__data[i]->name);
     }
   }
   *out = '\0';

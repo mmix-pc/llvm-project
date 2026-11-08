@@ -37,7 +37,7 @@ char *lookup(const char *domain, const char *singular, const char *plural,
   if (!singular || category < 0 || category >= LOCALE_CATEGORY_COUNT)
     return fallback;
   auto selected = locale_snapshot(locale ? locale : thread_locale);
-  const char *name = selected.data[category]->name;
+  const char *name = selected.__data[category]->name;
   if (cpp::string_view(name) == "C" || cpp::string_view(name) == "POSIX")
     return fallback;
 
@@ -57,7 +57,7 @@ char *lookup(const char *domain, const char *singular, const char *plural,
     MoCatalog *value;
     ~Catalog() { value->release(); }
   } catalog{*found};
-  const auto *ctype = selected.data[LC_CTYPE];
+  const auto *ctype = selected.__data[LC_CTYPE];
   const char *output = diagnostic ? nullptr : binding.codeset();
   if (!output)
     output = ctype->chinese_encoding ? "ISO-2022-CN"

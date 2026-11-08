@@ -12,7 +12,7 @@
 #include <stdbool.h>
 
 typedef struct {
-  bool pshared;
+  bool __pshared;
 } pthread_barrierattr_t;
 
 #endif // __LLVM_LIBC_TYPES_PTHREAD_BARRIERATTR_T_H

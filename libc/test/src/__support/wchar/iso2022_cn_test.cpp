@@ -935,7 +935,7 @@ struct SelectedEncoding {
         locale(LIBC_NAMESPACE::internal::locale_from_mask(0)),
         previous(LIBC_NAMESPACE::internal::thread_locale) {
     category.chinese_encoding = data;
-    locale.data[LC_CTYPE] = &category;
+    locale.__data[LC_CTYPE] = &category;
     LIBC_NAMESPACE::internal::thread_locale = &locale;
   }
   ~SelectedEncoding() { LIBC_NAMESPACE::internal::thread_locale = previous; }
@@ -1098,7 +1098,7 @@ TEST(LlvmLibcISO2022CNTest, StreamRetainsOwnedMappingAfterLocaleRelease) {
   (*category)->chinese_encoding = *data;
   (*file)->release();
   auto locale = locale_from_mask(0);
-  locale.data[LC_CTYPE] = *category;
+  locale.__data[LC_CTYPE] = *category;
   auto previous = thread_locale;
   thread_locale = &locale;
   StateStream stream(_IONBF);
@@ -1472,7 +1472,7 @@ TEST(LlvmLibcISO2022CNTest, PublicRestartableStateAndImplicitIsolation) {
   __locale_data category("codec-test", false);
   category.chinese_encoding = *data;
   auto locale = global_locale_snapshot();
-  locale.data[LC_CTYPE] = &category;
+  locale.__data[LC_CTYPE] = &category;
   struct Selection {
     locale_t previous = thread_locale;
     explicit Selection(locale_t selected) { thread_locale = selected; }
@@ -1537,7 +1537,7 @@ TEST(LlvmLibcISO2022CNTest, PublicUTF16PreservesPersistentState) {
   __locale_data category("codec-test", false);
   category.chinese_encoding = *data;
   auto locale = global_locale_snapshot();
-  locale.data[LC_CTYPE] = &category;
+  locale.__data[LC_CTYPE] = &category;
   struct Selection {
     locale_t previous = thread_locale;
     explicit Selection(locale_t selected) { thread_locale = selected; }
@@ -1624,7 +1624,7 @@ TEST(LlvmLibcISO2022CNTest, PublicStringsPreserveShiftAndProgress) {
   __locale_data category("codec-test", false);
   category.chinese_encoding = *data;
   auto locale = global_locale_snapshot();
-  locale.data[LC_CTYPE] = &category;
+  locale.__data[LC_CTYPE] = &category;
   struct Selection {
     locale_t previous = thread_locale;
     explicit Selection(locale_t selected) { thread_locale = selected; }
@@ -1675,7 +1675,7 @@ TEST(LlvmLibcISO2022CNTest, PublicStringOutputIsCharacterAtomic) {
   __locale_data category("codec-test", false);
   category.chinese_encoding = *data;
   auto locale = global_locale_snapshot();
-  locale.data[LC_CTYPE] = &category;
+  locale.__data[LC_CTYPE] = &category;
   struct Selection {
     locale_t previous = thread_locale;
     explicit Selection(locale_t selected) { thread_locale = selected; }
@@ -1736,7 +1736,7 @@ TEST(LlvmLibcISO2022CNTest, LegacyConversionAndSingleByteInitialState) {
   __locale_data category("codec-test", false);
   category.chinese_encoding = *data;
   auto locale = global_locale_snapshot();
-  locale.data[LC_CTYPE] = &category;
+  locale.__data[LC_CTYPE] = &category;
   struct Selection {
     locale_t previous = thread_locale;
     explicit Selection(locale_t selected) { thread_locale = selected; }

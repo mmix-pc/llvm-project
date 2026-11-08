@@ -16,7 +16,7 @@ LLVM_LIBC_FUNCTION(int, pthread_barrierattr_getpshared,
                     int *__restrict pshared)) {
   if (!attr || !pshared)
     return EINVAL;
-  *pshared = attr->pshared ? PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
+  *pshared = attr->__pshared ? PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE;
   return 0;
 }
 } // namespace LIBC_NAMESPACE_DECL

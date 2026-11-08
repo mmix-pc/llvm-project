@@ -75,15 +75,15 @@ ErrorOr<__locale_t> resolve_locale(int mask, const char *name,
   for (int i = 0; i != LOCALE_CATEGORY_COUNT; ++i) {
     int error = 0;
     if (!(mask & (1 << i))) {
-      if (!retain_locale_category(candidate.data[i]))
+      if (!retain_locale_category(candidate.__data[i]))
         error = ENOMEM;
     } else if (int value = builtin(names[i]); value >= 0) {
-      candidate.data[i] = locale_from_mask(value ? LOCALE_MASK : 0).data[i];
+      candidate.__data[i] = locale_from_mask(value ? LOCALE_MASK : 0).__data[i];
     } else {
 #ifdef LIBC_LOCALE_HAS_REGIONAL_DATA
       auto category = files.load(i, names[i]);
       if (category)
-        candidate.data[i] = *category;
+        candidate.__data[i] = *category;
       else
         error = category.error();
 #else
@@ -92,7 +92,7 @@ ErrorOr<__locale_t> resolve_locale(int mask, const char *name,
     }
     if (error) {
       while (i)
-        release_locale_category(candidate.data[--i]);
+        release_locale_category(candidate.__data[--i]);
       return Error(error);
     }
   }

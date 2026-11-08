@@ -108,8 +108,8 @@ TEST(LlvmLibcConventionsTest, MixedCategoriesAndExplicitQueries) {
   ASSERT_TRUE(numeric.has_value());
   ASSERT_TRUE(monetary.has_value());
   Selection selected;
-  selected.locale.data[LC_NUMERIC] = *numeric;
-  selected.locale.data[LC_MONETARY] = *monetary;
+  selected.locale.__data[LC_NUMERIC] = *numeric;
+  selected.locale.__data[LC_MONETARY] = *monetary;
   LIBC_NAMESPACE::libc_errno = EDOM;
   auto *value = LIBC_NAMESPACE::localeconv();
   EXPECT_STREQ(value->decimal_point, ",");
@@ -159,7 +159,7 @@ TEST(LlvmLibcConventionsTest, UnspecifiedMonetaryValues) {
   (*file)->release();
   ASSERT_TRUE(category.has_value());
   Selection selected;
-  selected.locale.data[LC_MONETARY] = *category;
+  selected.locale.__data[LC_MONETARY] = *category;
   auto *value = LIBC_NAMESPACE::localeconv();
   EXPECT_STREQ(value->currency_symbol, "");
   EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo(CRNCYSTR), "");

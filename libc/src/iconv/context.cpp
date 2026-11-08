@@ -19,7 +19,7 @@ namespace internal {
 ErrorOr<IconvContext *> IconvContext::open(const char *to, const char *from) {
   if (!to || !from)
     return Error(EINVAL);
-  const auto *category = locale_snapshot(thread_locale).data[LC_CTYPE];
+  const auto *category = locale_snapshot(thread_locale).__data[LC_CTYPE];
   const char *codeset = category->chinese_encoding ? "ISO-2022-CN"
                         : category->utf8         ? "UTF-8"
                                                  : "ISO-8859-1";
@@ -69,7 +69,7 @@ ErrorOr<size_t> IconvContext::convert(cpp::span<const uint8_t> &input,
   if (builtin) {
     // The selected locale is borrowed only during this call. Applications
     // synchronize global locale changes and keep selected objects alive.
-    const auto *category = locale_snapshot(thread_locale).data[LC_CTYPE];
+    const auto *category = locale_snapshot(thread_locale).__data[LC_CTYPE];
     rules = category->transliteration ? &*category->transliteration : &*builtin;
   }
   return descriptor->convert(input, output, rules);

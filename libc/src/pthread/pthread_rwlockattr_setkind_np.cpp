@@ -24,7 +24,7 @@ LLVM_LIBC_FUNCTION(int, pthread_rwlockattr_setkind_np,
       pref != PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP)
     return EINVAL;
 
-  attr->pref = pref;
+  attr->__pref = pref;
   return 0;
 }
 

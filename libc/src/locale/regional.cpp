@@ -90,7 +90,7 @@ ErrorOr<__locale_data *> create_regional_category(LocaleDataFile &file,
 }
 
 int validate_locale_messages(__locale_t &locale) {
-  auto *category = locale.data[LC_MESSAGES];
+  auto *category = locale.__data[LC_MESSAGES];
   if (!category->messages)
     return 0;
   struct Selection {

@@ -8,10 +8,10 @@
 
 #include "hdr/langinfo_macros.h"
 #include "src/locale/messages_data.h"
-#include "test/UnitTest/Test.h"
 #ifdef REGIONAL_MESSAGES_TEST
 #include "src/locale/regional.h"
 #endif
+#include "test/UnitTest/Test.h"
 
 using LIBC_NAMESPACE::internal::LocaleDataView;
 using LIBC_NAMESPACE::internal::MessagesLocaleData;
@@ -179,7 +179,7 @@ TEST(LlvmLibcMessagesDataTest, CompileBeforePublicationAndRestoreSelection) {
     (*file)->release();
     ASSERT_TRUE(category.has_value());
     auto candidate = locale_from_mask(LOCALE_MASK);
-    candidate.data[LC_MESSAGES] = *category;
+    candidate.__data[LC_MESSAGES] = *category;
     EXPECT_EQ(validate_locale_messages(candidate), i ? EINVAL : 0);
     EXPECT_EQ(thread_locale, &caller);
     release_locale(candidate);

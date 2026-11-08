@@ -12,7 +12,7 @@
 struct __locale_data;
 
 struct __locale_t {
-  struct __locale_data *data[6];
+  struct __locale_data *__data[6];
 };
 
 typedef struct __locale_t *locale_t;

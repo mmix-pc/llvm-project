@@ -12,7 +12,7 @@
 
 typedef struct {
   clockid_t clock;
-  int pshared;
+  int __pshared;
 } pthread_condattr_t;
 
 #endif // __LLVM_LIBC_TYPES_PTHREAD_CONDATTR_T_H

@@ -19,8 +19,8 @@ namespace internal {
 NumericParseLocale numeric_parse_locale(locale_t locale) {
   auto snapshot = locale_snapshot(locale);
   NumericParseLocale result;
-  result.ctype = snapshot.data[LC_CTYPE];
-  if (const auto &data = snapshot.data[LC_NUMERIC]->numeric) {
+  result.ctype = snapshot.__data[LC_CTYPE];
+  if (const auto &data = snapshot.__data[LC_NUMERIC]->numeric) {
     auto bytes = data->decimal_point.bytes;
     result.radix = {reinterpret_cast<const char *>(bytes.data()),
                     bytes.size() - 1};

@@ -22,7 +22,7 @@ LLVM_LIBC_FUNCTION(int, pthread_condattr_setpshared,
   if (pshared != PTHREAD_PROCESS_SHARED && pshared != PTHREAD_PROCESS_PRIVATE)
     return EINVAL;
 
-  attr->pshared = pshared;
+  attr->__pshared = pshared;
   return 0;
 }
 

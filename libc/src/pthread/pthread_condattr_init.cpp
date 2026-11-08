@@ -18,7 +18,7 @@ namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, pthread_condattr_init, (pthread_condattr_t * attr)) {
   attr->clock = CLOCK_REALTIME;
-  attr->pshared = PTHREAD_PROCESS_PRIVATE;
+  attr->__pshared = PTHREAD_PROCESS_PRIVATE;
   return 0;
 }
 

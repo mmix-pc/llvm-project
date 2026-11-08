@@ -50,7 +50,7 @@ struct Fixture {
     category = *record;
     // Synthetic collation with built-in UTF-8 classification. The two category
     // references deliberately alias to test independently owned references.
-    locale.data[LC_CTYPE] = locale.data[LC_COLLATE] = category;
+    locale.__data[LC_CTYPE] = locale.__data[LC_COLLATE] = category;
     previous = LIBC_NAMESPACE::uselocale(&locale);
     return true;
   }

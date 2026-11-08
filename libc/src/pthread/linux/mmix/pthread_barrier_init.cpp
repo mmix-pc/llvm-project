@@ -20,7 +20,7 @@ LLVM_LIBC_FUNCTION(int, pthread_barrier_init,
   if (!barrier || count == 0)
     return EINVAL;
 #ifndef LIBC_MMIX_PROCESS_SHARED
-  if (attr && attr->pshared)
+  if (attr && attr->__pshared)
     return ENOTSUP;
 #endif
   return Barrier::init(reinterpret_cast<Barrier *>(barrier), attr, count);

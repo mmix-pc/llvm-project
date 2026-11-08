@@ -117,12 +117,12 @@ extern "C" int unw_init_local(unw_cursor_t *cursor, unw_context_t *) {
 extern "C" int unw_step(unw_cursor_t *cursor) { ++cursor->step; return 1; }
 extern "C" int unw_is_signal_frame(unw_cursor_t *) { return 0; }
 extern "C" int unw_get_reg(unw_cursor_t *cursor, int reg, unw_word_t *value) {
-  *value = reg == UNW_MMIX_RO ? capture_frame.ro
-           : cursor->step >= 3 ? capture_frame.limit : capture_frame.sp;
+  *value = reg == UNW_MMIX_RO ? capture_frame.__ro
+           : cursor->step >= 3 ? capture_frame.__limit : capture_frame.__sp;
   return 0;
 }
 extern "C" int unw_get_proc_info(unw_cursor_t *, unw_proc_info_t *info) {
-  info->start_ip = capture_frame.procedure;
+  info->start_ip = capture_frame.__procedure;
   return 0;
 }
 #ifdef LIBC_MMIX_SHARED_STARTUP
@@ -244,7 +244,7 @@ static void inspect(void *) {
   assert(witness.kind == expected_kind && witness.invocation_depth == 1);
   assert(M::dispatching == (expected_kind == M::ActiveCleanupKind::CDispatch));
   assert(M::active_dispatch);
-  assert(!witness.executing.record->serial);
+  assert(!witness.executing.__record->__serial);
   assert(M::same_link(witness.remaining, M::head));
 #ifdef LIBC_MMIX_SHARED_STARTUP
   assert(scopes == 1);
@@ -259,7 +259,7 @@ static void inspect(void *) {
 #endif
   MmixCleanupLink checkpoint{};
   if (M::dispatching) {
-    assert(!M::snapshot_c_cleanup(checkpoint) && !checkpoint.record);
+    assert(!M::snapshot_c_cleanup(checkpoint) && !checkpoint.__record);
     assert(!M::c_cleanup_at_checkpoint(witness.remaining));
     assert(!M::validate_fork_cleanup(root));
   } else {
@@ -279,11 +279,11 @@ static void inspect(void *) {
     case 0: changed.dispatch = nullptr; break;
     case 1: ++changed.root.generation; break;
     case 2: changed.root.kind = M::UnwindRootKind::LastThreadProcess; break;
-    case 3: ++changed.executing.serial; break;
-    case 4: changed.executing.frame.owner = nullptr; break;
-    case 5: changed.executing.frame.ro += 8; break;
-    case 6: changed.executing.frame.limit += 8; break;
-    case 7: ++changed.remaining.serial; break;
+    case 3: ++changed.executing.__serial; break;
+    case 4: changed.executing.__frame.__owner = nullptr; break;
+    case 5: changed.executing.__frame.__ro += 8; break;
+    case 6: changed.executing.__frame.__limit += 8; break;
+    case 7: ++changed.remaining.__serial; break;
     case 8: ++changed.registration_serial; break;
     case 9: changed.callback = nullptr; break;
     case 10: changed.argument = &changed; break;
@@ -370,7 +370,7 @@ static void inspect(void *) {
   }
   --M::serial;
   auto saved_head = M::head;
-  ++M::head.serial;
+  ++M::head.__serial;
   rejected();
   M::head = saved_head;
 #ifdef LIBC_MMIX_SIGNAL_CLEANUP
@@ -379,61 +379,61 @@ static void inspect(void *) {
   rejected();
   M::signal_boundary_owner.live = nullptr;
 #endif
-  auto *record = witness.executing.record;
+  auto *record = witness.executing.__record;
   auto saved_record = *record;
-  record->serial = witness.executing.serial;
+  record->__serial = witness.executing.__serial;
   rejected();
   *record = saved_record;
-  record->callback = nullptr;
+  record->__callback = nullptr;
   rejected();
   *record = saved_record;
-  record->argument = record;
+  record->__argument = record;
   rejected();
   *record = saved_record;
-  ++record->previous.serial;
+  ++record->__previous.__serial;
   rejected();
   *record = saved_record;
-  if (witness.remaining.record) {
-    auto *pending = witness.remaining.record;
+  if (witness.remaining.__record) {
+    auto *pending = witness.remaining.__record;
     auto saved = *pending;
-    ++pending->serial;
+    ++pending->__serial;
     rejected();
     *pending = saved;
-    pending->previous = witness.remaining; // Cycle must fail, not loop.
+    pending->__previous = witness.remaining; // Cycle must fail, not loop.
     rejected();
     *pending = saved;
-    if (saved.previous.record) {
+    if (saved.__previous.__record) {
       // A foreign frame below the inner stack bound must fail before reading.
-      pending->previous.record = reinterpret_cast<MmixCleanupRecord *>(8);
-      pending->previous.frame.sp = 8;
-      pending->previous.frame.limit = 8 + sizeof(MmixCleanupRecord);
+      pending->__previous.__record = reinterpret_cast<MmixCleanupRecord *>(8);
+      pending->__previous.__frame.__sp = 8;
+      pending->__previous.__frame.__limit = 8 + sizeof(MmixCleanupRecord);
       rejected();
       *pending = saved;
       for (unsigned bad = 0; bad != 13; ++bad) {
-        auto &link = pending->previous;
+        auto &link = pending->__previous;
         switch (bad) {
-        case 0: link.frame.owner = nullptr; break;
-        case 1: ++link.frame.chain; break;
-        case 2: ++link.frame.generation; break;
-        case 3: link.frame.ro = root.ro - 8; break;
-        case 4: link.frame.ro += 1; break;
-        case 5: link.frame.sp = reinterpret_cast<uintptr_t>(link.record) + 8;
+        case 0: link.__frame.__owner = nullptr; break;
+        case 1: ++link.__frame.__chain; break;
+        case 2: ++link.__frame.__generation; break;
+        case 3: link.__frame.__ro = root.ro - 8; break;
+        case 4: link.__frame.__ro += 1; break;
+        case 5: link.__frame.__sp = reinterpret_cast<uintptr_t>(link.__record) + 8;
           break;
-        case 6: link.frame.limit = reinterpret_cast<uintptr_t>(link.record) +
-                                      sizeof(*link.record) - 8; break;
-        case 7: link.frame.procedure = 0; break;
-        case 8: link.serial = witness.remaining.serial; break;
-        case 9: link.record = nullptr; break; // Nonempty end sentinel.
-        case 10: link.record = reinterpret_cast<MmixCleanupRecord *>(
-                     reinterpret_cast<uintptr_t>(link.record) + 1); break;
-        case 11: link.frame.ro += 8; break;
-        case 12: link.frame.procedure += 8; break;
+        case 6: link.__frame.__limit = reinterpret_cast<uintptr_t>(link.__record) +
+                                      sizeof(*link.__record) - 8; break;
+        case 7: link.__frame.__procedure = 0; break;
+        case 8: link.__serial = witness.remaining.__serial; break;
+        case 9: link.__record = nullptr; break; // Nonempty end sentinel.
+        case 10: link.__record = reinterpret_cast<MmixCleanupRecord *>(
+                     reinterpret_cast<uintptr_t>(link.__record) + 1); break;
+        case 11: link.__frame.__ro += 8; break;
+        case 12: link.__frame.__procedure += 8; break;
         }
         rejected();
         *pending = saved;
       }
     }
-    pending->callback = nullptr;
+    pending->__callback = nullptr;
     rejected();
     *pending = saved;
   }
@@ -511,7 +511,7 @@ static M::ActiveCleanupWitness observe_pop(unsigned depth) {
   assert(witness.invocation_depth == depth &&
          witness.dispatch == M::active_dispatch);
   assert(witness.registration_serial == M::serial);
-  assert(!witness.executing.record->serial);
+  assert(!witness.executing.__record->__serial);
   assert(M::same_link(witness.remaining, M::head));
   assert(M::validate_active_c_cleanup(root, witness));
 #ifdef LIBC_MMIX_SHARED_STARTUP
@@ -548,7 +548,7 @@ static void push_nested(NestedPop &state, unsigned index,
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
   M::__llvm_libc_mmix_thread_cleanup_push_cpp(
       &state.records[index], &state.owners[index], callback, &state);
-  assert(state.records[index].serial & 1);
+  assert(state.records[index].__serial & 1);
 #else
   // Non-async providers do not register their C++ guards. Exercise their real
   // registered normal-pop path without inventing a C++ tag or direct hook.
@@ -574,8 +574,8 @@ static void c_dispatch_registration_check(NestedPop &state) {
     assert(!setrlimit(RLIMIT_CORE, &no_core));
     M::__llvm_libc_mmix_thread_cleanup_push(
         &state.records[0], &state.owners[0], forbidden_registration, &state);
-    M::dispatch_c_cleanup(capture_frame.ro, capture_frame.procedure,
-                           capture_frame.sp);
+    M::dispatch_c_cleanup(capture_frame.__ro, capture_frame.__procedure,
+                           capture_frame.__sp);
     _exit(1);
   }
   int status;
@@ -588,7 +588,7 @@ static void nested_leaf(void *argument) {
   auto &state = *static_cast<NestedPop *>(argument);
   ++state.callbacks;
   auto witness = observe_pop(state.leaf_depth);
-  assert(witness.executing.record == &state.records[4]);
+  assert(witness.executing.__record == &state.records[4]);
   stale(state.outer);
   if (state.leaf_depth == 3)
     stale(state.inner);
@@ -598,23 +598,23 @@ static void nested_inner(void *argument) {
   auto &state = *static_cast<NestedPop *>(argument);
   ++state.callbacks;
   state.inner = observe_pop(2);
-  assert(state.inner.executing.record == &state.records[3]);
-  assert(state.inner.remaining.record == &state.records[2]);
+  assert(state.inner.executing.__record == &state.records[3]);
+  assert(state.inner.remaining.__record == &state.records[2]);
   stale(state.outer);
   {
     InspectionMask mask;
     // The top Invocation cannot conceal a damaged suspended outer activation.
-    auto callback = state.records[1].callback;
-    state.records[1].callback = nullptr;
+    auto callback = state.records[1].__callback;
+    state.records[1].__callback = nullptr;
     rejected_pop(state.inner);
-    state.records[1].callback = callback;
+    state.records[1].__callback = callback;
     assert(M::validate_active_c_cleanup(M::current_control->unwind_root,
                                         state.inner));
   }
   push_nested(state, 4, nested_leaf);
   stale(state.inner);
   auto with_pending = observe_pop(2);
-  assert(with_pending.remaining.record == &state.records[4]);
+  assert(with_pending.remaining.__record == &state.records[4]);
   assert(with_pending.registration_serial > state.inner.registration_serial);
   state.leaf_depth = 3;
   M::__llvm_libc_mmix_thread_cleanup_pop(&state.records[4], 1);
@@ -632,23 +632,23 @@ static void nested_outer(void *argument) {
   auto &state = *static_cast<NestedPop *>(argument);
   ++state.callbacks;
   state.outer = observe_pop(1);
-  assert(state.outer.executing.record == &state.records[1]);
-  assert(state.outer.remaining.record == &state.records[0]);
+  assert(state.outer.executing.__record == &state.records[1]);
+  assert(state.outer.remaining.__record == &state.records[0]);
   const auto original = state.outer;
   push_nested(state, 2, unused_callback);
   stale(original);
   state.outer = observe_pop(1);
-  assert(state.outer.remaining.record == &state.records[2]);
+  assert(state.outer.remaining.__record == &state.records[2]);
   assert(state.outer.registration_serial > original.registration_serial);
   assert(M::CleanupOwners::same_invocation(state.outer.ownership,
                                           original.ownership));
   {
     InspectionMask mask;
     auto saved = state.records[2];
-    ++state.records[2].serial;
+    ++state.records[2].__serial;
     rejected_pop(state.outer);
     state.records[2] = saved;
-    state.records[2].previous = M::head;
+    state.records[2].__previous = M::head;
     rejected_pop(state.outer);
     state.records[2] = saved;
 #ifdef LIBC_MMIX_SHARED_STARTUP
@@ -671,7 +671,7 @@ static void nested_outer(void *argument) {
   stale(state.outer);
   auto restored = observe_pop(1);
   assert(restored.dispatch == original.dispatch);
-  assert(restored.remaining.record == &state.records[2]);
+  assert(restored.remaining.__record == &state.records[2]);
   assert(M::CleanupOwners::same_invocation(restored.ownership,
                                           original.ownership));
   auto before_calls = state.callbacks;
@@ -731,7 +731,7 @@ static void nested_pop_checks() {
       InspectionMask mask;
       rejected_pop(state.outer);
     }
-    assert(M::head.record == &state.records[0]);
+    assert(M::head.__record == &state.records[0]);
 #ifdef LIBC_MMIX_SHARED_STARTUP
     assert(acquired == released + 1 && !scopes);
 #endif
@@ -801,14 +801,14 @@ static void pending_checks() {
   capture_frame = {&control, 0x2000, 0x2200, bottom, top, chain, 20};
   const auto root = control.unwind_root;
   auto empty = observe_pending();
-  assert(!empty.remaining.record);
+  assert(!empty.remaining.__record);
   push_nested(state, 0, unused_callback);
   for (unsigned i = 1; i != 3; ++i)
     M::__llvm_libc_mmix_thread_cleanup_push(
         &state.records[i], &state.owners[i], unused_callback, &state);
   auto witness = observe_pending();
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
-  assert(state.records[0].serial & 1); // Pending RAII owner is not consumed.
+  assert(state.records[0].__serial & 1); // Pending RAII owner is not consumed.
 #endif
   unsigned observations = 0;
   struct OrdinaryDestructor {
@@ -835,9 +835,9 @@ static void pending_checks() {
       auto changed = witness;
       switch (bad) {
       case 0: ++changed.registration_serial; break;
-      case 1: ++changed.remaining.serial; break;
-      case 2: changed.remaining.record = nullptr; break;
-      case 3: ++changed.remaining.frame.limit; break;
+      case 1: ++changed.remaining.__serial; break;
+      case 2: changed.remaining.__record = nullptr; break;
+      case 3: ++changed.remaining.__frame.__limit; break;
       case 4: ++changed.root.generation; break;
       case 5: changed.ownership.owner =
                   reinterpret_cast<const M::CleanupOwners *>(1); break;
@@ -900,23 +900,23 @@ static void pending_checks() {
     const auto saved_head = M::head;
     for (unsigned bad = 0; bad != 14; ++bad) {
       switch (bad) {
-      case 0: M::head.frame.owner = nullptr; break;
-      case 1: ++M::head.frame.chain; break;
-      case 2: ++M::head.frame.generation; break;
-      case 3: M::head.frame.ro = root.ro - 8; break;
-      case 4: ++M::head.frame.ro; break;
-      case 5: M::head.frame.sp = top; break;
-      case 6: M::head.frame.limit = bottom; break;
-      case 7: M::head.frame.procedure = 0; break;
-      case 8: M::head.serial = UINT64_MAX; break;
-      case 9: M::head.record = nullptr; break;
-      case 10: M::head.record = reinterpret_cast<MmixCleanupRecord *>(8);
-        M::head.frame.sp = 8;
-        M::head.frame.limit = 8 + sizeof(MmixCleanupRecord); break;
-      case 11: M::head.record = reinterpret_cast<MmixCleanupRecord *>(bottom + 1);
+      case 0: M::head.__frame.__owner = nullptr; break;
+      case 1: ++M::head.__frame.__chain; break;
+      case 2: ++M::head.__frame.__generation; break;
+      case 3: M::head.__frame.__ro = root.ro - 8; break;
+      case 4: ++M::head.__frame.__ro; break;
+      case 5: M::head.__frame.__sp = top; break;
+      case 6: M::head.__frame.__limit = bottom; break;
+      case 7: M::head.__frame.__procedure = 0; break;
+      case 8: M::head.__serial = UINT64_MAX; break;
+      case 9: M::head.__record = nullptr; break;
+      case 10: M::head.__record = reinterpret_cast<MmixCleanupRecord *>(8);
+        M::head.__frame.__sp = 8;
+        M::head.__frame.__limit = 8 + sizeof(MmixCleanupRecord); break;
+      case 11: M::head.__record = reinterpret_cast<MmixCleanupRecord *>(bottom + 1);
         break;
-      case 12: M::head.frame.limit = top + 8; break;
-      case 13: M::head.serial = 0; break;
+      case 12: M::head.__frame.__limit = top + 8; break;
+      case 13: M::head.__serial = 0; break;
       }
       rejected_pending(witness);
       M::head = saved_head;
@@ -924,16 +924,16 @@ static void pending_checks() {
     // Check all pending records, including the tail, not just the top link.
     for (unsigned i = 0; i != 3; ++i) {
       auto saved = state.records[i];
-      ++state.records[i].serial;
+      ++state.records[i].__serial;
       rejected_pending(witness);
       state.records[i] = saved;
-      state.records[i].callback = nullptr;
+      state.records[i].__callback = nullptr;
       rejected_pending(witness);
       state.records[i] = saved;
-      state.records[i].previous = M::head; // Cycle/nondecreasing serial.
+      state.records[i].__previous = M::head; // Cycle/nondecreasing serial.
       rejected_pending(witness);
       state.records[i] = saved;
-      ++state.records[i].previous.frame.generation; // Includes end sentinel.
+      ++state.records[i].__previous.__frame.__generation; // Includes end sentinel.
       rejected_pending(witness);
       state.records[i] = saved;
     }
@@ -951,17 +951,17 @@ static void pending_checks() {
     // Missing owner for an otherwise well-formed pending record also refuses.
     auto *node = reinterpret_cast<M::CleanupOwners::Node *>(
         state.owners[2].__storage);
-    assert(M::callback_owners.detach(*node, M::head.record, M::head.serial, extra));
+    assert(M::callback_owners.detach(*node, M::head.__record, M::head.__serial, extra));
     rejected_pending(witness);
     extra.release();
     rejected_pending(witness);
-    assert(M::callback_owners.push(*node, M::head.record, M::head.serial + 2,
+    assert(M::callback_owners.push(*node, M::head.__record, M::head.__serial + 2,
                                   reinterpret_cast<uintptr_t>(unused_callback)));
     rejected_pending(witness); // Owner serial must match, not only its record.
-    assert(M::callback_owners.detach(*node, M::head.record, M::head.serial + 2,
+    assert(M::callback_owners.detach(*node, M::head.__record, M::head.__serial + 2,
                                     extra));
     extra.release();
-    assert(M::callback_owners.push(*node, M::head.record, M::head.serial,
+    assert(M::callback_owners.push(*node, M::head.__record, M::head.__serial,
                                   reinterpret_cast<uintptr_t>(unused_callback)));
 #endif
     assert(M::validate_pending_cleanup(root, witness));
@@ -1002,7 +1002,7 @@ static void pending_checks() {
     assert(M::callback_owners.idle());
 #endif
   }
-  assert(!M::head.record && !M::active_dispatch && !M::dispatching);
+  assert(!M::head.__record && !M::active_dispatch && !M::dispatching);
   assert(acquired == released && !scopes && signal_mask == 0x400);
   assert(control.cancellation.terminal() && !control.cancellation.enabled());
   assert(!control.cancellation.asynchronous());
@@ -1039,8 +1039,8 @@ int main() {
                capture_frame, cpp);
   };
   auto dispatch = [&] {
-    M::dispatch_c_cleanup(capture_frame.ro, capture_frame.procedure,
-                          capture_frame.sp);
+    M::dispatch_c_cleanup(capture_frame.__ro, capture_frame.__procedure,
+                          capture_frame.__sp);
   };
   M::ActiveCleanupWitness empty;
   {
@@ -1087,15 +1087,15 @@ int main() {
   assert(calls == 4 && !M::has_c_cleanup());
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
   push(0, true);
-  auto odd = storage.records[0].serial;
+  auto odd = storage.records[0].__serial;
   assert(odd & 1);
   dispatch(); // Synchronous forced unwind must leave the C++ guard owning it.
-  assert(calls == 4 && storage.records[0].serial == odd);
+  assert(calls == 4 && storage.records[0].__serial == odd);
   M::__llvm_libc_mmix_thread_cleanup_pop(&storage.records[0], 1);
   assert(calls == 5);
   expect_witness = false;
   push(0, true);
-  M::dispatch_async_cleanup(capture_frame.ro, capture_frame.sp);
+  M::dispatch_async_cleanup(capture_frame.__ro, capture_frame.__sp);
   assert(calls == 6 && !M::has_c_cleanup());
 #endif
 #ifdef LIBC_MMIX_SIGNAL_CLEANUP
@@ -1104,11 +1104,11 @@ int main() {
   entry.point.thread = &control;
   entry.point.child_chain = ++chain;
   entry.point.generation = 9;
-  entry.point.wrapper.ro = capture_frame.ro;
-  entry.point.wrapper.sp = capture_frame.sp;
+  entry.point.wrapper.ro = capture_frame.__ro;
+  entry.point.wrapper.sp = capture_frame.__sp;
   M::signal_boundary_owner.live = &entry;
-  capture_frame.chain = chain;
-  capture_frame.generation = 9;
+  capture_frame.__chain = chain;
+  capture_frame.__generation = 9;
   push(0);
   dispatch(); // Segment-local dispatch must not export an ordinary witness.
   assert(calls == 7 && !M::has_c_cleanup());
@@ -1117,8 +1117,8 @@ int main() {
   assert(calls == 8 && !M::has_c_cleanup() && !M::active_dispatch);
   M::signal_boundary_owner.live = nullptr;
   --chain;
-  capture_frame.chain = chain;
-  capture_frame.generation = control.unwind_root.generation;
+  capture_frame.__chain = chain;
+  capture_frame.__generation = control.unwind_root.generation;
 #endif
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
   {
@@ -1126,11 +1126,11 @@ int main() {
     expect_witness = true;
     expected_kind = M::ActiveCleanupKind::CDispatch;
     push(0, true);
-    auto pending_odd = storage.records[0].serial;
+    auto pending_odd = storage.records[0].__serial;
     push(1);
     dispatch();
-    assert(calls == before + 1 && storage.records[0].serial == pending_odd);
-    assert(M::head.record == &storage.records[0] && (pending_odd & 1));
+    assert(calls == before + 1 && storage.records[0].__serial == pending_odd);
+    assert(M::head.__record == &storage.records[0] && (pending_odd & 1));
     expected_kind = M::ActiveCleanupKind::NormalPop;
     M::__llvm_libc_mmix_thread_cleanup_pop(&storage.records[0], 1);
     assert(calls == before + 2 && !M::has_c_cleanup());
@@ -1166,7 +1166,7 @@ int main() {
   assert(!control.cancellation.asynchronous());
   assert(!M::active_dispatch);
   MmixCleanupLink checkpoint;
-  assert(M::snapshot_c_cleanup(checkpoint) && !checkpoint.record);
+  assert(M::snapshot_c_cleanup(checkpoint) && !checkpoint.__record);
   assert(M::c_cleanup_at_checkpoint(checkpoint));
   nested_pop_checks();
   pending_checks();

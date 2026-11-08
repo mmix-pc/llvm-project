@@ -284,13 +284,13 @@ static void attributed_initialization_test() {
     ASSERT_EQ(LIBC_NAMESPACE::pthread_rwlock_init(&rwlock, &attr), 0);
     ASSERT_EQ(LIBC_NAMESPACE::pthread_rwlock_destroy(&rwlock), 0);
   }
-  attr.pref = -1;
+  attr.__pref = -1;
   {
     pthread_rwlock_t rwlock{};
     ASSERT_EQ(LIBC_NAMESPACE::pthread_rwlock_init(&rwlock, &attr), EINVAL);
   }
-  attr.pref = PTHREAD_RWLOCK_PREFER_READER_NP;
-  attr.pshared = -1;
+  attr.__pref = PTHREAD_RWLOCK_PREFER_READER_NP;
+  attr.__pshared = -1;
   {
     pthread_rwlock_t rwlock{};
     ASSERT_EQ(LIBC_NAMESPACE::pthread_rwlock_init(&rwlock, &attr), EINVAL);

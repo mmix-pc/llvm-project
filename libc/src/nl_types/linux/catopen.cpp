@@ -94,7 +94,7 @@ LLVM_LIBC_FUNCTION(nl_catd, catopen, (const char *name, int flag)) {
   const char *locale = "C";
   if (flag == NL_CAT_LOCALE)
     locale = internal::locale_snapshot(internal::thread_locale)
-                 .data[LC_MESSAGES]
+                 .__data[LC_MESSAGES]
                  ->name;
   else if (environment) {
     const char *lang = internal::EnvironmentManager::get_instance().get("LANG");

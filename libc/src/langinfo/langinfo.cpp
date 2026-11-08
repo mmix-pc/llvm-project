@@ -15,24 +15,24 @@ namespace internal {
 char *langinfo(nl_item item, locale_t loc) {
   auto locale = locale_snapshot(loc);
   if ((item == YESEXPR || item == NOEXPR) &&
-      locale.data[LC_MESSAGES]->messages) {
-    const auto &messages = *locale.data[LC_MESSAGES]->messages;
+      locale.__data[LC_MESSAGES]->messages) {
+    const auto &messages = *locale.__data[LC_MESSAGES]->messages;
     auto text = item == YESEXPR ? messages.yesexpr : messages.noexpr;
     return const_cast<char *>(
         reinterpret_cast<const char *>(text.bytes.data()));
   }
   if (item == RADIXCHAR || item == THOUSEP) {
-    auto *category = locale.data[LC_NUMERIC];
+    auto *category = locale.__data[LC_NUMERIC];
     if (category->numeric) {
       const auto &field = item == RADIXCHAR ? category->numeric->decimal_point
                                             : category->numeric->thousands_sep;
       return const_cast<char *>(
           reinterpret_cast<const char *>(field.bytes.data()));
     }
-  } else if (item == CRNCYSTR && locale.data[LC_MONETARY]->monetary) {
-    return locale.data[LC_MONETARY]->currency;
+  } else if (item == CRNCYSTR && locale.__data[LC_MONETARY]->monetary) {
+    return locale.__data[LC_MONETARY]->currency;
   }
-  auto *time = locale.data[LC_TIME];
+  auto *time = locale.__data[LC_TIME];
   if (time->time) {
     using T = TimeLocaleData;
     T::Field field = T::FIELD_COUNT;
@@ -119,8 +119,8 @@ char *langinfo(nl_item item, locale_t loc) {
     case CODESET:
       // The C converter maps every byte to the same-valued Unicode scalar;
       // the encoding name does not change C classification or collation.
-      value = locale.data[LC_CTYPE]->chinese_encoding ? "ISO-2022-CN"
-              : locale.data[LC_CTYPE]->utf8          ? "UTF-8"
+      value = locale.__data[LC_CTYPE]->chinese_encoding ? "ISO-2022-CN"
+              : locale.__data[LC_CTYPE]->utf8          ? "UTF-8"
                                                     : "ISO-8859-1";
       break;
     case D_T_FMT:

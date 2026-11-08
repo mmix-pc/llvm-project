@@ -18,7 +18,7 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_rwlockattr_getkind_np,
                    (const pthread_rwlockattr_t *__restrict attr,
                     int *__restrict pref)) {
-  *pref = attr->pref;
+  *pref = attr->__pref;
   return 0;
 }
 

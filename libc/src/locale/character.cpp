@@ -18,7 +18,7 @@ namespace internal {
 
 #ifdef LIBC_FULL_BUILD
 const __locale_data *explicit_ctype(locale_t locale) {
-  return locale_snapshot(locale).data[LC_CTYPE];
+  return locale_snapshot(locale).__data[LC_CTYPE];
 }
 #endif
 

@@ -20,7 +20,7 @@ LLVM_LIBC_FUNCTION(ssize_t, strfmon,
   internal::ArgList args(list);
   va_end(list);
   auto snapshot = internal::locale_snapshot(internal::thread_locale);
-  const auto &data = snapshot.data[LC_MONETARY]->monetary;
+  const auto &data = snapshot.__data[LC_MONETARY]->monetary;
   auto result = internal::format_money(output, capacity, format, args,
                                        data ? &*data : nullptr);
   if (!result) {

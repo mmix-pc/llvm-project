@@ -19,8 +19,8 @@ LLVM_LIBC_FUNCTION(int, wordexp,
   // The caller keeps thread locale objects alive and synchronizes setlocale
   // and environment mutation, as for the other locale-sensitive interfaces.
   auto locale = internal::locale_snapshot(internal::thread_locale);
-  const auto *ctype = locale.data[LC_CTYPE];
-  const auto *collate = locale.data[LC_COLLATE];
+  const auto *ctype = locale.__data[LC_CTYPE];
+  const auto *collate = locale.__data[LC_COLLATE];
   auto converter =
       ctype->chinese_encoding
           ? internal::RestartableConverter(*ctype->chinese_encoding)

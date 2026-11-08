@@ -34,7 +34,7 @@ LLVM_LIBC_FUNCTION(int, pthread_cond_init,
     condattr = *attr;
 
   bool is_shared;
-  switch (condattr.pshared) {
+  switch (condattr.__pshared) {
   case PTHREAD_PROCESS_PRIVATE:
     is_shared = false;
     break;

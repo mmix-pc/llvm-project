@@ -39,7 +39,7 @@ File::Orientation File::try_set_orientation_unlocked(Orientation requested) {
   if (requested == Orientation::WIDE && !platform_wide_write) {
 #ifdef LIBC_FULL_BUILD
     auto *category =
-        internal::locale_snapshot(internal::thread_locale).data[LC_CTYPE];
+        internal::locale_snapshot(internal::thread_locale).__data[LC_CTYPE];
     if (!internal::retain_locale_category(category)) {
       libc_errno = ENOMEM;
       return orientation;

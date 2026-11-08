@@ -147,7 +147,7 @@ TEST(LlvmLibcTimeDataTest, CalendarParsingUsesSelectedCategory) {
   __locale_data category{"time-test", true};
   category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
   auto selected = locale_from_mask(0);
-  selected.data[LC_TIME] = &category;
+  selected.__data[LC_TIME] = &category;
   auto old = LIBC_NAMESPACE::uselocale(&selected);
   tm time{};
   time.tm_yday = 71;
@@ -186,7 +186,7 @@ TEST(LlvmLibcTimeDataTest, EraAndAlternativeNumberParsing) {
   __locale_data category{"era-test", true};
   category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
   auto selected = locale_from_mask(0);
-  selected.data[LC_TIME] = &category;
+  selected.__data[LC_TIME] = &category;
   auto old = LIBC_NAMESPACE::uselocale(&selected);
   tm time{};
   char input[] = "ERA-08/10/25 alternative!";
@@ -222,7 +222,7 @@ TEST(LlvmLibcTimeDataTest, BackwardEraParsing) {
   __locale_data category{"era-test", true};
   category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
   auto selected = locale_from_mask(0);
-  selected.data[LC_TIME] = &category;
+  selected.__data[LC_TIME] = &category;
   auto old = LIBC_NAMESPACE::uselocale(&selected);
   tm time{};
   EXPECT_NE(LIBC_NAMESPACE::strptime("03 BC", "%EY", &time), nullptr);
@@ -250,7 +250,7 @@ TEST(LlvmLibcTimeDataTest, CalendarFormattingUsesSelectedCategory) {
   __locale_data category{"time-test", true};
   category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*time_data);
   auto selected = locale_from_mask(0);
-  selected.data[LC_TIME] = &category;
+  selected.__data[LC_TIME] = &category;
   auto old = LIBC_NAMESPACE::uselocale(&selected);
   tm time{};
   time.tm_year = 126;
@@ -295,7 +295,7 @@ TEST(LlvmLibcTimeDataTest, EraAndAlternativeNumberFormatting) {
   __locale_data category{"era-test", true};
   category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
   auto selected = locale_from_mask(0);
-  selected.data[LC_TIME] = &category;
+  selected.__data[LC_TIME] = &category;
   tm time{};
   time.tm_year = 126;
   time.tm_mon = 9;
@@ -327,7 +327,7 @@ TEST(LlvmLibcTimeDataTest, BackwardEraAndOverflow) {
   __locale_data category{"era-test", true};
   category.time = LIBC_NAMESPACE::cpp::optional<TimeLocaleData>(*data);
   auto selected = locale_from_mask(0);
-  selected.data[LC_TIME] = &category;
+  selected.__data[LC_TIME] = &category;
   tm time{};
   time.tm_year = -1902;
   time.tm_mday = 1;
@@ -368,7 +368,7 @@ TEST(LlvmLibcTimeDataTest, RegionalQueriesRetainBackingStorage) {
   (*file)->release();
   ASSERT_TRUE(category.has_value());
   auto locale = locale_from_mask(0);
-  locale.data[LC_TIME] = *category;
+  locale.__data[LC_TIME] = *category;
   auto previous = LIBC_NAMESPACE::uselocale(&locale);
   struct Range {
     nl_item first;
@@ -410,7 +410,7 @@ TEST(LlvmLibcTimeDataTest, EmptyEraAndAlternativeDigitQueries) {
   (*file)->release();
   ASSERT_TRUE(category.has_value());
   auto locale = locale_from_mask(0);
-  locale.data[LC_TIME] = *category;
+  locale.__data[LC_TIME] = *category;
   EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(ERA, &locale), "");
   EXPECT_STREQ(LIBC_NAMESPACE::nl_langinfo_l(ALT_DIGITS, &locale), "");
   release_locale(locale);

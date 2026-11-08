@@ -38,7 +38,7 @@ LLVM_LIBC_FUNCTION(int, pthread_rwlock_init,
 
   // PTHREAD_RWLOCK_PREFER_WRITER_NP is not supported.
   rwlock::Role preference;
-  switch (rwlockattr.pref) {
+  switch (rwlockattr.__pref) {
   case PTHREAD_RWLOCK_PREFER_READER_NP:
     preference = rwlock::Role::Reader;
     break;
@@ -49,7 +49,7 @@ LLVM_LIBC_FUNCTION(int, pthread_rwlock_init,
     return EINVAL;
   }
   bool is_pshared;
-  switch (rwlockattr.pshared) {
+  switch (rwlockattr.__pshared) {
   case PTHREAD_PROCESS_PRIVATE:
     is_pshared = false;
     break;

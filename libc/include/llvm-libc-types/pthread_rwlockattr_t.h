@@ -9,8 +9,8 @@
 #define __LLVM_LIBC_TYPES_PTHREAD_RWLOCKATTR_T_H
 
 typedef struct {
-  int pshared;
-  int pref;
+  int __pshared;
+  int __pref;
 } pthread_rwlockattr_t;
 
 #endif // __LLVM_LIBC_TYPES_PTHREAD_RWLOCKATTR_T_H

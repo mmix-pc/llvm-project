@@ -26,7 +26,7 @@ LLVM_LIBC_FUNCTION(int, fnmatch,
   const internal::CollationData *collation = nullptr;
 #ifdef LIBC_FULL_BUILD
   const auto *category =
-      internal::locale_snapshot(internal::thread_locale).data[LC_COLLATE];
+      internal::locale_snapshot(internal::thread_locale).__data[LC_COLLATE];
   if (category->collation)
     collation = &*category->collation;
   auto converter = internal::RestartableConverter::current();

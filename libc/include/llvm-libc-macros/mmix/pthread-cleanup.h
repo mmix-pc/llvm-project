@@ -10,21 +10,21 @@
 #define __LLVM_LIBC_MACROS_MMIX_PTHREAD_CLEANUP_H
 
 struct __llvm_libc_mmix_cleanup_frame {
-  void *owner;
-  __UINTPTR_TYPE__ ro, procedure, sp, limit;
-  __UINT64_TYPE__ chain, generation;
+  void *__owner;
+  __UINTPTR_TYPE__ __ro, __procedure, __sp, __limit;
+  __UINT64_TYPE__ __chain, __generation;
 };
 struct __llvm_libc_mmix_cleanup_record;
 struct __llvm_libc_mmix_cleanup_link {
-  struct __llvm_libc_mmix_cleanup_record *record;
-  struct __llvm_libc_mmix_cleanup_frame frame;
-  __UINT64_TYPE__ serial;
+  struct __llvm_libc_mmix_cleanup_record *__record;
+  struct __llvm_libc_mmix_cleanup_frame __frame;
+  __UINT64_TYPE__ __serial;
 };
 struct __llvm_libc_mmix_cleanup_record {
-  struct __llvm_libc_mmix_cleanup_link previous;
-  void (*callback)(void *);
-  void *argument;
-  __UINT64_TYPE__ serial;
+  struct __llvm_libc_mmix_cleanup_link __previous;
+  void (*__callback)(void *);
+  void *__argument;
+  __UINT64_TYPE__ __serial;
 };
 
 // Private caller-owned sidecar. Keep the existing cleanup record unchanged;
@@ -89,7 +89,7 @@ public:
   __LIBC_MMIX_CLEANUP_INLINE void __finish(bool __execute) noexcept {
 #ifdef __LIBC_MMIX_REGISTER_CPP_CLEANUP
     // Forced dispatch consumed the record before running its callback.
-    if (__record.serial)
+    if (__record.__serial)
       __llvm_libc_mmix_thread_cleanup_pop(&__record, __execute);
 #else
     bool __run = __active && __execute;

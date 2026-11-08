@@ -18,7 +18,7 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, pthread_condattr_getpshared,
                    (const pthread_condattr_t *__restrict attr,
                     int *__restrict pshared)) {
-  *pshared = attr->pshared;
+  *pshared = attr->__pshared;
   return 0;
 }
 

@@ -23,6 +23,6 @@ LLVM_LIBC_FUNCTION(const char *, getlocalename_l,
     return buffer;
   }
   return category == LC_ALL ? internal::locale_object_name(locale)
-                            : locale->data[category]->name;
+                            : locale->__data[category]->name;
 }
 } // namespace LIBC_NAMESPACE_DECL

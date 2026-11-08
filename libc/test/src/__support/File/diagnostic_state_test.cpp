@@ -28,7 +28,7 @@ struct SelectedEncoding {
         locale(LIBC_NAMESPACE::internal::locale_from_mask(0)),
         previous(LIBC_NAMESPACE::internal::thread_locale) {
     category.chinese_encoding = data;
-    locale.data[LC_CTYPE] = &category;
+    locale.__data[LC_CTYPE] = &category;
     LIBC_NAMESPACE::internal::thread_locale = &locale;
   }
   ~SelectedEncoding() { LIBC_NAMESPACE::internal::thread_locale = previous; }

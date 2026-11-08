@@ -51,7 +51,7 @@ struct Selection {
         {reinterpret_cast<const uint8_t *>(thousands), length + 1}};
     data.grouping = {LocaleDataView::Kind::BYTES, grouping};
     numeric.numeric = LIBC_NAMESPACE::cpp::optional<NumericLocaleData>(data);
-    locale.data[LC_NUMERIC] = &numeric;
+    locale.__data[LC_NUMERIC] = &numeric;
     previous = LIBC_NAMESPACE::uselocale(&locale);
   }
   ~Selection() { LIBC_NAMESPACE::uselocale(previous); }
@@ -70,7 +70,7 @@ TEST(LlvmLibcNumericLocaleTest, StatefulLiteralFormatDoesNotConsumeArguments) {
   __locale_data category{"stateful-format", false};
   category.chinese_encoding = *mapping;
   auto locale = locale_from_mask(0);
-  locale.data[LC_CTYPE] = &category;
+  locale.__data[LC_CTYPE] = &category;
   auto previous = LIBC_NAMESPACE::uselocale(&locale);
   const char format[] = "\x1b$)A\x0e%s\x0f";
   char output[32];
@@ -101,7 +101,7 @@ TEST(LlvmLibcNumericLocaleTest, StatefulFormatArgumentPreScan) {
   __locale_data category{"stateful-format", false};
   category.chinese_encoding = *mapping;
   auto locale = locale_from_mask(0);
-  locale.data[LC_CTYPE] = &category;
+  locale.__data[LC_CTYPE] = &category;
   auto previous = LIBC_NAMESPACE::uselocale(&locale);
   // The apparent %1$f occurs inside two encoded characters, not an argument.
   // Reading argument 2 first requires finding the real type of argument 1.
@@ -160,7 +160,7 @@ TEST(LlvmLibcNumericLocaleTest, WideRadixAndCategoryWhitespace) {
   EXPECT_EQ(*wend, L'!');
   EXPECT_EQ(LIBC_NAMESPACE::wcstol(L"\u2003-42!", &wend, 10), -42L);
   EXPECT_EQ(*wend, L'!');
-  selected.locale.data[LC_CTYPE] = locale_from_mask(0).data[LC_CTYPE];
+  selected.locale.__data[LC_CTYPE] = locale_from_mask(0).__data[LC_CTYPE];
   const wchar_t *wide = L"\u2003-2\u066b5";
   EXPECT_TRUE(LIBC_NAMESPACE::wcstod(wide, &wend) == 0.0);
   EXPECT_TRUE(wend == wide);
@@ -229,7 +229,7 @@ TEST(LlvmLibcNumericLocaleTest, ScannersKeepOriginalProgressAndFieldWidth) {
             1);
   EXPECT_TRUE(result == 2.5);
   EXPECT_EQ(count, 4);
-  selected.locale.data[LC_CTYPE] = locale_from_mask(0).data[LC_CTYPE];
+  selected.locale.__data[LC_CTYPE] = locale_from_mask(0).__data[LC_CTYPE];
   result = 99.0;
   EXPECT_EQ(LIBC_NAMESPACE::swscanf(L"\u2003"
                                     L"2\u066b5!",
