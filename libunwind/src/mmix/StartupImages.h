@@ -61,4 +61,12 @@ __libunwind_mmix_lookup_image(uintptr_t, uintptr_t, MMIXUnwindImage *);
 extern "C" __attribute__((visibility("hidden"))) bool
 __libunwind_mmix_pin_image(uintptr_t);
 
+// Prepare once during single-threaded adoption, before application callbacks.
+// The caller must identify a mandatory root activation in a startup provider.
+// Successful preparation permanently owns that startup snapshot; subsequent
+// root-only queries neither acquire finite leases nor change ownership.
+extern "C" bool __libunwind_mmix_prepare_root_image(uintptr_t);
+extern "C" __attribute__((visibility("hidden"))) bool
+__libunwind_mmix_find_root_image(uintptr_t, MMIXUnwindImage *);
+
 #endif

@@ -14,6 +14,7 @@
 #include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/OSUtil/linux/mmix/startup_security.h"
 #include "src/__support/threads/linux/mmix/loader_cancellation.h"
+#include "src/__support/threads/linux/mmix/unwind_root.h"
 #include "src/dlfcn/linux/mmix/loading.h"
 #include "src/errno/program_invocation_name.h"
 #include "src/errno/program_invocation_short_name.h"
@@ -197,6 +198,11 @@ long adopt_shared_main(const loader::StartupProcessView *process,
                                   release_image, acquire_image, retain_image,
                                   drop_image, lookup_image, pin_image};
   if (!__libunwind_mmix_adopt_startup_images(&unwind))
+    return EINVAL;
+  // Pin only the startup snapshot, before any constructor can load a DSO.
+  // Mandatory root capture must not compete for finite cursor lease slots.
+  if (!__libunwind_mmix_prepare_root_image(
+          reinterpret_cast<uintptr_t>(&run_with_unwind_root)))
     return EINVAL;
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   initialize_cancellation_process();

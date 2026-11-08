@@ -10,6 +10,7 @@
 
 namespace {
 MMIXStartupUnwindService service{};
+MMIXUnwindImage root_image{};
 }
 
 extern "C" __attribute__((visibility("protected"))) bool
@@ -113,4 +114,66 @@ extern "C" bool __libunwind_mmix_lookup_image(uintptr_t token, uintptr_t pc,
 }
 extern "C" bool __libunwind_mmix_pin_image(uintptr_t token) {
   return token && service.pin && !service.pin(service.context, token);
+}
+
+// The service describes MMIX ELF64 big-endian program headers. Its validated
+// readable ranges cover the complete table while the acquired owner is live.
+static uint64_t root_word(const unsigned char *p, unsigned width) {
+  uint64_t result = 0;
+  for (unsigned i = 0; i != width; ++i)
+    result = (result << 8) | p[i];
+  return result;
+}
+
+static bool root_contains(const MMIXUnwindImage &view, uintptr_t pc) {
+  if (!view.token || pc < view.load_bias)
+    return false;
+  const auto *headers =
+      reinterpret_cast<const unsigned char *>(view.phdr_address);
+  bool found = false;
+  for (uint64_t i = 0; i != view.phdr_count; ++i) {
+    const auto *p = headers + i * 56;
+    if (root_word(p, 4) != 1) // PT_LOAD
+      continue;
+    uint64_t address = root_word(p + 16, 8);
+    uint64_t files = root_word(p + 32, 8);
+    uint64_t size = root_word(p + 40, 8);
+    if (files > size || address > UINTPTR_MAX - view.load_bias ||
+        size > UINTPTR_MAX - view.load_bias - address)
+      return false;
+    if ((root_word(p + 4, 4) & 5) == 5 &&
+        pc - view.load_bias >= address &&
+        pc - view.load_bias - address < size)
+      found = true;
+  }
+  return found;
+}
+
+extern "C" __attribute__((visibility("protected"))) bool
+__libunwind_mmix_prepare_root_image(uintptr_t pc) {
+  if (root_image.token)
+    return false;
+  MMIXUnwindImage view{};
+  if (!__libunwind_mmix_acquire_image(pc, &view))
+    return false;
+  if (!root_contains(view, pc) || !__libunwind_mmix_pin_image(view.token)) {
+    if (!__libunwind_mmix_drop_image(view.token))
+      __builtin_trap();
+    return false;
+  }
+  // The token has been consumed as a permanent pin. It is only a nonzero
+  // publication marker in this private cache, never a releasable lease.
+  root_image = view;
+  return true;
+}
+
+extern "C" bool __libunwind_mmix_find_root_image(uintptr_t pc,
+                                                MMIXUnwindImage *out) {
+  if (!out)
+    return false;
+  *out = {};
+  if (!root_contains(root_image, pc))
+    return false;
+  *out = root_image;
+  return true;
 }

@@ -15,12 +15,12 @@
 #include "mmix/CursorLifetime.h"
 #define _LIBUNWIND_CURSOR_SCOPE(cursor)                                        \
   struct MMIXCursorLifetime cursor##_lifetime                                  \
-      __attribute__((cleanup(__libunwind_mmix_cursor_end))) = {0, 0, 0, 0};    \
+      __attribute__((cleanup(__libunwind_mmix_cursor_end))) = {0, 0, 0, 0, 0};    \
   __libunwind_mmix_cursor_begin(&cursor##_lifetime, &(cursor))
 #define _LIBUNWIND_CURSOR_ESCAPE(cursor) __libunwind_mmix_cursor_escape(cursor)
 #define _LIBUNWIND_CURSOR_SCOPE_WITH_STOP(cursor, stop)                        \
   struct MMIXCursorLifetime cursor##_lifetime                                  \
-      __attribute__((cleanup(__libunwind_mmix_cursor_end))) = {0, 0, 0, 0};    \
+      __attribute__((cleanup(__libunwind_mmix_cursor_end))) = {0, 0, 0, 0, 0};    \
   __libunwind_mmix_cursor_begin_with_stop(&cursor##_lifetime, &(cursor),       \
                                           (uintptr_t)(stop))
 #define _LIBUNWIND_CURSOR_FINISH(cursor) __libunwind_mmix_cursor_finish(cursor)

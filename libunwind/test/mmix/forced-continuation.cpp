@@ -25,6 +25,9 @@ static unsigned acquires, drops, references, image_calls;
 static bool published = true;
 
 #ifdef _LIBUNWIND_MMIX_STARTUP_IMAGES
+extern "C" bool __libunwind_mmix_find_root_image(uintptr_t, MMIXUnwindImage *) {
+  __builtin_trap(); // This fixture does not query mandatory root metadata.
+}
 extern "C" bool __libunwind_mmix_find_startup_image(uintptr_t,
                                                   MMIXUnwindImage *) {
   ++image_calls;

@@ -76,6 +76,8 @@ MMIXCursorLifetime *find(const void *cursor) {
   return nullptr;
 }
 void release(MMIXCursorLifetime &owner, bool escape) {
+  if (owner.root_image && (owner.token || owner.fallback_token))
+    __builtin_trap();
   if (phase() == Quarantined &&
       (&owner == &forced.held ||
        (owner.cursor && owner.cursor == forced.cursor)))
@@ -116,8 +118,13 @@ __libunwind_mmix_cursor_begin(MMIXCursorLifetime *owner, void *cursor) {
   check_quarantined_cursor(cursor);
   if (!owner || !cursor || find(cursor))
     __builtin_trap();
-  *owner = {cursor, 0, owners, 0};
+  *owner = {cursor, 0, owners, 0, false};
   owners = owner;
+}
+extern "C" __attribute__((visibility("protected"))) void
+__libunwind_mmix_cursor_begin_root(MMIXCursorLifetime *owner, void *cursor) {
+  __libunwind_mmix_cursor_begin(owner, cursor);
+  owner->root_image = true;
 }
 extern "C" __attribute__((visibility("protected"))) void
 __libunwind_mmix_set_managed_stop(uintptr_t stop) {
@@ -296,7 +303,8 @@ extern "C" int __libunwind_mmix_cursor_copy(void *to, const void *from) {
   check_quarantined_cursor(to);
   auto *source = find(from);
   auto *destination = find(to);
-  if (!source || !destination || source == destination || forced.cursor == to)
+  if (!source || !destination || source == destination || forced.cursor == to ||
+      source->root_image || destination->root_image)
     return 0;
 #if defined(_LIBUNWIND_MMIX_STARTUP_IMAGES) ||                                  \
     !defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
@@ -338,7 +346,7 @@ extern "C" int __libunwind_mmix_forced_enter(void *cursor, void *exception,
   auto *owner = find(cursor);
   unsigned current = phase();
   if (!exception || !owner || owners != owner || query || owner->token ||
-      owner->fallback_token ||
+      owner->fallback_token || owner->root_image ||
       (current != Empty &&
        (current != Landing || !matches(exception, stop, argument) ||
         owner->previous != forced.base)))
@@ -432,6 +440,8 @@ bool mmixFindCursorImage(uintptr_t pc, MMIXUnwindImage &view, bool &owned) {
   owned = owner != nullptr;
   if (!owner)
     return __libunwind_mmix_find_startup_image(pc, &view);
+  if (owner->root_image)
+    return __libunwind_mmix_find_root_image(pc, &view);
   if (owner->token) {
     if (__libunwind_mmix_lookup_image(owner->token, pc, &view))
       return true;

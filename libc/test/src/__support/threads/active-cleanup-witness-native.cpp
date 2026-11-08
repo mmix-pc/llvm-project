@@ -127,6 +127,7 @@ extern "C" int unw_get_proc_info(unw_cursor_t *, unw_proc_info_t *info) {
 }
 #ifdef LIBC_MMIX_SHARED_STARTUP
 extern "C" void __libunwind_mmix_cursor_begin(MMIXCursorLifetime *, void *) {}
+extern "C" void __libunwind_mmix_cursor_begin_root(MMIXCursorLifetime *, void *) {}
 extern "C" void __libunwind_mmix_cursor_end(MMIXCursorLifetime *) {}
 #ifdef LIBC_MMIX_SIGNAL_CLEANUP
 extern "C" int __unw_metadata_policy_enter(UnwindMetadataPolicyToken *) { return 1; }

@@ -268,7 +268,11 @@ capture_root(ThreadControl &control, uintptr_t activation, UnwindRootKind kind) 
 #if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_SIGNAL_UNWIND) || \
     defined(_LIBUNWIND_MMIX_CURSOR_LIFETIME)
   MMIXCursorLifetime lifetime{};
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  __libunwind_mmix_cursor_begin_root(&lifetime, &cursor);
+#else
   __libunwind_mmix_cursor_begin(&lifetime, &cursor);
+#endif
 #endif
   unw_proc_info_t procedure;
   unw_word_t ro, sp;

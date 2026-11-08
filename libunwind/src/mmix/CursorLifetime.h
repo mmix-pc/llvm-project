@@ -9,6 +9,7 @@
 #ifndef LIBUNWIND_MMIX_CURSOR_LIFETIME_H
 #define LIBUNWIND_MMIX_CURSOR_LIFETIME_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 // Stack-owned sidecar. This is not part of unw_cursor_t or unw_context_t.
@@ -21,6 +22,9 @@ struct MMIXCursorLifetime {
   uintptr_t token;
   struct MMIXCursorLifetime *previous;
   uintptr_t fallback_token;
+  // Private root capture borrows the permanently prepared startup image. It
+  // cannot be copied into a general cursor or used for forced traversal.
+  bool root_image;
 };
 
 // A borrowed checkpoint in a still-live, suspended parent. Capture with signals
@@ -63,6 +67,7 @@ extern "C" {
 // Imported by libc as well as used internally; protection belongs to the
 // provider definitions, not to declarations in another shared object.
 void __libunwind_mmix_cursor_begin(struct MMIXCursorLifetime *, void *);
+void __libunwind_mmix_cursor_begin_root(struct MMIXCursorLifetime *, void *);
 void __libunwind_mmix_cursor_end(struct MMIXCursorLifetime *);
 void __libunwind_mmix_cursor_finish(void *);
 void __libunwind_mmix_cursor_checkpoint(struct MMIXCursorCheckpoint *);
