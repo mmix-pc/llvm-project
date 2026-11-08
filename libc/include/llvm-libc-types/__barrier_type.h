@@ -9,12 +9,14 @@
 #ifndef __LLVM_LIBC_TYPES__BARRIER_TYPE_H
 #define __LLVM_LIBC_TYPES__BARRIER_TYPE_H
 
-#include <stdbool.h>
-
 typedef struct __attribute__((aligned(8 /* alignof (Barrier) */))) {
   unsigned __expected;
   unsigned __waiting;
+#ifdef __cplusplus
   bool __blocking;
+#else
+  _Bool __blocking;
+#endif
   char __entering[24 /* sizeof (CndVar) */];
   char __exiting[24 /* sizeof (CndVar) */];
   char __mutex[24 /* sizeof (Mutex) */];

@@ -1,0 +1,86 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+include = out / "include"
+for directory in ("llvm-libc-macros", "llvm-libc-types"):
+    shutil.copytree(libc / "include" / directory, include / directory,
+                    dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-cleanup.h",
+                include / "llvm-libc-macros/mmix/pthread-cleanup-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-cleanup-async.h",
+                include / "llvm-libc-macros/mmix/pthread-cleanup.h")
+for name in ("pthread", "sched", "time", "stdint"):
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include" / (name + ".yaml")), "--visibility",
+                    str(libc / "config/linux/mmix/HeaderVisibility.yaml"),
+                    "-o", str(include / (name + ".h"))], check=True)
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"],
+                                   text=True).strip()
+# Internal pthread representations must not import unrelated public macros.
+# Preserve their precise types and allow later explicit standard header imports.
+application_names = """
+INT16_C INT16_MAX INT16_MIN INT32_C INT32_MAX
+INT32_MIN INT64_C INT64_MAX INT64_MIN INT8_C
+INT8_MAX INT8_MIN INTMAX_C INTMAX_MAX INTMAX_MIN
+INTPTR_MAX INTPTR_MIN INT_FAST16_MAX INT_FAST16_MIN INT_FAST32_MAX
+INT_FAST32_MIN INT_FAST64_MAX INT_FAST64_MIN INT_FAST8_MAX INT_FAST8_MIN
+INT_LEAST16_MAX INT_LEAST16_MIN INT_LEAST32_MAX INT_LEAST32_MIN INT_LEAST64_MAX
+INT_LEAST64_MIN INT_LEAST8_MAX INT_LEAST8_MIN PTRDIFF_MAX PTRDIFF_MIN
+SIG_ATOMIC_MAX SIG_ATOMIC_MIN SIZE_MAX UINT16_C UINT16_MAX
+UINT32_C UINT32_MAX UINT64_C UINT64_MAX UINT8_C
+UINT8_MAX UINTMAX_C UINTMAX_MAX UINTPTR_MAX UINT_FAST16_MAX
+UINT_FAST32_MAX UINT_FAST64_MAX UINT_FAST8_MAX UINT_LEAST16_MAX UINT_LEAST32_MAX
+UINT_LEAST64_MAX UINT_LEAST8_MAX WCHAR_MAX WCHAR_MIN WINT_MAX
+WINT_MIN
+""".split()
+for target in ("mmix-unknown-linux", "x86_64-linux-gnu", "i386-linux-gnu"):
+    for language in ("c", "c++"):
+        selected_names = application_names + (["bool", "false", "true"] if language == "c" else [])
+        for feature in ("-D_POSIX_C_SOURCE=202405L", "-D_XOPEN_SOURCE=800"):
+            for predefined in (False, True):
+                for order in (("pthread", "sched", "time"), ("time", "sched", "pthread")):
+                    source = ""
+                    if predefined:
+                        source += "".join("#define " + name + " 19\n" for name in selected_names)
+                    for name in (*order, *reversed(order)):
+                        source += "#include <" + name + ".h>\n"
+                    for name in selected_names:
+                        source += ("#if " + name + " != 19\n#error application name changed\n#endif\n"
+                                   if predefined else "#ifdef " + name + "\n#error unrelated header macro exposed\n#endif\n")
+                    source += "pthread_t thread = PTHREAD_NULL;\n"
+                    source += "pthread_mutex_t app_mutex = PTHREAD_MUTEX_INITIALIZER;\n"
+                    source += "pthread_cond_t cond = PTHREAD_COND_INITIALIZER;\n"
+                    source += "pthread_once_t once = PTHREAD_ONCE_INIT;\n"
+                    source += "int (*equal_fn)(pthread_t, pthread_t) = &pthread_equal;\n"
+                    if language == "c++":
+                        source += "static_assert(__is_same(decltype(pthread_barrierattr_t{}.__pshared), bool));\n"
+                        source += "static_assert(__is_same(decltype(__barrier_type{}.__blocking), bool));\n"
+                        source += "static_assert(__is_same(pthread_id_np_t, __UINTPTR_TYPE__));\n"
+                    else:
+                        source += "_Static_assert(_Generic(((pthread_barrierattr_t){0}).__pshared, _Bool: 1, default: 0), \"boolean type\");\n"
+                        source += "_Static_assert(_Generic(((__barrier_type){0}).__blocking, _Bool: 1, default: 0), \"boolean type\");\n"
+                        source += "_Static_assert(_Generic((pthread_id_np_t)0, __UINTPTR_TYPE__: 1, default: 0), \"pointer integer type\");\n"
+                    for name in selected_names:
+                        source += "#undef " + name + "\n"
+                    source += "#include <stdint.h>\n#include <stdbool.h>\n"
+                    source += "#if INT8_MAX != 127 || UINT8_MAX != 255 || !true || false\n#error explicit header imports failed\n#endif\n"
+                    source += "bool app_boolean = true; uintptr_t app_integer = UINTPTR_MAX;\n"
+                    command = [clang, "--no-default-config", "--target=" + target,
+                               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                               "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+                               "-U_GNU_SOURCE", feature, "-Werror", "-fsyntax-only", "-"]
+                    result = subprocess.run(command, input=source, text=True, capture_output=True)
+                    assert result.returncode == 0, (command, predefined, order, result.stderr)

@@ -14,8 +14,6 @@
 #ifndef __LLVM_LIBC_TYPES_PTHREAD_ID_NP_T_H
 #define __LLVM_LIBC_TYPES_PTHREAD_ID_NP_T_H
 
-#include "../llvm-libc-macros/stdint-macros.h"
-
-typedef uintptr_t pthread_id_np_t;
+typedef __UINTPTR_TYPE__ pthread_id_np_t;
 
 #endif // __LLVM_LIBC_TYPES_PTHREAD_ID_NP_T_H

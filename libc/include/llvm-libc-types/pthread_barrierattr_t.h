@@ -9,10 +9,12 @@
 #ifndef __LLVM_LIBC_TYPES_PTHREAD_BARRIERATTR_T_H
 #define __LLVM_LIBC_TYPES_PTHREAD_BARRIERATTR_T_H
 
-#include <stdbool.h>
-
 typedef struct {
+#ifdef __cplusplus
   bool __pshared;
+#else
+  _Bool __pshared;
+#endif
 } pthread_barrierattr_t;
 
 #endif // __LLVM_LIBC_TYPES_PTHREAD_BARRIERATTR_T_H
