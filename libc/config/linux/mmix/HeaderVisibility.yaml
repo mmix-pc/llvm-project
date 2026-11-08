@@ -1,4 +1,7 @@
 # MMIX Linux installed namespace policy. This does not select runtime providers.
+sched.h:
+  functions:
+    getcpu: __LIBC_USE_LINUX_EXTENSIONS
 dlfcn.h:
   types:
     Dl_info_t: __LIBC_USE_POSIX2024

@@ -10,6 +10,12 @@
 #define __LLVM_LIBC_MACROS_MMIX_LINUX_FEATURES_H
 
 // These are namespace requests, not runtime capability or conformance claims.
+// Unprefixed Linux extensions are hidden for explicit POSIX/XSI requests.
+#if defined(_GNU_SOURCE) || defined(_DEFAULT_SOURCE) ||                      \
+    (!defined(_POSIX_SOURCE) && !defined(_POSIX_C_SOURCE) &&                  \
+     !defined(_XOPEN_SOURCE))
+#define __LIBC_USE_LINUX_EXTENSIONS 1
+#endif
 #define __LIBC_EXPLICIT_NAMESPACE 1
 #if defined(__STDC_WANT_LIB_EXT1__) && __STDC_WANT_LIB_EXT1__ == 1
 #define __LIBC_USE_ANNEX_K 1
