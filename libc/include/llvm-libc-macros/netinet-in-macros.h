@@ -43,85 +43,70 @@
 // int and takes a single argument of type const struct in6_addr *:
 // https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/netinet_in.h.html
 
-#define __IN6_IS_ADDR_UNSPECIFIED(a)                                           \
-  ((a)->s6_addr32[0] == 0 && (a)->s6_addr32[1] == 0 &&                         \
-   (a)->s6_addr32[2] == 0 && (a)->s6_addr32[3] == 0)
+// Ordinary inline calls also work in file-scope unevaluated expressions and
+// C++ initializers. Keep pointer arguments single-evaluated in every macro.
+static inline int
+__llvm_libc_in6_unspecified(const struct in6_addr *__address) {
+  for (unsigned __i = 0; __i < 16; ++__i)
+    if (__address->s6_addr[__i] != 0)
+      return 0;
+  return 1;
+}
 
-#define __IN6_IS_ADDR_LOOPBACK(a)                                              \
-  ((a)->s6_addr32[0] == 0 && (a)->s6_addr32[1] == 0 &&                         \
-   (a)->s6_addr32[2] == 0 && (a)->s6_addr[12] == 0 && (a)->s6_addr[13] == 0 && \
-   (a)->s6_addr[14] == 0 && (a)->s6_addr[15] == 1)
+static inline int __llvm_libc_in6_loopback(const struct in6_addr *__address) {
+  for (unsigned __i = 0; __i < 15; ++__i)
+    if (__address->s6_addr[__i] != 0)
+      return 0;
+  return __address->s6_addr[15] == 1;
+}
 
-#define IN6_IS_ADDR_UNSPECIFIED(a)                                             \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    __IN6_IS_ADDR_UNSPECIFIED(__a);                                            \
-  }))
+static inline int __llvm_libc_in6_multicast(const struct in6_addr *__address) {
+  return __address->s6_addr[0] == 0xff;
+}
 
-#define IN6_IS_ADDR_LOOPBACK(a)                                                \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    __IN6_IS_ADDR_LOOPBACK(__a);                                               \
-  }))
+static inline int __llvm_libc_in6_linklocal(const struct in6_addr *__address) {
+  return __address->s6_addr[0] == 0xfe &&
+         (__address->s6_addr[1] & 0xc0) == 0x80;
+}
 
-#define IN6_IS_ADDR_MULTICAST(a) ((a)->s6_addr[0] == 0xff)
+static inline int __llvm_libc_in6_sitelocal(const struct in6_addr *__address) {
+  return __address->s6_addr[0] == 0xfe &&
+         (__address->s6_addr[1] & 0xc0) == 0xc0;
+}
 
-#define IN6_IS_ADDR_LINKLOCAL(a)                                               \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    __a->s6_addr[0] == 0xfe && (__a->s6_addr[1] & 0xc0) == 0x80;               \
-  }))
+static inline int __llvm_libc_in6_v4mapped(const struct in6_addr *__address) {
+  for (unsigned __i = 0; __i < 10; ++__i)
+    if (__address->s6_addr[__i] != 0)
+      return 0;
+  return __address->s6_addr[10] == 0xff && __address->s6_addr[11] == 0xff;
+}
 
-#define IN6_IS_ADDR_SITELOCAL(a)                                               \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    __a->s6_addr[0] == 0xfe && (__a->s6_addr[1] & 0xc0) == 0xc0;               \
-  }))
+static inline int __llvm_libc_in6_v4compat(const struct in6_addr *__address) {
+  for (unsigned __i = 0; __i < 12; ++__i)
+    if (__address->s6_addr[__i] != 0)
+      return 0;
+  return !__llvm_libc_in6_unspecified(__address) &&
+         !__llvm_libc_in6_loopback(__address);
+}
 
-#define IN6_IS_ADDR_V4MAPPED(a)                                                \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    __a->s6_addr32[0] == 0 && __a->s6_addr32[1] == 0 &&                        \
-        __a->s6_addr[8] == 0 && __a->s6_addr[9] == 0 &&                        \
-        __a->s6_addr[10] == 0xff && __a->s6_addr[11] == 0xff;                  \
-  }))
+static inline int
+__llvm_libc_in6_multicast_scope(const struct in6_addr *__address,
+                                unsigned __scope) {
+  return __llvm_libc_in6_multicast(__address) &&
+         (__address->s6_addr[1] & 0xf) == __scope;
+}
 
-#define IN6_IS_ADDR_V4COMPAT(a)                                                \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    __a->s6_addr32[0] == 0 && __a->s6_addr32[1] == 0 &&                        \
-        __a->s6_addr32[2] == 0 && !__IN6_IS_ADDR_UNSPECIFIED(__a) &&           \
-        !__IN6_IS_ADDR_LOOPBACK(__a);                                          \
-  }))
-
-#define IN6_IS_ADDR_MC_NODELOCAL(a)                                            \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    IN6_IS_ADDR_MULTICAST(__a) && (__a->s6_addr[1] & 0xf) == 0x1;              \
-  }))
-
-#define IN6_IS_ADDR_MC_LINKLOCAL(a)                                            \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    IN6_IS_ADDR_MULTICAST(__a) && (__a->s6_addr[1] & 0xf) == 0x2;              \
-  }))
-
-#define IN6_IS_ADDR_MC_SITELOCAL(a)                                            \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    IN6_IS_ADDR_MULTICAST(__a) && (__a->s6_addr[1] & 0xf) == 0x5;              \
-  }))
-
-#define IN6_IS_ADDR_MC_ORGLOCAL(a)                                             \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    IN6_IS_ADDR_MULTICAST(__a) && (__a->s6_addr[1] & 0xf) == 0x8;              \
-  }))
-
-#define IN6_IS_ADDR_MC_GLOBAL(a)                                               \
-  (__extension__({                                                             \
-    const struct in6_addr *__a = (a);                                          \
-    IN6_IS_ADDR_MULTICAST(__a) && (__a->s6_addr[1] & 0xf) == 0xe;              \
-  }))
+#define IN6_IS_ADDR_UNSPECIFIED(a) (__llvm_libc_in6_unspecified((a)))
+#define IN6_IS_ADDR_LOOPBACK(a) (__llvm_libc_in6_loopback((a)))
+#define IN6_IS_ADDR_MULTICAST(a) (__llvm_libc_in6_multicast((a)))
+#define IN6_IS_ADDR_LINKLOCAL(a) (__llvm_libc_in6_linklocal((a)))
+#define IN6_IS_ADDR_SITELOCAL(a) (__llvm_libc_in6_sitelocal((a)))
+#define IN6_IS_ADDR_V4MAPPED(a) (__llvm_libc_in6_v4mapped((a)))
+#define IN6_IS_ADDR_V4COMPAT(a) (__llvm_libc_in6_v4compat((a)))
+#define IN6_IS_ADDR_MC_NODELOCAL(a) (__llvm_libc_in6_multicast_scope((a), 0x1))
+#define IN6_IS_ADDR_MC_LINKLOCAL(a) (__llvm_libc_in6_multicast_scope((a), 0x2))
+#define IN6_IS_ADDR_MC_SITELOCAL(a) (__llvm_libc_in6_multicast_scope((a), 0x5))
+#define IN6_IS_ADDR_MC_ORGLOCAL(a) (__llvm_libc_in6_multicast_scope((a), 0x8))
+#define IN6_IS_ADDR_MC_GLOBAL(a) (__llvm_libc_in6_multicast_scope((a), 0xe))
 
 #endif // LLVM_LIBC_MACROS_NETINET_IN_MACROS_H

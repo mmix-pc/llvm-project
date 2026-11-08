@@ -198,6 +198,18 @@ if(LIBC_TARGET_OS_IS_LINUX)
 
   foreach(language IN ITEMS c cpp)
     add_libc_test(
+      in6_macro_context_${language}_test
+      C_TEST
+      FULL_BUILD_ONLY
+      SUITE libc_include_tests
+      SRCS in6_macro_context_test.${language}
+      HDRS in6_macro_context_test.h
+      DEPENDS libc.include.netinet_in
+    )
+  endforeach()
+
+  foreach(language IN ITEMS c cpp)
+    add_libc_test(
       cmsg_macros_${language}_test
       C_TEST
       FULL_BUILD_ONLY
