@@ -61,6 +61,8 @@ for opt in ("0", "2"):
 struct robust_list {
   struct robust_list *next;
 };
+#define FUTEX_WAIT 0
+#define FUTEX_WAIT_PRIVATE 128
 #define FUTEX_WAIT_BITSET 9
 #define FUTEX_WAIT_BITSET_PRIVATE 137
 #define FUTEX_CLOCK_REALTIME 256

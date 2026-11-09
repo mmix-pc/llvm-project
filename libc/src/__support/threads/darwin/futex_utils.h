@@ -70,6 +70,27 @@ struct Futex : public cpp::Atomic<FutexWordType> {
     }
   }
 
+  LIBC_INLINE static ErrorOr<int> wait_at(void *address, FutexWordType expected,
+                                          bool is_shared) {
+    FutexErrnoProtect protect;
+    auto flags = is_shared ? OS_SYNC_WAIT_ON_ADDRESS_SHARED
+                           : OS_SYNC_WAIT_ON_ADDRESS_NONE;
+    for (;;) {
+      int ret =
+          os_sync_wait_on_address(address, static_cast<uint64_t>(expected),
+                                  sizeof(FutexWordType), flags);
+      if (ret < 0 && *__error() == EINTR)
+        continue;
+      // EFAULT can be transient on Darwin. Let the owner reload its full
+      // atomic before retrying, as recommended by os_sync_wait_on_address.
+      if (ret < 0 && (*__error() == EAGAIN || *__error() == EFAULT))
+        return 0;
+      if (ret < 0)
+        return cpp::unexpected(*__error());
+      return ret;
+    }
+  }
+
   LIBC_INLINE ErrorOr<int> notify_one(bool is_shared) {
     FutexErrnoProtect protect;
     os_sync_wake_by_address_flags_t flags = OS_SYNC_WAKE_BY_ADDRESS_NONE;
@@ -83,12 +104,16 @@ struct Futex : public cpp::Atomic<FutexWordType> {
   }
 
   LIBC_INLINE ErrorOr<int> notify_all(bool is_shared) {
+    return notify_all_at(this, is_shared);
+  }
+
+  LIBC_INLINE static ErrorOr<int> notify_all_at(void *address, bool is_shared) {
     FutexErrnoProtect protect;
     os_sync_wake_by_address_flags_t flags = OS_SYNC_WAKE_BY_ADDRESS_NONE;
     if (is_shared)
       flags = OS_SYNC_WAKE_BY_ADDRESS_SHARED;
-    int res = os_sync_wake_by_address_all(reinterpret_cast<void *>(this),
-                                          sizeof(FutexWordType), flags);
+    int res =
+        os_sync_wake_by_address_all(address, sizeof(FutexWordType), flags);
     if (res < 0)
       return cpp::unexpected(*__error());
     return res;

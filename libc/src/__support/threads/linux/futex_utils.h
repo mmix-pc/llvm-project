@@ -105,6 +105,23 @@ public:
       return ret;
     }
   }
+  // Wait on a word within a larger atomic without a C++ aliasing load.
+  // The kernel performs the value comparison atomically with queue insertion.
+  LIBC_INLINE static ErrorOr<int> wait_at(void *address, FutexWordType expected,
+                                          bool is_shared) {
+    for (;;) {
+      int ret = syscall_impl<int>(FUTEX_SYSCALL_ID, address,
+                                  is_shared ? FUTEX_WAIT : FUTEX_WAIT_PRIVATE,
+                                  expected, nullptr, nullptr, 0);
+      if (ret == -EINTR)
+        continue;
+      if (ret == -EAGAIN || ret == -EWOULDBLOCK)
+        return 0;
+      if (ret < 0)
+        return cpp::unexpected(-ret);
+      return ret;
+    }
+  }
   LIBC_INLINE ErrorOr<int> notify_one(bool is_shared = false) {
     int ret = syscall_impl<int>(
         /*syscall_number=*/FUTEX_SYSCALL_ID,
@@ -119,9 +136,14 @@ public:
     return ret;
   }
   LIBC_INLINE ErrorOr<int> notify_all(bool is_shared = false) {
+    return notify_all_at(this, is_shared);
+  }
+  // Only pass the cached address to the kernel: storage may have been retired
+  // after the caller released its last reference.
+  LIBC_INLINE static ErrorOr<int> notify_all_at(void *address, bool is_shared) {
     int ret = syscall_impl<int>(
         /*syscall_number=*/FUTEX_SYSCALL_ID,
-        /*futex_addr=*/this,
+        /*futex_addr=*/address,
         /*op=*/is_shared ? FUTEX_WAKE : FUTEX_WAKE_PRIVATE,
         /*wake_limit=*/cpp::numeric_limits<int>::max(),
         /*ignored=*/nullptr,

@@ -59,6 +59,8 @@ if len(sys.argv) == 4:
 #define SYS_write 64
 #define SYS_futex 98
 #--- headers/linux/futex.h
+#define FUTEX_WAIT 0
+#define FUTEX_WAIT_PRIVATE 128
 #define FUTEX_WAIT_BITSET 9
 #define FUTEX_WAIT_BITSET_PRIVATE 137
 #define FUTEX_CLOCK_REALTIME 256
