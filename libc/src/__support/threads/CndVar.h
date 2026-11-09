@@ -13,6 +13,7 @@
 #include "src/__support/CPP/limits.h"
 #include "src/__support/CPP/mutex.h"
 #include "src/__support/CPP/new.h"
+#include "src/__support/endian_internal.h"
 #include "src/__support/macros/config.h"
 #include "src/__support/threads/futex_utils.h" // Futex
 #include "src/__support/threads/mutex.h"       // Mutex
@@ -175,6 +176,28 @@ private:
   const bool is_shared;
   const bool is_realtime;
 
+  // Futex waits use a nonzero word of the full-width reference count. Waiting
+  // on the low word when it is zero could miss the final transition to zero.
+  LIBC_INLINE void *shared_waiter_word(bool high) {
+    static_assert(sizeof(size_t) == 4 || sizeof(size_t) == 8);
+    auto *bytes = reinterpret_cast<unsigned char *>(&shared_waiters.val);
+    if constexpr (sizeof(size_t) == 4)
+      return bytes;
+    return bytes + ((high == Endian::IS_LITTLE) ? 4 : 0);
+  }
+
+  LIBC_INLINE void release_shared_waiter() {
+    void *low = shared_waiter_word(false);
+    void *high = shared_waiter_word(true);
+    if (shared_waiters.fetch_sub(1, cpp::MemoryOrder::RELEASE) == 1) {
+      // No member access is allowed after the final decrement: reset may
+      // already have returned and the caller may have freed the storage.
+      Futex::notify_all_at(low, /*is_shared=*/true);
+      if (high != low)
+        Futex::notify_all_at(high, /*is_shared=*/true);
+    }
+  }
+
   LIBC_INLINE void notify(bool is_broadcast) {
     if (LIBC_UNLIKELY(is_shared)) {
       if (shared_waiters.load() == 0)
@@ -188,15 +211,15 @@ private:
       return;
     }
 
-    size_t limit =
-        is_broadcast ? cpp::numeric_limits<size_t>::max() : size_t{1};
+    // Enroll all current waiters in the detached propagation ring, including
+    // for signal. Extra condition wakes are permitted. This lets a canceled
+    // recipient pass notification onward without touching condition storage,
+    // which may already have been destroyed before mutex reacquisition.
     CancellationBarrier cancellation_barrier{};
     CndWaiter *head = nullptr;
     CndWaiter *cursor = nullptr;
-    // Go through the queue, try send signal to waiters.
-    // 1. if signal is sent, we reduce the number of pending signals
-    // 2. if waiter cancelled before signal is sent, we add it
-    //    to cancellation barrier and continue
+    // Go through the queue and signal each waiter. If a waiter canceled
+    // before notification, add it to the cancellation barrier and continue.
     // Notice that cancelled sender will not continue before
     // we release the queue lock, because they also need to
     // acquire the lock and dequeue themselves.
@@ -206,8 +229,6 @@ private:
         return;
       for (cursor = waiter_queue.next; cursor != waiter_queue.self();
            cursor = cursor->next) {
-        if (limit == 0)
-          break;
         uint8_t expected = Waiting;
         if (!cursor->state.compare_exchange_strong(expected, Signalled)) {
           cancellation_barrier.add_one();
@@ -216,7 +237,6 @@ private:
         }
         if (!head)
           head = cursor;
-        limit--;
       }
       // remove everything before cursor
       waiter_queue.separate(cursor);
@@ -245,6 +265,19 @@ public:
 
   LIBC_INLINE void reset() {
     if (is_shared) {
+      while (size_t remaining =
+                 shared_waiters.load(cpp::MemoryOrder::ACQUIRE)) {
+        FutexWordType expected = static_cast<FutexWordType>(remaining);
+        bool high = expected == 0;
+        if constexpr (sizeof(size_t) == 8) {
+          if (high)
+            expected = static_cast<FutexWordType>(remaining >> 32);
+        }
+        if (!Futex::wait_at(shared_waiter_word(high), expected,
+                            /*is_shared=*/true)
+                 .has_value())
+          __builtin_trap();
+      }
       shared_waiters.store(0);
       shared_futex.store(0);
       return;
@@ -290,28 +323,27 @@ public:
         CndVar *cond;
         WaitMutex *mutex;
         bool registered = true, reacquired = false;
-        // A throwing wait policy can leave its wake result unknown.
-        // Conservatively replace a possible consumed signal; spurious condition
-        // wakes are valid.
-        bool consumed_signal = true;
         bool enabled = true;
         ~SharedCleanup() {
           if (!enabled)
             return;
-          if (registered)
-            cond->shared_waiters.fetch_sub(1);
+          if (registered) {
+            cond->notify(/*is_broadcast=*/false);
+            cond->release_shared_waiter();
+          }
           if (!reacquired && !mutex_owns_lock(mutex->lock()))
             __builtin_trap();
-          if (consumed_signal)
-            cond->notify(/*is_broadcast=*/false);
         }
       } cleanup{this, mutex};
       ErrorOr<int> result = wait_shared(shared_futex, old_val, timeout);
-      shared_waiters.fetch_sub(1);
+      // Cancellation may arrive during mutex reacquisition, after storage has
+      // been retired. Replace a potentially consumed signal while we still
+      // hold a reference, even on the normal path (spurious wakes are valid).
+      notify(/*is_broadcast=*/false);
+      release_shared_waiter();
       cleanup.registered = false;
       MutexError mutex_result = mutex->lock();
       cleanup.reacquired = mutex_owns_lock(mutex_result);
-      cleanup.consumed_signal = result.has_value();
       if (cleanup.reacquired)
         check_cancel();
       cleanup.enabled = false;
@@ -341,15 +373,12 @@ public:
       CndWaiter *waiter;
       WaitMutex *mutex;
       bool active = true;
-      bool finished = false, consumed_signal = false;
+      bool finished = false;
       ~Cleanup() {
         if (!active)
           return;
-        if (finished) {
-          if (consumed_signal)
-            cond->notify(/*is_broadcast=*/false);
-        } else {
-          CndVarResult result = cond->finish_wait(*waiter, mutex, false, true);
+        if (!finished) {
+          CndVarResult result = finish_wait(cond, *waiter, mutex, false);
           if (result == CndVarResult::MutexError ||
               result == CndVarResult::NotRecoverable)
             __builtin_trap();
@@ -359,12 +388,11 @@ public:
     // Notice that lock is already initialized as LOCKED. We abuse the LOCKED
     // state to indicate that the waiter is pending.
     bool locked = wait_barrier(waiter.barrier, timeout);
-    CndVarResult result = finish_wait(waiter, mutex, locked, false);
+    CndVarResult result = finish_wait(this, waiter, mutex, locked);
     cleanup.finished = true;
-    cleanup.consumed_signal =
-        result == CndVarResult::Success || result == CndVarResult::OwnerDead;
-    // Cancellation arriving during raw mutex reacquisition still belongs to
-    // this wait. The node is retired, but a consumed signal needs replacement.
+    // Cancellation during mutex reacquisition still belongs to this wait.
+    // The detached ring has already passed notification to the successor;
+    // cleanup must not revisit condition storage after node retirement.
     if (result != CndVarResult::NotRecoverable &&
         result != CndVarResult::MutexError)
       check_cancel();
@@ -374,8 +402,8 @@ public:
 
 private:
   template <typename WaitMutex>
-  LIBC_INLINE CndVarResult finish_wait(CndWaiter &waiter, WaitMutex *mutex,
-                                       bool locked, bool abandoned) {
+  LIBC_INLINE static CndVarResult finish_wait(CndVar *cond, CndWaiter &waiter,
+                                              WaitMutex *mutex, bool locked) {
     // if we wake up and find that we are still waiting, this means
     // timeout has been reached.
     uint8_t old_state = Waiting;
@@ -383,7 +411,7 @@ private:
                                              cpp::MemoryOrder::ACQ_REL)) {
       // we haven't consumed the signal before timeout reaches.
       {
-        cpp::lock_guard lock(queue_lock);
+        cpp::lock_guard lock(cond->queue_lock);
         CndWaiter::remove(&waiter);
       }
       waiter.confirm_cancellation();
@@ -436,10 +464,8 @@ private:
         }
       }
     }
-    // A canceled waiter must not consume a signal intended for other waiters.
-    // Complete the detached propagation ring before issuing a replacement.
-    if (abandoned && old_state != Waiting)
-      notify(/*is_broadcast=*/false);
+    // Notification (including cancellation replacement) is carried entirely
+    // by the detached ring. No condition access is needed after reacquisition.
     if (mutex_result == MutexError::OWNER_DEAD)
       return CndVarResult::OwnerDead;
     if (mutex_result == MutexError::NOT_RECOVERABLE)
