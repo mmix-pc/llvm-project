@@ -62,20 +62,24 @@
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_SYMLINK_FOLLOW 0x400
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_LINUX_EXTENSIONS)
 // Do not automount the terminal component during a metadata lookup.
 #define AT_NO_AUTOMOUNT 0x800
 
 // Allow empty relative pathname.
 #define AT_EMPTY_PATH 0x1000
+#endif
 
 // Perform access checks using the effective user and group IDs.
 #define AT_EACCESS 0x200
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_LINUX_EXTENSIONS)
 #define AT_STATX_SYNC_TYPE 0x6000
 #define AT_STATX_SYNC_AS_STAT 0x0000
 #define AT_STATX_FORCE_SYNC 0x2000
 #define AT_STATX_DONT_SYNC 0x4000
 #define AT_RECURSIVE 0x8000
+#endif
 
 // Values of SYS_fcntl commands.
 #define F_DUPFD 0
@@ -128,6 +132,7 @@
 #define F_SEAL_FUTURE_WRITE 0x0010
 #define F_SEAL_EXEC 0x0020
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_LINUX_EXTENSIONS)
 #define DN_ACCESS 0x00000001
 #define DN_MODIFY 0x00000002
 #define DN_CREATE 0x00000004
@@ -135,6 +140,7 @@
 #define DN_RENAME 0x00000010
 #define DN_ATTRIB 0x00000020
 #define DN_MULTISHOT 0x80000000
+#endif
 
 // Close on execute for fcntl.
 #define FD_CLOEXEC 1

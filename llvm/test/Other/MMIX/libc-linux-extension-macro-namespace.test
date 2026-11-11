@@ -1,0 +1,81 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+include = out / "include"
+for directory in ("llvm-libc-macros", "llvm-libc-types"):
+    shutil.copytree(libc / "include" / directory, include / directory,
+                    dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-cleanup.h",
+                include / "llvm-libc-macros/mmix/pthread-cleanup-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-cleanup-async.h",
+                include / "llvm-libc-macros/mmix/pthread-cleanup.h")
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"], text=True).strip()
+values = {"AT_EMPTY_PATH": 0x1000, "AT_NO_AUTOMOUNT": 0x800,
+          "AT_RECURSIVE": 0x8000, "AT_STATX_DONT_SYNC": 0x4000,
+          "AT_STATX_FORCE_SYNC": 0x2000, "AT_STATX_SYNC_AS_STAT": 0,
+          "AT_STATX_SYNC_TYPE": 0x6000, "DN_ACCESS": 1, "DN_MODIFY": 2,
+          "DN_CREATE": 4, "DN_DELETE": 8, "DN_RENAME": 16,
+          "DN_ATTRIB": 32, "DN_MULTISHOT": 0x80000000}
+profiles = [(["-D_POSIX_C_SOURCE=202405L"], False),
+            (["-D_XOPEN_SOURCE=800"], False),
+            (["-D_POSIX_C_SOURCE=200809L"], False),
+            (["-D_GNU_SOURCE=1"], True),
+            (["-D_DEFAULT_SOURCE=1"], True), ([], True),
+            (["-D_POSIX_C_SOURCE=202405L", "-D_DEFAULT_SOURCE=1"], True)]
+for target in ("mmix-unknown-linux", "x86_64-linux-gnu", "i386-linux-gnu"):
+    common = libc / "include" / ("llvm-libc-macros/mmix/linux-common.h" if target.startswith("mmix") else "__llvm-libc-common.h")
+    shutil.copyfile(common, include / "__llvm-libc-common.h")
+    for name in ("fcntl", "unistd"):
+        command = [sys.executable, str(libc / "utils/hdrgen/main.py"),
+                   str(libc / "include" / (name + ".yaml")),
+                   "-o", str(include / (name + ".h"))]
+        if target.startswith("mmix"):
+            command += ["--visibility", str(libc / "config/linux/mmix/HeaderVisibility.yaml")]
+        subprocess.run(command, check=True)
+    for language, standard in (("c", "c17"), ("c++", "c++17")):
+        for flags, extensions in profiles:
+            visible = extensions or not target.startswith("mmix")
+            for headers in (("fcntl.h",), ("unistd.h",),
+                            ("fcntl.h", "unistd.h"), ("unistd.h", "fcntl.h")):
+                imported = "fcntl.h" in headers or not target.startswith("mmix") or (bool(flags) and flags != ["-D_POSIX_C_SOURCE=200809L"])
+                names = list(values) if imported else []
+                functions = ["syscall", "TEMP_FAILURE_RETRY"] if "unistd.h" in headers else []
+                for kind in (("control",) if visible else ("control", "identifier", "predefined")):
+                    source = ""
+                    if kind == "predefined":
+                        source += "".join("#define " + n + " 19\n" for n in names + functions)
+                    source += "".join("#include <" + h + ">\n" for h in (*headers, *reversed(headers)))
+                    if kind == "identifier":
+                        if names:
+                            source += "enum { " + ",".join(n + " = 17" for n in names) + " };\n"
+                        source += "".join("int " + n + "(int value);\n" for n in functions)
+                    if kind == "predefined":
+                        source += "".join("#if " + n + " != 19\n#error application macro changed\n#endif\n" for n in names + functions)
+                    if kind == "control":
+                        for n in names + functions:
+                            source += ("#ifndef " if visible else "#ifdef ") + n + "\n#error extension visibility\n#endif\n"
+                        if visible:
+                            source += "".join("#if " + n + " != " + str(v) + "ULL\n#error extension value\n#endif\n" for n, v in values.items() if n in names)
+                    if imported:
+                        source += "int required[] = {AT_FDCWD,AT_EACCESS,AT_REMOVEDIR,AT_SYMLINK_FOLLOW,AT_SYMLINK_NOFOLLOW,O_RDONLY,F_GETFD};\n"
+                    if "unistd.h" in headers:
+                        source += "ssize_t (*reader)(int,void*,size_t)=&read;\n"
+                    command = [clang, "--no-default-config", "--target=" + target,
+                               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                               "-x", language, "-std=" + standard, "-U_GNU_SOURCE", *flags,
+                               "-Werror", "-fsyntax-only", "-"]
+                    result = subprocess.run(command, input=source, text=True, capture_output=True)
+                    assert result.returncode == 0, (command, headers, kind, result.stderr)

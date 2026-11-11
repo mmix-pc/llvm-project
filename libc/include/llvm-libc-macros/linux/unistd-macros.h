@@ -287,6 +287,7 @@
 #define _POSIX_NO_TRUNC 1
 #define _POSIX_VDISABLE '\0'
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_LINUX_EXTENSIONS)
 // Macro to set up the call to the __llvm_libc_syscall function
 // This is to prevent the call from having fewer than 6 arguments, since six
 // arguments are always passed to the syscall. Unnecessary arguments are
@@ -305,6 +306,7 @@
     } while (__result == -1L && errno == EINTR);                               \
     __result;                                                                  \
   }))
+#endif
 #endif
 
 #endif // __LLVM_LIBC_MACROS_LINUX_UNISTD_MACROS_H
