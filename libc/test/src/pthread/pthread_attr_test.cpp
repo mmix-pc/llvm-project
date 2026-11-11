@@ -127,3 +127,29 @@ TEST(LlvmLibcPThreadattrTest, SetAndGetStack) {
 
   ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_destroy(&attr), 0);
 }
+
+TEST(LlvmLibcPThreadattrTest, StackSizePreservesExplicitStackAddress) {
+  pthread_attr_t attr;
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_init(&attr), 0);
+  alignas(64) static unsigned char storage[PTHREAD_STACK_MIN * 4];
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_setstack(&attr, storage,
+                                                sizeof(storage)), 0);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_setguardsize(&attr, 1), 0);
+  const size_t size = sizeof(storage) / 2;
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_setstacksize(&attr, size), 0);
+  void *address = nullptr;
+  size_t actual = 0;
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_getstack(&attr, &address, &actual), 0);
+  ASSERT_EQ(address, static_cast<void *>(storage));
+  ASSERT_EQ(actual, size);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_setstacksize(&attr,
+                                                    PTHREAD_STACK_MIN - 1),
+            EINVAL);
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_getstack(&attr, &address, &actual), 0);
+  ASSERT_EQ(address, static_cast<void *>(storage));
+  ASSERT_EQ(actual, size);
+  size_t guard = 0;
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_getguardsize(&attr, &guard), 0);
+  ASSERT_EQ(guard, size_t(1));
+  ASSERT_EQ(LIBC_NAMESPACE::pthread_attr_destroy(&attr), 0);
+}

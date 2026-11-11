@@ -21,7 +21,6 @@ LLVM_LIBC_FUNCTION(int, pthread_attr_setstacksize,
   // TODO: Should we also ensure stacksize % EXEC_PAGESIZE == 0?
   if (stacksize < PTHREAD_STACK_MIN)
     return EINVAL;
-  attr->__stack = nullptr;
   attr->__stacksize = stacksize;
   return 0;
 }
