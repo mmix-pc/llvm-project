@@ -1,0 +1,16 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: rm -rf %t
+# RUN: mkdir -p %t
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/pthread.h %S/../../../../libc/include/pthread.yaml
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/sched.h %S/../../../../libc/include/sched.yaml
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/time.h %S/../../../../libc/include/time.yaml
+# RUN: %mmix_host_cxx -std=c++17 -O0 -DLIBC_FULL_BUILD -DLIBC_NAMESPACE=guard_policy -I %t -I %S/../../../../libc/include -I %S/../../../../libc %S/../../../../libc/src/pthread/linux/mmix/pthread_attr_setguardsize.cpp %S/../../../../libc/test/src/pthread/mmix/guard_size_policy.cpp -o %t/native-O0
+# RUN: %t/native-O0
+# RUN: %mmix_host_cxx -std=c++17 -O2 -DLIBC_FULL_BUILD -DLIBC_NAMESPACE=guard_policy -I %t -I %S/../../../../libc/include -I %S/../../../../libc %S/../../../../libc/src/pthread/linux/mmix/pthread_attr_setguardsize.cpp %S/../../../../libc/test/src/pthread/mmix/guard_size_policy.cpp -o %t/native-O2
+# RUN: %t/native-O2
+# RUN: %mmix_host_cxx -std=c++17 -O2 -DLIBC_FULL_BUILD -DLIBC_NAMESPACE=guard_policy -I %t -I %S/../../../../libc/include -I %S/../../../../libc %S/../../../../libc/src/pthread/pthread_attr_setguardsize.cpp %S/../../../../libc/test/src/pthread/mmix/guard_size_policy.cpp -o %t/generic-policy
+# RUN: not %t/generic-policy
+
+# Execute the actual selected setter, including zero-page and size_t boundary
+# nonmutation. The generic provider is a distinct retained policy; rejecting it
+# here demonstrates sensitivity to the selected target policy, not a generic bug.

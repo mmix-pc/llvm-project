@@ -1,4 +1,4 @@
-foreach(operation pthread_attr_init pthread_attr_getschedparam pthread_attr_setschedparam pthread_create pthread_setschedparam pthread_getschedparam)
+foreach(operation pthread_attr_init pthread_attr_setguardsize pthread_attr_getschedparam pthread_attr_setschedparam pthread_create pthread_setschedparam pthread_getschedparam)
   set(${operation}_source ${operation}.cpp)
 endforeach()
 foreach(operation pthread_join pthread_cond_wait pthread_cond_timedwait
@@ -114,10 +114,11 @@ add_entrypoint_object(
 add_entrypoint_object(
   pthread_attr_setguardsize
   SRCS
-    pthread_attr_setguardsize.cpp
+    ${pthread_attr_setguardsize_source}
   HDRS
     pthread_attr_setguardsize.h
   DEPENDS
+    ${pthread_attr_setguardsize_dependencies}
     libc.include.pthread
     libc.src.errno.errno
 )
