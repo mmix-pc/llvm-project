@@ -9,6 +9,10 @@
 #ifndef __LLVM_LIBC_MACROS_PTHREAD_MACRO_H
 #define __LLVM_LIBC_MACROS_PTHREAD_MACRO_H
 
+#if defined(__mmix__) && defined(__linux__)
+#include "llvm-libc-macros/mmix/pthread-scheduling-macros.h"
+#endif
+
 #ifdef __cplusplus
 #define PTHREAD_NULL (pthread_t{})
 #else

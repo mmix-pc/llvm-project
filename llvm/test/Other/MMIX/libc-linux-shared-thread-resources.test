@@ -13,6 +13,7 @@ resource = subprocess.check_output(["clang", "-print-resource-dir"], text=True).
 flags = ["-std=c++17", "-ffreestanding", "-fno-builtin", "-DLIBC_FULL_BUILD",
          "-DLIBC_NAMESPACE=resource_test", "-DLIBC_MMIX_SHARED_STARTUP",
          "-DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM",
+         "-iquote", str(libc / "include"),
          "-I", str(root / "base/headers"), "-I", str(root / "sync"), "-I", str(libc)]
 sources = [libc / "src/__support/threads/linux/mmix" / name
            for name in ("resources.cpp", "lifecycle.cpp")] + [root / "test.cpp"]

@@ -547,7 +547,11 @@ if(TARGET libc.include.llvm-libc-macros.mmix.pthread_cleanup)
     DEST_HDR pthread-macros.h
     DEPENDS .null_macro .mmix.pthread_base_macros .mmix.pthread_cleanup)
 else()
-  add_macro_header(pthread_macros HDR pthread-macros.h DEPENDS .null_macro)
+  set(pthread_macro_deps .null_macro)
+  if(TARGET libc.include.llvm-libc-macros.mmix.pthread_scheduling_macros)
+    list(APPEND pthread_macro_deps .mmix.pthread_scheduling_macros)
+  endif()
+  add_macro_header(pthread_macros HDR pthread-macros.h DEPENDS ${pthread_macro_deps})
 endif()
 
 add_macro_header(

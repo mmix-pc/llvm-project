@@ -22,9 +22,4 @@ typedef struct {
   int __scope;
 } pthread_attr_t;
 
-#define PTHREAD_INHERIT_SCHED 0
-#define PTHREAD_EXPLICIT_SCHED 1
-#define PTHREAD_SCOPE_SYSTEM 0
-#define PTHREAD_SCOPE_PROCESS 1
-
 #endif

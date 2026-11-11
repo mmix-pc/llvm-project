@@ -15,6 +15,7 @@ set_target_properties(${unistd_options_target} PROPERTIES
 add_header(unistd_macros HDR unistd-macros.h DEPENDS .unistd_options)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
+  add_header(pthread_scheduling_macros HDR pthread-scheduling-macros.h)
   add_header(linux_limits_macros HDR linux-limits-macros.h)
   add_header(linux_features HDR linux-features.h)
   add_header(common_base HDR ../../__llvm-libc-common.h DEST_HDR common-base.h)
@@ -28,7 +29,7 @@ if(LIBC_TARGET_OS STREQUAL "linux")
   endif()
   if(LIBC_MMIX_BUILD_UNWIND_ROOTS)
     add_header(pthread_base_macros HDR ../pthread-macros.h
-      DEST_HDR pthread-base-macros.h)
+      DEST_HDR pthread-base-macros.h DEPENDS .pthread_scheduling_macros)
     if(LIBC_MMIX_BUILD_ASYNC_CANCELLATION)
       add_header(pthread_cleanup_base HDR pthread-cleanup.h DEST_HDR pthread-cleanup-base.h)
       add_header(pthread_cleanup HDR pthread-cleanup-async.h DEST_HDR pthread-cleanup.h
