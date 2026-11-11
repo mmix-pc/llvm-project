@@ -1,0 +1,42 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %mmix_host_cxx -O0 -std=c++17 -pthread -I %t -I %S/../../../.. -I %S/../../../../libc -DLIBC_NAMESPACE=rwlock_deadline_test -DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM %t/main.cpp -o %t/native-O0
+# RUN: %t/native-O0
+# RUN: %mmix_host_cxx -O2 -std=c++17 -pthread -I %t -I %S/../../../.. -I %S/../../../../libc -DLIBC_NAMESPACE=rwlock_deadline_test -DLIBC_THREAD_MODE=LIBC_THREAD_MODE_PLATFORM %t/main.cpp -o %t/native-O2
+# RUN: %t/native-O2
+
+# Execute the actual generic unit-test bodies with host clock/futex transport.
+# This does not stand in for MMIX public wrapper or guest execution.
+
+#--- test/UnitTest/Test.h
+#include <stdio.h>
+#include <stdlib.h>
+#define TEST(group, name) static void name()
+#define ASSERT_TRUE(x) do { if (!(x)) { fprintf(stderr, "assert line %d: %s\n", __LINE__, #x); abort(); } } while (0)
+#define EXPECT_TRUE ASSERT_TRUE
+#define ASSERT_EQ(a, b) ASSERT_TRUE((a) == (b))
+#define EXPECT_EQ ASSERT_EQ
+
+#--- main.cpp
+#include <time.h>
+#include "libc/test/src/__support/threads/linux/raw_rwlock_test.cpp"
+namespace LIBC_NAMESPACE {
+namespace internal {
+ErrorOr<int> clock_gettime(clockid_t id, timespec *ts) {
+  int result = ::clock_gettime(id, ts);
+  if (result)
+    return cpp::unexpected(errno);
+  return result;
+}
+}
+}
+int main() {
+  PostBusyDeadlinePrecedesAcquisition();
+  ExpiredRetryPublishesReplacementWake();
+  HandoffRetainsOwnership();
+  LastWriterTimeoutPublishesReaders();
+  SmokeTest();
+  TimeoutWithoutDeadlockDetection();
+  ImmediateAcquisitionSkipsDeadlineCheck();
+  return 0;
+}

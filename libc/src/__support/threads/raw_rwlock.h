@@ -44,7 +44,7 @@ enum class LockResult : int {
   PermissionDenied = EPERM,
 };
 
-// Platforms can supply a deadline check before withdrawing a queued waiter.
+// Platforms can supply a deadline check for slow acquisition and withdrawal.
 struct NoTimeoutCheck {
   LIBC_INLINE bool operator()() const { return false; }
 };
@@ -354,9 +354,12 @@ private:
     return static_cast<Role>(preference);
   }
 
-  template <Role role> LIBC_INLINE LockResult try_lock(RwState &old) {
+  template <Role role, class TimeoutCheck = rwlock::NoTimeoutCheck>
+  LIBC_INLINE LockResult try_lock(RwState &old, TimeoutCheck expired = {}) {
     if constexpr (role == Role::Reader) {
       while (LIBC_LIKELY(old.can_acquire<Role::Reader>(get_preference()))) {
+        if (expired())
+          return LockResult::TimedOut;
         cpp::optional<RwState> next = old.try_increase_reader_count();
         if (!next)
           return LockResult::Overflow;
@@ -371,6 +374,8 @@ private:
     } else {
       // This while loop should terminate quickly
       while (LIBC_LIKELY(old.can_acquire<Role::Writer>(get_preference()))) {
+        if (expired())
+          return LockResult::TimedOut;
         if (LIBC_LIKELY(old.compare_exchange_weak_with(
                 state, old.set_writer_bit(), cpp::MemoryOrder::ACQUIRE,
                 cpp::MemoryOrder::RELAXED)))
@@ -392,15 +397,20 @@ private:
       ensure_monotonicity(*timeout);
 #endif
 
-    // Phase 3: spin to get the initial state. We ignore the timing due to
-    // spin since it should end quickly.
+    // Phase 3: spin to get the initial state. Check the deadline after spinning
+    // and before attempting ownership.
     RwState old =
         RwState::spin_reload<role>(state, get_preference(), spin_count);
 
+    bool withdrew_waiter = false;
+    auto expired = [&]() { return timeout && timeout_expired(); };
     // Enter the main acquisition loop.
     for (;;) {
       // Phase 4: if the lock can be acquired, try to acquire it.
-      LockResult result = try_lock<role>(old);
+      LockResult result = expired() ? LockResult::TimedOut
+                                   : try_lock<role>(old, expired);
+      if (result == LockResult::TimedOut && withdrew_waiter)
+        notify_waiters_after_timeout();
       if (result != LockResult::Busy)
         return result;
 
@@ -504,8 +514,34 @@ private:
       }
 
       // Phase 9: reload the state and retry the acquisition.
+      withdrew_waiter = true;
       old = RwState::spin_reload<role>(state, get_preference(), spin_count);
     }
+  }
+
+  // A waiter can expire after unregistering but before its next ownership
+  // attempt. It may have consumed a wake or removed the last writer gate.
+  // Publish fresh serials for the remaining roles before abandoning the retry.
+  LIBC_INLINE void notify_waiters_after_timeout() {
+    const bool shared = is_pshared;
+    Futex *readers = nullptr;
+    Futex *writers = nullptr;
+    {
+      auto guard = queue.acquire(shared);
+      if (guard.pending_count<Role::Reader>() != 0) {
+        readers = &guard.serialization<Role::Reader>();
+        readers->fetch_add(1, cpp::MemoryOrder::RELEASE);
+      }
+      if (guard.pending_count<Role::Writer>() != 0) {
+        writers = &guard.serialization<Role::Writer>();
+        writers->fetch_add(1, cpp::MemoryOrder::RELEASE);
+      }
+    }
+    // Only saved futex addresses are used after releasing the queue guard.
+    if (readers)
+      readers->notify_all(shared);
+    if (writers)
+      writers->notify_one(shared);
   }
 
   // Compiler (clang 19.0) somehow decides that this function may be inlined,
@@ -566,10 +602,12 @@ public:
   LIBC_INLINE LockResult
   read_lock(cpp::optional<Futex::Timeout> timeout = cpp::nullopt,
             unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
-            TimeoutCheck timeout_expired = {}) {
-    LockResult result = try_read_lock();
-    if (LIBC_LIKELY(result != LockResult::Busy))
-      return result;
+            TimeoutCheck timeout_expired = {}, bool try_immediate = true) {
+    if (try_immediate) {
+      LockResult result = try_read_lock();
+      if (LIBC_LIKELY(result != LockResult::Busy))
+        return result;
+    }
     return lock_slow<Role::Reader>(timeout, spin_count, timeout_expired);
   }
 
@@ -578,10 +616,12 @@ public:
   LIBC_INLINE LockResult
   write_lock(cpp::optional<Futex::Timeout> timeout = cpp::nullopt,
              unsigned spin_count = LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
-            TimeoutCheck timeout_expired = {}) {
-    LockResult result = try_write_lock();
-    if (LIBC_LIKELY(result != LockResult::Busy))
-      return result;
+             TimeoutCheck timeout_expired = {}, bool try_immediate = true) {
+    if (try_immediate) {
+      LockResult result = try_write_lock();
+      if (LIBC_LIKELY(result != LockResult::Busy))
+        return result;
+    }
     return lock_slow<Role::Writer>(timeout, spin_count, timeout_expired);
   }
 

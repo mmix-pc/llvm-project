@@ -54,13 +54,13 @@ LIBC_INLINE int rwlock_clocklock(pthread_rwlock_t *storage, clockid_t clock,
     return now.tv_sec > limit.tv_sec ||
            (now.tv_sec == limit.tv_sec && now.tv_nsec >= limit.tv_nsec);
   };
-  // Keep initial acquisition precedence. Once queued, expiry must withdraw
-  // even if an interrupted futex wait observes a changed word and returns zero.
+  // The immediate attempt already reported Busy. All subsequent acquisition
+  // attempts check expiry, including retries before registration or after wake.
   auto result = role == rwlock::Role::Reader
                     ? rw->read_lock(*timeout, LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
-                                    expired)
+                                    expired, /*try_immediate=*/false)
                     : rw->write_lock(*timeout, LIBC_COPT_RWLOCK_DEFAULT_SPIN_COUNT,
-                                     expired);
+                                     expired, /*try_immediate=*/false);
   return static_cast<int>(result);
 }
 
