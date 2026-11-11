@@ -42,7 +42,15 @@ extern "C" void __wrap_free(void *p) {
 }
 
 using Parser = libunwind::CFI_Parser<libunwind::LocalAddressSpace>;
+#if defined(_LIBUNWIND_TARGET_MMIX)
+using Registers = libunwind::Registers_mmix;
+static constexpr uint8_t CFARegister = UNW_MMIX_R254;
+static constexpr uint8_t ReturnRegister = UNW_MMIX_RJ;
+#else
 using Registers = libunwind::Registers_x86_64;
+static constexpr uint8_t CFARegister = 7;
+static constexpr uint8_t ReturnRegister = 16;
+#endif
 
 enum class Tail { Normal, ReallocateAndReject, Underflow };
 
@@ -52,7 +60,7 @@ static void check(unsigned failure, uintptr_t pc, bool success,
   // A CIE-owned remembered state survives into the FDE. The FDE allocates
   // another state, then restores both. Advancing to PC+1 can stop before either
   // restore, which requires destructor cleanup rather than restore cleanup.
-  const uint8_t cieCode[] = {DW_CFA_def_cfa, 7, 8, DW_CFA_remember_state,
+  const uint8_t cieCode[] = {DW_CFA_def_cfa, CFARegister, 8, DW_CFA_remember_state,
                              DW_CFA_def_cfa_offset, 16};
   const uint8_t fdeCode[] = {
       DW_CFA_remember_state, DW_CFA_def_cfa_offset, 24,
@@ -86,7 +94,8 @@ static void check(unsigned failure, uintptr_t pc, bool success,
   assert(attempts == expectedAttempts && released == expectedReleases);
   assert(live == 0);
   if (success)
-    assert(state.cfaRegister == 7 && state.cfaRegisterOffset == expectedOffset);
+    assert(state.cfaRegister == CFARegister &&
+           state.cfaRegisterOffset == expectedOffset);
 }
 
 static unsigned commits;
@@ -96,7 +105,7 @@ static int beforeCommit(libunwind::LocalAddressSpace &, const Registers &,
   return UNW_STEP_SUCCESS;
 }
 
-static void checkStep(unsigned failure) {
+static void checkStep(unsigned failure, bool stage2) {
   // Real encoded CIE/FDE records exercise decode and the caller's error path,
   // rather than supplying already decoded parser descriptors.
   uint8_t bytes[128] = {};
@@ -115,9 +124,10 @@ static void checkStep(unsigned failure) {
   bytes[end++] = 0; // Empty augmentation.
   bytes[end++] = 1; // Code alignment.
   bytes[end++] = 0x78; // SLEB128 data alignment: -8.
-  bytes[end++] = 16; // x86_64 return register.
-  const uint8_t cie[] = {DW_CFA_def_cfa, 7, 8,
-                         DW_CFA_offset | 16, 1, DW_CFA_remember_state};
+  bytes[end++] = ReturnRegister;
+  const uint8_t cie[] = {DW_CFA_def_cfa, CFARegister, 8,
+                         DW_CFA_offset | ReturnRegister, 1,
+                         DW_CFA_remember_state};
   memcpy(bytes + end, cie, sizeof(cie));
   end += sizeof(cie);
   uint32_t length = static_cast<uint32_t>(end - 4);
@@ -148,7 +158,7 @@ static void checkStep(unsigned failure) {
   int result = libunwind::DwarfInstructions<libunwind::LocalAddressSpace,
                                            Registers>::stepWithDwarf(
       space, 0x1001, reinterpret_cast<uintptr_t>(bytes + fde), registers,
-      signalFrame, false, beforeCommit);
+      signalFrame, stage2, beforeCommit);
   active = false;
   assert(live == 0);
   if (failure) {
@@ -175,8 +185,11 @@ int main() {
     check(3, 0x1002, false, 3, 2, 0, Tail::ReallocateAndReject);
     check(0, 0x1002, false, 3, 3, 0, Tail::ReallocateAndReject);
     check(0, 0x1002, false, 2, 2, 0, Tail::Underflow);
-    checkStep(1);
-    checkStep(2);
-    checkStep(0);
+    for (unsigned stage2 = 0; stage2 != 2; ++stage2) {
+      checkStep(1, stage2);
+      checkStep(2, stage2);
+      checkStep(0, stage2);
+    }
   }
+  return 0;
 }
