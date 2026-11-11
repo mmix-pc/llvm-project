@@ -9,6 +9,7 @@
 
 #include "AddressSpace.hpp"
 #include "DwarfParser.hpp"
+#include "DwarfInstructions.hpp"
 
 #undef NDEBUG
 #include <assert.h>
@@ -88,6 +89,80 @@ static void check(unsigned failure, uintptr_t pc, bool success,
     assert(state.cfaRegister == 7 && state.cfaRegisterOffset == expectedOffset);
 }
 
+static unsigned commits;
+static int beforeCommit(libunwind::LocalAddressSpace &, const Registers &,
+                        Registers &, bool) {
+  ++commits;
+  return UNW_STEP_SUCCESS;
+}
+
+static void checkStep(unsigned failure) {
+  // Real encoded CIE/FDE records exercise decode and the caller's error path,
+  // rather than supplying already decoded parser descriptors.
+  uint8_t bytes[128] = {};
+  size_t end = 0;
+  auto word = [&](uint32_t value) {
+    memcpy(bytes + end, &value, sizeof(value));
+    end += sizeof(value);
+  };
+  auto address = [&](uintptr_t value) {
+    memcpy(bytes + end, &value, sizeof(value));
+    end += sizeof(value);
+  };
+  word(0); // CIE length, filled below.
+  word(0); // .eh_frame CIE identifier.
+  bytes[end++] = 1; // Version.
+  bytes[end++] = 0; // Empty augmentation.
+  bytes[end++] = 1; // Code alignment.
+  bytes[end++] = 0x78; // SLEB128 data alignment: -8.
+  bytes[end++] = 16; // x86_64 return register.
+  const uint8_t cie[] = {DW_CFA_def_cfa, 7, 8,
+                         DW_CFA_offset | 16, 1, DW_CFA_remember_state};
+  memcpy(bytes + end, cie, sizeof(cie));
+  end += sizeof(cie);
+  uint32_t length = static_cast<uint32_t>(end - 4);
+  memcpy(bytes, &length, sizeof(length));
+  size_t fde = end;
+  word(0);
+  word(static_cast<uint32_t>(end)); // Backward offset to CIE start.
+  address(0x1000);
+  address(8);
+  const uint8_t code[] = {DW_CFA_remember_state, DW_CFA_restore_state,
+                          DW_CFA_restore_state};
+  memcpy(bytes + end, code, sizeof(code));
+  end += sizeof(code);
+  length = static_cast<uint32_t>(end - fde - 4);
+  memcpy(bytes + fde, &length, sizeof(length));
+
+  uintptr_t stack[] = {0x1234};
+  Registers registers;
+  registers.setSP(reinterpret_cast<uintptr_t>(stack));
+  registers.setIP(0x1001);
+  unsigned char original[sizeof(registers)];
+  memcpy(original, &registers, sizeof(registers));
+  bool signalFrame = true;
+  libunwind::LocalAddressSpace space;
+  attempts = released = live = commits = 0;
+  failAt = failure;
+  active = true;
+  int result = libunwind::DwarfInstructions<libunwind::LocalAddressSpace,
+                                           Registers>::stepWithDwarf(
+      space, 0x1001, reinterpret_cast<uintptr_t>(bytes + fde), registers,
+      signalFrame, false, beforeCommit);
+  active = false;
+  assert(live == 0);
+  if (failure) {
+    assert(result == UNW_EBADFRAME && commits == 0 && signalFrame);
+    assert(memcmp(original, &registers, sizeof(registers)) == 0);
+    assert(attempts == failure && released == failure - 1);
+  } else {
+    assert(result == UNW_STEP_SUCCESS && commits == 1 && !signalFrame);
+    assert(registers.getIP() == 0x1234);
+    assert(registers.getSP() == reinterpret_cast<uintptr_t>(stack + 1));
+    assert(attempts == 2 && released == 2);
+  }
+}
+
 int main() {
   for (unsigned retry = 0; retry != 2; ++retry) {
     check(1, 0x1002, false, 1, 0, 0); // CIE allocation fails.
@@ -100,5 +175,8 @@ int main() {
     check(3, 0x1002, false, 3, 2, 0, Tail::ReallocateAndReject);
     check(0, 0x1002, false, 3, 3, 0, Tail::ReallocateAndReject);
     check(0, 0x1002, false, 2, 2, 0, Tail::Underflow);
+    checkStep(1);
+    checkStep(2);
+    checkStep(0);
   }
 }
