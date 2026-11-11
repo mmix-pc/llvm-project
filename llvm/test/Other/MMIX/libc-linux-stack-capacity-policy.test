@@ -1,0 +1,16 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: rm -rf %t
+# RUN: mkdir -p %t
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/pthread.h %S/../../../../libc/include/pthread.yaml
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/sched.h %S/../../../../libc/include/sched.yaml
+# RUN: %python %S/../../../../libc/utils/hdrgen/main.py -o %t/time.h %S/../../../../libc/include/time.yaml
+# RUN: %mmix_host_cxx -std=c++17 -O0 -DLIBC_FULL_BUILD -DLIBC_NAMESPACE=capacity_policy -I %t -I %S/../../../../libc/include -I %S/../../../../libc %S/../../../../libc/src/pthread/linux/mmix/pthread_attr_setstack.cpp %S/../../../../libc/src/pthread/linux/mmix/pthread_attr_setstacksize.cpp %S/../../../../libc/test/src/pthread/mmix/stack_capacity_policy.cpp -o %t/native-O0
+# RUN: %t/native-O0
+# RUN: %mmix_host_cxx -std=c++17 -O2 -DLIBC_FULL_BUILD -DLIBC_NAMESPACE=capacity_policy -I %t -I %S/../../../../libc/include -I %S/../../../../libc %S/../../../../libc/src/pthread/linux/mmix/pthread_attr_setstack.cpp %S/../../../../libc/src/pthread/linux/mmix/pthread_attr_setstacksize.cpp %S/../../../../libc/test/src/pthread/mmix/stack_capacity_policy.cpp -o %t/native-O2
+# RUN: %t/native-O2
+# RUN: %mmix_host_cxx -std=c++17 -O2 -DLIBC_FULL_BUILD -DLIBC_NAMESPACE=capacity_policy -I %t -I %S/../../../../libc/include -I %S/../../../../libc %S/../../../../libc/src/pthread/pthread_attr_setstack.cpp %S/../../../../libc/src/pthread/pthread_attr_setstacksize.cpp %S/../../../../libc/test/src/pthread/mmix/stack_capacity_policy.cpp -o %t/generic-policy
+# RUN: not %t/generic-policy
+
+# The native test executes target policy on integer addresses without accessing
+# their storage. Real supplied storage and actual stack use are guest checks.
+# Generic setters retain their distinct policy and must fail this target oracle.

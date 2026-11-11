@@ -15,6 +15,8 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace mmix {
 inline constexpr size_t DEFAULT_STACK_SIZE = 2 * 1024 * 1024;
+// Usable worker-stack capacity; guard, TLS and control storage are additional.
+inline constexpr size_t MAX_STACK_SIZE = size_t{1} << 30;
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL
 

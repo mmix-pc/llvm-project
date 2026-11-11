@@ -42,6 +42,12 @@ if(NOT pthread_attr_setguardsize_source STREQUAL "linux/mmix/pthread_attr_setgua
    NOT libc.config.app_h IN_LIST pthread_attr_setguardsize_dependencies)
   message(FATAL_ERROR "MMIX guard rounding must use the runtime page size without scheduling")
 endif()
+foreach(operation pthread_attr_setstack pthread_attr_setstacksize)
+  if(NOT ${operation}_source STREQUAL "linux/mmix/${operation}.cpp" OR
+     NOT libc.src.__support.threads.linux.mmix.stack_policy IN_LIST ${operation}_dependencies)
+    message(FATAL_ERROR "MMIX stack capacity policy must be selected without scheduling")
+  endif()
+endforeach()
 set(TARGET_LIBC_ENTRYPOINTS libc.src.errno.errno)
 include(${LIBC_SOURCE}/config/linux/mmix/PthreadAttributes.cmake)
 include(${LIBC_SOURCE}/config/linux/mmix/headers.txt)
