@@ -15,6 +15,7 @@ set_target_properties(${unistd_options_target} PROPERTIES
 add_header(unistd_macros HDR unistd-macros.h DEPENDS .unistd_options)
 
 if(LIBC_TARGET_OS STREQUAL "linux")
+  add_header(linux_time_macros HDR linux-time-macros.h)
   add_header(pthread_scheduling_macros HDR pthread-scheduling-macros.h)
   add_header(linux_limits_macros HDR linux-limits-macros.h)
   add_header(linux_features HDR linux-features.h)

@@ -3,6 +3,8 @@
 
 #if defined(__AMDGPU__) || defined(__NVPTX__) || defined(__SPIRV__)
 #include "gpu/time-macros.h"
+#elif defined(__mmix__) && defined(__linux__)
+#include "mmix/linux-time-macros.h"
 #elif defined(__linux__)
 #include "linux/time-macros.h"
 #elif defined(__ELF__)

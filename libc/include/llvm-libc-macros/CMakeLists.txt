@@ -454,10 +454,16 @@ add_macro_header(
     termios-macros.h
 )
 
+set(time_macro_deps)
+if(TARGET libc.include.llvm-libc-macros.mmix.linux_time_macros)
+  list(APPEND time_macro_deps .mmix.linux_time_macros)
+endif()
 add_macro_header(
   time_macros
   HDR
     time-macros.h
+  DEPENDS
+    ${time_macro_deps}
 )
 
 set(unistd_macro_deps)
