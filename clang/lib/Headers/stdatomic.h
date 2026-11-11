@@ -24,8 +24,12 @@
 # include_next <stdatomic.h>
 #else
 
+#if defined(__mmix__) && defined(__linux__)
+#include <__mmix_stdatomic_types.h>
+#else
 #include <stddef.h>
 #include <stdint.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {

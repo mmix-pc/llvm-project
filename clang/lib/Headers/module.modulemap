@@ -260,6 +260,7 @@ module _Builtin_stdarg [system] {
 
 module _Builtin_stdatomic [system] {
   header "stdatomic.h"
+  textual header "__mmix_stdatomic_types.h"
   export *
 }
 

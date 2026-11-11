@@ -1,0 +1,60 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %t clang
+
+#--- check.py
+from pathlib import Path
+import subprocess
+import sys
+
+out = Path(sys.argv[1])
+clang = sys.argv[2]
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"], text=True).strip()
+names = ['INT16_C', 'INT16_MAX', 'INT16_MIN', 'INT32_C', 'INT32_MAX', 'INT32_MIN', 'INT64_C', 'INT64_MAX', 'INT64_MIN', 'INT8_C', 'INT8_MAX', 'INT8_MIN', 'INTMAX_C', 'INTMAX_MAX', 'INTMAX_MIN', 'INTPTR_MAX', 'INTPTR_MIN', 'INT_FAST16_MAX', 'INT_FAST16_MIN', 'INT_FAST32_MAX', 'INT_FAST32_MIN', 'INT_FAST64_MAX', 'INT_FAST64_MIN', 'INT_FAST8_MAX', 'INT_FAST8_MIN', 'INT_LEAST16_MAX', 'INT_LEAST16_MIN', 'INT_LEAST32_MAX', 'INT_LEAST32_MIN', 'INT_LEAST64_MAX', 'INT_LEAST64_MIN', 'INT_LEAST8_MAX', 'INT_LEAST8_MIN', 'NULL', 'PTRDIFF_MAX', 'PTRDIFF_MIN', 'SIG_ATOMIC_MAX', 'SIG_ATOMIC_MIN', 'SIZE_MAX', 'UINT16_C', 'UINT16_MAX', 'UINT32_C', 'UINT32_MAX', 'UINT64_C', 'UINT64_MAX', 'UINT8_C', 'UINT8_MAX', 'UINTMAX_C', 'UINTMAX_MAX', 'UINTPTR_MAX', 'UINT_FAST16_MAX', 'UINT_FAST32_MAX', 'UINT_FAST64_MAX', 'UINT_FAST8_MAX', 'UINT_LEAST16_MAX', 'UINT_LEAST32_MAX', 'UINT_LEAST64_MAX', 'UINT_LEAST8_MAX', 'WCHAR_MAX', 'WCHAR_MIN', 'WINT_MAX', 'WINT_MIN', 'offsetof']
+functions = ['INT16_C', 'INT32_C', 'INT64_C', 'INT8_C', 'INTMAX_C', 'UINT16_C', 'UINT32_C', 'UINT64_C', 'UINT8_C', 'UINTMAX_C', 'offsetof']
+types = {'atomic_char': 'char', 'atomic_schar': 'signed char', 'atomic_uchar': 'unsigned char', 'atomic_short': 'short', 'atomic_ushort': 'unsigned short', 'atomic_int': 'int', 'atomic_uint': 'unsigned int', 'atomic_long': 'long', 'atomic_ulong': 'unsigned long', 'atomic_llong': 'long long', 'atomic_ullong': 'unsigned long long', 'atomic_char16_t': 'uint_least16_t', 'atomic_char32_t': 'uint_least32_t', 'atomic_wchar_t': 'wchar_t', 'atomic_int_least8_t': 'int_least8_t', 'atomic_uint_least8_t': 'uint_least8_t', 'atomic_int_least16_t': 'int_least16_t', 'atomic_uint_least16_t': 'uint_least16_t', 'atomic_int_least32_t': 'int_least32_t', 'atomic_uint_least32_t': 'uint_least32_t', 'atomic_int_least64_t': 'int_least64_t', 'atomic_uint_least64_t': 'uint_least64_t', 'atomic_int_fast8_t': 'int_fast8_t', 'atomic_uint_fast8_t': 'uint_fast8_t', 'atomic_int_fast16_t': 'int_fast16_t', 'atomic_uint_fast16_t': 'uint_fast16_t', 'atomic_int_fast32_t': 'int_fast32_t', 'atomic_uint_fast32_t': 'uint_fast32_t', 'atomic_int_fast64_t': 'int_fast64_t', 'atomic_uint_fast64_t': 'uint_fast64_t', 'atomic_intptr_t': 'intptr_t', 'atomic_uintptr_t': 'uintptr_t', 'atomic_size_t': 'size_t', 'atomic_ptrdiff_t': 'ptrdiff_t', 'atomic_intmax_t': 'intmax_t', 'atomic_uintmax_t': 'uintmax_t'}
+profiles = [(["-D_POSIX_C_SOURCE=202405L"], True),
+            (["-D_XOPEN_SOURCE=800"], True),
+            (["-D_POSIX_C_SOURCE=200809L"], True),
+            (["-D_GNU_SOURCE=1"], False),
+            (["-D_DEFAULT_SOURCE=1"], False), ([], False),
+            (["-D_POSIX_C_SOURCE=202405L", "-D_DEFAULT_SOURCE=1"], False)]
+for target in ("mmix-unknown-linux", "mmix-unknown-unknown", "x86_64-linux-gnu", "i386-linux-gnu"):
+    for language, standard in (("c", "c17"), ("c++", "c++17"), ("c", "c23")):
+        for flags, strict in profiles:
+            for order in ("alone", "before", "after"):
+                hidden = target == "mmix-unknown-linux" and strict and order == "alone"
+                for kind in (("control", "identifier", "predefined") if hidden else ("control",)):
+                    source = ""
+                    if kind == "predefined":
+                        source += "".join("#define " + n + " 19\n" for n in names)
+                    extra = "#include <stddef.h>\n#include <stdint.h>\n"
+                    if order == "before":
+                        source += extra
+                    source += "#include <stdatomic.h>\n#include <stdatomic.h>\n"
+                    if order == "after":
+                        source += extra
+                    if kind == "control":
+                        source += "".join(("#ifdef " if hidden else "#ifndef ") + n + "\n#error macro namespace\n#endif\n" for n in names)
+                    if kind == "identifier":
+                        source += "enum { " + ",".join(n + " = 17" for n in names if n not in functions) + " };\n"
+                        source += "".join("int " + n + "(int value);\n" for n in functions)
+                    if kind == "predefined":
+                        source += "".join("#if " + n + " != 19\n#error application macro changed\n#endif\n" for n in names)
+                    assertion = "static_assert" if language == "c++" else "_Static_assert"
+                    same = "__is_same" if language == "c++" else "__builtin_types_compatible_p"
+                    for name, underlying in {**types, "atomic_bool": "bool" if language == "c++" else "_Bool"}.items():
+                        source += assertion + "(" + same + "(" + name + ",_Atomic(" + underlying + ")), \"atomic type\");\n"
+                    source += "atomic_int value = 1;\nint load_value(void) { return atomic_fetch_add(&value, 2); }\n"
+                    source += "atomic_flag flag = ATOMIC_FLAG_INIT;\nvoid clear_flag(void) { atomic_flag_clear(&flag); }\n"
+                    command = [clang, "--no-default-config", "--target=" + target,
+                               "-nostdinc", "-isystem", resource + "/include",
+                               "-x", language, "-std=" + standard, "-U_GNU_SOURCE", *flags,
+                               "-Werror", "-fsyntax-only", "-"]
+                    result = subprocess.run(command, input=source, text=True, capture_output=True)
+                    assert result.returncode == 0, (command, order, kind, result.stderr)
+                    # Check the strict standalone module surface independently.
+                    if hidden and kind == "control" and standard != "c23":
+                        modules = command[:-1] + ["-fmodules", "-fimplicit-module-maps", "-fmodules-cache-path=" + str(out / "modules"), "-"]
+                        result = subprocess.run(modules, input=source, text=True, capture_output=True)
+                        assert result.returncode == 0, (modules, result.stderr)

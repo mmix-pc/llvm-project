@@ -21,6 +21,7 @@ set(core_files
   __stdarg_va_copy.h
   __stdarg_va_list.h
   stdatomic.h
+  __mmix_stdatomic_types.h
   stdbool.h
   stdcountof.h
   stdckdint.h
