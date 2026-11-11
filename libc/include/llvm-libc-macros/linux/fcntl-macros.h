@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H
-#define LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H
+#ifndef __LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H
+#define __LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H
 
 // File creation and file status flags.
 #define O_APPEND 000002000
@@ -158,4 +158,4 @@
 #endif
 #endif
 
-#endif // LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H
+#endif // __LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H

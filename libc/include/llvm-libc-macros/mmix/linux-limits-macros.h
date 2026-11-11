@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H
-#define LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H
+#ifndef __LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H
+#define __LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H
 
 #if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX)
 // Maximum terminal-name storage, including the terminating NUL.
@@ -19,4 +19,4 @@
 #define NSIG_MAX 65
 #endif
 
-#endif // LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H
+#endif // __LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H

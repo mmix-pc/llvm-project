@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H
-#define LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H
+#ifndef __LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H
+#define __LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H
 // The MMIX Linux C ABI uses int32, long64, off_t64 and 64-bit C pointers.
 // These describe the compilation model, not whole POSIX conformance or a
 // particular thread implementation. No alternate data model is selected.
@@ -45,4 +45,4 @@
 #define _POSIX_JOB_CONTROL @MMIX_POSIX_JOB_CONTROL@
 #define _POSIX_REGEXP @MMIX_POSIX_REGEXP@
 #define _POSIX_TIMEOUTS @MMIX_POSIX_TIMEOUTS@
-#endif // LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H
+#endif // __LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H

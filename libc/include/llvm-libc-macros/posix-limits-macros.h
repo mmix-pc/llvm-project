@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_POSIX_LIMITS_MACROS_H
-#define LLVM_LIBC_MACROS_POSIX_LIMITS_MACROS_H
+#ifndef __LLVM_LIBC_MACROS_POSIX_LIMITS_MACROS_H
+#define __LLVM_LIBC_MACROS_POSIX_LIMITS_MACROS_H
 
 // Standard minimum limits are not feature-availability declarations.
 #define _POSIX_AIO_LISTIO_MAX 2
@@ -121,4 +121,4 @@
 #define NL_TEXTMAX __INT_MAX__
 #endif
 
-#endif // LLVM_LIBC_MACROS_POSIX_LIMITS_MACROS_H
+#endif // __LLVM_LIBC_MACROS_POSIX_LIMITS_MACROS_H

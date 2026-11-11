@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_TYPES_SSIZE_T_H
-#define LLVM_LIBC_TYPES_SSIZE_T_H
+#ifndef __LLVM_LIBC_TYPES_SSIZE_T_H
+#define __LLVM_LIBC_TYPES_SSIZE_T_H
 
 typedef __PTRDIFF_TYPE__ ssize_t;
 
-#endif // LLVM_LIBC_TYPES_SSIZE_T_H
+#endif // __LLVM_LIBC_TYPES_SSIZE_T_H

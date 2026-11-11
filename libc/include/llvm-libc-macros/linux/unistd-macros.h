@@ -11,8 +11,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_LINUX_UNISTD_MACROS_H
-#define LLVM_LIBC_MACROS_LINUX_UNISTD_MACROS_H
+#ifndef __LLVM_LIBC_MACROS_LINUX_UNISTD_MACROS_H
+#define __LLVM_LIBC_MACROS_LINUX_UNISTD_MACROS_H
 
 // Values for mode argument to the access(...) function.
 #define F_OK 0
@@ -307,4 +307,4 @@
   }))
 #endif
 
-#endif // LLVM_LIBC_MACROS_LINUX_UNISTD_MACROS_H
+#endif // __LLVM_LIBC_MACROS_LINUX_UNISTD_MACROS_H

@@ -1,0 +1,61 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t clang
+
+#--- check.py
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+libc, out = map(Path, sys.argv[1:3])
+clang = sys.argv[3]
+include = out / "include"
+for directory in ("llvm-libc-macros", "llvm-libc-types"):
+    shutil.copytree(libc / "include" / directory, include / directory,
+                    dirs_exist_ok=True)
+shutil.copyfile(libc / "include/__llvm-libc-common.h",
+                include / "llvm-libc-macros/mmix/common-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/linux-common.h",
+                include / "__llvm-libc-common.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-cleanup.h",
+                include / "llvm-libc-macros/mmix/pthread-cleanup-base.h")
+shutil.copyfile(libc / "include/llvm-libc-macros/mmix/pthread-cleanup-async.h",
+                include / "llvm-libc-macros/mmix/pthread-cleanup.h")
+for name in ("limits", "unistd"):
+    subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
+                    str(libc / "include" / (name + ".yaml")), "--visibility",
+                    str(libc / "config/linux/mmix/HeaderVisibility.yaml"),
+                    "-o", str(include / (name + ".h"))], check=True)
+resource = subprocess.check_output([clang, "--no-default-config", "-print-resource-dir"], text=True).strip()
+names = ['LLVM_LIBC_MACROS_FCNTL_MACROS_H', 'LLVM_LIBC_MACROS_FILE_SEEK_MACROS_H', 'LLVM_LIBC_MACROS_LIMITS_MACROS_H', 'LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H', 'LLVM_LIBC_MACROS_LINUX_UNISTD_MACROS_H', 'LLVM_LIBC_MACROS_MMIX_LINUX_LIMITS_MACROS_H', 'LLVM_LIBC_MACROS_MMIX_UNISTD_MACROS_H', 'LLVM_LIBC_MACROS_MMIX_UNISTD_OPTIONS_H', 'LLVM_LIBC_MACROS_POSIX_LIMITS_MACROS_H', 'LLVM_LIBC_MACROS_UNISTD_MACROS_H', 'LLVM_LIBC_TYPES_GID_T_H', 'LLVM_LIBC_TYPES_OFF_T_H', 'LLVM_LIBC_TYPES_SSIZE_T_H', 'LLVM_LIBC_TYPES_UID_T_H', 'LLVM_LIBC_TYPES___EXEC_ARGV_T_H', 'LLVM_LIBC_TYPES___EXEC_ENVP_T_H', 'LLVM_LIBC_TYPES___GETOPTARGV_T_H']
+for configured in (False, True):
+    if configured:
+        output = include / "llvm-libc-macros/mmix/unistd-options.h"
+        script = out / "configure-options.cmake"
+        script.write_text('include("' + str(libc / "include/llvm-libc-macros/mmix/UnistdOptions.cmake") + '")\n' +
+                          'mmix_configure_unistd_options("' + str(output) + '")\n')
+        subprocess.run(["cmake", "-P", str(script)], check=True)
+    for target in ("mmix-unknown-linux", "x86_64-linux-gnu", "i386-linux-gnu"):
+        for language in ("c", "c++"):
+            for feature in ("-D_POSIX_C_SOURCE=202405L", "-D_XOPEN_SOURCE=800"):
+                for headers in (("limits.h",), ("unistd.h",), ("limits.h", "unistd.h"), ("unistd.h", "limits.h")):
+                    for kind in ("control", "identifier", "predefined"):
+                        source = ""
+                        if kind == "predefined":
+                            source += "".join("#define " + n + " 19\n" for n in names)
+                        source += "".join("#include <" + h + ">\n" for h in (*headers, *reversed(headers)))
+                        if kind == "identifier":
+                            source += "enum { " + ", ".join(n + " = 17" for n in names) + " };\n"
+                        if kind == "predefined":
+                            source += "".join("#if " + n + " != 19\n#error application macro changed\n#endif\n" for n in names)
+                        if "limits.h" in headers:
+                            source += "int limits[] = {CHAR_BIT, INT_MAX, LONG_MAX > 0, PTHREAD_KEYS_MAX};\n"
+                        if "unistd.h" in headers:
+                            source += "ssize_t (*reader)(int,void *,size_t) = &read;\nlong (*query)(int) = &sysconf;\nint names[] = {_SC_THREADS,_SC_PAGESIZE};\n"
+                        cmd = [clang, "--no-default-config", "--target=" + target,
+                               "-nostdinc", "-I", str(include), "-isystem", resource + "/include",
+                               "-x", language, "-std=c17" if language == "c" else "-std=c++17",
+                               "-U_GNU_SOURCE", feature, "-Werror", "-fsyntax-only", "-"]
+                        result = subprocess.run(cmd, input=source, text=True, capture_output=True)
+                        assert result.returncode == 0, (cmd, configured, headers, kind, result.stderr)

@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_MACROS_MMIX_UNISTD_MACROS_H
-#define LLVM_LIBC_MACROS_MMIX_UNISTD_MACROS_H
+#ifndef __LLVM_LIBC_MACROS_MMIX_UNISTD_MACROS_H
+#define __LLVM_LIBC_MACROS_MMIX_UNISTD_MACROS_H
 
 // Installed capability values describe the selected provider, not client flags.
 #if __has_include("llvm-libc-macros/mmix/unistd-options.h")
@@ -48,4 +48,4 @@
 #define _POSIX_TIMEOUTS (-1L)
 #endif
 
-#endif // LLVM_LIBC_MACROS_MMIX_UNISTD_MACROS_H
+#endif // __LLVM_LIBC_MACROS_MMIX_UNISTD_MACROS_H
