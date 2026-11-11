@@ -145,7 +145,7 @@ unistd.h:
   types:
     useconds_t: __LIBC_USE_LEGACY_EXTENSIONS
   objects:
-    environ: __LIBC_USE_POSIX2024
+    environ: __LIBC_USE_DEFAULT
   functions:
     _Fork: __LIBC_USE_POSIX2024
     chroot: __LIBC_USE_DEFAULT
