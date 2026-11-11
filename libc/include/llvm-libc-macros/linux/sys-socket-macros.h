@@ -187,7 +187,7 @@ __llvm_libc_cmsg_firsthdr(const struct msghdr *__msg) {
 
 static inline struct cmsghdr *
 __llvm_libc_cmsg_nxthdr(const struct msghdr *__msg,
-                        const struct cmsghdr *__cmsg) {
+                      const struct cmsghdr *__cmsg) {
   if (!__cmsg)
     return __llvm_libc_cmsg_firsthdr(__msg);
 
@@ -210,7 +210,8 @@ __llvm_libc_cmsg_nxthdr(const struct msghdr *__msg,
   if (__padding > __remaining ||
       __remaining - __padding < sizeof(struct cmsghdr))
     return 0;
-  return (struct cmsghdr *)((unsigned char *)__cmsg + __length + __padding);
+  return (struct cmsghdr *)((unsigned char *)__msg->msg_control + __offset +
+                           __length + __padding);
 }
 
 #define CMSG_FIRSTHDR(msg) (__llvm_libc_cmsg_firsthdr((msg)))

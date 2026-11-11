@@ -217,6 +217,7 @@ if(LIBC_TARGET_OS_IS_LINUX)
       SRCS cmsg_macros_test.${language}
       HDRS cmsg_macros_test.h
       DEPENDS libc.include.sys_socket
+      COMPILE_OPTIONS -Wcast-qual -Werror=cast-qual
     )
   endforeach()
 
