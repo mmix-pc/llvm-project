@@ -58,6 +58,8 @@ function(mmix_configure_signal_cancellation)
     if(NOT TARGET unwind_shared_objects OR NOT TARGET unwind_shared)
       message(FATAL_ERROR "MMIX signal cancellation requires the upstream shared targets")
     endif()
+    target_compile_definitions(unwind_shared_objects PRIVATE
+      _LIBUNWIND_REMEMBER_REPLAY)
     return()
   endif()
   if(NOT TARGET unwind_static_objects OR NOT TARGET unwind_static)
@@ -67,7 +69,7 @@ function(mmix_configure_signal_cancellation)
   target_sources(unwind_static_objects PRIVATE
     "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CursorLifetime.cpp")
   target_compile_definitions(unwind_static_objects PRIVATE
-    _LIBUNWIND_MMIX_CURSOR_LIFETIME)
+    _LIBUNWIND_MMIX_CURSOR_LIFETIME _LIBUNWIND_REMEMBER_REPLAY)
   if(LIBUNWIND_MMIX_SIGNAL_CANCELLATION OR
      "-D_LIBUNWIND_USE_METADATA_POLICY" IN_LIST LIBUNWIND_ADDITIONAL_COMPILE_FLAGS)
     target_sources(unwind_static_objects PRIVATE

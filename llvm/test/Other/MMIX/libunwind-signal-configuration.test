@@ -135,8 +135,12 @@ def configure(profile, enabled=None, legacy=(), lifetime=False, metadata=False,
         if kind == "static" and selected:
             if lifetime:
                 definitions.append(cursor[2:])
+            if lifetime:
+                definitions.append("_LIBUNWIND_REMEMBER_REPLAY")
             if metadata:
                 definitions.append(policy[2:])
+        elif kind == "shared" and selected and lifetime:
+            definitions.append("_LIBUNWIND_REMEMBER_REPLAY")
         assert values(kind + "-COMPILE_DEFINITIONS") == definitions
         assert values(kind + "-INTERFACE_COMPILE_DEFINITIONS") == []
         assert values(kind + "-COMPILE_OPTIONS") == flags

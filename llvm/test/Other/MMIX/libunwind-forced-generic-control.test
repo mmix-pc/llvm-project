@@ -25,6 +25,15 @@ for opt in ("0", "2"):
                     "-Wl,--wrap=malloc", "-Wl,--wrap=free", "-ldl",
                     "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=30)
+    replay = root / ("remember-state-replay-O" + opt)
+    subprocess.run([*host, "-std=c++17", "-O" + opt, "-UNDEBUG",
+                    "-D_LIBUNWIND_IS_NATIVE_ONLY",
+                    "-D_LIBUNWIND_REMEMBER_HEAP_ALLOC", "-pthread",
+                    "-I", str(source / "include"), "-I", str(source / "src"),
+                    str(source / "test/mmix/remember-state-replay.cpp"),
+                    "-Wl,--wrap=malloc", "-Wl,--wrap=free", "-ldl",
+                    "-o", str(replay)], check=True)
+    subprocess.run([str(replay)], check=True, timeout=30)
     objects = []
     for name in ("UnwindLevel1.c", "UnwindLevel1-gcc-ext.c", "libunwind.cpp",
                  "UnwindRegistersSave.S", "UnwindRegistersRestore.S"):
