@@ -1,0 +1,57 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %mmix_host_cxx -std=c++17 -O0 -I %t -I %S/../../../../libc -DLIBC_NAMESPACE=semop_count_test %S/../../../../libc/src/sys/sem/linux/mmix/semop.cpp %t/test.cpp -o %t/test-O0
+# RUN: %t/test-O0
+# RUN: %mmix_host_cxx -std=c++17 -O2 -I %t -I %S/../../../../libc -DLIBC_NAMESPACE=semop_count_test %S/../../../../libc/src/sys/sem/linux/mmix/semop.cpp %t/test.cpp -o %t/test-O2
+# RUN: %t/test-O2
+
+# Execute the actual wrapper, substituting only its syscall and errno boundary.
+# Guest validation separately uses a valid sparse operation array and real IPC.
+
+#--- src/__support/OSUtil/syscall.h
+#include "src/__support/macros/config.h"
+#include <stddef.h>
+namespace LIBC_NAMESPACE_DECL {
+inline unsigned calls;
+inline size_t seen_count;
+inline long next_result;
+template <typename T>
+T syscall_impl(unsigned long, int, void *, size_t count) {
+  ++calls;
+  seen_count = count;
+  return static_cast<T>(next_result);
+}
+}
+
+#--- src/__support/libc_errno.h
+#include "src/__support/macros/config.h"
+namespace LIBC_NAMESPACE_DECL { inline int libc_errno; }
+
+#--- test.cpp
+#include "src/sys/sem/semop.h"
+#include "src/__support/OSUtil/syscall.h"
+#include "src/__support/libc_errno.h"
+#include <assert.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdint.h>
+using namespace semop_count_test;
+int main() {
+  static_assert(sizeof(size_t) > sizeof(unsigned int));
+  const size_t oversized[] = {static_cast<size_t>(UINT_MAX) + 1,
+                             static_cast<size_t>(UINT_MAX) + 2, SIZE_MAX};
+  for (size_t count : oversized) {
+    calls = 0; libc_errno = 0;
+    assert(semop_count_test::semop(1, nullptr, count) == -1);
+    assert(libc_errno == E2BIG && calls == 0);
+  }
+  const size_t representable[] = {0, 1, UINT_MAX};
+  for (size_t count : representable) {
+    calls = 0; next_result = -EACCES; libc_errno = 0;
+    assert(semop_count_test::semop(1, nullptr, count) == -1);
+    assert(calls == 1 && seen_count == count && libc_errno == EACCES);
+  }
+  calls = 0; next_result = 0; libc_errno = EDOM;
+  assert(semop_count_test::semop(1, nullptr, 1) == 0);
+  assert(calls == 1 && libc_errno == EDOM);
+}

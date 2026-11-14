@@ -11,13 +11,14 @@ endfunction()
 function(add_object_library)
 endfunction()
 function(add_entrypoint_object name)
-  if(name MATCHES "^(sem_unlink|shm_unlink|sem_timedwait|sem_clockwait)$")
+  if(name MATCHES "^(sem_unlink|shm_unlink|sem_timedwait|sem_clockwait|semop)$")
     cmake_parse_arguments(ENTRY "" "" "SRCS;HDRS;DEPENDS" ${ARGN})
     file(APPEND "${OUTPUT}" "${name}:${ENTRY_SRCS}\n")
   endif()
 endfunction()
 include("${LIBC_SOURCE_DIR}/src/semaphore/linux/CMakeLists.txt")
 include("${LIBC_SOURCE_DIR}/src/sys/mman/linux/CMakeLists.txt")
+include("${LIBC_SOURCE_DIR}/src/sys/sem/linux/CMakeLists.txt")
 
 #--- check.py
 import pathlib
@@ -34,7 +35,7 @@ for arch, cancellation in (("mmix", "OFF"), ("mmix", "ON"), ("x86_64", "ON")):
                     "-P", str(out / "selection.cmake")], check=True)
     selected = dict(line.split(":") for line in output.read_text().splitlines())
     prefix = "mmix/" if arch == "mmix" else ""
-    expected = {name: prefix + name + ".cpp" for name in ("sem_unlink", "shm_unlink")}
+    expected = {name: prefix + name + ".cpp" for name in ("sem_unlink", "shm_unlink", "semop")}
     timed_prefix = ("mmix/cancellation_" if cancellation == "ON" else "mmix/") if arch == "mmix" else ""
     expected.update({name: timed_prefix + name + ".cpp"
                      for name in ("sem_timedwait", "sem_clockwait")})

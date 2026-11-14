@@ -30,13 +30,20 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+set(semop_source semop.cpp)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(semop_source mmix/semop.cpp)
+endif()
+
 add_entrypoint_object(
   semop
   SRCS
-    semop.cpp
+    ${semop_source}
   HDRS
     ../semop.h
   DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.limits_macros
     libc.hdr.types.size_t
     libc.hdr.types.struct_sembuf
     libc.include.sys_syscall
