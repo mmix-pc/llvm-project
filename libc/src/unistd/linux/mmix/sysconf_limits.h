@@ -13,6 +13,10 @@
 
 namespace LIBC_NAMESPACE_DECL {
 
+// Linux UAPI include/uapi/linux/mqueue.h fixes MQ_PRIO_MAX at 32768.
+// This is a priority count, independent of namespace queue-capacity quotas.
+constexpr long mq_priority_max() { return 32768; }
+
 constexpr long tty_name_max() {
   // Both terminal-name providers use 4096-byte buffers, including NUL.
   // This fixed provider bound is independent of overlay host limits.h.

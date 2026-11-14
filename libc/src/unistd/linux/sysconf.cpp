@@ -670,6 +670,8 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
     return HOST_NAME_MAX;
   case _SC_TTY_NAME_MAX:
     return tty_name_max();
+  case _SC_MQ_PRIO_MAX:
+    return mq_priority_max();
   case _SC_SEM_VALUE_MAX:
     return SEM_VALUE_MAX;
   case _SC_RTSIG_MAX:
@@ -702,7 +704,6 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
   case _SC_AIO_MAX:
   case _SC_DELAYTIMER_MAX:
   case _SC_MQ_OPEN_MAX:
-  case _SC_MQ_PRIO_MAX:
   case _SC_SS_REPL_MAX:
   case _SC_TRACE_EVENT_NAME_MAX:
   case _SC_TRACE_NAME_MAX:

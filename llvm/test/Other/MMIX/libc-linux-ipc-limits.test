@@ -1,0 +1,12 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: clang --target=x86_64-unknown-linux -std=c++17 -fsyntax-only -I %S/../../../../libc %t/generic.cpp
+# RUN: clang --target=mmix-unknown-linux -std=c++17 -fsyntax-only -I %S/../../../../libc %t/mmix.cpp
+
+#--- generic.cpp
+#include "src/unistd/linux/sysconf_limits.h"
+static_assert(LIBC_NAMESPACE::mq_priority_max() == -1);
+
+#--- mmix.cpp
+#include "src/unistd/linux/sysconf_limits.h"
+static_assert(LIBC_NAMESPACE::mq_priority_max() == 32768);

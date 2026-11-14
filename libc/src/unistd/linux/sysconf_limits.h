@@ -17,6 +17,8 @@
 #else
 namespace LIBC_NAMESPACE_DECL {
 
+constexpr long mq_priority_max() { return -1; }
+
 constexpr long tty_name_max() { return -1; }
 
 } // namespace LIBC_NAMESPACE_DECL
