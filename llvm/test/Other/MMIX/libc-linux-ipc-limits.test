@@ -3,6 +3,11 @@
 # RUN: clang --target=x86_64-unknown-linux -std=c++17 -fsyntax-only -I %S/../../../../libc %t/generic.cpp
 # RUN: clang --target=mmix-unknown-linux -std=c++17 -fsyntax-only -I %S/../../../../libc %t/mmix.cpp
 
+# RUN: clang --target=mmix-unknown-linux -std=c17 -fsyntax-only -I %S/../../../../libc %t/public.c
+# RUN: clang --target=mmix-unknown-linux -std=c++17 -x c++ -fsyntax-only -I %S/../../../../libc %t/public.c
+# RUN: clang --target=mmix-unknown-linux -std=c17 -D__LIBC_EXPLICIT_NAMESPACE -DEXPECT_ABSENT -fsyntax-only -I %S/../../../../libc %t/public.c
+# RUN: clang --target=x86_64-unknown-linux -std=c17 -DEXPECT_ABSENT -fsyntax-only -I %S/../../../../libc %t/public.c
+
 #--- generic.cpp
 #include "src/unistd/linux/sysconf_limits.h"
 static_assert(LIBC_NAMESPACE::mq_priority_max() == -1);
@@ -10,3 +15,19 @@ static_assert(LIBC_NAMESPACE::mq_priority_max() == -1);
 #--- mmix.cpp
 #include "src/unistd/linux/sysconf_limits.h"
 static_assert(LIBC_NAMESPACE::mq_priority_max() == 32768);
+
+#--- public.c
+#include "include/llvm-libc-macros/limits-macros.h"
+#ifdef EXPECT_ABSENT
+#ifdef MQ_PRIO_MAX
+#error MMIX IPC bound escaped its selected namespace
+#endif
+#else
+#if MQ_PRIO_MAX != 32768 || MQ_PRIO_MAX < 32
+#error Wrong fixed message priority count
+#endif
+#ifdef __cplusplus
+#include "src/unistd/linux/sysconf_limits.h"
+static_assert(MQ_PRIO_MAX == LIBC_NAMESPACE::mq_priority_max());
+#endif
+#endif
