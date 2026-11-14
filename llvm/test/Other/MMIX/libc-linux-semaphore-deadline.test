@@ -1,0 +1,110 @@
+# REQUIRES: mmix-native-linux-host
+# RUN: split-file %s %t
+# RUN: %mmix_host_cxx -O0 -std=c++17 -I %S/../../../../libc -DLIBC_NAMESPACE=semaphore_deadline_test %t/main.cpp -o %t/native-O0
+# RUN: %t/native-O0
+# RUN: %mmix_host_cxx -O2 -std=c++17 -I %S/../../../../libc -DLIBC_NAMESPACE=semaphore_deadline_test %t/main.cpp -o %t/native-O2
+# RUN: %t/native-O2
+
+# Native injection executes the actual semaphore and MMIX retry policy, with
+# LLVM's sem_t instead of the incompatible host sem_t. It is not guest evidence.
+#--- main.cpp
+#include <assert.h>
+#include <errno.h>
+#include "include/llvm-libc-types/sem_t.h"
+#define LLVM_LIBC_HDR_TYPES_SEM_T_H
+#include "src/semaphore/linux/mmix/semaphore_timeout.h"
+
+using namespace LIBC_NAMESPACE;
+static timespec observed;
+static unsigned queries, abandoned;
+static clockid_t expected_clock;
+static Semaphore *post_during_query;
+namespace LIBC_NAMESPACE {
+namespace internal {
+ErrorOr<int> clock_gettime(clockid_t clock, timespec *out) {
+  assert(clock == expected_clock);
+  ++queries;
+  if (post_during_query) {
+    assert(post_during_query->post() == 0);
+    post_during_query = nullptr;
+  }
+  *out = observed;
+  return 0;
+}
+}
+}
+struct TrackedPolicy : mmix::SemaphoreTimeoutPolicy {
+  void on_abandon(Futex &value, bool shared) const {
+    ++abandoned;
+    mmix::SemaphoreTimeoutPolicy::on_abandon(value, shared);
+  }
+};
+int main() {
+  Semaphore untimed(0, false);
+  unsigned attempts = 0;
+  auto retry = [&](Futex &, auto timeout, bool) -> ErrorOr<int> {
+    assert(!timeout);
+    if (++attempts == 1) return Error(EAGAIN);
+    assert(untimed.post() == 0); return 0;
+  };
+  assert(untimed.wait_with(retry) == 0 && attempts == 2 && untimed.getvalue() == 0);
+  auto interrupt = [](Futex &, auto, bool) -> ErrorOr<int> { return Error(EINTR); };
+  assert(untimed.wait_with(interrupt) == EINTR && untimed.getvalue() == 0);
+  const clockid_t clocks[] = {CLOCK_REALTIME, CLOCK_MONOTONIC};
+  const int results[] = {0, EAGAIN, ETIMEDOUT, EINTR};
+  for (clockid_t clock : clocks) {
+    expected_clock = clock;
+    timespec limit{100, 123};
+    observed = limit;
+    queries = abandoned = 0;
+    auto unreachable = [](Futex &, auto, bool) -> ErrorOr<int> {
+      assert(false); return 0;
+    };
+    Semaphore immediate(1, false);
+    assert(immediate.clockwait_with(clock, nullptr, unreachable,
+                                    TrackedPolicy{}) == 0);
+    assert(queries == 0 && abandoned == 0 && immediate.getvalue() == 0);
+    Semaphore expired(0, false);
+    post_during_query = &expired;
+    assert(expired.clockwait_with(clock, &limit, unreachable,
+                                  TrackedPolicy{}) == ETIMEDOUT);
+    assert(queries == 1 && abandoned == 1 && expired.getvalue() == 1);
+    // EAGAIN, a normal wake, timeout and interruption can all race a post.
+    for (int result : results) {
+      Semaphore sem(0, true);
+      queries = abandoned = 0;
+      observed = {99, 0};
+      auto wait = [&](Futex &, auto, bool shared) -> ErrorOr<int> {
+        assert(shared);
+        assert(sem.post() == 0);
+        // A kernel timeout is authoritative even if realtime moved backward.
+        observed = result == ETIMEDOUT ? timespec{98, 0} : limit;
+        if (result) return Error(result);
+        return 0;
+      };
+      assert(sem.clockwait_with(clock, &limit, wait, TrackedPolicy{}) ==
+             (result == EINTR ? EINTR : ETIMEDOUT));
+      assert(sem.getvalue() == 1 && abandoned == 1);
+    }
+    Semaphore timely(0, false);
+    queries = abandoned = 0;
+    observed = {99, 0};
+    auto timely_post = [&](Futex &, auto, bool) -> ErrorOr<int> {
+      assert(timely.post() == 0); return 0;
+    };
+    assert(timely.clockwait_with(clock, &limit, timely_post, TrackedPolicy{}) == 0);
+    assert(queries == 2 && abandoned == 0 && timely.getvalue() == 0);
+    // The common Linux default still performs its historical final trywait.
+    Semaphore generic(0, false);
+    queries = 0;
+    auto timeout_post = [&](Futex &, auto, bool) -> ErrorOr<int> {
+      assert(generic.post() == 0); return Error(ETIMEDOUT);
+    };
+    assert(generic.clockwait_with(clock, &limit, timeout_post) == 0);
+    assert(queries == 0 && generic.getvalue() == 0);
+    timespec invalid{0, 1000000000};
+    assert(generic.clockwait_with(clock, &invalid, unreachable,
+                                  TrackedPolicy{}) == EINVAL);
+    assert(queries == 0);
+  }
+}

@@ -1,4 +1,5 @@
 header: sys/sem.h
+public_includes: [sys/ipc.h]
 standards:
   - posix
   - linux

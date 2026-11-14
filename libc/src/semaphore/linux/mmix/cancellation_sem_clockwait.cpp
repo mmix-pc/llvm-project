@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "cancellation_semaphore.h"
+#include "semaphore_timeout.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/semaphore/sem_clockwait.h"
@@ -16,14 +17,15 @@ namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, sem_clockwait,
                    (sem_t *__restrict sem, clockid_t clock_id,
                     const timespec *__restrict abstime)) {
-  // POSIX requires a cancellation check even when acquisition cannot block.
+  // Use the permitted cancellation point even when acquisition cannot block.
   // Never check again after acquiring: the token then belongs to the caller.
   mmix::test_cancel();
   LIBC_CRASH_ON_NULLPTR(sem);
   auto *semaphore = reinterpret_cast<Semaphore *>(sem);
   int error =
       semaphore->is_valid()
-          ? semaphore->clockwait_with(clock_id, abstime, mmix::semaphore_wait)
+          ? semaphore->clockwait_with(clock_id, abstime, mmix::semaphore_wait,
+                                      mmix::SemaphoreTimeoutPolicy{})
           : EINVAL;
   if (error) {
     libc_errno = error;

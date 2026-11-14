@@ -2,6 +2,9 @@ foreach(name sem_wait sem_timedwait sem_clockwait)
   set(${name}_source ${name}.cpp)
 endforeach()
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(sem_timedwait_source mmix/sem_timedwait.cpp)
+  set(sem_clockwait_source mmix/sem_clockwait.cpp)
+  set(mmix_semaphore_timeout_dependency libc.src.__support.time.clock_gettime)
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/CancellationPoints.cmake)
   mmix_select_cancellation_points(sem_wait sem_timedwait sem_clockwait)
 endif()
@@ -136,15 +139,21 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+set(sem_unlink_source sem_unlink.cpp)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(sem_unlink_source mmix/sem_unlink.cpp)
+endif()
+
 add_entrypoint_object(
   sem_unlink
   SRCS
-    sem_unlink.cpp
+    ${sem_unlink_source}
   HDRS
     ../sem_unlink.h
   DEPENDS
     .named_semaphore
     .semaphore
+    libc.hdr.errno_macros
     libc.src.__support.macros.null_check
     libc.src.errno.errno
 )
@@ -208,6 +217,7 @@ add_entrypoint_object(
     libc.src.__support.macros.null_check
     libc.src.errno.errno
     libc.src.__support.CPP.scope
+    ${mmix_semaphore_timeout_dependency}
     ${mmix_cancellation_dependency}
   COMPILE_OPTIONS ${mmix_cancellation_options}
 )
@@ -227,6 +237,7 @@ add_entrypoint_object(
     libc.src.__support.macros.null_check
     libc.src.errno.errno
     libc.src.__support.CPP.scope
+    ${mmix_semaphore_timeout_dependency}
     ${mmix_cancellation_dependency}
   COMPILE_OPTIONS ${mmix_cancellation_options}
 )

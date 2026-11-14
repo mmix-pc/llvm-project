@@ -308,13 +308,19 @@ add_entrypoint_object(
     .shm_common
 )
 
+set(shm_unlink_source shm_unlink.cpp)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(shm_unlink_source mmix/shm_unlink.cpp)
+endif()
+
 add_entrypoint_object(
   shm_unlink
   SRCS
-    shm_unlink.cpp
+    ${shm_unlink_source}
   HDRS
     ../shm_unlink.h
   DEPENDS
+    libc.hdr.errno_macros
     libc.src.__support.OSUtil.linux.syscall_wrappers.unlink
     libc.src.errno.errno
     .shm_common

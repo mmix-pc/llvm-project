@@ -40,6 +40,14 @@ class Semaphore {
   // 0x4D='M', 0x31='1').
   static constexpr unsigned int SEM_CANARY = 0x53454D31U;
 
+  struct DefaultRetryPolicy {
+    static constexpr bool RETRY_AFTER_TIMEOUT = true;
+    LIBC_INLINE int before_retry(cpp::optional<internal::AbsTimeout>) const {
+      return 0;
+    }
+    LIBC_INLINE void on_abandon(Futex &, bool) const {}
+  };
+
   // Unlike internal mutex waits, POSIX semaphore waits report interruption.
   static LIBC_INLINE ErrorOr<int>
   futex_wait(Futex &futex, cpp::optional<internal::AbsTimeout> timeout,
@@ -48,25 +56,32 @@ class Semaphore {
   }
 
   // The callback may cancel before acquisition, but must not consume a token.
-  template <typename Wait>
+  template <typename Wait, typename RetryPolicy = DefaultRetryPolicy>
   LIBC_INLINE int wait_until(cpp::optional<internal::AbsTimeout> timeout,
-                             Wait do_wait) {
-    while (trywait() != 0) {
+                             Wait do_wait, RetryPolicy retry = {}) {
+    for (;;) {
+      if (int error = retry.before_retry(timeout)) {
+        retry.on_abandon(value, is_shared);
+        return error;
+      }
+      if (trywait() == 0)
+        return 0;
       auto wait_or = do_wait(value, timeout, is_shared);
 
       // returned error is not a benign race EAGAIN
       if (!wait_or.has_value() && wait_or.error() != EAGAIN) {
 
-        // ETIMEDOUT still needs a final trywait() in case a post() raced with
-        // the deadline
-        if (wait_or.error() == ETIMEDOUT && trywait() == 0)
+        // The default policy permits a final trywait after ETIMEDOUT.
+        // A strict deadline policy can decline that last acquisition.
+        if (RetryPolicy::RETRY_AFTER_TIMEOUT &&
+            wait_or.error() == ETIMEDOUT && trywait() == 0)
           return 0;
 
         // Any other error (e.g. EINVAL/EFAULT)
+        retry.on_abandon(value, is_shared);
         return wait_or.error();
       }
     }
-    return 0;
   }
 
 public:
@@ -161,9 +176,9 @@ public:
     return clockwait_with(clock_id, abstime, futex_wait);
   }
 
-  template <typename Wait>
+  template <typename Wait, typename RetryPolicy = DefaultRetryPolicy>
   LIBC_INLINE int clockwait_with(clockid_t clock_id, const timespec *abstime,
-                                 Wait do_wait) {
+                                 Wait do_wait, RetryPolicy retry = {}) {
     if (clock_id != CLOCK_MONOTONIC && clock_id != CLOCK_REALTIME)
       return EINVAL;
 
@@ -178,7 +193,7 @@ public:
     auto timeout =
         internal::AbsTimeout::from_timespec(*abstime, /*realtime=*/is_realtime);
     if (LIBC_LIKELY(timeout.has_value()))
-      return wait_until(timeout.value(), do_wait);
+      return wait_until(timeout.value(), do_wait, retry);
 
     internal::AbsTimeout::Error err = timeout.error();
     LIBC_ASSERT(err == internal::AbsTimeout::Error::Invalid ||

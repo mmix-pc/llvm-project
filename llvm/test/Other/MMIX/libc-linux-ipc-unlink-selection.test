@@ -1,0 +1,41 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+function(add_subdirectory)
+endfunction()
+function(add_header_library)
+endfunction()
+function(add_object_library)
+endfunction()
+function(add_entrypoint_object name)
+  if(name MATCHES "^(sem_unlink|shm_unlink|sem_timedwait|sem_clockwait)$")
+    cmake_parse_arguments(ENTRY "" "" "SRCS;HDRS;DEPENDS" ${ARGN})
+    file(APPEND "${OUTPUT}" "${name}:${ENTRY_SRCS}\n")
+  endif()
+endfunction()
+include("${LIBC_SOURCE_DIR}/src/semaphore/linux/CMakeLists.txt")
+include("${LIBC_SOURCE_DIR}/src/sys/mman/linux/CMakeLists.txt")
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, out = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+for arch, cancellation in (("mmix", "OFF"), ("mmix", "ON"), ("x86_64", "ON")):
+    output = out / (arch + "-" + cancellation + ".txt")
+    output.write_text("")
+    subprocess.run(["cmake", f"-DLIBC_SOURCE_DIR={libc}", f"-DOUTPUT={output}",
+                    f"-DLIBC_TARGET_ARCHITECTURE={arch}",
+                    f"-DLIBC_MMIX_BUILD_CANCELLATION_WINDOWS={cancellation}",
+                    "-P", str(out / "selection.cmake")], check=True)
+    selected = dict(line.split(":") for line in output.read_text().splitlines())
+    prefix = "mmix/" if arch == "mmix" else ""
+    expected = {name: prefix + name + ".cpp" for name in ("sem_unlink", "shm_unlink")}
+    timed_prefix = ("mmix/cancellation_" if cancellation == "ON" else "mmix/") if arch == "mmix" else ""
+    expected.update({name: timed_prefix + name + ".cpp"
+                     for name in ("sem_timedwait", "sem_clockwait")})
+    assert selected == expected, selected

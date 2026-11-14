@@ -16,7 +16,7 @@ include = out / "include"
 for name in ("llvm-libc-types", "llvm-libc-macros"):
     shutil.copytree(libc / "include" / name, include / name, dirs_exist_ok=True)
 shutil.copyfile(libc / "include/__llvm-libc-common.h", include / "__llvm-libc-common.h")
-for name in ("aio", "fmtmsg", "ndbm", "sys/ipc", "sys/msg", "sys/shm"):
+for name in ("aio", "fmtmsg", "ndbm", "sys/ipc", "sys/msg", "sys/sem", "sys/shm"):
     target = include / (name + ".h")
     target.parent.mkdir(exist_ok=True)
     subprocess.run([sys.executable, str(libc / "utils/hdrgen/main.py"),
@@ -30,6 +30,17 @@ for triple in ("mmix-unknown-linux", "x86_64-unknown-linux-gnu"):
                    "-x", language, "-std=c17" if language == "c" else "-std=c++17",
                    "-fsyntax-only", "-Werror", "-"]
         assertion = "static_assert" if language == "c++" else "_Static_assert"
+        # Each available XSI IPC object header provides sys/ipc.h on its own.
+        # Message/shared-memory record definitions currently exist only for MMIX.
+        ipc_headers = (("sys/msg.h", "sys/sem.h", "sys/shm.h")
+                       if triple.startswith("mmix") else ("sys/sem.h",))
+        for header in ipc_headers:
+            source = '#include <' + header + '>\n'
+            source += ('int creation = IPC_CREAT | IPC_EXCL | IPC_NOWAIT;\n'
+                       'int commands[] = {IPC_STAT, IPC_SET, IPC_RMID};\n'
+                       'key_t (*key_fn)(const char *, int) = &ftok;\n'
+                       'uid_t owner; gid_t group; mode_t mode;\n')
+            subprocess.run(command, input=source, text=True, check=True)
         for header, fixture in (("aio", "aio.c"), ("fmtmsg", "fmtmsg.c"), ("ndbm", "ndbm.c")):
             source = '#define CHECK ' + assertion + '\n#include <' + header + '.h>\n'
             source += (out / fixture).read_text()

@@ -13,7 +13,7 @@
 
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(int, sem_wait, (sem_t * sem)) {
-  // POSIX requires a cancellation check even when acquisition cannot block.
+  // Use the permitted cancellation point even when acquisition cannot block.
   // Never check again after acquiring: the token then belongs to the caller.
   mmix::test_cancel();
   LIBC_CRASH_ON_NULLPTR(sem);
