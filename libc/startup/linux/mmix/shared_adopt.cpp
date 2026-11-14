@@ -11,8 +11,8 @@
 #include "shared_startup.h"
 #include "src/__support/OSUtil/linux/auxv.h"
 #include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
-#include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/OSUtil/linux/mmix/startup_security.h"
+#include "src/__support/OSUtil/linux/mmix/syscall.h"
 #include "src/__support/threads/linux/mmix/loader_cancellation.h"
 #include "src/__support/threads/linux/mmix/unwind_root.h"
 #include "src/dlfcn/linux/mmix/loading.h"
@@ -49,14 +49,13 @@ long retain_shared_process_callback(void *dso, uintptr_t callback,
                                     uint64_t *token) {
   if (!services.images.retain_process)
     return EINVAL;
-  return services.images.retain_process(services.images.context,
-                                        reinterpret_cast<uintptr_t>(dso),
-                                        callback, loader_cancellation_hooks(),
-                                        token);
+  return services.images.retain_process(
+      services.images.context, reinterpret_cast<uintptr_t>(dso), callback,
+      loader_cancellation_hooks(), token);
 }
 
 long retain_shared_signal(uintptr_t handler, uintptr_t restorer,
-                           loader::LoaderSignalLease *lease) {
+                          loader::LoaderSignalLease *lease) {
   if (!services.signals.retain)
     return EINVAL;
   return services.signals.retain(services.signals.context, handler, restorer,
@@ -115,8 +114,20 @@ static long describe_image(long (*query)(void *, uintptr_t,
 static long find_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
   return describe_image(services.find_unwind_image, pc, out);
 }
+static long acquire_owned_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
+  return describe_image(services.unwind_ownership.acquire, pc, out);
+}
 static long acquire_image(void *, uintptr_t pc, MMIXUnwindImage *out) {
   return describe_image(services.acquire_unwind_image, pc, out);
+}
+static long retain_owned_image(void *, uintptr_t token) {
+  return services.unwind_ownership.retain(services.context, token);
+}
+static long drop_owned_image(void *, uintptr_t token) {
+  return services.unwind_ownership.drop(services.context, token);
+}
+static long pin_owned_image(void *, uintptr_t token) {
+  return services.unwind_ownership.pin(services.context, token);
 }
 static long retain_image(void *, uintptr_t token, MMIXUnwindImage *out) {
   return describe_image(services.retain_unwind_image, token, out);
@@ -125,16 +136,40 @@ static long drop_image(void *, uintptr_t token) {
   return services.drop_unwind_image(services.context, token);
 }
 static long lookup_image(void *, uintptr_t token, uintptr_t pc,
-                          MMIXUnwindImage *out) {
+                         MMIXUnwindImage *out) {
   if (!out)
     return EINVAL;
   *out = {};
   loader::UnwindImageView view{};
   long error = services.lookup_unwind_lease(services.context, token, pc, &view);
   if (!error)
-    *out = {view.load_bias, view.phdr_address, view.phdr_count,
-            view.eh_frame_header, view.eh_frame_header_size,
-            view.readable_ranges, view.range_count, view.token};
+    *out = {view.load_bias,
+            view.phdr_address,
+            view.phdr_count,
+            view.eh_frame_header,
+            view.eh_frame_header_size,
+            view.readable_ranges,
+            view.range_count,
+            view.token};
+  return error;
+}
+static long lookup_owned_image(void *, uintptr_t token, uintptr_t pc,
+                               MMIXUnwindImage *out) {
+  if (!out)
+    return EINVAL;
+  *out = {};
+  loader::UnwindImageView view{};
+  long error =
+      services.unwind_ownership.lookup(services.context, token, pc, &view);
+  if (!error)
+    *out = {view.load_bias,
+            view.phdr_address,
+            view.phdr_count,
+            view.eh_frame_header,
+            view.eh_frame_header_size,
+            view.readable_ranges,
+            view.range_count,
+            view.token};
   return error;
 }
 static long pin_image(void *, uintptr_t token) {
@@ -156,9 +191,9 @@ long adopt_shared_main(const loader::StartupProcessView *process,
   attempted = true;
   secure_execution = input->secure;
   __builtin_memcpy_inline(&services, input, sizeof(services));
-  if (!adopt_startup_tls_resolver(
-          {services.context, services.resolve_startup_tls,
-           services.try_resolve_tls}))
+  if (!adopt_startup_tls_resolver({services.context,
+                                   services.resolve_startup_tls,
+                                   services.try_resolve_tls}))
     return EINVAL;
   __llvm_libc_mmix_linux_init_guard(
       reinterpret_cast<const unsigned char *>(process->random));
@@ -194,9 +229,19 @@ long adopt_shared_main(const loader::StartupProcessView *process,
       !adopt_query_services(services.queries) ||
       !adopt_loader_process_services(services.process))
     return EINVAL;
-  MMIXStartupUnwindService unwind{sizeof(unwind), 1, &services, find_image,
-                                  release_image, acquire_image, retain_image,
-                                  drop_image, lookup_image, pin_image};
+  MMIXStartupUnwindService unwind{sizeof(unwind),
+                                  1,
+                                  &services,
+                                  find_image,
+                                  release_image,
+                                  acquire_image,
+                                  retain_image,
+                                  drop_image,
+                                  lookup_image,
+                                  pin_image,
+                                  {acquire_owned_image, retain_owned_image,
+                                   drop_owned_image, lookup_owned_image,
+                                   pin_owned_image}};
   if (!__libunwind_mmix_adopt_startup_images(&unwind))
     return EINVAL;
   // Pin only the startup snapshot, before any constructor can load a DSO.
@@ -220,7 +265,7 @@ long adopt_shared_main(const loader::StartupProcessView *process,
 // Private same-source ABI: publish ownership before restoring cancellation.
 extern "C" __attribute__((visibility("default"))) long
 __llvm_libc_mmix_retain_exception_images(uintptr_t type, uintptr_t callback,
-                                       uint64_t *token) {
+                                         uint64_t *token) {
   return LIBC_NAMESPACE::mmix::retain_shared_tls_destructor(
       reinterpret_cast<void *>(type), callback, token);
 }

@@ -109,6 +109,8 @@ target_compile_options(loader-root-image-test PRIVATE ${LIBC_LOADER_COMPILE_OPTI
 target_compile_features(loader-root-image-test PRIVATE cxx_std_17)
 add_test(NAME loader-root-image COMMAND loader-root-image-test)
 set_tests_properties(loader-root-image PROPERTIES TIMEOUT 30)
+add_test(NAME loader-root-image-owned COMMAND loader-root-image-test owned)
+set_tests_properties(loader-root-image-owned PROPERTIES TIMEOUT 30)
 
 add_executable(loader-unwind-cursor-service-test unwind_cursor_service_test.cpp
   ../../../libunwind/src/mmix/CursorLifetime.cpp
@@ -149,6 +151,8 @@ target_compile_features(loader-unwind-cursor-test PRIVATE cxx_std_17)
 target_link_libraries(loader-unwind-cursor-test PRIVATE Threads::Threads)
 add_test(NAME loader-unwind-cursor COMMAND loader-unwind-cursor-test)
 set_tests_properties(loader-unwind-cursor PROPERTIES TIMEOUT 30)
+add_test(NAME loader-unwind-cursor-owned COMMAND loader-unwind-cursor-test owned)
+set_tests_properties(loader-unwind-cursor-owned PROPERTIES TIMEOUT 30)
 
 set(LOADER_THREAD_TLS_TEST_SOURCES
   ../linux/thread_tls.cpp ../linux/runtime_tls.cpp ../linux/dtv.cpp

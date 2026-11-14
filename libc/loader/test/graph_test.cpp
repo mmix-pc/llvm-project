@@ -1491,6 +1491,17 @@ extern "C" int main() {
        "traces passed");
   // Exercise the composed production services without executing MMIX code.
   start();
+  // Supply actual unwind metadata to the composed ownership service below.
+  empty_main.put(56, 2, 9);
+  empty_main.segment(0, PT_PHDR, PF_R, 64, 64, 9 * 56, 9 * 56, 8);
+  empty_main.segment(8, PT_GNU_EH_FRAME, PF_R, 0xc00, 0xc00, 20, 20, 4);
+  empty_main.put(0xc00, 4, 0x011b033b);
+  empty_main.put(0xc04, 4, 0xd00 - 0xc04);
+  empty_main.put(0xc08, 4, 1);
+  empty_main.put(0xc0c, 4, 0x2000 - 0xc00);
+  empty_main.put(0xc10, 4, 0xd00 - 0xc00);
+  CHECK(ElfImage::open_mapped(regions, 0, 64, ImageRole::MainPIE, bias, page,
+                              main) == ElfError::None);
   empty_main.add(DT_DEBUG, 0);
   empty_main.finish();
   CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
@@ -1536,6 +1547,11 @@ extern "C" int main() {
   CHECK_MISSING_SERVICE(drop_unwind_image);
   CHECK_MISSING_SERVICE(lookup_unwind_lease);
   CHECK_MISSING_SERVICE(pin_unwind_lease);
+  CHECK_MISSING_SERVICE(unwind_ownership.acquire);
+  CHECK_MISSING_SERVICE(unwind_ownership.retain);
+  CHECK_MISSING_SERVICE(unwind_ownership.drop);
+  CHECK_MISSING_SERVICE(unwind_ownership.lookup);
+  CHECK_MISSING_SERVICE(unwind_ownership.pin);
   CHECK_MISSING_SERVICE(api.context);
   CHECK_MISSING_SERVICE(api.open);
   CHECK_MISSING_SERVICE(api.lookup);
@@ -1575,6 +1591,40 @@ extern "C" int main() {
             EINVAL &&
         !invalid_view.token);
   CHECK(services.drop_unwind_image(services.context, 0) == EINVAL);
+  // Exhaust the checked table while holding more independent trusted owners
+  // than it can represent. All reader operations must avoid system calls.
+  const unsigned before_ownership = calls;
+  UnwindImageView checked[64]{}, owned[130]{};
+  for (auto &v : checked)
+    CHECK(!services.acquire_unwind_image(services.context, bias + 0x2000, &v));
+  CHECK(services.acquire_unwind_image(services.context, bias + 0x2000,
+                                      &invalid_view) == EAGAIN);
+  auto &ownership = services.unwind_ownership;
+  for (auto &v : owned)
+    CHECK(!ownership.acquire(services.context, bias + 0x2000, &v));
+  using Batch = SnapshotStorage<RuntimeScopes::Snapshot>::Batch;
+  auto *batch = reinterpret_cast<Batch *>(owned[0].token);
+  CHECK(batch->readers.load() == 194 && !batch->pinned.load());
+  for (auto &v : owned) {
+    CHECK(!ownership.retain(services.context, v.token));
+    CHECK(!ownership.drop(services.context, v.token));
+    CHECK(!ownership.lookup(services.context, v.token, bias + 0x2000,
+                              &invalid_view));
+    CHECK(invalid_view.eh_frame_header == v.eh_frame_header);
+    CHECK(!ownership.drop(services.context, v.token));
+  }
+  CHECK(batch->readers.load() == 64 && !batch->pinned.load());
+  for (auto &v : checked)
+    CHECK(!services.drop_unwind_image(services.context, v.token));
+  CHECK(!batch->readers.load() && !batch->pinned.load());
+  CHECK(ownership.acquire(services.context, 1, &invalid_view) == ENOENT &&
+        !invalid_view.token && !batch->readers.load());
+  CHECK(ownership.retain(services.context, 0) == EINVAL);
+  CHECK(ownership.drop(services.context, 0) == EINVAL);
+  CHECK(ownership.lookup(services.context, 0, 1, &invalid_view) == EINVAL);
+  CHECK(ownership.pin(services.context, 0) == EINVAL);
+  CHECK(calls == before_ownership);
+
   CHECK(services.run_initializers(services.context, hooks) == 0);
   CHECK(services.run_initializers(services.context, hooks) == 0);
   uint64_t handle = 0;

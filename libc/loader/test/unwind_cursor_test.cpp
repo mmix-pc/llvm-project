@@ -150,11 +150,76 @@ static void *cancelled(void *) {
     sched_yield();
   }
 }
-int main() {
+// Trusted references may share one batch identity while retaining independent
+// ownership. In particular, copy rollback must not invalidate another owner.
+static int owned_copy() {
+  int source, destination;
+  _LIBUNWIND_CURSOR_SCOPE(source);
+  _LIBUNWIND_CURSOR_SCOPE(destination);
+  check(query(&source) && query(&destination) && references == 2);
+  MMIXUnwindImage extra{};
+  check(__libunwind_mmix_acquire_image(100, &extra));
+  source_lifetime.fallback_token = extra.token;
+  check(references == 3 && source_lifetime.token == destination_lifetime.token);
+  for (unsigned failure = 1; failure <= 2; ++failure) {
+    retain_calls = 0;
+    fail_retain_call = failure;
+    check(!__libunwind_mmix_cursor_copy(&destination, &source));
+    check(retain_calls == failure && references == 3);
+    check(source_lifetime.token == 1 && source_lifetime.fallback_token == 1 &&
+          destination_lifetime.token == 1 && !destination_lifetime.fallback_token);
+    check(query(&source) && query(&destination));
+  }
+  fail_retain_call = 0;
+  check(__libunwind_mmix_cursor_copy(&destination, &source) && references == 4);
+  check(destination_lifetime.token == 1 && destination_lifetime.fallback_token == 1);
+  __libunwind_mmix_cursor_reset(&source);
+  check(references == 2);
+  retired = true;
+  check(query(&destination) && !query(&source));
+  __libunwind_mmix_cursor_reset(&destination);
+  check(!references && !pins);
+  std::puts("shared snapshot identity, independent owners and copy rollback passed");
+  return 0;
+}
+int main(int argc, char **) {
   MMIXStartupUnwindService service{sizeof(service), 1,       &image, find,
                                    release,         acquire, retain, drop,
                                    lookup,          pin};
+  if (argc > 1) {
+    service.ownership = {
+      [](void *, uintptr_t pc, MMIXUnwindImage *out) -> long {
+        if (pc != 100 || retired)
+          return 2;
+        *out = view;
+        ++references;
+        return 0;
+      },
+      [](void *, uintptr_t token) -> long {
+        check(token == 1 && references);
+        if (++retain_calls == fail_retain_call)
+          return 11;
+        ++references;
+        return 0;
+      },
+      [](void *, uintptr_t token) -> long {
+        check(token == 1 && references);
+        --references;
+        return 0;
+      },
+      [](void *, uintptr_t token, uintptr_t pc, MMIXUnwindImage *out) -> long {
+        check(token == 1 && references);
+        if (pc != 100)
+          return 2;
+        *out = view;
+        return 0;
+      },
+      [](void *, uintptr_t) -> long { std::abort(); }
+    };
+  }
   check(__libunwind_mmix_adopt_startup_images(&service));
+  if (argc > 1)
+    return owned_copy();
   int raw;
   check(query(&raw) && resident == 1 && !references);
   {

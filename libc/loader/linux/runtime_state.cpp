@@ -157,7 +157,7 @@ void RuntimeState::services(LoaderServices &out, StartupUnwindImages *unwind) {
   };
   out.try_resolve_tls = [](void *p, const TLSIndex *i) {
     return try_resolve_runtime_thread_tls(&static_cast<RuntimeState *>(p)->tls,
-                                         i);
+                                          i);
   };
   out.find_unwind_image = [](void *p, uintptr_t pc, UnwindImageView *v) {
     auto &state = *static_cast<RuntimeState *>(p);
@@ -210,6 +210,63 @@ void RuntimeState::services(LoaderServices &out, StartupUnwindImages *unwind) {
   };
   out.pin_unwind_lease = [](void *p, uintptr_t token) {
     return static_cast<RuntimeState *>(p)->scopes.unwind_leases.pin(token);
+  };
+  // The unwinder's registered sidecars are explicit owners. Their number is
+  // bounded by live thread/stack storage, not the checked-token control table.
+  out.unwind_ownership.acquire = [](void *p, uintptr_t pc,
+                                    UnwindImageView *v) -> long {
+    if (!v)
+      return EINVAL;
+    *v = {};
+    auto &state = *static_cast<RuntimeState *>(p);
+    auto lease = state.scopes.acquire();
+    const auto *snapshot = lease.get();
+    long error = snapshot && snapshot->unwind
+                     ? snapshot->unwind->images.find(pc, *v)
+                     : EINVAL;
+    if (error == ENOENT && state.startup_unwind)
+      error = find_unwind_image(state.startup_unwind, pc, v);
+    if (!error)
+      v->token = reinterpret_cast<uintptr_t>(lease.detach());
+    return error;
+  };
+  out.unwind_ownership.retain = [](void *, uintptr_t owner) -> long {
+    if (!owner)
+      return EINVAL;
+    RuntimeScopes::Lease::retain_detached(reinterpret_cast<void *>(owner));
+    return 0;
+  };
+  out.unwind_ownership.drop = [](void *, uintptr_t owner) -> long {
+    if (!owner)
+      return EINVAL;
+    RuntimeScopes::Lease::release_detached(reinterpret_cast<void *>(owner));
+    return 0;
+  };
+  out.unwind_ownership.lookup = [](void *p, uintptr_t owner, uintptr_t pc,
+                                   UnwindImageView *v) -> long {
+    if (!v)
+      return EINVAL;
+    *v = {};
+    if (!owner)
+      return EINVAL;
+    auto &state = *static_cast<RuntimeState *>(p);
+    const auto *snapshot =
+        RuntimeScopes::Lease::view_detached(reinterpret_cast<void *>(owner));
+    long error =
+        snapshot->unwind ? snapshot->unwind->images.find(pc, *v) : EINVAL;
+    if (error == ENOENT && state.startup_unwind)
+      error = find_unwind_image(state.startup_unwind, pc, v);
+    if (!error)
+      v->token = owner;
+    return error;
+  };
+  out.unwind_ownership.pin = [](void *, uintptr_t owner) -> long {
+    if (!owner)
+      return EINVAL;
+    void *batch = reinterpret_cast<void *>(owner);
+    RuntimeScopes::Lease::pin_detached(batch);
+    RuntimeScopes::Lease::release_detached(batch);
+    return 0;
   };
   out.finalize_startup = [](void *p, LoaderCancellation hooks) {
     if (static_cast<RuntimeState *>(p)->api.finalize(hooks))

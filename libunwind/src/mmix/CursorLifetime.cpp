@@ -453,7 +453,7 @@ bool mmixFindCursorImage(uintptr_t pc, MMIXUnwindImage &view, bool &owned) {
     return __libunwind_mmix_lookup_image(owner->fallback_token, pc, &view);
   // A destructor can throw and catch an ordinary exception after a peer has
   // closed its DSO. Its fresh cursor needs both newly loaded code and the old
-  // continuation's view. Take an independent finite lease only on this miss.
+  // continuation's view. Retain an independent snapshot owner only on this miss.
   uintptr_t inherited = 0;
   unsigned current = phase();
   if (current == Landing)

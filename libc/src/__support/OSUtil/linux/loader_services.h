@@ -1,4 +1,5 @@
-//===-- Private loader/runtime TLS descriptors -------------------*- C++ -*-===//
+//===-- Private loader/runtime TLS descriptors -------------------*- C++
+//-*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -154,7 +155,7 @@ struct LoaderImageAPI {
   // DSO-owned process callback; a distinct callback image remains an external
   // runtime owner until invocation completes. Release uses the same service.
   long (*retain_process)(void *, uintptr_t dso, uintptr_t callback,
-                        LoaderCancellation, uint64_t *token) = nullptr;
+                         LoaderCancellation, uint64_t *token) = nullptr;
 };
 
 // Single-owner stack record; never copy or expose to application code.
@@ -180,11 +181,26 @@ constexpr uint64_t LookupDefault = 0, LookupNext = ~uint64_t(0);
 inline bool valid_open_flags(unsigned flags) {
   unsigned binding = flags & (OpenLazy | OpenNow);
   return (binding == OpenLazy || binding == OpenNow) &&
-         !(flags & ~(OpenLazy | OpenNow | OpenNoLoad | OpenGlobal | OpenNoDelete));
+         !(flags &
+           ~(OpenLazy | OpenNow | OpenNoLoad | OpenGlobal | OpenNoDelete));
 }
 
 // Private same-source composition contract, not a public ABI version.
 enum class LoaderLifetime : uint64_t { Unspecified, Reclaiming };
+
+// Trusted private owners hold a live snapshot reference. Unlike checked tokens,
+// these handles must never be forged, reused after drop, or copied without
+// retain. They are stored only by the unwinder, not in public cursor/context
+// objects. All operations are allocation-free; dropping the final reference
+// only requests later writer-side collection. Operations on one owner must not
+// race its drop.
+struct LoaderUnwindOwnership {
+  long (*acquire)(void *, uintptr_t, UnwindImageView *) = nullptr;
+  long (*retain)(void *, uintptr_t) = nullptr;
+  long (*drop)(void *, uintptr_t) = nullptr;
+  long (*lookup)(void *, uintptr_t, uintptr_t, UnwindImageView *) = nullptr;
+  long (*pin)(void *, uintptr_t) = nullptr;
+};
 
 struct LoaderServices {
   uint64_t size;
@@ -216,23 +232,27 @@ struct LoaderServices {
   LoaderLifetime lifetime = LoaderLifetime::Unspecified;
   void *(*try_resolve_tls)(void *, const TLSIndex *) = nullptr;
   uint64_t secure = 1;
+  LoaderUnwindOwnership unwind_ownership{};
 };
 
 inline bool has_reclaiming_services(const LoaderServices &s) {
   // Check size before reading the new tail of an older provider descriptor.
   return s.size == sizeof(s) && s.secure <= 1 &&
-         s.lifetime == LoaderLifetime::Reclaiming &&
-         s.context && s.tls_set && s.prepare_thread_tls && s.release_thread_tls &&
+         s.lifetime == LoaderLifetime::Reclaiming && s.context && s.tls_set &&
+         s.prepare_thread_tls && s.release_thread_tls &&
          s.resolve_startup_tls && s.finalize_startup && s.find_unwind_image &&
          s.release_unwind_image && s.acquire_unwind_image &&
-         s.retain_unwind_image && s.drop_unwind_image && s.lookup_unwind_lease &&
-         s.pin_unwind_lease && s.api.context && s.api.open && s.api.lookup &&
-         s.api.close && s.queries.context && s.queries.address && s.queries.info &&
-         s.queries.iterate && s.process.context && s.process.prepare_fork &&
-         s.process.finish_fork && s.run_initializers && s.images.context &&
-         s.images.retain && s.images.release && s.images.retain_process &&
-         s.signals.context && s.signals.retain && s.signals.finish &&
-         s.try_resolve_tls;
+         s.retain_unwind_image && s.drop_unwind_image &&
+         s.lookup_unwind_lease && s.pin_unwind_lease && s.api.context &&
+         s.api.open && s.api.lookup && s.api.close && s.queries.context &&
+         s.queries.address && s.queries.info && s.queries.iterate &&
+         s.process.context && s.process.prepare_fork && s.process.finish_fork &&
+         s.run_initializers && s.images.context && s.images.retain &&
+         s.images.release && s.images.retain_process && s.signals.context &&
+         s.signals.retain && s.signals.finish && s.try_resolve_tls &&
+         s.unwind_ownership.acquire && s.unwind_ownership.retain &&
+         s.unwind_ownership.drop && s.unwind_ownership.lookup &&
+         s.unwind_ownership.pin;
 }
 
 struct LibcBootstrap {
@@ -243,7 +263,7 @@ struct LibcBootstrap {
   void (*abandon_main)(void *);
 };
 static_assert(sizeof(StartupProcessView) == 64);
-static_assert(sizeof(LoaderServices) == 288);
+static_assert(sizeof(LoaderServices) == 328);
 static_assert(sizeof(LibcBootstrap) == 32);
 
 } // namespace loader

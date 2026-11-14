@@ -1,4 +1,5 @@
-//===-- MMIX image ownership service -----------------------------*- C++ -*-===//
+//===-- MMIX image ownership service -----------------------------*- C++
+//-*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -30,6 +31,16 @@ struct MMIXUnwindImage {
   uint64_t range_count;
   uint64_t token;
 };
+// Allocation-free references used only by registered private owners. A copied
+// nonzero handle is a borrow until retain succeeds; drop consumes one owner.
+// Handles are not checked tokens and may not originate in application storage.
+struct MMIXUnwindOwnership {
+  long (*acquire)(void *, uintptr_t, MMIXUnwindImage *);
+  long (*retain)(void *, uintptr_t);
+  long (*drop)(void *, uintptr_t);
+  long (*lookup)(void *, uintptr_t, uintptr_t, MMIXUnwindImage *);
+  long (*pin)(void *, uintptr_t);
+};
 struct MMIXStartupUnwindService {
   uint64_t size;
   // Applies only to the transitional find/release query, not checked leases.
@@ -42,6 +53,7 @@ struct MMIXStartupUnwindService {
   long (*drop)(void *, uintptr_t);
   long (*lookup)(void *, uintptr_t, uintptr_t, MMIXUnwindImage *);
   long (*pin)(void *, uintptr_t);
+  MMIXUnwindOwnership ownership{};
 };
 
 extern "C" bool

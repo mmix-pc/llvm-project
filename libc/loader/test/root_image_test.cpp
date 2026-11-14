@@ -56,7 +56,7 @@ static long unused_lookup(void *, uintptr_t, uintptr_t, MMIXUnwindImage *) {
 }
 static void unused_release(void *, uintptr_t) { std::abort(); }
 
-extern "C" int main() {
+extern "C" int main(int argc, char **) {
   MMIXUnwindImage out{};
   check(!__libunwind_mmix_prepare_root_image(0x102000));
   check(!__libunwind_mmix_find_root_image(0x102000, &out));
@@ -72,6 +72,13 @@ extern "C" int main() {
   MMIXStartupUnwindService service{sizeof(service), 1, &image, unused_query,
                                   unused_release, acquire, unused_query, drop,
                                   unused_lookup, pin};
+  if (argc > 1) {
+    service.ownership = {acquire, [](void *, uintptr_t) -> long { std::abort(); },
+                         drop, unused_lookup, pin};
+    auto partial = service;
+    partial.ownership.retain = nullptr;
+    check(!__libunwind_mmix_adopt_startup_images(&partial));
+  }
   check(__libunwind_mmix_adopt_startup_images(&service));
   fail_acquire = true;
   check(!__libunwind_mmix_prepare_root_image(0x102000));

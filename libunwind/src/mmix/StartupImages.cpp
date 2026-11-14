@@ -11,7 +11,7 @@
 namespace {
 MMIXStartupUnwindService service{};
 MMIXUnwindImage root_image{};
-}
+} // namespace
 
 extern "C" __attribute__((visibility("protected"))) bool
 __libunwind_mmix_adopt_startup_images(const MMIXStartupUnwindService *input) {
@@ -19,6 +19,10 @@ __libunwind_mmix_adopt_startup_images(const MMIXStartupUnwindService *input) {
       input->process_resident != 1 || !input->context || !input->find ||
       !input->release || !input->acquire || !input->retain || !input->drop ||
       !input->lookup || !input->pin)
+    return false;
+  const auto &o = input->ownership;
+  if ((o.acquire || o.retain || o.drop || o.lookup || o.pin) &&
+      !(o.acquire && o.retain && o.drop && o.lookup && o.pin))
     return false;
   service = *input;
   return true;
@@ -48,7 +52,7 @@ static bool valid_image(const MMIXUnwindImage &view) {
       view.phdr_address > UINTPTR_MAX - view.phdr_count * 56 ||
       view.readable_ranges > UINTPTR_MAX - view.range_count * 16;
   if (!invalid) {
-    // Range storage belongs to the checked service and remains leased here.
+    // Range storage belongs to the adopted service and remains leased here.
     const auto *ranges =
         reinterpret_cast<const MMIXUnwindReadableRange *>(view.readable_ranges);
     bool headers = false, index = false;
@@ -81,7 +85,8 @@ static bool checked_image(long (*query)(void *, uintptr_t, MMIXUnwindImage *),
   if (query(service.context, key, &view))
     return false;
   if (!valid_image(view)) {
-    if (view.token && service.drop(service.context, view.token))
+    auto drop = service.ownership.drop ? service.ownership.drop : service.drop;
+    if (view.token && drop(service.context, view.token))
       __builtin_trap();
     return false;
   }
@@ -91,14 +96,28 @@ static bool checked_image(long (*query)(void *, uintptr_t, MMIXUnwindImage *),
 
 extern "C" bool __libunwind_mmix_acquire_image(uintptr_t pc,
                                                MMIXUnwindImage *out) {
-  return checked_image(service.acquire, pc, out);
+  return checked_image(service.ownership.acquire ? service.ownership.acquire
+                                                 : service.acquire,
+                       pc, out);
 }
 extern "C" bool __libunwind_mmix_retain_image(uintptr_t token,
                                               MMIXUnwindImage *out) {
+  if (service.ownership.retain) {
+    if (!out)
+      return false;
+    *out = {};
+    if (!token || service.ownership.retain(service.context, token))
+      return false;
+    // Copying a cursor needs a new owner, not another metadata query. The
+    // caller retains its existing view or performs lookup before using it.
+    out->token = token;
+    return true;
+  }
   return checked_image(service.retain, token, out);
 }
 extern "C" bool __libunwind_mmix_drop_image(uintptr_t token) {
-  return token && service.drop && !service.drop(service.context, token);
+  auto drop = service.ownership.drop ? service.ownership.drop : service.drop;
+  return token && drop && !drop(service.context, token);
 }
 extern "C" bool __libunwind_mmix_lookup_image(uintptr_t token, uintptr_t pc,
                                               MMIXUnwindImage *out) {
@@ -106,14 +125,17 @@ extern "C" bool __libunwind_mmix_lookup_image(uintptr_t token, uintptr_t pc,
     return false;
   *out = {};
   MMIXUnwindImage view{};
-  if (!service.lookup || service.lookup(service.context, token, pc, &view) ||
+  auto lookup =
+      service.ownership.lookup ? service.ownership.lookup : service.lookup;
+  if (!token || !lookup || lookup(service.context, token, pc, &view) ||
       view.token != token || !valid_image(view))
     return false;
   *out = view;
   return true;
 }
 extern "C" bool __libunwind_mmix_pin_image(uintptr_t token) {
-  return token && service.pin && !service.pin(service.context, token);
+  auto pin = service.ownership.pin ? service.ownership.pin : service.pin;
+  return token && pin && !pin(service.context, token);
 }
 
 // The service describes MMIX ELF64 big-endian program headers. Its validated
@@ -141,8 +163,7 @@ static bool root_contains(const MMIXUnwindImage &view, uintptr_t pc) {
     if (files > size || address > UINTPTR_MAX - view.load_bias ||
         size > UINTPTR_MAX - view.load_bias - address)
       return false;
-    if ((root_word(p + 4, 4) & 5) == 5 &&
-        pc - view.load_bias >= address &&
+    if ((root_word(p + 4, 4) & 5) == 5 && pc - view.load_bias >= address &&
         pc - view.load_bias - address < size)
       found = true;
   }
@@ -168,7 +189,7 @@ __libunwind_mmix_prepare_root_image(uintptr_t pc) {
 }
 
 extern "C" bool __libunwind_mmix_find_root_image(uintptr_t pc,
-                                                MMIXUnwindImage *out) {
+                                                 MMIXUnwindImage *out) {
   if (!out)
     return false;
   *out = {};
