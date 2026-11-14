@@ -1,0 +1,29 @@
+# REQUIRES: mmix-registered-target
+# RUN: split-file %s %t
+# RUN: %python %t/check.py %S/../../../../libc %t
+
+#--- selection.cmake
+cmake_minimum_required(VERSION 3.20)
+include("${LIBC}/config/linux/mmix/SysVIPC.cmake")
+file(WRITE "${OUTPUT}" "${TARGET_LIBC_ENTRYPOINTS}")
+
+#--- check.py
+import pathlib
+import subprocess
+import sys
+
+libc, out = (pathlib.Path(p).resolve() for p in sys.argv[1:])
+# XSI IPC includes common key generation as well as the three object families.
+expected = {"libc.src.sys." + family + "." + name
+            for family, names in {
+                "ipc": "ftok", "msg": "msgget msgctl msgsnd msgrcv",
+                "shm": "shmget shmctl shmat shmdt", "sem": "semget semctl semop",
+            }.items() for name in names.split()}
+for enabled in ("ON", "OFF"):
+    result = out / (enabled + ".txt")
+    subprocess.run(["cmake", f"-DLIBC={libc}", f"-DOUTPUT={result}",
+                    f"-DLIBC_MMIX_BUILD_SYSV_IPC={enabled}",
+                    "-P", str(out / "selection.cmake")], check=True)
+    entries = result.read_text().split(";") if result.read_text() else []
+    assert len(entries) == len(set(entries)), entries
+    assert set(entries) == (expected if enabled == "ON" else set()), entries

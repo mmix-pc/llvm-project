@@ -4,6 +4,7 @@ if(NOT LIBC_MMIX_BUILD_SYSV_IPC)
 endif()
 
 list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.sys.ipc.ftok
   libc.src.sys.msg.msgget
   libc.src.sys.msg.msgctl
   libc.src.sys.msg.msgsnd
