@@ -295,3 +295,18 @@ TEST_F(LlvmLibcInetNtopTest, IPv6Tests) {
           AF_INET6, ipv6(0, 0, 0, 0, 0, 0xffff, 0xffff, 0xffff), buf, 22));
   ASSERT_ERRNO_EQ(ENOSPC);
 }
+
+TEST_F(LlvmLibcInetNtopTest, UnalignedMappedAddress) {
+  alignas(16) unsigned char storage[32] = {};
+  unsigned char *address = storage + 1;
+  address[10] = 255;
+  address[11] = 255;
+  address[12] = 1;
+  address[13] = 2;
+  address[14] = 3;
+  address[15] = 4;
+  char text[64];
+  ASSERT_EQ(LIBC_NAMESPACE::inet_ntop(AF_INET6, address, text, sizeof(text)),
+            static_cast<const char *>(text));
+  ASSERT_STREQ(text, "::ffff:1.2.3.4");
+}

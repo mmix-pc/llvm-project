@@ -88,6 +88,7 @@ add_entrypoint_object(
     libc.src.__support.macros.config
     libc.src.__support.macros.null_check
     libc.src.__support.net.address
+    libc.src.string.memory_utils.inline_memcpy
 )
 
 add_entrypoint_object(

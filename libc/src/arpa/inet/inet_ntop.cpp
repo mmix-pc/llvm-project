@@ -21,6 +21,7 @@
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/null_check.h"
 #include "src/__support/net/address.h"
+#include "src/string/memory_utils/inline_memcpy.h"
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -32,11 +33,13 @@ LLVM_LIBC_FUNCTION(const char *, inet_ntop,
 
   bool success;
   if (af == AF_INET) {
-    success = net::ipv4_to_str(*reinterpret_cast<const struct in_addr *>(src),
-                               cpp::span<char>(dst, size));
+    struct in_addr address;
+    inline_memcpy(&address, src, sizeof(address));
+    success = net::ipv4_to_str(address, cpp::span<char>(dst, size));
   } else if (af == AF_INET6) {
-    success = net::ipv6_to_str(*reinterpret_cast<const struct in6_addr *>(src),
-                               cpp::span<char>(dst, size));
+    struct in6_addr address;
+    inline_memcpy(&address, src, sizeof(address));
+    success = net::ipv6_to_str(address, cpp::span<char>(dst, size));
   } else {
     libc_errno = EAFNOSUPPORT;
     return nullptr;
