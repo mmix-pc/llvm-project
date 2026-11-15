@@ -22,7 +22,7 @@ bool parse_ipv4(const char *src, unsigned char *dst) {
     unsigned value = 0;
     while (*src >= '0' && *src <= '9') {
       value = value * 10 + (*src++ - '0');
-      if (value > 255 || (src - start > 1 && *start == '0'))
+      if (value > 255 || src - start > 3)
         return false;
     }
     if (src == start)

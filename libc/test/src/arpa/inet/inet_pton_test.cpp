@@ -61,11 +61,34 @@ TEST_F(LlvmLibcInetPtonTest, Compression) {
   ASSERT_ERRNO_SUCCESS();
 }
 
+TEST_F(LlvmLibcInetPtonTest, DecimalLeadingZeros) {
+  const char *ipv4[] = {"01.002.003.004", "001.02.3.4"};
+  for (const char *text : ipv4) {
+    unsigned char bytes[4];
+    ASSERT_EQ(1, LIBC_NAMESPACE::inet_pton(AF_INET, text, bytes));
+    for (unsigned i = 0; i < 4; ++i)
+      EXPECT_EQ(int(bytes[i]), int(i + 1));
+  }
+  const char *ipv6[] = {"::ffff:01.002.003.004",
+                        "::ffff:001.02.3.4"};
+  for (const char *text : ipv6) {
+    unsigned char bytes[16];
+    ASSERT_EQ(1, LIBC_NAMESPACE::inet_pton(AF_INET6, text, bytes));
+    for (unsigned i = 0; i < 10; ++i)
+      EXPECT_EQ(int(bytes[i]), 0);
+    EXPECT_EQ(int(bytes[10]), 255);
+    EXPECT_EQ(int(bytes[11]), 255);
+    for (unsigned i = 0; i < 4; ++i)
+      EXPECT_EQ(int(bytes[12 + i]), int(i + 1));
+  }
+  ASSERT_ERRNO_SUCCESS();
+}
+
 TEST_F(LlvmLibcInetPtonTest, RejectsInvalidWithoutWriting) {
   const char *ipv4[] = {"",           "1",        "127.1",
-                        "0x7f.0.0.1", "01.2.3.4", "1.2.3.256",
+                        "0x7f.0.0.1",  "1.2.3.256",
                         "1.2.3.-1",   "1.2.3.4 ", "1.2.3.4.5",
-                        "1..2.3",     "1.2.3.",   "1.2.3.42949672960"};
+                        "1..2.3",     "1.2.3.",   "1.2.3.42949672960", "0001.2.3.4"};
   const char *ipv6[] = {"",
                         ":",
                         "1:",
@@ -78,7 +101,7 @@ TEST_F(LlvmLibcInetPtonTest, RejectsInvalidWithoutWriting) {
                         "::12345",
                         "::g",
                         "::1%eth0",
-                        "::ffff:01.2.3.4",
+                        "::ffff:0001.2.3.4",
                         "1:2:3:4:5:6:7:192.0.2.1"};
   auto check = [](int af, const char *text) {
     unsigned char bytes[16];
