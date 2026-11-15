@@ -27,3 +27,24 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.resolv.ns_parserr
   libc.src.resolv.ns_skiprr
   libc.src.resolv.res_mkquery)
+
+list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.netdb.sethostent
+  libc.src.netdb.endhostent
+  libc.src.netdb.gethostent
+  libc.src.netdb.setnetent
+  libc.src.netdb.endnetent
+  libc.src.netdb.getnetent
+  libc.src.netdb.setprotoent
+  libc.src.netdb.endprotoent
+  libc.src.netdb.getprotoent
+  libc.src.netdb.setservent
+  libc.src.netdb.endservent
+  libc.src.netdb.getservent
+  libc.src.netdb.getnetbyname
+  libc.src.netdb.getnetbyaddr
+  libc.src.netdb.getprotobyname
+  libc.src.netdb.getprotobynumber
+  libc.src.netdb.getservbyname
+  libc.src.netdb.getservbyport
+)

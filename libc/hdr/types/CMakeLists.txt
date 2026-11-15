@@ -1495,3 +1495,35 @@ add_proxy_header_library(
   HDRS glob_t.h
   FULL_BUILD_DEPENDS libc.include.llvm-libc-types.glob_t
 )
+
+add_proxy_header_library(
+  struct_hostent
+  HDRS
+    struct_hostent.h
+  FULL_BUILD_DEPENDS
+    libc.include.llvm-libc-types.struct_hostent
+)
+
+add_proxy_header_library(
+  struct_netent
+  HDRS
+    struct_netent.h
+  FULL_BUILD_DEPENDS
+    libc.include.llvm-libc-types.struct_netent
+)
+
+add_proxy_header_library(
+  struct_protoent
+  HDRS
+    struct_protoent.h
+  FULL_BUILD_DEPENDS
+    libc.include.llvm-libc-types.struct_protoent
+)
+
+add_proxy_header_library(
+  struct_servent
+  HDRS
+    struct_servent.h
+  FULL_BUILD_DEPENDS
+    libc.include.llvm-libc-types.struct_servent
+)
