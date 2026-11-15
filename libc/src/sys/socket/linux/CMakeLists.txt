@@ -1,3 +1,10 @@
+set(getsockopt_source getsockopt.cpp)
+set(getsockopt_extra_deps)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(getsockopt_source mmix/getsockopt.cpp)
+  set(getsockopt_extra_deps libc.hdr.errno_macros libc.include.netinet_in)
+endif()
+
 set(cancellable_sockets
   accept accept4 connect recv recvfrom recvmsg recvmmsg send sendto sendmsg sendmmsg)
 foreach(name IN LISTS cancellable_sockets)
@@ -119,7 +126,7 @@ add_entrypoint_object(
 add_entrypoint_object(
   getsockopt
   SRCS
-    getsockopt.cpp
+    ${getsockopt_source}
   HDRS
     ../getsockopt.h
   DEPENDS
@@ -127,6 +134,7 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.hdr.types.socklen_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.getsockopt
+    ${getsockopt_extra_deps}
     libc.src.errno.errno
 )
 
