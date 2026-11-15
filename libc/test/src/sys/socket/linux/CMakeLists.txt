@@ -106,6 +106,7 @@ add_libc_test(
     libc.src.errno.errno
     libc.src.sys.socket.socket
     libc.src.sys.socket.bind
+    libc.src.sys.socket.connect
     libc.src.sys.socket.listen
     libc.src.stdio.remove
     libc.src.unistd.close

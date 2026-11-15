@@ -9,6 +9,7 @@
 #include "hdr/sys_socket_macros.h"
 #include "hdr/types/struct_sockaddr_un.h"
 #include "src/sys/socket/bind.h"
+#include "src/sys/socket/connect.h"
 #include "src/sys/socket/listen.h"
 #include "src/sys/socket/socket.h"
 
@@ -50,4 +51,50 @@ TEST_F(LlvmLibcListenTest, ListenLocalSocket) {
 
 TEST_F(LlvmLibcListenTest, ListenFails) {
   ASSERT_THAT(LIBC_NAMESPACE::listen(-1, 5), Fails(EBADF));
+}
+
+TEST_F(LlvmLibcListenTest, NegativeBacklogMatchesZero) {
+  LIBC_NAMESPACE::testing::TestDirectoryScope dir_scope;
+  constexpr char SOCK_PATH[] = "listen_backlog.test";
+  const int backlogs[] = {0, -1, -__INT_MAX__ - 1};
+  int counts[3] = {};
+  for (unsigned i = 0; i < 3; ++i) {
+    int listener = LIBC_NAMESPACE::socket(AF_UNIX, SOCK_STREAM, 0);
+    ASSERT_GE(listener, 0);
+    int clients[4] = {-1, -1, -1, -1};
+    scope_exit cleanup([&] {
+      for (int client : clients)
+        if (client >= 0)
+          EXPECT_EQ(LIBC_NAMESPACE::close(client), 0);
+      EXPECT_EQ(LIBC_NAMESPACE::close(listener), 0);
+      EXPECT_EQ(LIBC_NAMESPACE::remove(SOCK_PATH), 0);
+    });
+    sockaddr_un address{};
+    ASSERT_TRUE(LIBC_NAMESPACE::testing::make_sockaddr_un(SOCK_PATH, address));
+    ASSERT_EQ(LIBC_NAMESPACE::bind(listener,
+                                   reinterpret_cast<sockaddr *>(&address),
+                                   sizeof(address)),
+              0);
+    ASSERT_EQ(LIBC_NAMESPACE::listen(listener, backlogs[i]), 0);
+    // Compare the same protocol's queue with zero rather than prescribing a
+    // universal queue size for zero backlog. No accept can drain either queue.
+    for (unsigned j = 0; j < 4; ++j) {
+      clients[j] =
+          LIBC_NAMESPACE::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
+      ASSERT_GE(clients[j], 0);
+      int result = LIBC_NAMESPACE::connect(
+          clients[j], reinterpret_cast<sockaddr *>(&address), sizeof(address));
+      if (result == 0)
+        ++counts[i];
+      else {
+        ASSERT_EQ(result, -1);
+        ASSERT_ERRNO_EQ(EAGAIN);
+        break;
+      }
+    }
+  }
+  ASSERT_GT(counts[0], 0);
+  ASSERT_LT(counts[0], 4);
+  EXPECT_EQ(counts[1], counts[0]);
+  EXPECT_EQ(counts[2], counts[0]);
 }

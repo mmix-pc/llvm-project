@@ -15,6 +15,10 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, listen, (int sockfd, int backlog)) {
+  // POSIX specifies that a negative backlog behaves like zero. Linux would
+  // otherwise convert it to an unsigned value and cap it at SOMAXCONN.
+  if (backlog < 0)
+    backlog = 0;
   auto result = linux_syscalls::listen(sockfd, backlog);
   if (!result.has_value()) {
     libc_errno = result.error();
