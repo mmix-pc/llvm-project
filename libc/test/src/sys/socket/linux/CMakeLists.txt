@@ -318,3 +318,29 @@ add_libc_test(
     libc.hdr.types.struct_sockaddr_storage
     libc.hdr.types.struct_sockaddr_un
 )
+
+add_libc_test(
+  sendmsg_test
+  SUITE
+    libc_sys_socket_unittests
+  SRCS
+    ../sendmsg_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.types.struct_msghdr
+    libc.src.sys.socket.sendmsg
+    libc.test.UnitTest.ErrnoCheckingTest
+)
+
+add_libc_test(
+  recvmsg_test
+  SUITE
+    libc_sys_socket_unittests
+  SRCS
+    ../recvmsg_test.cpp
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.types.struct_msghdr
+    libc.src.sys.socket.recvmsg
+    libc.test.UnitTest.ErrnoCheckingTest
+)

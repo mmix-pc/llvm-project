@@ -226,6 +226,7 @@ add_entrypoint_object(
   HDRS
     ../sendmsg.h
   DEPENDS
+    libc.hdr.errno_macros
     libc.hdr.types.struct_msghdr
     libc.hdr.types.ssize_t
     libc.src.__support.common
@@ -292,6 +293,7 @@ add_entrypoint_object(
   HDRS
     ../recvmsg.h
   DEPENDS
+    libc.hdr.errno_macros
     libc.hdr.types.struct_msghdr
     libc.src.__support.macros.sanitizer
     libc.hdr.types.ssize_t

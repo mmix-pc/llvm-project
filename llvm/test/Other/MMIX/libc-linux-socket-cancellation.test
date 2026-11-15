@@ -79,7 +79,8 @@ endforeach()
 #define SYS_sendmmsg 269
 
 #--- linux/errno.h
-// This compile-only fixture does not inspect errno constants.
+// The target wrapper rejects empty message vectors before syscall entry.
+#define EMSGSIZE 90
 
 #--- native.cpp
 #include "src/__support/threads/linux/mmix/cancellation_point.h"
@@ -100,9 +101,14 @@ endforeach()
 
 static long returned, expected_args[6];
 static unsigned long expected_number;
-static int calls;
+static int calls, entry_checks;
 static bool cancel;
 namespace socket_test { namespace mmix {
+void test_cancel() {
+  ++entry_checks;
+  if (cancel)
+    throw 42;
+}
 long cancellation_syscall(unsigned long nr, long a1, long a2, long a3,
                           long a4, long a5, long a6) {
   ++calls;
@@ -162,6 +168,24 @@ int main() {
   message.msg_iovlen = 3;
   mmsghdr messages[2]{};
   messages[0].msg_hdr = messages[1].msg_hdr = message;
+  msghdr empty{};
+  calls = entry_checks = 0;
+  assert(socket_test::sendmsg(7, &empty, 0) == -1 && errno == EMSGSIZE);
+  assert(socket_test::recvmsg(7, &empty, 0) == -1 && errno == EMSGSIZE);
+  assert(calls == 0 && entry_checks == 2);
+  cancel = true;
+  for (int sending = 0; sending != 2; ++sending) {
+    try {
+      if (sending)
+        socket_test::sendmsg(7, &empty, 0);
+      else
+        socket_test::recvmsg(7, &empty, 0);
+      assert(false);
+    } catch (int value) {
+      assert(value == 42 && calls == 0);
+    }
+  }
+  cancel = false;
   timespec timeout{1, 0};
   check([&] { return socket_test::accept(7, &address, &size); },
         8, SYS_accept4, 7, addr, addr_size);

@@ -11,6 +11,7 @@
 ///
 //===----------------------------------------------------------------------===//
 #include "src/sys/socket/sendmsg.h"
+#include "hdr/errno_macros.h"
 #include "hdr/types/ssize_t.h"
 #include "hdr/types/struct_msghdr.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/sendmsg.h"
@@ -21,6 +22,10 @@ namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(ssize_t, sendmsg,
                    (int sockfd, const struct msghdr *msg, int flags)) {
+  if (msg && msg->msg_iovlen == 0) {
+    libc_errno = EMSGSIZE;
+    return -1;
+  }
   auto result = linux_syscalls::sendmsg(sockfd, msg, flags);
   if (!result.has_value()) {
     libc_errno = result.error();

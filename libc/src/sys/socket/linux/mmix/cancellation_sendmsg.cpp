@@ -7,14 +7,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/sys/socket/sendmsg.h"
+#include "hdr/errno_macros.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/threads/linux/mmix/cancellation_point.h"
+#include "src/__support/threads/linux/mmix/cancellation.h"
 #include <sys/syscall.h>
 
 namespace LIBC_NAMESPACE_DECL {
 LLVM_LIBC_FUNCTION(ssize_t, sendmsg,
                    (int fd, const struct msghdr *message, int flags)) {
+  if (message && message->msg_iovlen == 0) {
+    mmix::test_cancel();
+    libc_errno = EMSGSIZE;
+    return -1;
+  }
   long result = mmix::cancellation_syscall(
       SYS_sendmsg, fd, reinterpret_cast<long>(message), flags);
   if (result < 0) {
