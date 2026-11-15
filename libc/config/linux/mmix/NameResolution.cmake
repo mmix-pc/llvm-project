@@ -16,6 +16,7 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.arpa.inet.ntohs
   libc.src.arpa.inet.ntohl
   libc.src.netdb.getaddrinfo
+  libc.src.netdb.gai_strerror
   libc.src.netdb.freeaddrinfo
   libc.src.netdb.getnameinfo
   libc.src.resolv.dn_expand

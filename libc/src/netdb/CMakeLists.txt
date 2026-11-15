@@ -11,6 +11,7 @@ add_entrypoint_object(
     libc.src.__support.macros.config
 )
 
+if(NOT (LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS STREQUAL "linux"))
 add_entrypoint_object(
   getaddrinfo
   SRCS
@@ -33,6 +34,9 @@ add_entrypoint_object(
     .freeaddrinfo
 )
 
+endif()
+
+if(NOT (LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS STREQUAL "linux"))
 add_entrypoint_object(
   getnameinfo
   SRCS getnameinfo.cpp
@@ -48,9 +52,13 @@ add_entrypoint_object(
     libc.src.stdio.snprintf
     libc.src.string.string_utils
 )
+endif()
 
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS STREQUAL "linux")
   add_subdirectory(linux/mmix)
+  add_entrypoint_object(getnameinfo ALIAS DEPENDS .linux.mmix.getnameinfo)
+  add_entrypoint_object(getaddrinfo ALIAS DEPENDS .linux.mmix.getaddrinfo)
+  add_entrypoint_object(gai_strerror ALIAS DEPENDS .linux.mmix.gai_strerror)
   add_entrypoint_object(sethostent ALIAS DEPENDS .linux.mmix.sethostent)
   add_entrypoint_object(endhostent ALIAS DEPENDS .linux.mmix.endhostent)
   add_entrypoint_object(gethostent ALIAS DEPENDS .linux.mmix.gethostent)

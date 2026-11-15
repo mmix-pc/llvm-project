@@ -142,3 +142,42 @@ add_entrypoint_object(
   HDRS ../../getservbyport.h
   DEPENDS .databases libc.src.__support.common
 )
+
+add_entrypoint_object(
+  gai_strerror
+  SRCS gai_strerror.cpp
+  HDRS ../../gai_strerror.h
+  DEPENDS libc.hdr.netdb_macros libc.src.__support.common
+)
+
+add_header_library(
+  resolver
+  HDRS resolver.h
+  DEPENDS .databases libc.hdr.func.malloc libc.hdr.netdb_macros
+    libc.hdr.types.struct_sockaddr_storage libc.hdr.types.struct_sockaddr_in
+    libc.hdr.types.struct_sockaddr_in6
+)
+add_object_library(
+  resolver_sources
+  SRCS dns_wire.cpp dns_transport.cpp resolver_local.cpp
+  DEPENDS .resolver libc.hdr.poll_macros libc.hdr.time_macros
+    libc.hdr.types.struct_pollfd libc.hdr.types.struct_timespec
+)
+add_entrypoint_object(
+  getaddrinfo
+  SRCS getaddrinfo.cpp
+  HDRS ../../getaddrinfo.h
+  DEPENDS .resolver_sources .resolver libc.src.__support.common
+    libc.src.netdb.freeaddrinfo libc.src.net.if_nametoindex
+    libc.src.__support.net.address libc.hdr.netinet_in_macros
+    libc.hdr.types.struct_addrinfo libc.src.string.memory_utils.inline_memcpy
+)
+
+add_entrypoint_object(
+  getnameinfo
+  SRCS getnameinfo.cpp
+  HDRS ../../getnameinfo.h
+  DEPENDS .resolver_sources .resolver libc.src.__support.common
+    libc.src.arpa.inet.inet_ntop libc.src.net.if_indextoname
+    libc.src.unistd.gethostname libc.src.stdio.snprintf libc.hdr.net_if_macros
+)
