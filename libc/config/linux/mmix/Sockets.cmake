@@ -4,6 +4,10 @@ if(NOT LIBC_MMIX_BUILD_SOCKETS)
 endif()
 
 list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.net.if_nameindex
+  libc.src.net.if_freenameindex
+  libc.src.net.if_nametoindex
+  libc.src.net.if_indextoname
   libc.src.sys.socket.socket
   libc.src.sys.socket.socketpair
   libc.src.sys.socket.connect
