@@ -409,14 +409,9 @@ TEST_F(LlvmLibcIfNameIndexSocketTest, TruncatedNetlinkHeaderPacket) {
       span<const uint8_t>(pkt_buf, sizeof(pkt_buf)));
 
   auto res = LIBC_NAMESPACE::net::if_nameindex<Policy>();
-  ASSERT_TRUE(res.has_value());
-  struct if_nameindex *list = res.value();
-  ASSERT_NE(list, static_cast<struct if_nameindex *>(nullptr));
-  ASSERT_EQ(list[0].if_index, 0u);
-  ASSERT_EQ(list[0].if_name, static_cast<char *>(nullptr));
-
+  ASSERT_FALSE(res.has_value());
+  ASSERT_EQ(res.error(), EINVAL);
   validate_dump_request();
-  LIBC_NAMESPACE::if_freenameindex(list);
 }
 
 TEST_F(LlvmLibcIfNameIndexSocketTest, CloseFailure) {
@@ -590,4 +585,40 @@ TEST_F(LlvmLibcIfNameIndexLiveTest, LiveOSIntegration) {
 
 TEST_F(LlvmLibcIfNameIndexLiveTest, FreeNullptr) {
   LIBC_NAMESPACE::if_freenameindex(nullptr);
+}
+
+TEST_F(LlvmLibcIfNameIndexSocketTest, MultipartDump) {
+  uint8_t first[128], second[128], done[128];
+  size_t a = build_ifinfomsg_packet(first, 7, AttrName{"first"});
+  size_t b = build_ifinfomsg_packet(second, 42, AttrName{"second"});
+  size_t c = build_nlmsg_done_packet(done);
+  policy_data.recv_results.push_back(span<const uint8_t>(first, a));
+  policy_data.recv_results.push_back(span<const uint8_t>(second, b));
+  policy_data.recv_results.push_back(span<const uint8_t>(done, c));
+  auto res = LIBC_NAMESPACE::net::if_nameindex<Policy>();
+  ASSERT_TRUE(res.has_value());
+  auto *list = res.value();
+  EXPECT_EQ(list[0].if_index, 7u);
+  EXPECT_EQ(list[1].if_index, 42u);
+  if (list[1].if_index) {
+    EXPECT_STREQ(list[1].if_name, "second");
+    EXPECT_EQ(list[2].if_index, 0u);
+  }
+  LIBC_NAMESPACE::if_freenameindex(list);
+  EXPECT_EQ(policy_data.recv_calls.size(), size_t(3));
+}
+
+TEST_F(LlvmLibcIfNameIndexSocketTest, InterruptedDumpIsNotPartialSuccess) {
+  uint8_t first[128], done[128];
+  size_t a = build_ifinfomsg_packet(first, 7, AttrName{"first"});
+  size_t b = build_nlmsg_done_packet(done);
+  reinterpret_cast<nlmsghdr *>(done)->nlmsg_flags = NLM_F_DUMP_INTR;
+  policy_data.recv_results.push_back(span<const uint8_t>(first, a));
+  policy_data.recv_results.push_back(span<const uint8_t>(done, b));
+  auto res = LIBC_NAMESPACE::net::if_nameindex<Policy>();
+  if (res.has_value())
+    LIBC_NAMESPACE::if_freenameindex(res.value());
+  EXPECT_FALSE(res.has_value());
+  if (!res.has_value())
+    EXPECT_EQ(res.error(), EAGAIN);
 }

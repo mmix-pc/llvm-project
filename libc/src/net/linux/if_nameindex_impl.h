@@ -69,14 +69,25 @@ struct InterfaceEntry {
   static_assert(IF_NAMESIZE - 1 < (1u << 8));
 };
 
-LIBC_INLINE ErrorOr<void>
+LIBC_INLINE ErrorOr<bool>
 parse_netlink_messages(cpp::span<uint8_t> buf,
                        BlockStore<InterfaceEntry, 16> &store) {
   size_t len = buf.size();
   for (auto *nh = reinterpret_cast<struct nlmsghdr *>(buf.data());
        NLMSG_OK(nh, len); nh = NLMSG_NEXT(nh, len)) {
-    if (nh->nlmsg_type == NLMSG_DONE)
-      break;
+    if (nh->nlmsg_flags & NLM_F_DUMP_INTR)
+      return Error(EAGAIN);
+    if (nh->nlmsg_type == NLMSG_OVERRUN)
+      return Error(ENOBUFS);
+    if (nh->nlmsg_type == NLMSG_DONE) {
+      if (nh->nlmsg_len >= NLMSG_LENGTH(sizeof(int))) {
+        int error;
+        inline_memcpy(&error, NLMSG_DATA(nh), sizeof(error));
+        if (error < 0)
+          return Error(-error);
+      }
+      return true;
+    }
     if (nh->nlmsg_type == NLMSG_ERROR) {
       if (nh->nlmsg_len < NLMSG_LENGTH(sizeof(struct nlmsgerr)))
         return Error(EINVAL);
@@ -118,7 +129,9 @@ parse_netlink_messages(cpp::span<uint8_t> buf,
       break;
     }
   }
-  return {};
+  if (len)
+    return Error(EINVAL);
+  return false;
 }
 
 LIBC_INLINE ErrorOr<struct if_nameindex *>
@@ -171,27 +184,34 @@ LIBC_INLINE ErrorOr<struct if_nameindex *> if_nameindex() {
   if (!send_res.has_value())
     return Error(send_res.error());
 
-  // TODO: Figure out if we need to dynamically allocate a buffer.
-  alignas(struct nlmsghdr) uint8_t buf[detail::NLMSG_BUFFER_SIZE];
-  ErrorOr<ssize_t> recv_res =
-      Policy::recvfrom(fd, buf, sizeof(buf), 0, nullptr, nullptr);
-  if (!recv_res.has_value())
-    return Error(recv_res.error());
-
-  close_fd.release();
-  if (ErrorOr<int> close_res = Policy::close(fd); !close_res.has_value())
-    return Error(close_res.error());
-
-  // TODO: Read more than one message.
-  // TODO: Deduplicate interfaces to handle restarts.
   BlockStore<detail::InterfaceEntry, 16> store;
   cpp::scope_exit destroy_store(
       [&store]() { BlockStore<detail::InterfaceEntry, 16>::destroy(&store); });
-
-  if (ErrorOr<void> parse_res = detail::parse_netlink_messages(
-          {buf, static_cast<size_t>(*recv_res)}, store);
-      !parse_res.has_value())
-    return Error(parse_res.error());
+  alignas(struct nlmsghdr) uint8_t buf[detail::NLMSG_BUFFER_SIZE];
+  for (;;) {
+    // A dump spans multiple datagrams and is complete only at NLMSG_DONE.
+    // MSG_TRUNC exposes an oversized datagram instead of accepting a prefix.
+    ErrorOr<ssize_t> received =
+        Policy::recvfrom(fd, buf, sizeof(buf), MSG_TRUNC, nullptr, nullptr);
+    if (!received.has_value()) {
+      if (received.error() == EINTR)
+        continue;
+      return Error(received.error());
+    }
+    if (*received <= 0)
+      return Error(EIO);
+    if (static_cast<size_t>(*received) > sizeof(buf))
+      return Error(ENOBUFS);
+    auto parsed = detail::parse_netlink_messages(
+        {buf, static_cast<size_t>(*received)}, store);
+    if (!parsed.has_value())
+      return Error(parsed.error());
+    if (*parsed)
+      break;
+  }
+  close_fd.release();
+  if (ErrorOr<int> closed = Policy::close(fd); !closed.has_value())
+    return Error(closed.error());
 
   return detail::build_if_nameindex_list(store);
 }
