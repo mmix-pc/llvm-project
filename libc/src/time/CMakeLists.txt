@@ -72,12 +72,24 @@ if(LIBC_TARGET_OS_IS_LINUX)
   endif()
 endif()
 
+set(time_zone_source time_zone.cpp)
+set(time_zone_target_headers)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS_IS_LINUX)
+  set(time_zone_source linux/mmix/time_zone.cpp)
+  set(time_zone_target_headers linux/mmix/getdate_zone.h)
+  list(APPEND time_zone_deps
+    libc.src.time.linux.mmix_tzif libc.src.__support.CPP.optional
+    libc.hdr.func.free libc.hdr.fcntl_macros
+    libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+    libc.src.__support.OSUtil.osutil libc.include.sys_syscall)
+endif()
 add_object_library(
   time_zone
   SRCS
-    time_zone.cpp
+    ${time_zone_source}
   HDRS
     time_zone.h
+    ${time_zone_target_headers}
   DEPENDS
     ${time_zone_deps}
   COMPILE_OPTIONS

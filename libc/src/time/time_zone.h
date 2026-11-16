@@ -18,9 +18,10 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace time_utils {
 
-// Refreshes POSIX TZ state and public variables. Invalid TZ is never replaced
-// with UTC. Environment mutation must be synchronized by the caller, just as
-// for getenv. Concurrent conversions and tzset calls are internally serialized.
+// Refreshes timezone state and public variables using the selected provider's
+// configuration and fallback rules. Environment mutation must be synchronized
+// by the caller, just as for getenv. Concurrent conversions and tzset calls are
+// internally serialized.
 ErrorOr<void> refresh_timezone();
 // The returned immutable names remain valid after subsequent TZ changes.
 ErrorOr<cpp::array<const char *, 2>> timezone_names();

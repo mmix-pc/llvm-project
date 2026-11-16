@@ -256,3 +256,15 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     COMPILE_OPTIONS ${clock_sleep_options}
   )
 endif()
+
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  add_object_library(
+    mmix_tzif
+    SRCS mmix/tzif.cpp
+    HDRS mmix/tzif.h
+    DEPENDS
+      libc.src.time.posix_timezone
+      libc.hdr.stdint_proxy libc.hdr.types.size_t
+      libc.src.__support.CPP.limits libc.src.__support.CPP.string_view
+  )
+endif()
