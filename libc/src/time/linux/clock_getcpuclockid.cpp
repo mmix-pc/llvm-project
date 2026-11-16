@@ -13,6 +13,7 @@
 
 #include "src/time/clock_getcpuclockid.h"
 #include "hdr/errno_macros.h"
+#include "hdr/limits_macros.h"
 #include "hdr/types/clockid_t.h"
 #include "hdr/types/pid_t.h"
 #include "src/__support/OSUtil/linux/syscall_wrappers/clock_getres.h"
@@ -22,7 +23,9 @@
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, clock_getcpuclockid, (pid_t pid, clockid_t *clock_id)) {
-  if (pid < 0)
+  // CPU clock IDs must stay negative, with three low bits reserved for the
+  // clock selector. Larger PIDs would alias another PID or a predefined clock.
+  if (pid < 0 || pid > (INT_MAX >> 3))
     return ESRCH;
   // On Linux, process CPU clocks are encoded as (~pid << 3) | clock_id with
   // clock_id CPUCLOCK_SCHED being 2:

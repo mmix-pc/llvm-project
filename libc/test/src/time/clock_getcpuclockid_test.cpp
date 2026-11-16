@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "hdr/errno_macros.h"
+#include "hdr/limits_macros.h"
 #include "hdr/types/clockid_t.h"
 #include "hdr/types/pid_t.h"
 #include "hdr/types/struct_timespec.h"
@@ -54,4 +55,18 @@ TEST_F(LlvmLibcClockGetCpuClockIdTest, InvalidPid) {
   // Invalid PIDs should fail with ESRCH.
   EXPECT_EQ(LIBC_NAMESPACE::clock_getcpuclockid(-1, &clock_id), ESRCH);
   EXPECT_EQ(LIBC_NAMESPACE::clock_getcpuclockid(1000000000, &clock_id), ESRCH);
+}
+
+TEST_F(LlvmLibcClockGetCpuClockIdTest, LargePidMustNotAliasExistingClock) {
+  const pid_t aliases[] = {
+      INT_MAX,
+      static_cast<pid_t>((1U << 29) +
+                         static_cast<unsigned>(LIBC_NAMESPACE::getpid()))};
+  for (pid_t pid : aliases) {
+    clockid_t clock_id = 123;
+    libc_errno = EDOM;
+    EXPECT_EQ(LIBC_NAMESPACE::clock_getcpuclockid(pid, &clock_id), ESRCH);
+    EXPECT_EQ(clock_id, static_cast<clockid_t>(123));
+    ASSERT_ERRNO_EQ(EDOM);
+  }
 }

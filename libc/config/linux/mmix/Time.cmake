@@ -6,6 +6,7 @@ endif()
 set(MMIX_TIME_ENTRYPOINTS
   libc.src.time.clock
   libc.src.time.clock_gettime
+  libc.src.time.clock_getcpuclockid
   libc.src.time.clock_getres
   libc.src.time.clock_settime
   libc.src.time.time
