@@ -684,6 +684,8 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
     return _POSIX_THREADS > 0 ? PTHREAD_STACK_MIN : -1;
   case _SC_SYMLOOP_MAX:
     return 40; // Linux MAXSYMLINKS.
+  case _SC_DELAYTIMER_MAX:
+    return INT_MAX; // Linux timer_overrun_to_int saturates at INT_MAX.
   case _SC_V6_LP64_OFF64:
   case _SC_V7_LP64_OFF64:
   case _SC_XBS5_LP64_OFF64:
@@ -702,7 +704,6 @@ LLVM_LIBC_FUNCTION(long, sysconf, (int name)) {
   case _SC_TIMER_MAX:
   case _SC_AIO_LISTIO_MAX:
   case _SC_AIO_MAX:
-  case _SC_DELAYTIMER_MAX:
   case _SC_MQ_OPEN_MAX:
   case _SC_SS_REPL_MAX:
   case _SC_TRACE_EVENT_NAME_MAX:

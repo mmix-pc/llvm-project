@@ -14,6 +14,8 @@
 #define TTY_NAME_MAX 4096
 // Fixed Linux UAPI message-priority count, independent of queue quotas.
 #define MQ_PRIO_MAX 32768
+// Linux saturates timer overrun counts at the maximum signed 32-bit value.
+#define DELAYTIMER_MAX 2147483647
 #endif
 
 #if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_POSIX2024)
