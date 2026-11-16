@@ -177,6 +177,7 @@ bool signal_io_operation(unsigned long number, long a2, long a3) {
   case SYS_ppoll:
   case SYS_pselect6:
   case SYS_nanosleep:
+  case SYS_clock_nanosleep:
     return true;
   case SYS_fcntl:
     return a2 == F_SETLKW || a2 == F_OFD_SETLKW;

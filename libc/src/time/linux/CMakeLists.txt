@@ -231,3 +231,28 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.macros.config
 )
+
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  set(clock_sleep_dependencies libc.src.__support.OSUtil.osutil)
+  set(clock_sleep_options)
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    list(APPEND clock_sleep_dependencies
+      libc.src.__support.threads.linux.mmix.cancellation_point)
+    list(APPEND clock_sleep_options
+      -DLIBC_MMIX_CLOCK_SLEEP_CANCELLATION -fexceptions -funwind-tables)
+  endif()
+  add_entrypoint_object(
+    clock_nanosleep
+    SRCS mmix/clock_nanosleep.cpp
+    HDRS ../clock_nanosleep.h
+    DEPENDS
+      libc.hdr.errno_macros
+      libc.hdr.time_macros
+      libc.hdr.types.clockid_t
+      libc.hdr.types.struct_timespec
+      libc.src.__support.common
+      libc.include.sys_syscall
+      ${clock_sleep_dependencies}
+    COMPILE_OPTIONS ${clock_sleep_options}
+  )
+endif()

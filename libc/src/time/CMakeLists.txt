@@ -417,3 +417,9 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.clock_getcpuclockid
 )
+
+add_entrypoint_object(
+  clock_nanosleep
+  ALIAS
+  DEPENDS .${LIBC_TARGET_OS}.clock_nanosleep
+)
