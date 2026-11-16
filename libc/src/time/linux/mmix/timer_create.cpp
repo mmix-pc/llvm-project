@@ -13,6 +13,7 @@
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
 #include "src/signal/linux/mmix/private_signals.h"
+#include "src/time/linux/mmix/timer_id.h"
 #ifdef LIBC_MMIX_MANAGED_NOTIFICATIONS
 #include "src/__support/threads/linux/mmix/notification_service.h"
 #endif
@@ -24,8 +25,9 @@ LLVM_LIBC_FUNCTION(int, timer_create,
                     timer_t *__restrict timerid)) {
   if (sevp && sevp->sigev_notify == SIGEV_THREAD) {
 #ifdef LIBC_MMIX_MANAGED_NOTIFICATIONS
-    int error = timerid ? mmix::create_notification_timer(clockid, *sevp, *timerid)
-                        : EFAULT;
+    int error = timerid
+                    ? mmix::create_notification_timer(clockid, *sevp, *timerid)
+                    : EFAULT;
 #else
     int error = ENOTSUP;
 #endif
@@ -45,6 +47,8 @@ LLVM_LIBC_FUNCTION(int, timer_create,
     libc_errno = result.error();
     return -1;
   }
+  if (!sevp)
+    *timerid = mmix::default_notification_timer_id(*timerid);
   return result.value();
 }
 

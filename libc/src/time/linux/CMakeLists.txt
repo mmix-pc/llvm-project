@@ -8,15 +8,21 @@ set(nanosleep_source nanosleep.cpp)
 set(timer_create_source timer_create.cpp)
 set(timer_delete_source timer_delete.cpp)
 set(timer_settime_source timer_settime.cpp)
+set(timer_gettime_source timer_gettime.cpp)
+set(timer_getoverrun_source timer_getoverrun.cpp)
+set(timer_target_headers)
 set(timer_create_target_dependencies)
 set(timer_service_dependencies)
 set(timer_service_options)
 if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
   set(timer_create_source mmix/timer_create.cpp)
+  set(timer_delete_source mmix/timer_delete.cpp)
+  set(timer_settime_source mmix/timer_settime.cpp)
+  set(timer_gettime_source mmix/timer_gettime.cpp)
+  set(timer_getoverrun_source mmix/timer_getoverrun.cpp)
+  set(timer_target_headers mmix/timer_id.h)
   set(timer_create_target_dependencies libc.src.signal.linux.mmix.private_signals)
   if(LIBC_MMIX_BUILD_DEFERRED_CANCELLATION AND LIBC_MMIX_BUILD_PTHREAD_SCHEDULING)
-    set(timer_delete_source mmix/timer_delete.cpp)
-    set(timer_settime_source mmix/timer_settime.cpp)
     set(timer_service_dependencies
       libc.src.__support.threads.linux.mmix.notification_service)
     set(timer_service_options -DLIBC_MMIX_MANAGED_NOTIFICATIONS
@@ -115,6 +121,7 @@ add_entrypoint_object(
     ${timer_create_source}
   HDRS
     ../timer_create.h
+    ${timer_target_headers}
   DEPENDS
     libc.hdr.errno_macros
     libc.hdr.signal_macros
@@ -137,6 +144,7 @@ add_entrypoint_object(
     ${timer_delete_source}
   HDRS
     ../timer_delete.h
+    ${timer_target_headers}
   DEPENDS
     libc.hdr.types.timer_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.timer_delete
@@ -151,9 +159,10 @@ add_entrypoint_object(
 add_entrypoint_object(
   timer_gettime
   SRCS
-    timer_gettime.cpp
+    ${timer_gettime_source}
   HDRS
     ../timer_gettime.h
+    ${timer_target_headers}
   DEPENDS
     libc.hdr.types.struct_itimerspec
     libc.hdr.types.timer_t
@@ -170,6 +179,7 @@ add_entrypoint_object(
     ${timer_settime_source}
   HDRS
     ../timer_settime.h
+    ${timer_target_headers}
   DEPENDS
     libc.hdr.types.struct_itimerspec
     libc.hdr.types.timer_t
@@ -184,8 +194,8 @@ add_entrypoint_object(
 
 add_entrypoint_object(
   timer_getoverrun
-  SRCS timer_getoverrun.cpp
-  HDRS ../timer_getoverrun.h
+  SRCS ${timer_getoverrun_source}
+  HDRS ../timer_getoverrun.h ${timer_target_headers}
   DEPENDS
     libc.hdr.types.timer_t
     libc.src.__support.OSUtil.linux.syscall_wrappers.timer_getoverrun
