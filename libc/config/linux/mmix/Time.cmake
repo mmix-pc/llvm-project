@@ -27,6 +27,7 @@ set(MMIX_TIME_ENTRYPOINTS
   libc.src.time.asctime_r
   libc.src.time.ctime
   libc.src.time.ctime_r
+  libc.src.time.getdate
   libc.src.time.tzset
   libc.src.time.tz_variables
   libc.src.time.strftime

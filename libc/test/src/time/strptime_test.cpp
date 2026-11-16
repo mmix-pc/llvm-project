@@ -13,7 +13,50 @@
 
 #include "hdr/types/struct_tm.h"
 #include "src/time/strptime.h"
+#include "src/time/strptime_parser.h"
 #include "test/UnitTest/Test.h"
+
+TEST(LlvmLibcStrptimeTest, DateTemplateMode) {
+  const char *input = " AT  2024 - 02 - 29 tail";
+  size_t available = LIBC_NAMESPACE::cpp::numeric_limits<size_t>::max();
+  LIBC_NAMESPACE::internal::StrptimeParser parser(true);
+  ASSERT_TRUE(parser.parse(input, "at %Y-%m-%d", available));
+  ASSERT_TRUE(parser.finish());
+  tm result{};
+  result.tm_hour = 17;
+  parser.commit(result);
+  EXPECT_EQ(result.tm_year, 124);
+  EXPECT_EQ(result.tm_mon, 1);
+  EXPECT_EQ(result.tm_mday, 29);
+  EXPECT_EQ(result.tm_hour, 17);
+  EXPECT_STREQ(input, " tail");
+
+  tm ordinary{};
+  ordinary.tm_year = 77;
+  EXPECT_EQ(LIBC_NAMESPACE::strptime("AT 2024", "at %Y", &ordinary),
+            nullptr);
+  EXPECT_EQ(ordinary.tm_year, 77);
+  EXPECT_EQ(LIBC_NAMESPACE::strptime("2024 -02", "%Y-%m", &ordinary),
+            nullptr);
+  EXPECT_EQ(ordinary.tm_year, 77);
+}
+
+TEST(LlvmLibcStrptimeTest, DateTemplateUnknownTimezone) {
+  const char *input = "UNRECOGNIZED!";
+  size_t available = LIBC_NAMESPACE::cpp::numeric_limits<size_t>::max();
+  LIBC_NAMESPACE::internal::StrptimeParser parser(true);
+  ASSERT_TRUE(parser.parse(input, "%Z!", available));
+  ASSERT_TRUE(parser.finish());
+  EXPECT_TRUE(parser.invalid_timezone());
+  EXPECT_STREQ(input, "");
+  const char *mismatch = "UNRECOGNIZED?";
+  available = LIBC_NAMESPACE::cpp::numeric_limits<size_t>::max();
+  LIBC_NAMESPACE::internal::StrptimeParser other(true);
+  EXPECT_FALSE(other.parse(mismatch, "%Z!", available));
+  tm ordinary{};
+  EXPECT_EQ(LIBC_NAMESPACE::strptime("UNRECOGNIZED!", "%Z!", &ordinary),
+            nullptr);
+}
 
 TEST(LlvmLibcStrptimeTest, FieldsAndProgress) {
   tm time{};

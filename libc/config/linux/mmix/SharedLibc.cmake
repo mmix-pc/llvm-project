@@ -44,6 +44,8 @@ function(mmix_configure_shared_libc)
     elseif(name STREQUAL "tz_variables")
       # This entrypoint object defines three public data symbols.
       set(name tzname timezone daylight)
+    elseif(name STREQUAL "getdate")
+      set(name getdate getdate_err)
     endif()
     list(APPEND exports ${name})
   endforeach()

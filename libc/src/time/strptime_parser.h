@@ -27,6 +27,9 @@ class StrptimeParser {
   using Data = TimeLocaleData;
   const Data *data;
   const __locale_data *ctype;
+  bool template_mode;
+  bool invalid_zone = false;
+  cpp::optional<cpp::string_view> scanned_zone;
   cpp::optional<int> year, month, day, weekday, yearday, hour, minute, second,
       isdst;
   cpp::optional<int64_t> century, short_year;
@@ -262,13 +265,20 @@ class StrptimeParser {
   }
 
 public:
-  StrptimeParser() : data(current_time_locale()), ctype(current_ctype()) {}
+  explicit StrptimeParser(bool date_template = false)
+      : data(current_time_locale()), ctype(current_ctype()),
+        template_mode(date_template) {}
 
   bool parse(const char *&input, const char *format, size_t &available,
              unsigned depth = 0) {
     if (depth > 8)
       return false;
     while (*format) {
+      if (template_mode)
+        while (available && *input && space(*input)) {
+          ++input;
+          --available;
+        }
       if (space(*format)) {
         do {
           ++format;
@@ -277,6 +287,21 @@ public:
           ++input;
           --available;
         }
+        continue;
+      }
+      if (template_mode && *format != '%') {
+        auto scalar = decode_scalar(ScalarEncoding::UTF8,
+                                    {reinterpret_cast<const uint8_t *>(format),
+                                     scalar_length(format, 4)});
+        if (!scalar)
+          return false;
+        size_t consumed =
+            match(input, available, cpp::string_view(format, scalar->bytes));
+        if (!consumed)
+          return false;
+        input += consumed;
+        available -= consumed;
+        format += scalar->bytes;
         continue;
       }
       if (*format++ != '%') {
@@ -418,8 +443,27 @@ public:
             dst = i;
           }
         }
+        if (!best && template_mode) {
+          // Keep a syntactically supplied but unknown abbreviation distinct
+          // from a template mismatch. getdate reports an invalid specification
+          // only if the remainder of this template also matches.
+          size_t limit = has_width && width < available ? width : available;
+          while (best < limit &&
+                 (internal::isalnum(input[best]) || input[best] == '+' ||
+                  input[best] == '-'))
+            ++best;
+          if (best) {
+            invalid_zone = true;
+            scanned_zone = cpp::string_view(input, best);
+            input += best;
+            available -= best;
+            continue;
+          }
+        }
         if (!best)
           return false;
+        if (template_mode)
+          scanned_zone = cpp::string_view(input, best);
         input += best;
         available -= best;
         isdst = dst;
@@ -598,6 +642,14 @@ public:
       }
     }
     return true;
+  }
+
+  bool invalid_timezone() const { return invalid_zone; }
+  bool has_timezone() const { return scanned_zone.has_value(); }
+  bool matches_timezone(cpp::string_view name) const {
+    return scanned_zone && !scanned_zone->empty() &&
+           match(scanned_zone->data(), scanned_zone->size(), name) ==
+               scanned_zone->size();
   }
 
   void commit(tm &result) const {

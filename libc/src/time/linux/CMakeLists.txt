@@ -268,3 +268,19 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
       libc.src.__support.CPP.limits libc.src.__support.CPP.string_view
   )
 endif()
+
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  add_entrypoint_object(
+    getdate
+    SRCS mmix/getdate.cpp
+    HDRS ../getdate.h ../strptime_parser.h mmix/getdate_zone.h
+    DEPENDS
+      libc.src.time.time libc.src.time.time_zone libc.src.time.time_utils
+      libc.src.stdlib.getenv libc.src.locale.character libc.src.locale.time_locale
+      libc.src.__support.wchar.scalar_codec libc.src.__support.common
+      libc.src.__support.OSUtil.osutil
+      libc.src.__support.OSUtil.linux.syscall_wrappers.statx
+      libc.hdr.func.malloc libc.hdr.func.free libc.hdr.fcntl_macros
+      libc.hdr.types.struct_tm libc.include.sys_syscall
+  )
+endif()
