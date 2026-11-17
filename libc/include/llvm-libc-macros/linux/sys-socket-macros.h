@@ -21,6 +21,7 @@
 #define AF_INET 2     // Internet IPv4 Protocol
 #define AF_INET6 10   // IP version 6
 #define AF_NETLINK 16 // Netlink sockets
+#define AF_PACKET 17 // Link-layer packet sockets
 
 // 4.2BSD protocol families
 #define PF_UNSPEC AF_UNSPEC
@@ -29,6 +30,7 @@
 #define PF_INET AF_INET
 #define PF_INET6 AF_INET6
 #define PF_NETLINK AF_NETLINK
+#define PF_PACKET AF_PACKET
 
 #define SOCK_STREAM 1
 #define SOCK_DGRAM 2

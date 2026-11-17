@@ -5,6 +5,7 @@ macros:
   - macro_name: FD_SETSIZE
     macro_header: sys-select-macros.h
 types:
+  - type_name: fd_mask
   - type_name: struct_timeval
   - type_name: struct_timespec
   - type_name: suseconds_t

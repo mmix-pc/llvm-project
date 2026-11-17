@@ -1,6 +1,8 @@
 # MMIX Linux installed namespace policy. This does not select runtime providers.
 sched.h:
   functions:
+    setns: __LIBC_USE_GNU
+    unshare: __LIBC_USE_GNU
     getcpu: __LIBC_USE_LINUX_EXTENSIONS
 dlfcn.h:
   types:
@@ -31,6 +33,7 @@ signal.h:
     union_sigval: __LIBC_USE_POSIX1993
     struct_timespec: __LIBC_USE_POSIX1993
   functions:
+    sigisemptyset: __LIBC_USE_GNU
     kill: __LIBC_USE_POSIX
     killpg: __LIBC_USE_XOPEN_OR_DEFAULT
     psiginfo: __LIBC_USE_POSIX2008
@@ -63,6 +66,8 @@ termios.h:
   types:
     struct_winsize: __LIBC_USE_POSIX2024
   functions:
+    cfmakeraw: __LIBC_USE_DEFAULT
+    cfsetspeed: __LIBC_USE_DEFAULT
     tcgetwinsize: __LIBC_USE_POSIX2024
     tcsetwinsize: __LIBC_USE_POSIX2024
 grp.h:
@@ -135,6 +140,7 @@ sys/wait.h:
   types:
     struct_rusage: __LIBC_USE_DEFAULT
   functions:
+    wait3: __LIBC_USE_DEFAULT
     wait4: __LIBC_USE_DEFAULT
 unistd.h:
   macros:
@@ -150,6 +156,11 @@ unistd.h:
   objects:
     environ: __LIBC_USE_DEFAULT
   functions:
+    vhangup: __LIBC_USE_DEFAULT
+    sethostname: __LIBC_USE_DEFAULT
+    syncfs: __LIBC_USE_GNU
+    setpgrp: __LIBC_USE_DEFAULT
+    getdomainname: __LIBC_USE_DEFAULT
     _Fork: __LIBC_USE_POSIX2024
     chroot: __LIBC_USE_DEFAULT
     dup3: __LIBC_USE_POSIX2024
@@ -196,6 +207,7 @@ fcntl.h:
     struct_f_owner_ex: __LIBC_USE_POSIX2024
     struct_flock64: __LIBC_USE_GNU
   functions:
+    readahead: __LIBC_USE_GNU
     openat: __LIBC_USE_POSIX2008
     posix_fadvise: __LIBC_USE_POSIX2001
     posix_fallocate: __LIBC_USE_POSIX2001
@@ -224,6 +236,8 @@ sys/mman.h:
     pkey_set: __LIBC_USE_GNU
     remap_file_pages: __LIBC_USE_GNU
 sys/select.h:
+  types:
+    fd_mask: __LIBC_USE_DEFAULT
   functions:
     pselect: __LIBC_USE_POSIX2001
 sys/stat.h:
@@ -240,6 +254,9 @@ sys/stat.h:
     utimensat: __LIBC_USE_POSIX2008
 sys/types.h:
   types:
+    quad_t: __LIBC_USE_DEFAULT
+    u_quad_t: __LIBC_USE_DEFAULT
+    u_int64_t: __LIBC_USE_DEFAULT
     caddr_t: __LIBC_USE_DEFAULT
     ino64_t: __LIBC_USE_GNU
     loff_t: __LIBC_USE_DEFAULT
@@ -309,6 +326,7 @@ stdlib.h:
   types:
     locale_t: __LIBC_USE_GNU
   functions:
+    rand_r: __LIBC_USE_POSIX
     a64l: __LIBC_USE_XOPEN_OR_DEFAULT
     drand48: __LIBC_USE_XOPEN_OR_DEFAULT
     erand48: __LIBC_USE_XOPEN_OR_DEFAULT
@@ -337,6 +355,7 @@ stdlib.h:
     free_aligned_sized: __LIBC_USE_C23_EXTENSIONS
     memalign: __LIBC_USE_DEFAULT
     memalignment: __LIBC_USE_GNU
+    mktemp: __LIBC_USE_LEGACY_EXTENSIONS
     mkdtemp: __LIBC_USE_POSIX2008
     mkstemp: __LIBC_USE_POSIX2008_OR_XOPEN
     posix_memalign: __LIBC_USE_POSIX2001
@@ -361,6 +380,7 @@ string.h:
   types:
     locale_t: __LIBC_USE_POSIX2008
   functions:
+    explicit_bzero: __LIBC_USE_DEFAULT
     memccpy: __LIBC_USE_XOPEN_OR_DEFAULT_OR_C23
     memmem: __LIBC_USE_POSIX2024
     mempcpy: __LIBC_USE_GNU
@@ -620,3 +640,8 @@ math.h:
     ufromfpx: __LIBC_USE_C23_EXTENSIONS
     ufromfpxf: __LIBC_USE_C23_EXTENSIONS
     ufromfpxl: __LIBC_USE_C23_EXTENSIONS
+
+netinet/in.h:
+  types:
+    struct_in_pktinfo: __LIBC_USE_DEFAULT
+    struct_in6_pktinfo: __LIBC_USE_GNU

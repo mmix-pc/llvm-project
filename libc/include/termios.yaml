@@ -101,3 +101,14 @@ functions:
     arguments:
       - type: int
       - type: const struct winsize *
+  - name: cfmakeraw
+    standards: [bsd]
+    return_type: void
+    arguments:
+      - type: struct termios *
+  - name: cfsetspeed
+    standards: [bsd]
+    return_type: int
+    arguments:
+      - type: struct termios *
+      - type: speed_t

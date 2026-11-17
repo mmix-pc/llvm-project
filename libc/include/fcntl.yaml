@@ -47,6 +47,8 @@ macros:
   - macro_name: S_ISVTX
     macro_header: sys-stat-macros.h
 types:
+  - type_name: size_t
+  - type_name: ssize_t
   - type_name: mode_t
   - type_name: off_t
   - type_name: pid_t
@@ -107,3 +109,10 @@ functions:
       - type: const char *
       - type: int
       - type: '...'
+  - name: readahead
+    standards: [gnu]
+    return_type: ssize_t
+    arguments:
+      - type: int
+      - type: off_t
+      - type: size_t

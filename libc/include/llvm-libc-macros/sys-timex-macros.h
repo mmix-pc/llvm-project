@@ -1,0 +1,54 @@
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#ifndef LLVM_LIBC_MACROS_SYS_TIMEX_MACROS_H
+#define LLVM_LIBC_MACROS_SYS_TIMEX_MACROS_H
+#define NTP_API 4
+#define ADJ_OFFSET 1
+#define ADJ_FREQUENCY 2
+#define ADJ_MAXERROR 4
+#define ADJ_ESTERROR 8
+#define ADJ_STATUS 16
+#define ADJ_TIMECONST 32
+#define ADJ_TAI 128
+#define ADJ_SETOFFSET 256
+#define ADJ_MICRO 4096
+#define ADJ_NANO 8192
+#define ADJ_TICK 16384
+#define ADJ_OFFSET_SINGLESHOT 32769
+#define ADJ_OFFSET_SS_READ 40961
+#define STA_PLL 1
+#define STA_PPSFREQ 2
+#define STA_PPSTIME 4
+#define STA_FLL 8
+#define STA_INS 16
+#define STA_DEL 32
+#define STA_UNSYNC 64
+#define STA_FREQHOLD 128
+#define STA_PPSSIGNAL 256
+#define STA_PPSJITTER 512
+#define STA_PPSWANDER 1024
+#define STA_PPSERROR 2048
+#define STA_CLOCKERR 4096
+#define STA_NANO 8192
+#define STA_MODE 16384
+#define STA_CLK 32768
+#define TIME_OK 0
+#define TIME_INS 1
+#define TIME_DEL 2
+#define TIME_OOP 3
+#define TIME_WAIT 4
+#define TIME_ERROR 5
+#define MOD_OFFSET ADJ_OFFSET
+#define MOD_FREQUENCY ADJ_FREQUENCY
+#define MOD_MAXERROR ADJ_MAXERROR
+#define MOD_ESTERROR ADJ_ESTERROR
+#define MOD_STATUS ADJ_STATUS
+#define MOD_TIMECONST ADJ_TIMECONST
+#define MOD_TAI ADJ_TAI
+#define MOD_MICRO ADJ_MICRO
+#define MOD_NANO ADJ_NANO
+#define TIME_BAD TIME_ERROR
+#define STA_RONLY (STA_PPSSIGNAL | STA_PPSJITTER | STA_PPSWANDER | STA_PPSERROR | STA_CLOCKERR | STA_NANO | STA_MODE | STA_CLK)
+#endif

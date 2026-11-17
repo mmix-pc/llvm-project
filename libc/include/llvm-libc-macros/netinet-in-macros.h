@@ -19,6 +19,19 @@
 #define IPPROTO_UDP 17
 #define IPPROTO_IPV6 41
 #define IPPROTO_RAW 255
+#define IPPROTO_HOPOPTS 0
+#define IPPROTO_IGMP 2
+#define IPPROTO_IPIP 4
+#define IPPROTO_ROUTING 43
+#define IPPROTO_FRAGMENT 44
+#define IPPROTO_GRE 47
+#define IPPROTO_ESP 50
+#define IPPROTO_AH 51
+#define IPPROTO_ICMPV6 58
+#define IPPROTO_NONE 59
+#define IPPROTO_DSTOPTS 60
+#define IN_CLASSD(address) (((__UINT32_TYPE__)(address) & 0xf0000000U) == 0xe0000000U)
+#define IN_MULTICAST(address) IN_CLASSD(address)
 
 #define INADDR_ANY __LLVM_LIBC_CAST(static_cast, in_addr_t, 0x00000000)
 #define INADDR_BROADCAST __LLVM_LIBC_CAST(static_cast, in_addr_t, 0xffffffff)

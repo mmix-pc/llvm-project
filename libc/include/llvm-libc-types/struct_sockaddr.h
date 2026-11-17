@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if defined(__mmix__) && defined(__linux__)
+#include "linux/mmix/struct_sockaddr.h"
+#else
 #ifndef LLVM_LIBC_TYPES_STRUCT_SOCKADDR_H
 #define LLVM_LIBC_TYPES_STRUCT_SOCKADDR_H
 
@@ -19,3 +22,5 @@ struct __attribute__((may_alias)) sockaddr {
 };
 
 #endif // LLVM_LIBC_TYPES_STRUCT_SOCKADDR_H
+
+#endif // defined(__mmix__) && defined(__linux__)

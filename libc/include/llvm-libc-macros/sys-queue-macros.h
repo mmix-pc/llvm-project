@@ -30,8 +30,7 @@
     class type *slh_first;                                                     \
   }
 
-#define SLIST_HEAD_INITIALIZER(head)                                           \
-  { NULL }
+#define SLIST_HEAD_INITIALIZER(head) {NULL}
 
 #define SLIST_ENTRY(type)                                                      \
   struct {                                                                     \
@@ -142,8 +141,7 @@
     class type **stqh_last;                                                    \
   }
 
-#define STAILQ_HEAD_INITIALIZER(head)                                          \
-  { NULL, &(head).stqh_first }
+#define STAILQ_HEAD_INITIALIZER(head) {NULL, &(head).stqh_first}
 
 #define STAILQ_ENTRY(type)                                                     \
   struct {                                                                     \
@@ -258,5 +256,79 @@
     if (STAILQ_EMPTY(head2))                                                   \
       (head2)->stqh_last = &STAILQ_FIRST(head2);                               \
   } while (0)
+
+// Doubly-linked tail queues. Each entry retains the address of the pointer
+// which references it, allowing removal without a traversal.
+#define TAILQ_HEAD(name, type)                                                 \
+  struct name {                                                                \
+    struct type *tqh_first;                                                    \
+    struct type **tqh_last;                                                    \
+  }
+#define TAILQ_HEAD_INITIALIZER(head) {NULL, &(head).tqh_first}
+#define TAILQ_ENTRY(type)                                                      \
+  struct {                                                                     \
+    struct type *tqe_next;                                                     \
+    struct type **tqe_prev;                                                    \
+  }
+#define TAILQ_FIRST(head) ((head)->tqh_first)
+#define TAILQ_NEXT(elem, field) ((elem)->field.tqe_next)
+#define TAILQ_EMPTY(head) (TAILQ_FIRST(head) == NULL)
+#define TAILQ_LAST(head, headname)                                             \
+  (*(((struct headname *)((head)->tqh_last))->tqh_last))
+#define TAILQ_PREV(elem, headname, field)                                      \
+  (*(((struct headname *)((elem)->field.tqe_prev))->tqh_last))
+#define TAILQ_INIT(head)                                                       \
+  do {                                                                         \
+    (head)->tqh_first = NULL;                                                  \
+    (head)->tqh_last = &(head)->tqh_first;                                     \
+  } while (0)
+#define TAILQ_INSERT_HEAD(head, elem, field)                                   \
+  do {                                                                         \
+    (elem)->field.tqe_next = (head)->tqh_first;                                \
+    if ((head)->tqh_first != NULL)                                             \
+      (head)->tqh_first->field.tqe_prev = &(elem)->field.tqe_next;             \
+    else                                                                       \
+      (head)->tqh_last = &(elem)->field.tqe_next;                              \
+    (head)->tqh_first = (elem);                                                \
+    (elem)->field.tqe_prev = &(head)->tqh_first;                               \
+  } while (0)
+#define TAILQ_INSERT_TAIL(head, elem, field)                                   \
+  do {                                                                         \
+    (elem)->field.tqe_next = NULL;                                             \
+    (elem)->field.tqe_prev = (head)->tqh_last;                                 \
+    *(head)->tqh_last = (elem);                                                \
+    (head)->tqh_last = &(elem)->field.tqe_next;                                \
+  } while (0)
+#define TAILQ_INSERT_AFTER(head, at, elem, field)                              \
+  do {                                                                         \
+    (elem)->field.tqe_next = (at)->field.tqe_next;                             \
+    if ((elem)->field.tqe_next != NULL)                                        \
+      (elem)->field.tqe_next->field.tqe_prev = &(elem)->field.tqe_next;        \
+    else                                                                       \
+      (head)->tqh_last = &(elem)->field.tqe_next;                              \
+    (at)->field.tqe_next = (elem);                                             \
+    (elem)->field.tqe_prev = &(at)->field.tqe_next;                            \
+  } while (0)
+#define TAILQ_INSERT_BEFORE(at, elem, field)                                   \
+  do {                                                                         \
+    (elem)->field.tqe_prev = (at)->field.tqe_prev;                             \
+    (elem)->field.tqe_next = (at);                                             \
+    *(at)->field.tqe_prev = (elem);                                            \
+    (at)->field.tqe_prev = &(elem)->field.tqe_next;                            \
+  } while (0)
+#define TAILQ_REMOVE(head, elem, field)                                        \
+  do {                                                                         \
+    if ((elem)->field.tqe_next != NULL)                                        \
+      (elem)->field.tqe_next->field.tqe_prev = (elem)->field.tqe_prev;         \
+    else                                                                       \
+      (head)->tqh_last = (elem)->field.tqe_prev;                               \
+    *(elem)->field.tqe_prev = (elem)->field.tqe_next;                          \
+  } while (0)
+#define TAILQ_FOREACH(var, head, field)                                        \
+  for ((var) = TAILQ_FIRST(head); (var) != NULL; (var) = TAILQ_NEXT(var, field))
+#define TAILQ_FOREACH_SAFE(var, head, field, next)                             \
+  for ((var) = TAILQ_FIRST(head);                                              \
+       (var) != NULL && (((next) = TAILQ_NEXT(var, field)), 1);                \
+       (var) = (next))
 
 #endif // LLVM_LIBC_MACROS_SYS_QUEUE_MACROS_H

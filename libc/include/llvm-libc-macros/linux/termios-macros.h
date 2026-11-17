@@ -13,6 +13,8 @@
 // most architectures including x86_64, aarch64 but have to be adjusted for few
 // architectures MIPS.
 
+#include <linux/tty.h>
+
 #define NCCS 32
 
 // Bit-masks for the c_iflag field of struct termios.

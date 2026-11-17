@@ -2,6 +2,16 @@ header: sys/param.h
 standards:
   - bsd
 macros:
+  - macro_name: MAXHOSTNAMELEN
+    macro_header: sys-param-macros.h
+  - macro_name: setbit
+    macro_header: sys-param-macros.h
+  - macro_name: clrbit
+    macro_header: sys-param-macros.h
+  - macro_name: isset
+    macro_header: sys-param-macros.h
+  - macro_name: isclr
+    macro_header: sys-param-macros.h
   - macro_name: NBBY
     macro_header: sys-param-macros.h
   - macro_name: MIN

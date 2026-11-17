@@ -1,0 +1,16 @@
+header: ifaddrs.h
+standards: [bsd]
+public_includes: [sys/socket.h]
+types:
+  - type_name: struct_ifaddrs
+functions:
+  - name: getifaddrs
+    standards: [bsd]
+    return_type: int
+    arguments:
+      - type: struct ifaddrs **
+  - name: freeifaddrs
+    standards: [bsd]
+    return_type: void
+    arguments:
+      - type: struct ifaddrs *

@@ -614,3 +614,11 @@ add_macro_header(resolv_macros HDR resolv-macros.h DEPENDS .arpa_nameser_macros)
 add_macro_header(sys_xattr_macros HDR sys-xattr-macros.h)
 add_header(glob_macros HDR glob-macros.h)
 add_header(wordexp_macros HDR wordexp-macros.h)
+
+add_macro_header(sys_un_macros HDR sys-un-macros.h)
+
+add_macro_header(sys_file_macros HDR sys-file-macros.h)
+
+add_macro_header(sys_inotify_macros HDR sys-inotify-macros.h DEPENDS .fcntl_macros .stdint_macros)
+
+add_macro_header(sys_timex_macros HDR sys-timex-macros.h)

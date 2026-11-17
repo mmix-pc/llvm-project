@@ -34,11 +34,16 @@ add_header(
     sys-epoll-macros.h
 )
 
-add_header(
-  sys_ioctl_macros
-  HDR
-    sys-ioctl-macros.h
-)
+set(ioctl_macro_header sys-ioctl-macros.h)
+set(ioctl_macro_deps)
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX)
+  add_header(sys_ioctl_base_macros HDR sys-ioctl-macros.h
+    DEST_HDR sys-ioctl-base-macros.h)
+  set(ioctl_macro_header ../mmix/linux-ioctl-macros.h)
+  list(APPEND ioctl_macro_deps .sys_ioctl_base_macros)
+endif()
+add_header(sys_ioctl_macros HDR ${ioctl_macro_header}
+  DEST_HDR sys-ioctl-macros.h DEPENDS ${ioctl_macro_deps})
 
 add_header(
   sys_ipc_macros

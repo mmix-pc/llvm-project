@@ -75,6 +75,12 @@ objects:
   - object_name: optopt
     object_type: int
 functions:
+  - name: getdomainname
+    standards: [bsd]
+    return_type: int
+    arguments:
+      - type: char *
+      - type: size_t
   - name: posix_close
     noexcept: false
     standards: [posix]
@@ -730,3 +736,22 @@ functions:
       - type: size_t
     guard: null
     attributes: []
+  - name: setpgrp
+    standards: [bsd]
+    return_type: int
+    arguments: []
+  - name: syncfs
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: int
+  - name: sethostname
+    standards: [linux]
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: size_t
+  - name: vhangup
+    standards: [linux]
+    return_type: int
+    arguments: []

@@ -12,7 +12,7 @@
 #include "../llvm-libc-macros/sys-select-macros.h" // __FD_SET_WORD_TYPE, __FD_SET_ARRAYSIZE
 
 typedef struct {
-  __FD_SET_WORD_TYPE __set[__FD_SET_ARRAYSIZE];
+  __FD_SET_WORD_TYPE fds_bits[__FD_SET_ARRAYSIZE];
 } fd_set;
 
 #endif // LLVM_LIBC_TYPES_FD_SET_H

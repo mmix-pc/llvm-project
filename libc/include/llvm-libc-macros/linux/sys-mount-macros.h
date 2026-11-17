@@ -14,6 +14,17 @@
 #ifndef LLVM_LIBC_MACROS_LINUX_SYS_MOUNT_MACROS_H
 #define LLVM_LIBC_MACROS_LINUX_SYS_MOUNT_MACROS_H
 
+#include <linux/ioctl.h>
+
+// Linux block-device requests conventionally exposed by sys/mount.h.
+#define BLKROSET _IO(0x12, 93)
+#define BLKROGET _IO(0x12, 94)
+#define BLKRRPART _IO(0x12, 95)
+#define BLKGETSIZE _IO(0x12, 96)
+#define BLKFLSBUF _IO(0x12, 97)
+#define BLKRASET _IO(0x12, 98)
+#define BLKRAGET _IO(0x12, 99)
+
 #define MS_RDONLY (1 << 0)
 #define MS_NOSUID (1 << 1)
 #define MS_NODEV (1 << 2)

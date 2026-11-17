@@ -1,0 +1,16 @@
+header: sys/timex.h
+standards: [linux]
+macros:
+  - macro_name: ADJ_OFFSET
+    macro_header: sys-timex-macros.h
+types:
+  - type_name: struct_timex
+functions:
+  - name: adjtimex
+    return_type: int
+    arguments:
+      - type: struct timex *
+  - name: ntp_adjtime
+    return_type: int
+    arguments:
+      - type: struct timex *

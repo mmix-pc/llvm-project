@@ -307,7 +307,12 @@ add_header(wctype_t HDR wctype_t.h)
 add_header(wctrans_t HDR wctrans_t.h)
 add_header(sa_family_t HDR sa_family_t.h)
 add_header(socklen_t HDR socklen_t.h)
-add_header(struct_sockaddr HDR struct_sockaddr.h DEPENDS .sa_family_t)
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS_IS_LINUX)
+  add_header(struct_sockaddr HDR linux/mmix/struct_sockaddr.h
+    DEST_HDR struct_sockaddr.h DEPENDS .sa_family_t)
+else()
+  add_header(struct_sockaddr HDR struct_sockaddr.h DEPENDS .sa_family_t)
+endif()
 add_header(struct_addrinfo HDR struct_addrinfo.h DEPENDS .socklen_t .struct_sockaddr)
 add_header(struct_hostent HDR struct_hostent.h)
 add_header(mqd_t HDR mqd_t.h)
@@ -832,3 +837,20 @@ add_header(wordexp_t HDR wordexp_t.h DEPENDS .size_t)
 add_header(struct_FTW HDR struct_FTW.h)
 add_header(__nftw_func_t HDR __nftw_func_t.h DEPENDS .struct_FTW .struct_stat)
 add_header(__glob_errfunc_t HDR __glob_errfunc_t.h)
+
+add_header(quad_t HDR quad_t.h)
+add_header(u_quad_t HDR u_quad_t.h)
+add_header(u_int64_t HDR u_int64_t.h)
+add_header(fd_mask HDR fd_mask.h)
+
+add_header(struct_in_pktinfo HDR struct_in_pktinfo.h DEPENDS .struct_in_addr)
+
+add_header(struct_in6_pktinfo HDR struct_in6_pktinfo.h DEPENDS .struct_in6_addr)
+
+add_header(struct_ifaddrs HDR struct_ifaddrs.h)
+
+add_header(struct_inotify_event HDR struct_inotify_event.h)
+
+add_header(struct_ether_addr HDR struct_ether_addr.h)
+
+add_header(struct_timex HDR struct_timex.h DEPENDS .struct_timeval)

@@ -25,6 +25,13 @@
 #endif
 #endif
 
+// Traditional byte-array bitmap operations. The bit index must not have
+// side effects: like the BSD interfaces, these macros evaluate it twice.
+#define setbit(a, i) ((a)[(i) / NBBY] |= (1U << ((i) % NBBY)))
+#define clrbit(a, i) ((a)[(i) / NBBY] &= ~(1U << ((i) % NBBY)))
+#define isset(a, i) ((a)[(i) / NBBY] & (1U << ((i) % NBBY)))
+#define isclr(a, i) (((a)[(i) / NBBY] & (1U << ((i) % NBBY))) == 0)
+
 #ifndef MIN
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
@@ -43,6 +50,10 @@
 
 #ifndef powerof2
 #define powerof2(n) !(((n) - 1) & (n))
+#endif
+
+#if !defined(MAXHOSTNAMELEN) && defined(HOST_NAME_MAX)
+#define MAXHOSTNAMELEN HOST_NAME_MAX
 #endif
 
 #ifndef MAXPATHLEN

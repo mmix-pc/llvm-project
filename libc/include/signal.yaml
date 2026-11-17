@@ -59,6 +59,12 @@ types:
 enums: []
 objects: []
 functions:
+  - name: sigisemptyset
+    standards: [gnu]
+    return_type: int
+    arguments:
+      - type: const sigset_t *
+
   - name: killpg
     standards: [posix]
     return_type: int

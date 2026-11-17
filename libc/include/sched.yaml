@@ -185,3 +185,14 @@ functions:
     return_type: int
     arguments:
       - type: void
+  - name: setns
+    standards: [linux]
+    return_type: int
+    arguments:
+      - type: int
+      - type: int
+  - name: unshare
+    standards: [linux]
+    return_type: int
+    arguments:
+      - type: int

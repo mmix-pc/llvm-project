@@ -14,22 +14,26 @@
 #define __FD_SET_WORD_SIZE (sizeof(__FD_SET_WORD_TYPE) * 8)
 #define __FD_SET_ARRAYSIZE (FD_SETSIZE / __FD_SET_WORD_SIZE)
 
+#if !defined(__LIBC_EXPLICIT_NAMESPACE) || defined(__LIBC_USE_DEFAULT)
+#define NFDBITS __FD_SET_WORD_SIZE
+#endif
+
 #define FD_ZERO(set)                                                           \
   do {                                                                         \
     unsigned i;                                                                \
     for (i = 0; i < __FD_SET_ARRAYSIZE; ++i)                                   \
-      (set)->__set[i] = 0;                                                     \
+      (set)->fds_bits[i] = 0;                                                  \
   } while (0)
 
 #define __FD_WORD(fd) ((fd) / __FD_SET_WORD_SIZE)
 #define __FD_MASK(fd)                                                          \
   ((__FD_SET_WORD_TYPE)1) << ((__FD_SET_WORD_TYPE)((fd) % __FD_SET_WORD_SIZE))
 
-#define FD_CLR(fd, set) (void)((set)->__set[__FD_WORD(fd)] &= ~__FD_MASK(fd))
+#define FD_CLR(fd, set) (void)((set)->fds_bits[__FD_WORD(fd)] &= ~__FD_MASK(fd))
 
-#define FD_SET(fd, set) (void)((set)->__set[__FD_WORD(fd)] |= __FD_MASK(fd))
+#define FD_SET(fd, set) (void)((set)->fds_bits[__FD_WORD(fd)] |= __FD_MASK(fd))
 
 #define FD_ISSET(fd, set)                                                      \
-  (int)(((set)->__set[__FD_WORD(fd)] & __FD_MASK(fd)) != 0)
+  (int)(((set)->fds_bits[__FD_WORD(fd)] & __FD_MASK(fd)) != 0)
 
 #endif // LLVM_LIBC_MACROS_SYS_SELECT_MACROS_H

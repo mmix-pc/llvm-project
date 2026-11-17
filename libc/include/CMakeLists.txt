@@ -46,6 +46,8 @@ macro(add_header_macro TARGET_NAME YAML_FILE GEN_HDR DEPENDS)
   )
 endmacro()
 
+
+
 add_header_macro(
   iconv
   ../libc/include/iconv.yaml
@@ -1068,6 +1070,7 @@ add_header_macro(
   DEPENDS
     .llvm_libc_common_h
     .llvm-libc-macros.sys_select_macros
+    .llvm-libc-types.fd_mask
     .llvm-libc-types.fd_set
     .llvm-libc-types.sigset_t
     .llvm-libc-types.suseconds_t
@@ -1123,6 +1126,27 @@ add_header_macro(
     .llvm-libc-types.struct_semid_ds
     .llvm-libc-types.struct_sembuf
     .llvm-libc-types.struct_seminfo
+)
+
+add_header_macro(
+  sys_file
+  ../libc/include/sys/file.yaml
+  sys/file.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-macros.sys_file_macros
+)
+
+add_header_macro(
+  sys_inotify
+  ../libc/include/sys/inotify.yaml
+  sys/inotify.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-macros.sys_inotify_macros .llvm-libc-types.struct_inotify_event
+)
+
+add_header_macro(
+  sys_timex
+  ../libc/include/sys/timex.yaml
+  sys/timex.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-types.struct_timex .llvm-libc-macros.sys_timex_macros
 )
 
 add_header_macro(
@@ -1276,6 +1300,9 @@ add_header_macro(
     .llvm-libc-types.u_char
     .llvm-libc-types.u_int
     .llvm-libc-types.u_int16_t
+    .llvm-libc-types.quad_t
+    .llvm-libc-types.u_quad_t
+    .llvm-libc-types.u_int64_t
     .llvm-libc-types.u_int32_t
     .llvm-libc-types.u_int8_t
     .llvm-libc-types.u_long
@@ -1323,6 +1350,7 @@ add_header_macro(
   DEPENDS
     .llvm_libc_common_h
     .llvm-libc-types.struct_sockaddr_un
+    .llvm-libc-macros.sys_un_macros
 )
 
 add_header_macro(
@@ -1388,6 +1416,8 @@ add_header_macro(
     .llvm-libc-types.struct_sockaddr_in6
     .llvm-libc-types.struct_in_addr
     .llvm-libc-types.struct_in6_addr
+    .llvm-libc-types.struct_in_pktinfo
+    .llvm-libc-types.struct_in6_pktinfo
     .llvm-libc-types.struct_ip_mreq
     .llvm-libc-types.struct_ip_mreq_source
     .llvm-libc-types.struct_ip_mreqn
@@ -1574,10 +1604,29 @@ if(LIBC_TARGET_ARCHITECTURE_IS_MMIX AND LIBC_TARGET_OS_IS_LINUX)
   include(${LIBC_SOURCE_DIR}/config/linux/mmix/UnixHeaders.cmake)
 endif()
 
+add_header_macro(ifaddrs ../libc/include/ifaddrs.yaml ifaddrs.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-types.struct_ifaddrs .sys_socket)
+add_header(netpacket_packet HDR netpacket/packet.h)
+add_header(net_if_arp HDR net/if_arp.h DEPENDS .net_if)
+add_header(netinet_if_ether HDR netinet/if_ether.h DEPENDS .net_if_arp .llvm-libc-types.struct_ether_addr)
+add_header(net_ethernet HDR net/ethernet.h DEPENDS .netinet_if_ether)
+add_header(net_route HDR net/route.h DEPENDS .net_if .netinet_in)
+add_header(arpa_telnet HDR arpa/telnet.h)
+add_header(netinet_ip HDR netinet/ip.h DEPENDS .netinet_in)
+add_header(netinet_ip_icmp HDR netinet/ip_icmp.h DEPENDS .netinet_ip .stdint)
+add_header(netinet_ip6 HDR netinet/ip6.h DEPENDS .netinet_in .stdint)
+add_header(netinet_icmp6 HDR netinet/icmp6.h DEPENDS .stdint)
+add_header(sys_kd HDR sys/kd.h)
+add_header(sys_vt HDR sys/vt.h)
+add_header(sys_mtio HDR sys/mtio.h)
+add_header(scsi_sg HDR scsi/sg.h)
+add_header(scsi_scsi HDR scsi/scsi.h)
+
 if(NOT LLVM_LIBC_FULL_BUILD)
   # We don't install headers in non-fullbuild mode.
   return()
 endif()
+
 
 function(get_all_install_header_targets out_var)
   set(all_deps ${ARGN})

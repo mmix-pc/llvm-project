@@ -49,3 +49,11 @@ functions:
       - type: pid_t
       - type: int *
       - type: int
+  - name: wait3
+    noexcept: false
+    standards: [bsd]
+    return_type: pid_t
+    arguments:
+      - type: int *
+      - type: int
+      - type: struct rusage *

@@ -19,6 +19,13 @@ types:
 enums: []
 objects: []
 functions:
+  - name: explicit_bzero
+    standards:
+      - bsd
+    return_type: void
+    arguments:
+      - type: void *
+      - type: size_t
   - name: strverscmp
     standards:
       - gnu
