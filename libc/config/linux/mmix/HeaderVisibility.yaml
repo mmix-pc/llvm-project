@@ -645,3 +645,10 @@ netinet/in.h:
   types:
     struct_in_pktinfo: __LIBC_USE_DEFAULT
     struct_in6_pktinfo: __LIBC_USE_GNU
+
+sys/shm.h:
+  types:
+    struct_shminfo: __LIBC_USE_DEFAULT
+sys/msg.h:
+  types:
+    struct_msginfo: __LIBC_USE_DEFAULT

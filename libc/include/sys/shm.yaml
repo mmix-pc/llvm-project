@@ -11,6 +11,7 @@ macros:
   - macro_name: SHM_FAILED
     macro_header: sys-shm-macros.h
 types:
+  - type_name: struct_shminfo
   - type_name: shmatt_t
   - type_name: struct_shmid_ds
   - type_name: intptr_t

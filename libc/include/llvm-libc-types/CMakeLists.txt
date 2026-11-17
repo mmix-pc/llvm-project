@@ -201,6 +201,10 @@ endif()
 add_header(struct_f_owner_ex HDR struct_f_owner_ex.h DEPENDS .pid_t)
 add_header(struct_flock HDR struct_flock.h DEPENDS .off_t .pid_t)
 add_header(struct_flock64 HDR struct_flock64.h DEPENDS .off64_t .pid_t)
+if(LIBC_TARGET_ARCHITECTURE_IS_MMIX AND LIBC_TARGET_OS_IS_LINUX)
+  add_header(struct_ipc_perm HDR linux/mmix/struct_ipc_perm.h
+    DEST_HDR struct_ipc_perm.h DEPENDS .key_t .uid_t .gid_t .mode_t)
+else()
 add_header(
   struct_ipc_perm
   HDR struct_ipc_perm.h
@@ -210,6 +214,7 @@ add_header(
     .gid_t
     .mode_t
 )
+endif()
 add_header(struct_pollfd HDR struct_pollfd.h)
 add_header(struct_rlimit HDR struct_rlimit.h DEPENDS .rlim_t)
 add_header(struct_sched_param HDR struct_sched_param.h)
@@ -854,3 +859,6 @@ add_header(struct_inotify_event HDR struct_inotify_event.h)
 add_header(struct_ether_addr HDR struct_ether_addr.h)
 
 add_header(struct_timex HDR struct_timex.h DEPENDS .struct_timeval)
+
+add_header(struct_shminfo HDR struct_shminfo.h)
+add_header(struct_msginfo HDR struct_msginfo.h)

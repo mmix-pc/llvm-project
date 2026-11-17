@@ -1087,6 +1087,7 @@ add_header_macro(
     .llvm_libc_common_h
     .sys_ipc
     .llvm-libc-macros.sys_msg_macros
+    .llvm-libc-types.struct_msginfo
     .llvm-libc-types.struct_msqid_ds
     .llvm-libc-types.msgqnum_t
     .llvm-libc-types.msglen_t
@@ -1104,6 +1105,7 @@ add_header_macro(
     .llvm_libc_common_h
     .sys_ipc
     .llvm-libc-macros.sys_shm_macros
+    .llvm-libc-types.struct_shminfo
     .llvm-libc-types.intptr_t
     .llvm-libc-types.struct_shmid_ds
     .llvm-libc-types.shmatt_t

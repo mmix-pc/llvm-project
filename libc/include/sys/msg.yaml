@@ -5,6 +5,7 @@ macros:
   - macro_name: MSG_NOERROR
     macro_header: sys-msg-macros.h
 types:
+  - type_name: struct_msginfo
   - type_name: msgqnum_t
   - type_name: msglen_t
   - type_name: struct_msqid_ds

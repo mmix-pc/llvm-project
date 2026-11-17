@@ -9,6 +9,9 @@
 #ifndef LLVM_LIBC_TYPES_STRUCT_IPC_PERM_H
 #define LLVM_LIBC_TYPES_STRUCT_IPC_PERM_H
 
+#if defined(__linux__) && defined(__mmix__)
+#include "linux/mmix/struct_ipc_perm.h"
+#else
 #include "gid_t.h"
 #include "key_t.h"
 #include "mode_t.h"
@@ -30,5 +33,7 @@ struct ipc_perm {
 #else
 #error "ipc_perm not defined for the target platform"
 #endif
+
+#endif // MMIX Linux dispatch
 
 #endif // LLVM_LIBC_TYPES_STRUCT_IPC_PERM_H
