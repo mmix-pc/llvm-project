@@ -1,0 +1,5 @@
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})
+  add_subdirectory(${LIBC_TARGET_OS})
+endif()
+add_entrypoint_object(adjtimex ALIAS DEPENDS .${LIBC_TARGET_OS}.adjtimex)
+add_entrypoint_object(ntp_adjtime SRCS ntp_adjtime.cpp HDRS ntp_adjtime.h DEPENDS .adjtimex)
