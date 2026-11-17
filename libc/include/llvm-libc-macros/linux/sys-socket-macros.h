@@ -45,6 +45,7 @@
 #define SOMAXCONN 4096
 
 #define SOL_SOCKET 1
+#define SOL_PACKET 263
 
 // The values of the following constants differ on some architectures
 #if defined(__parisc__) || defined(__alpha__) || defined(__sparc__) ||         \
