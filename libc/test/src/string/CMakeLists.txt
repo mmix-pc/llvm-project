@@ -468,3 +468,12 @@ add_libc_multi_impl_test(memcmp libc-string-tests SRCS memcmp_test.cpp)
 add_libc_multi_impl_test(memcpy libc-string-tests SRCS memcpy_test.cpp)
 add_libc_multi_impl_test(memmove libc-string-tests SRCS memmove_test.cpp)
 add_libc_multi_impl_test(memset libc-string-tests SRCS memset_test.cpp)
+
+add_libc_test(
+  explicit_bzero_test
+  SUITE libc-string-tests
+  SRCS
+    explicit_bzero_test.cpp
+    ${LIBC_SOURCE_DIR}/src/string/explicit_bzero.cpp
+  DEPENDS libc.src.string.memory_utils.inline_memset
+)

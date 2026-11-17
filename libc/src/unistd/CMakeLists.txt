@@ -687,3 +687,5 @@ foreach(name getresuid getresgid setresuid setresgid getlogin getlogin_r)
     DEPENDS .${LIBC_TARGET_OS}.${name}
   )
 endforeach()
+
+add_entrypoint_object(getdomainname ALIAS DEPENDS .${LIBC_TARGET_OS}.getdomainname)

@@ -603,3 +603,10 @@ add_entrypoint_object(
     libc.src.__support.common
     libc.src.__support.macros.config
 )
+
+add_entrypoint_object(
+  explicit_bzero
+  SRCS explicit_bzero.cpp
+  HDRS explicit_bzero.h
+  DEPENDS .memory_utils.inline_memset
+)

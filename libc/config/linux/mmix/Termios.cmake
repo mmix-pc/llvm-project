@@ -14,6 +14,8 @@ if(LIBC_MMIX_BUILD_TERMIOS)
     libc.src.termios.tcgetwinsize
     libc.src.termios.tcsetwinsize
     libc.src.termios.tcsendbreak
+    libc.src.termios.cfmakeraw
+    libc.src.termios.cfsetspeed
     libc.src.termios.cfgetispeed
     libc.src.termios.cfgetospeed
     libc.src.termios.cfsetispeed

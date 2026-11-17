@@ -16,6 +16,7 @@ set(MMIX_PROCESS_ENTRYPOINTS
   libc.src.unistd.execl
   libc.src.unistd.execle
   libc.src.unistd.setsid
+  libc.src.unistd.getdomainname
   libc.src.unistd.gethostname
   libc.src.sys.resource.getrlimit
   libc.src.sys.resource.setrlimit

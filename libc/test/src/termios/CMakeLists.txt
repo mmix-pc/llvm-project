@@ -116,3 +116,22 @@ add_libc_test(
     libc.test.UnitTest.ErrnoCheckingTest
     libc.test.UnitTest.ErrnoSetterMatcher
 )
+
+add_libc_test(
+  compatibility_test
+  SUITE libc_termios_unittests
+  SRCS
+    compatibility_test.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/cfmakeraw.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/cfsetspeed.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/linux/cfgetispeed.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/linux/cfgetospeed.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/linux/cfsetispeed.cpp
+    ${LIBC_SOURCE_DIR}/src/termios/linux/cfsetospeed.cpp
+  DEPENDS
+    libc.hdr.termios_macros
+    libc.hdr.types.struct_termios
+    libc.src.termios.linux.speed_utils
+    libc.src.__support.macros.null_check
+    libc.src.errno.errno
+)

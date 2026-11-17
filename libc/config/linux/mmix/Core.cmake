@@ -25,6 +25,7 @@ set(MMIX_CORE_ENTRYPOINTS
   libc.src.search.twalk
   libc.src.search.insque
   libc.src.search.remque
+  libc.src.string.explicit_bzero
   libc.src.string.memchr
   libc.src.string.memrchr
   libc.src.string.memccpy
@@ -59,6 +60,7 @@ set(MMIX_CORE_ENTRYPOINTS
   libc.src.strings.strcasecmp
   libc.src.strings.strncasecmp
   libc.src.unistd.swab
+  libc.src.sys.random.getrandom
   libc.src.unistd.getentropy
   libc.src.stdlib.abs
   libc.src.stdlib.a64l
@@ -83,6 +85,7 @@ set(MMIX_CORE_ENTRYPOINTS
   libc.src.stdlib.getsubopt
   libc.src.stdlib.qsort
   libc.src.stdlib.qsort_r
+  libc.src.stdlib.rand_r
   libc.src.stdlib.rand
   libc.src.stdlib.srand
   libc.src.stdlib.drand48

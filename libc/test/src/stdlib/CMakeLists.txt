@@ -914,3 +914,11 @@ if(LIBC_TARGET_OS_IS_LINUX AND LIBC_TARGET_ARCHITECTURE_IS_X86_64)
       libc.src.unistd.pipe libc.src.unistd.close libc.src.unistd.read
   )
 endif()
+
+add_libc_test(
+  rand_r_test
+  SUITE libc-stdlib-tests
+  SRCS rand_r_test.cpp ${LIBC_SOURCE_DIR}/src/stdlib/rand_r.cpp
+  DEPENDS libc.hdr.stdint_proxy libc.hdr.stdlib_macros
+    libc.src.__support.macros.null_check libc.src.errno.errno
+)

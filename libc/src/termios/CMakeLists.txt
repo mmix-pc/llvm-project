@@ -86,3 +86,24 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.tcsetattr
 )
+
+add_entrypoint_object(
+  cfmakeraw
+  SRCS cfmakeraw.cpp
+  HDRS cfmakeraw.h
+  DEPENDS
+    libc.hdr.termios_macros
+    libc.hdr.types.struct_termios
+    libc.src.__support.macros.null_check
+)
+
+add_entrypoint_object(
+  cfsetspeed
+  SRCS cfsetspeed.cpp
+  HDRS cfsetspeed.h
+  DEPENDS
+    .cfsetispeed
+    .cfsetospeed
+    libc.hdr.types.struct_termios
+    libc.src.__support.macros.null_check
+)

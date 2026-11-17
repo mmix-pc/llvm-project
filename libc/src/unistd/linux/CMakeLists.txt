@@ -1142,3 +1142,13 @@ add_entrypoint_object(
     libc.src.__support.macros.config
     libc.src.errno.errno
 )
+
+add_entrypoint_object(
+  getdomainname
+  SRCS getdomainname.cpp
+  HDRS ../getdomainname.h
+  DEPENDS
+    libc.hdr.types.size_t
+    libc.src.errno.errno
+    libc.src.sys.utsname.uname
+)

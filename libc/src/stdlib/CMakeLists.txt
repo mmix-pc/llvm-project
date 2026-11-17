@@ -990,3 +990,13 @@ add_entrypoint_object(
     libc.src.__support.macros.config
     .environ_internal
 )
+
+add_entrypoint_object(
+  rand_r
+  SRCS rand_r.cpp
+  HDRS rand_r.h
+  DEPENDS
+    libc.hdr.stdint_proxy
+    libc.hdr.stdlib_macros
+    libc.src.__support.macros.null_check
+)

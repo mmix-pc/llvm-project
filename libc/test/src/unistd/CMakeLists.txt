@@ -1246,3 +1246,12 @@ if(LIBC_TARGET_OS_IS_LINUX)
       libc.src.errno.errno
   )
 endif()
+
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    getdomainname_test
+    SUITE libc_unistd_unittests
+    SRCS getdomainname_test.cpp ${LIBC_SOURCE_DIR}/src/unistd/linux/getdomainname.cpp
+    DEPENDS libc.src.sys.utsname.uname libc.src.errno.errno
+  )
+endif()
