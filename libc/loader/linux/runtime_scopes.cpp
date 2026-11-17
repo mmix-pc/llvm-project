@@ -519,10 +519,37 @@ long RuntimeScopes::publish(Transaction &transaction) {
 SymbolError RuntimeScopes::lookup(const Snapshot &snapshot, uint64_t token,
                                   Bytes name, Value &out) {
   out = {};
-  for (const Handle &handle : snapshot.handles)
-    if (handle.token == token)
-      return (handle.global_namespace ? snapshot.global : *handle.local)
-          .lookup(name, out);
+  for (const Handle &handle : snapshot.handles) {
+    if (handle.token != token)
+      continue;
+    if (!handle.global_namespace)
+      return handle.local->lookup(name, out);
+    if (!valid_name(name))
+      return SymbolError::Index;
+    // Promotion changes visibility, not original load order. Keep the binding
+    // scopes intact: completed relocations must not be rebound by this query.
+    for (const Image *image : snapshot.registry->images) {
+      for (size_t i = 0; i < snapshot.global.images.size(); ++i) {
+        if (snapshot.global.images[i] != image)
+          continue;
+        StartupSymbols one;
+        SymbolError error = StartupSymbols::open(
+            {snapshot.global.objects.data() + i, 1}, one, true);
+        SymbolValue value;
+        if (error == SymbolError::None)
+          error = one.lookup(name, value);
+        if (error == SymbolError::None) {
+          value.object = i;
+          out = {value, image};
+          return error;
+        }
+        if (error != SymbolError::Undefined)
+          return error;
+        break;
+      }
+    }
+    return SymbolError::Undefined;
+  }
   return SymbolError::Scope;
 }
 

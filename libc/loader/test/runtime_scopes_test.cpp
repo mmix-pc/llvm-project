@@ -258,7 +258,46 @@ static void retirement_tests() {
   }
 }
 
+static void promotion_order() {
+  Input main(1, "foo", STB_GLOBAL, STV_DEFAULT, SHN_UNDEF), a(2), b(3);
+  const Image *images[] = {&main.record, &a.record, &b.record};
+  ImageRegistry::Snapshot registries[] = {
+      {1, {images, 1}}, {2, {images, 2}}, {3, {images, 3}}};
+  Scopes scopes(4096);
+  Scopes::Transaction startup(4096);
+  check(!scopes.prepare_startup(registries[0], startup));
+  check(!scopes.publish(startup));
+  auto open = [&](unsigned index, const Image *image, bool global) {
+    Scopes::Transaction transaction(4096);
+    uint64_t token = 0;
+    check(!scopes.prepare_open(registries[index], image, global, transaction,
+                              token));
+    check(!scopes.publish(transaction));
+    return token;
+  };
+  uint64_t global = open(0, nullptr, false);
+  uint64_t local_a = open(1, &a.record, false);
+  uint64_t global_b = open(2, &b.record, true);
+  const auto *before = scopes.snapshot();
+  Scopes::Value value;
+  check(Scopes::lookup(*before, global, text("foo"), value) == SymbolError::None &&
+        value.image == &b.record);
+  open(2, &a.record, true);
+  const auto *after = scopes.snapshot();
+  check(Scopes::lookup(*after, global, text("foo"), value) == SymbolError::None &&
+        value.image == &a.record);
+  check(Scopes::lookup(*before, global, text("foo"), value) == SymbolError::None &&
+        value.image == &b.record);
+  check(Scopes::resolve_binding(*after, &b.record, 1, value) == SymbolError::None &&
+        value.image == &b.record);
+  check(Scopes::lookup(*after, global_b, text("foo"), value) == SymbolError::None &&
+        value.image == &b.record);
+  check(Scopes::lookup(*after, local_a, text("foo"), value) == SymbolError::None &&
+        value.image == &a.record);
+}
+
 extern "C" int main() {
+  promotion_order();
   Input main(1, "foo", STB_GLOBAL, STV_DEFAULT, SHN_UNDEF);
   Input global(2, "foo", STB_WEAK), a(3),
       dependency(4, "foo", STB_GLOBAL, STV_PROTECTED);
