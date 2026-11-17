@@ -1,0 +1,9 @@
+header: sys/klog.h
+standards: [linux]
+functions:
+  - name: klogctl
+    return_type: int
+    arguments:
+      - type: int
+      - type: char *
+      - type: int
