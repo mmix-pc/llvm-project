@@ -29,3 +29,6 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.if_freenameindex
 )
+
+add_entrypoint_object(getifaddrs ALIAS DEPENDS .${LIBC_TARGET_OS}.getifaddrs)
+add_entrypoint_object(freeifaddrs ALIAS DEPENDS .${LIBC_TARGET_OS}.freeifaddrs)

@@ -181,3 +181,28 @@ add_entrypoint_object(
     libc.src.arpa.inet.inet_ntop libc.src.net.if_indextoname
     libc.src.unistd.gethostname libc.src.stdio.snprintf libc.hdr.net_if_macros
 )
+
+add_header_library(
+  legacy_hosts
+  HDRS legacy_hosts.h
+  DEPENDS .resolver .resolver_sources libc.src.__support.net.address
+    libc.src.stdio.snprintf
+)
+add_entrypoint_object(
+  gethostbyname
+  SRCS gethostbyname.cpp
+  HDRS ../../gethostbyname.h
+  DEPENDS .legacy_hosts libc.src.__support.common
+)
+add_entrypoint_object(
+  gethostbyaddr
+  SRCS gethostbyaddr.cpp
+  HDRS ../../gethostbyaddr.h
+  DEPENDS .legacy_hosts libc.src.__support.common
+)
+add_entrypoint_object(
+  __h_errno_location
+  SRCS __h_errno_location.cpp
+  HDRS ../../__h_errno_location.h
+  DEPENDS .legacy_hosts libc.src.__support.common
+)

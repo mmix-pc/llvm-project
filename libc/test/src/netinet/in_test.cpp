@@ -69,13 +69,13 @@ TEST(LlvmLibcNetinetInTest, IN6AddrInitMacros) {
   struct in6_addr any = IN6ADDR_ANY_INIT;
   const uint8_t ANY_CONTENT[16] = {0};
   EXPECT_EQ(LIBC_NAMESPACE::memcmp(&any, ANY_CONTENT, 16), 0);
-  EXPECT_TRUE(IN6_IS_ADDR_UNSPECIFIED(&any));
+  EXPECT_NE(IN6_IS_ADDR_UNSPECIFIED(&any), 0);
 
   struct in6_addr loopback = IN6ADDR_LOOPBACK_INIT;
   const uint8_t LOOPBACK_CONTENT[16] = {0, 0, 0, 0, 0, 0, 0, 0,
                                         0, 0, 0, 0, 0, 0, 0, 1};
   EXPECT_EQ(LIBC_NAMESPACE::memcmp(&loopback, LOOPBACK_CONTENT, 16), 0);
-  EXPECT_TRUE(IN6_IS_ADDR_LOOPBACK(&loopback));
+  EXPECT_NE(IN6_IS_ADDR_LOOPBACK(&loopback), 0);
 }
 
 TEST(LlvmLibcNetinetInTest, IN6AddrConstants) {
@@ -155,4 +155,15 @@ TEST(LlvmLibcNetinetInTest, GroupSourceOptionLayout) {
             4 + INTERFACE_PADDING);
   EXPECT_EQ(offsetof(struct group_source_req, gsr_source),
             132 + INTERFACE_PADDING);
+}
+
+TEST(LlvmLibcNetinetInTest, IPv4MulticastBoundaries) {
+  EXPECT_FALSE(IN_MULTICAST(0xdfffffffU));
+  EXPECT_TRUE(IN_MULTICAST(0xe0000000U));
+  EXPECT_TRUE(IN_MULTICAST(0xefffffffU));
+  EXPECT_FALSE(IN_MULTICAST(0xf0000000U));
+  EXPECT_TRUE(IN_MULTICAST(0x1e0000000ULL));
+  unsigned address = 0xe0000000U;
+  EXPECT_TRUE(IN_MULTICAST(address++));
+  EXPECT_EQ(address, 0xe0000001U);
 }

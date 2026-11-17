@@ -202,6 +202,7 @@ static bool record(const unsigned char *p, size_t size, size_t &at, Record &r,
 int parse_answer(const unsigned char *p, size_t size, const char *name,
                  unsigned type, uint16_t id, Answers &answer, bool &alias) {
   alias = false;
+  answer.no_data = false;
   if (size < 12)
     return EAI_FAIL;
   if (word(p) != id || !(p[2] & 128) || (p[2] & 120) || word(p + 4) != 1)
@@ -303,6 +304,7 @@ int parse_answer(const unsigned char *p, size_t size, const char *name,
     alias = false;
     return 0;
   }
+  answer.no_data = !alias;
   return EAI_NONAME;
 }
 } // namespace mmix::resolver

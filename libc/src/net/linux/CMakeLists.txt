@@ -91,3 +91,28 @@ add_entrypoint_object(
     libc.src.__support.CPP.new
     libc.src.__support.common
 )
+
+add_header_library(
+  ifaddrs_impl
+  HDRS ifaddrs_impl.h
+  DEPENDS
+    libc.hdr.errno_macros libc.hdr.net_if_macros libc.hdr.stdint_proxy
+    libc.hdr.sys_socket_macros libc.hdr.types.struct_ifaddrs
+    libc.hdr.types.socklen_t libc.hdr.types.ssize_t
+    libc.hdr.types.struct_sockaddr_in libc.hdr.types.struct_sockaddr_in6
+    libc.src.__support.CPP.new libc.src.__support.error_or
+    libc.src.__support.macros.config
+)
+add_entrypoint_object(
+  getifaddrs
+  SRCS getifaddrs.cpp
+  HDRS ../getifaddrs.h
+  DEPENDS .ifaddrs_impl libc.src.__support.OSUtil.linux.network_syscall_policy
+    libc.src.errno.errno libc.hdr.func.malloc libc.hdr.func.free
+)
+add_entrypoint_object(
+  freeifaddrs
+  SRCS freeifaddrs.cpp
+  HDRS ../freeifaddrs.h
+  DEPENDS libc.hdr.types.struct_ifaddrs libc.src.errno.errno libc.hdr.func.free
+)

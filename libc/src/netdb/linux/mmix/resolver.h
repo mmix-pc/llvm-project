@@ -63,6 +63,7 @@ struct Address {
 struct Answers {
   Address *head = nullptr, **tail = &head;
   char canonical[256] = {};
+  bool no_data = false;
   Answers() = default;
   Answers(const Answers &) = delete;
   Answers &operator=(const Answers &) = delete;
@@ -75,6 +76,7 @@ struct Answers {
     }
     tail = &head;
     canonical[0] = 0;
+    no_data = false;
   }
   bool add(int family, const void *data, uint32_t scope = 0) {
     size_t n = family == AF_INET ? 4 : 16;
@@ -119,7 +121,7 @@ int parse_answer(const unsigned char *packet, size_t size, const char *name,
                  unsigned type, uint16_t id, Answers &answer, bool &alias);
 int dns_lookup(const char *name, bool ipv4, bool ipv6, Answers &answers,
                bool v4_fallback = false);
-int dns_reverse(const char *name, char output[256]);
+int dns_reverse(const char *name, char output[256], bool *no_data = nullptr);
 int local_addresses(const char *name, Answers &answer, bool &matched);
 int local_reverse(int family, const void *address, char output[256],
                   bool &matched);

@@ -6,6 +6,8 @@ endif()
 # FIXME: Name/service lookup and IPv6 resolution need separate providers and
 # qualification; packet construction/parsing does not provide a DNS transport.
 list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.netdb.gethostbyname libc.src.netdb.gethostbyaddr
+  libc.src.netdb.__h_errno_location
   libc.src.arpa.inet.inet_addr
   libc.src.arpa.inet.inet_aton
   libc.src.arpa.inet.inet_ntoa

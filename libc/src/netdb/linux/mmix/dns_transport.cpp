@@ -285,6 +285,7 @@ int dns_lookup(const char *name, bool ipv4, bool ipv6, Answers &answers,
   for (size_t i = 0; i < n; i++)
     if (name[i] == '.')
       dots++;
+  bool saw_no_data = false;
   bool original_first = absolute || dots >= session.config.ndots;
   unsigned suffixes = absolute ? 0 : session.config.search_count;
   for (unsigned candidate = 0; candidate <= suffixes; candidate++) {
@@ -319,17 +320,21 @@ int dns_lookup(const char *name, bool ipv4, bool ipv6, Answers &answers,
         copy(answers.canonical, sizeof(answers.canonical), first_canonical);
       return 0;
     }
+    saw_no_data = saw_no_data || answers.no_data;
     answers.clear();
   }
+  answers.no_data = saw_no_data;
   return EAI_NONAME;
 }
-int dns_reverse(const char *name, char output[256]) {
+int dns_reverse(const char *name, char output[256], bool *no_data) {
+  if (no_data) *no_data = false;
   Session session;
   int error = session.init();
   if (error)
     return error;
   Answers answers;
   error = session.resolve(name, 12, answers);
+  if (no_data) *no_data = answers.no_data;
   if (!error)
     copy(output, 256, answers.canonical);
   return error;
