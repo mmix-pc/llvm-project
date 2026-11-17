@@ -277,3 +277,11 @@ add_entrypoint_object(
     libc.hdr.types.sigset_t
     libc.src.errno.errno
 )
+
+add_entrypoint_object(
+  sigisemptyset
+  SRCS sigisemptyset.cpp
+  HDRS ../sigisemptyset.h
+  DEPENDS libc.hdr.types.sigset_t libc.hdr.signal_macros
+    libc.src.__support.common libc.src.errno.errno
+)

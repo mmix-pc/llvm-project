@@ -28,3 +28,10 @@ add_entrypoint_object(
   ALIAS
   DEPENDS .${LIBC_TARGET_OS}.waitid
 )
+
+add_entrypoint_object(
+  wait3
+  SRCS wait3.cpp
+  HDRS wait3.h
+  DEPENDS .wait4
+)

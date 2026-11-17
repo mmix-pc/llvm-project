@@ -23,6 +23,7 @@ set(MMIX_PROCESS_ENTRYPOINTS
   libc.src.sys.resource.getrusage
   libc.src.sys.wait.waitpid
   libc.src.sys.wait.wait4
+  libc.src.sys.wait.wait3
   libc.src.sys.wait.wait
   libc.src.sys.wait.waitid
 )

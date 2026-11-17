@@ -47,3 +47,20 @@ add_libc_test(
     libc.test.UnitTest.ErrnoCheckingTest
     libc.test.UnitTest.ErrnoSetterMatcher
 )
+
+add_libc_test(
+  wait3_test
+  SUITE libc_sys_wait_unittests
+  SRCS wait3_test.cpp
+    ${LIBC_SOURCE_DIR}/src/sys/wait/wait3.cpp
+    ${LIBC_SOURCE_DIR}/src/unistd/setpgrp.cpp
+  DEPENDS
+    libc.src.sys.wait.wait4
+    libc.src.unistd.setpgid
+    libc.src.unistd.fork
+    libc.src.unistd.getpgrp
+    libc.src.unistd.getpid
+    libc.src.unistd._exit
+    libc.src.unistd.setsid
+    libc.src.errno.errno
+)

@@ -4,6 +4,7 @@ if(LIBC_MMIX_BUILD_JOB_CONTROL)
     libc.src.unistd.getpgid
     libc.src.unistd.getpgrp
     libc.src.unistd.setpgid
+    libc.src.unistd.setpgrp
     libc.src.unistd.getsid
     libc.src.unistd.setsid
     libc.src.unistd.tcgetpgrp

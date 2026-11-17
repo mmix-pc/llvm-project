@@ -2,6 +2,11 @@ option(LIBC_MMIX_BUILD_SYSTEM_ADMINISTRATION
   "Build Linux mount, reboot, uname and sync providers" OFF)
 if(LIBC_MMIX_BUILD_SYSTEM_ADMINISTRATION)
   list(APPEND TARGET_LIBC_ENTRYPOINTS
+    libc.src.unistd.vhangup
+    libc.src.unistd.sethostname
+    libc.src.sched.setns
+    libc.src.sched.unshare
+    libc.src.sys.personality.personality
     libc.src.sys.mount.mount
     libc.src.sys.mount.umount
     libc.src.sys.mount.umount2

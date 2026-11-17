@@ -1152,3 +1152,24 @@ add_entrypoint_object(
     libc.src.errno.errno
     libc.src.sys.utsname.uname
 )
+
+add_entrypoint_object(
+  sethostname
+  SRCS sethostname.cpp
+  HDRS ../sethostname.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+    libc.hdr.types.size_t
+)
+
+add_entrypoint_object(
+  vhangup
+  SRCS vhangup.cpp
+  HDRS ../vhangup.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+)

@@ -316,3 +316,23 @@ add_entrypoint_object(
     libc.hdr.types.cpu_set_t
     libc.hdr.types.size_t
 )
+
+add_entrypoint_object(
+  setns
+  SRCS setns.cpp
+  HDRS ../setns.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
+  unshare
+  SRCS unshare.cpp
+  HDRS ../unshare.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+)

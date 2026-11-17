@@ -302,3 +302,13 @@ add_libc_test(
     libc.test.UnitTest.ErrnoCheckingTest
     libc.test.UnitTest.ErrnoSetterMatcher
 )
+
+if(LIBC_TARGET_OS_IS_LINUX)
+  add_libc_test(
+    sigisemptyset_test
+    SUITE libc_signal_unittests
+    SRCS sigisemptyset_test.cpp
+      ${LIBC_SOURCE_DIR}/src/signal/linux/sigisemptyset.cpp
+    DEPENDS libc.hdr.types.sigset_t libc.hdr.signal_macros libc.src.errno.errno
+  )
+endif()

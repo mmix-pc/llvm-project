@@ -689,3 +689,14 @@ foreach(name getresuid getresgid setresuid setresgid getlogin getlogin_r)
 endforeach()
 
 add_entrypoint_object(getdomainname ALIAS DEPENDS .${LIBC_TARGET_OS}.getdomainname)
+
+add_entrypoint_object(
+  setpgrp
+  SRCS setpgrp.cpp
+  HDRS setpgrp.h
+  DEPENDS .setpgid
+)
+
+add_entrypoint_object(sethostname ALIAS DEPENDS .${LIBC_TARGET_OS}.sethostname)
+
+add_entrypoint_object(vhangup ALIAS DEPENDS .${LIBC_TARGET_OS}.vhangup)
