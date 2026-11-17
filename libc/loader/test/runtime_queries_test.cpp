@@ -65,7 +65,35 @@ static void notification() {
   ++notices;
 }
 
+static void defined_symbol_visibility() {
+  const unsigned bindings[] = {STB_LOCAL, STB_GLOBAL, STB_WEAK};
+  const unsigned visibilities[] = {STV_DEFAULT, STV_INTERNAL, STV_HIDDEN,
+                                  STV_PROTECTED};
+  const unsigned types[] = {STT_NOTYPE, STT_OBJECT, STT_FUNC};
+  for (unsigned type : types) {
+    for (unsigned binding : bindings) {
+      for (unsigned visibility : visibilities) {
+        Input input(0x900000);
+        input.bytes[0x81c] = (binding << 4) | type;
+        input.bytes[0x81d] = visibility;
+        check(DynamicInfo::open(input.image.elf, input.image.dynamic) ==
+              DynamicError::None);
+        const ImageRegistry::Image *images[] = {&input.image};
+        ImageRegistry::Snapshot view{1, images};
+        RuntimeQueries queries(page);
+        check(!queries.prepare(view));
+        queries.publish();
+        Dl_info info{};
+        check(!RuntimeQueries::address(*queries.snapshot(), 0x902001, info));
+        check(info.dli_sname && !std::strcmp(info.dli_sname, "foo"));
+        check(info.dli_saddr == reinterpret_cast<void *>(0x902000));
+      }
+    }
+  }
+}
+
 extern "C" int main() {
+  defined_symbol_visibility();
   Input main(0x100000), late(0x300000), fresh(0x500000);
   const ImageRegistry::Image *one[] = {&main.image};
   const ImageRegistry::Image *two[] = {&main.image, &late.image};

@@ -238,13 +238,11 @@ long RuntimeQueries::address(const Snapshot &view, uintptr_t address,
     Elf64_Sym symbol;
     if (!dynamic.symbol(i, symbol))
       return ENOEXEC;
+    // Address attribution includes private definitions in the loaded table;
+    // export visibility controls name lookup, not which object owns an address.
     unsigned type = ELF64_ST_TYPE(symbol.st_info);
-    unsigned binding = ELF64_ST_BIND(symbol.st_info);
-    unsigned visibility = ELF64_ST_VISIBILITY(symbol.st_other);
     if (symbol.st_shndx == SHN_UNDEF || type == STT_TLS ||
-        (type != STT_NOTYPE && type != STT_OBJECT && type != STT_FUNC) ||
-        (binding != STB_GLOBAL && binding != STB_WEAK) ||
-        (visibility != STV_DEFAULT && visibility != STV_PROTECTED))
+        (type != STT_NOTYPE && type != STT_OBJECT && type != STT_FUNC))
       continue;
     Address start = symbol.st_value;
     if (symbol.st_shndx != SHN_ABS) {
