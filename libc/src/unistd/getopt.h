@@ -24,7 +24,7 @@ extern int opterr;
 namespace impl {
 void set_getopt_state(char **, int *, int *, unsigned *, int *, FILE *);
 int getopt_internal(int, char *const[], const char *, const struct option *,
-                    int *, bool);
+                    int *, bool, bool long_only = false);
 } // namespace impl
 
 int getopt(int argc, char *const argv[], const char *optstring);

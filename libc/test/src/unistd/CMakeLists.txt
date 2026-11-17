@@ -1185,6 +1185,7 @@ add_libc_test(
   SRCS
     getopt_long_test.cpp
     ${LIBC_SOURCE_DIR}/src/getopt/getopt_long.cpp
+    ${LIBC_SOURCE_DIR}/src/getopt/getopt_long_only.cpp
   DEPENDS
     libc.src.unistd.getopt
     libc.src.stdlib.getenv

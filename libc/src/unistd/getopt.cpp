@@ -64,7 +64,7 @@ void exchange(char *const argv[], GetoptContext &ctx) {
 
 int parse(int argc, char *const argv[], const char *optstring,
           const struct option *options, int *long_index, bool permute,
-          GetoptContext &ctx) {
+          GetoptContext &ctx, bool long_only) {
   int &index = *ctx.index;
   unsigned &position = *ctx.position;
   *ctx.argument = nullptr;
@@ -130,8 +130,14 @@ int parse(int argc, char *const argv[], const char *optstring,
       *ctx.argument = argv[index++];
       return 1;
     }
-    if (options && argv[index][1] == '-') {
-      const char *text = argv[index++] + 2;
+    bool short_option = false;
+    for (const char *p = optstring; *p; ++p)
+      if (*p == argv[index][1] && *p != ':')
+        short_option = true;
+    bool single_dash = argv[index][1] != '-';
+    if (options &&
+        (!single_dash || (long_only && (argv[index][2] || !short_option)))) {
+      const char *text = argv[index++] + (single_dash ? 1 : 2);
       cpp::string_view full(text);
       size_t length = 0;
       while (length < full.size() && full[length] != '=')
@@ -150,43 +156,47 @@ int parse(int argc, char *const argv[], const char *optstring,
         }
         if (match < 0)
           match = i;
-        else if (options[i].has_arg != options[match].has_arg ||
+        else if (long_only || options[i].has_arg != options[match].has_arg ||
                  options[i].flag != options[match].flag ||
                  options[i].val != options[match].val)
           ambiguous = true;
       }
-      if (match < 0 || ambiguous) {
-        *ctx.option = 0;
-        ctx.report(silent, "%s: %s option -- %s\n", program,
-                   ambiguous ? "ambiguous" : "unrecognized", text);
-        return '?';
-      }
-      const auto &selected = options[match];
-      bool attached = length != full.size();
-      if (attached && selected.has_arg == 0) {
-        *ctx.option = selected.val;
-        ctx.report(silent, "%s: option does not allow an argument -- %s\n",
-                   program, selected.name);
-        return '?';
-      }
-      if (attached)
-        *ctx.argument = const_cast<char *>(text + length + 1);
-      else if (selected.has_arg == 1) {
-        if (at_end()) {
-          *ctx.option = selected.val;
-          ctx.report(silent, "%s: option requires an argument -- %s\n", program,
-                     selected.name);
-          return silent ? ':' : '?';
+      if (match < 0 && single_dash && short_option) {
+        --index;
+      } else {
+        if (match < 0 || ambiguous) {
+          *ctx.option = 0;
+          ctx.report(silent, "%s: %s option -- %s\n", program,
+                     ambiguous ? "ambiguous" : "unrecognized", text);
+          return '?';
         }
-        *ctx.argument = argv[index++];
+        const auto &selected = options[match];
+        bool attached = length != full.size();
+        if (attached && selected.has_arg == 0) {
+          *ctx.option = selected.val;
+          ctx.report(silent, "%s: option does not allow an argument -- %s\n",
+                     program, selected.name);
+          return '?';
+        }
+        if (attached)
+          *ctx.argument = const_cast<char *>(text + length + 1);
+        else if (selected.has_arg == 1) {
+          if (at_end()) {
+            *ctx.option = selected.val;
+            ctx.report(silent, "%s: option requires an argument -- %s\n",
+                       program, selected.name);
+            return silent ? ':' : '?';
+          }
+          *ctx.argument = argv[index++];
+        }
+        if (long_index)
+          *long_index = match;
+        if (selected.flag) {
+          *selected.flag = selected.val;
+          return 0;
+        }
+        return selected.val;
       }
-      if (long_index)
-        *long_index = match;
-      if (selected.flag) {
-        *selected.flag = selected.val;
-        return 0;
-      }
-      return selected.val;
     }
     position = 1;
   }
@@ -237,8 +247,10 @@ void set_getopt_state(char **argument, int *index, int *option,
 #endif
 
 int getopt_internal(int argc, char *const argv[], const char *optstring,
-                    const struct option *options, int *index, bool permute) {
-  int result = parse(argc, argv, optstring, options, index, permute, context);
+                    const struct option *options, int *index, bool permute,
+                    bool long_only) {
+  int result =
+      parse(argc, argv, optstring, options, index, permute, context, long_only);
   context.previous_index = *context.index;
   return result;
 }
