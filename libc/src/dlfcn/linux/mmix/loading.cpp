@@ -37,7 +37,8 @@ void finish_loader_fork(bool child, bool resume) {
     process.finish_fork(process.context, child, resume);
 }
 struct ErrorState {
-  char text[96];
+  char pending_text[96];
+  char returned_text[96];
   bool pending;
 };
 // Startup-resident IE storage must not recurse through the late TLS resolver.
@@ -78,9 +79,9 @@ static void set_error(long error) {
   }
   unsigned i = 0;
   do {
-    error_state.text[i] = message[i];
-  } while (message[i++] && i < sizeof(error_state.text) - 1);
-  error_state.text[sizeof(error_state.text) - 1] = 0;
+    error_state.pending_text[i] = message[i];
+  } while (message[i++] && i < sizeof(error_state.pending_text) - 1);
+  error_state.pending_text[sizeof(error_state.pending_text) - 1] = 0;
   error_state.pending = true;
 }
 
@@ -125,7 +126,6 @@ void *loader_open(const char *name, int flags, uintptr_t caller) {
       set_error(guard.error());
       return nullptr;
     }
-    error_state.pending = false;
     uint64_t token = 0;
     long error = !loader::valid_open_flags(static_cast<unsigned>(flags))
                      ? EINVAL
@@ -138,9 +138,6 @@ void *loader_open(const char *name, int flags, uintptr_t caller) {
       set_error(error);
       return nullptr;
     }
-    // A constructor may have handled a nested loading failure. The completed
-    // outer operation owns the status returned to its caller.
-    error_state.pending = false;
     result.token = token;
   }
   void *handle = reinterpret_cast<void *>(result.token);
@@ -154,7 +151,6 @@ void *loader_lookup(void *handle, const char *name, uintptr_t caller) {
     set_error(guard.error());
     return nullptr;
   }
-  error_state.pending = false;
   uintptr_t result = 0;
   long error =
       !name ? EINVAL
@@ -166,7 +162,6 @@ void *loader_lookup(void *handle, const char *name, uintptr_t caller) {
     set_error(error);
     return nullptr;
   }
-  error_state.pending = false;
   return reinterpret_cast<void *>(result);
 }
 
@@ -174,7 +169,6 @@ int loader_close(void *handle) {
   CancellationScope guard;
   long error = guard.error();
   if (!error) {
-    error_state.pending = false;
     error = api.close ? api.close(api.context, reinterpret_cast<uintptr_t>(handle),
                                   guard.callbacks())
                       : ENOSYS;
@@ -199,7 +193,6 @@ int loader_address(const void *address, void *out) {
     set_error(error);
     return 0;
   }
-  error_state.pending = false;
   return 1;
 }
 
@@ -215,7 +208,6 @@ int loader_info(void *handle, int request, void *out) {
     set_error(error);
     return -1;
   }
-  error_state.pending = false;
   return 0;
 }
 
@@ -250,8 +242,12 @@ char *loader_error() {
   }
   if (!error_state.pending)
     return nullptr;
+  // Only a query consumes the pending error. A later loading operation must
+  // neither discard an unread error on success nor overwrite returned storage.
+  for (unsigned i = 0; i < sizeof(error_state.returned_text); ++i)
+    error_state.returned_text[i] = error_state.pending_text[i];
   error_state.pending = false;
-  return error_state.text;
+  return error_state.returned_text;
 }
 } // namespace mmix
 } // namespace LIBC_NAMESPACE_DECL

@@ -288,7 +288,9 @@ int main(int argc, char **argv) {
   check(client::loader_error());
   inject_nested_error = true;
   void *global = client::loader_open(nullptr, RTLD_LAZY, caller_pc);
-  check(global && !client::loader_error());
+  // Successful outer work must retain an unread error from nested loading.
+  check(global && std::strstr(client::loader_error(), "invalid"));
+  check(!client::loader_error());
   check(!client::loader_lookup(global, "foo", caller_pc));
   check(!client::loader_error()); // Successful zero.
   check(
