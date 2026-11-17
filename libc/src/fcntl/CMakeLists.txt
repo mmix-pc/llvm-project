@@ -35,3 +35,5 @@ add_entrypoint_object(
   DEPENDS
     .${LIBC_TARGET_OS}.openat
 )
+
+add_entrypoint_object(readahead ALIAS DEPENDS .${LIBC_TARGET_OS}.readahead)

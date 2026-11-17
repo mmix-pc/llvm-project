@@ -98,3 +98,18 @@ if(LIBC_TARGET_ARCHITECTURE MATCHES "^(mmix|x86_64)$")
     )
   endforeach()
 endif()
+
+if(LIBC_TARGET_ARCHITECTURE MATCHES "^(mmix|x86_64)$")
+add_entrypoint_object(
+  readahead
+  SRCS readahead.cpp
+  HDRS ../readahead.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+    libc.hdr.types.ssize_t
+    libc.hdr.types.off_t
+    libc.hdr.types.size_t
+)
+endif()

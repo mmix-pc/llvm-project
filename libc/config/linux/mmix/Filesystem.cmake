@@ -4,6 +4,14 @@ if(NOT LIBC_MMIX_BUILD_FILESYSTEM)
 endif()
 
 set(MMIX_FILESYSTEM_ENTRYPOINTS
+  libc.src.sys.file.flock
+  libc.src.sys.inotify.inotify_init
+  libc.src.sys.inotify.inotify_init1
+  libc.src.sys.inotify.inotify_add_watch
+  libc.src.sys.inotify.inotify_rm_watch
+  libc.src.unistd.syncfs
+  libc.src.fcntl.readahead
+  libc.src.sys.sendfile.sendfile
   libc.src.ftw.ftw
   libc.src.ftw.nftw
   libc.src.unistd.posix_close

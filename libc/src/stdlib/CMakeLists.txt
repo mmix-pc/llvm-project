@@ -1000,3 +1000,18 @@ add_entrypoint_object(
     libc.hdr.stdlib_macros
     libc.src.__support.macros.null_check
 )
+
+add_entrypoint_object(
+  mktemp
+  SRCS mktemp.cpp
+  HDRS mktemp.h
+  DEPENDS
+    libc.hdr.errno_macros
+    libc.hdr.types.struct_stat
+    libc.src.__support.CPP.string_view
+    libc.src.__support.OSUtil.linux.syscall_wrappers.getrandom
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+    libc.src.__support.macros.null_check
+    libc.src.sys.stat.lstat
+)

@@ -1154,6 +1154,16 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
+  syncfs
+  SRCS syncfs.cpp
+  HDRS ../syncfs.h
+  DEPENDS
+    libc.include.sys_syscall
+    libc.src.__support.OSUtil.osutil
+    libc.src.errno.errno
+)
+
+add_entrypoint_object(
   sethostname
   SRCS sethostname.cpp
   HDRS ../sethostname.h

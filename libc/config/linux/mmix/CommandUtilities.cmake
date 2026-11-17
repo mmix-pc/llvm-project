@@ -8,6 +8,7 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.err.warnx
   libc.src.errno.program_invocation_short_name
   libc.src.stdlib.clearenv
+  libc.src.stdlib.mktemp
   libc.src.stdlib.mkstemp
   libc.src.stdlib.mkostemp
   libc.src.stdlib.mkdtemp
