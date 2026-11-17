@@ -34,7 +34,8 @@ TEST_F(LlvmLibcSendfileTest, CreateAndTransfer) {
   const char IN_DATA[] = "sendfile test";
   constexpr ssize_t IN_SIZE = ssize_t(sizeof(IN_DATA));
 
-  int in_fd = LIBC_NAMESPACE::open(IN_FILE, O_CREAT | O_WRONLY, S_IRWXU);
+  int in_fd =
+      LIBC_NAMESPACE::open(IN_FILE, O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU);
   ASSERT_GT(in_fd, 0);
   ASSERT_ERRNO_SUCCESS();
   ASSERT_EQ(LIBC_NAMESPACE::write(in_fd, IN_DATA, IN_SIZE), IN_SIZE);
@@ -43,10 +44,11 @@ TEST_F(LlvmLibcSendfileTest, CreateAndTransfer) {
   in_fd = LIBC_NAMESPACE::open(IN_FILE, O_RDONLY);
   ASSERT_GT(in_fd, 0);
   ASSERT_ERRNO_SUCCESS();
-  int out_fd = LIBC_NAMESPACE::open(OUT_FILE, O_CREAT | O_WRONLY, S_IRWXU);
+  int out_fd =
+      LIBC_NAMESPACE::open(OUT_FILE, O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU);
   ASSERT_GT(out_fd, 0);
   ASSERT_ERRNO_SUCCESS();
-  ssize_t size = LIBC_NAMESPACE::sendfile(in_fd, out_fd, nullptr, IN_SIZE);
+  ssize_t size = LIBC_NAMESPACE::sendfile(out_fd, in_fd, nullptr, IN_SIZE);
   ASSERT_EQ(size, IN_SIZE);
   ASSERT_THAT(LIBC_NAMESPACE::close(in_fd), Succeeds(0));
   ASSERT_THAT(LIBC_NAMESPACE::close(out_fd), Succeeds(0));
@@ -57,6 +59,8 @@ TEST_F(LlvmLibcSendfileTest, CreateAndTransfer) {
   char buf[IN_SIZE];
   ASSERT_EQ(IN_SIZE, LIBC_NAMESPACE::read(out_fd, buf, IN_SIZE));
   ASSERT_EQ(cpp::string_view(buf), cpp::string_view(IN_DATA));
+
+  ASSERT_THAT(LIBC_NAMESPACE::close(out_fd), Succeeds(0));
 
   ASSERT_THAT(LIBC_NAMESPACE::unlink(IN_FILE), Succeeds(0));
   ASSERT_THAT(LIBC_NAMESPACE::unlink(OUT_FILE), Succeeds(0));
