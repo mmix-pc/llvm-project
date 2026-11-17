@@ -84,6 +84,22 @@ extern "C" int main() {
     check(notices == previous + 2);
   };
   publish(initial, 1, 0, 1);
+  Dl_info main_address{};
+  check(!RuntimeQueries::address(*queries.snapshot(), 0x102000, main_address));
+  check(!std::strcmp(main_address.dli_fname, "libquery.so"));
+  check(queries.snapshot()->records[0].map.l_name[0] == 0);
+  // Main image discovery can legitimately have no verified executable path.
+  Input unnamed(0x700000);
+  unnamed.image.path = {};
+  const ImageRegistry::Image *unknown_images[] = {&unnamed.image};
+  ImageRegistry::Snapshot unknown{1, unknown_images};
+  RuntimeQueries unknown_queries(page);
+  check(!unknown_queries.prepare(unknown));
+  unknown_queries.publish();
+  check(RuntimeQueries::address(*unknown_queries.snapshot(), 0x702000,
+                                 main_address) == ENOENT);
+  check(!main_address.dli_fname && !main_address.dli_fbase);
+
   // Replacing a prepared addition with the committed view cancels the addition.
   check(!queries.prepare(loaded));
   check(!queries.prepare(initial));

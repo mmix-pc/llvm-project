@@ -23,6 +23,7 @@ public:
   struct Record {
     const ImageRegistry::Image *image;
     link_map map;
+    const char *pathname;
     const Elf64_Phdr *headers;
   };
   struct Snapshot {

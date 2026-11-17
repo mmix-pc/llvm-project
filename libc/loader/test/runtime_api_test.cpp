@@ -595,7 +595,8 @@ int main(int argc, char **argv) {
         address_info.dli_saddr == function);
   check(LIBC_NAMESPACE::dladdr(reinterpret_cast<void *>(bias + 0x4000),
                                &address_info) == 1 &&
-        address_info.dli_fbase == reinterpret_cast<void *>(bias));
+        address_info.dli_fbase == reinterpret_cast<void *>(bias) &&
+        !std::strcmp(address_info.dli_fname, "/test/main"));
   check(!LIBC_NAMESPACE::dladdr(reinterpret_cast<void *>(1), &address_info));
   check(LIBC_NAMESPACE::dlerror());
   link_map *map = nullptr;

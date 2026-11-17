@@ -95,7 +95,7 @@ long RuntimeQueries::prepare(const ImageRegistry::Snapshot &registry) {
     const auto *image = registry.images[i];
     auto &r = *new (records + i) Record{};
     r.image = image;
-    const size_t size = i ? image->path.size() : 0;
+    const size_t size = image->path.size();
     if (size == __SIZE_MAX__)
       return -EOVERFLOW;
     error = pending.allocate(size + 1, 1, storage);
@@ -105,7 +105,10 @@ long RuntimeQueries::prepare(const ImageRegistry::Snapshot &registry) {
     for (size_t j = 0; j < size; ++j)
       name[j] = image->path[j];
     name[size] = 0;
-    r.map.l_name = name;
+    r.pathname = name;
+    // Debugger and PHDR enumeration use an empty name for the main image;
+    // dladdr independently needs the verified executable pathname.
+    r.map.l_name = i ? name : name + size;
     r.map.l_addr = image->elf.load_bias();
     r.map.l_prev = i ? &records[i - 1].map : nullptr;
     r.map.l_next =
@@ -215,9 +218,9 @@ long RuntimeQueries::address(const Snapshot &view, uintptr_t address,
       }
     }
   }
-  if (!found)
+  if (!found || !found->pathname[0])
     return ENOENT;
-  out.dli_fname = found->map.l_name;
+  out.dli_fname = found->pathname;
   Address base = ~Address(0);
   for (unsigned i = 0; i < found->image->elf.header()->e_phnum; ++i)
     if (found->headers[i].p_type == PT_LOAD && found->headers[i].p_memsz) {
