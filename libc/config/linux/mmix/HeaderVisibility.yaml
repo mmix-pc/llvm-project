@@ -4,7 +4,10 @@ sched.h:
     getcpu: __LIBC_USE_LINUX_EXTENSIONS
 dlfcn.h:
   types:
+    Dl_info: __LIBC_USE_GNU
     Dl_info_t: __LIBC_USE_POSIX2024
+  functions:
+    dladdr: __LIBC_USE_POSIX2024
 setjmp.h:
   types:
     sigjmp_buf: __LIBC_USE_POSIX

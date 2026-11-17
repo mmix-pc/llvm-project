@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if defined(__mmix__) && defined(__linux__)
+#include "linux/mmix/Dl_info.h"
+#else
 #ifndef LLVM_LIBC_TYPES_DL_INFO_H
 #define LLVM_LIBC_TYPES_DL_INFO_H
 
@@ -17,3 +20,4 @@ typedef struct {
 } Dl_info;
 
 #endif // LLVM_LIBC_TYPES_DL_INFO_H
+#endif // defined(__mmix__) && defined(__linux__)

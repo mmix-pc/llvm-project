@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if defined(__mmix__) && defined(__linux__)
+#include "linux/mmix/Dl_info_t.h"
+#else
 #ifndef LLVM_LIBC_TYPES_DL_INFO_T_H
 #define LLVM_LIBC_TYPES_DL_INFO_T_H
 
@@ -14,3 +17,4 @@
 typedef Dl_info Dl_info_t;
 
 #endif // LLVM_LIBC_TYPES_DL_INFO_T_H
+#endif // defined(__mmix__) && defined(__linux__)

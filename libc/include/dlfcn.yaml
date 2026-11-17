@@ -129,4 +129,4 @@ functions:
     return_type: int
     arguments:
       - type: const void *__restrict
-      - type: Dl_info *__restrict
+      - type: Dl_info_t *__restrict

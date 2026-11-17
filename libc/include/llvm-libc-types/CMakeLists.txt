@@ -189,8 +189,15 @@ add_header(
     .struct_link_map
     libc.include.llvm-libc-macros.link_macros
 )
-add_header(dl_info HDR Dl_info.h)
-add_header(dl_info_t HDR Dl_info_t.h DEPENDS .dl_info)
+if(LIBC_TARGET_OS STREQUAL "linux" AND
+   LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
+  add_header(dl_info_t HDR linux/mmix/Dl_info_t.h DEST_HDR Dl_info_t.h)
+  add_header(dl_info HDR linux/mmix/Dl_info.h DEST_HDR Dl_info.h
+    DEPENDS .dl_info_t)
+else()
+  add_header(dl_info HDR Dl_info.h)
+  add_header(dl_info_t HDR Dl_info_t.h DEPENDS .dl_info)
+endif()
 add_header(struct_f_owner_ex HDR struct_f_owner_ex.h DEPENDS .pid_t)
 add_header(struct_flock HDR struct_flock.h DEPENDS .off_t .pid_t)
 add_header(struct_flock64 HDR struct_flock64.h DEPENDS .off64_t .pid_t)
