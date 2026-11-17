@@ -52,32 +52,44 @@ void call_from_5_threads() {
     ASSERT_EQ(retval, 0);
   }
 
-  EXPECT_EQ(thread_count.val, 5U);
-  EXPECT_EQ(call_count, 1U);
+  ASSERT_EQ(thread_count.load(), NUM_THREADS);
+  ASSERT_EQ(call_count, 1U);
 }
 
 static mtx_t once_func_blocker;
+static LIBC_NAMESPACE::cpp::Atomic<bool> initializer_entered(false);
+static unsigned int initialized_value;
+static LIBC_NAMESPACE::cpp::Atomic<unsigned int> initializer_count(0);
 static void blocking_once_func() {
-  LIBC_NAMESPACE::mtx_lock(&once_func_blocker);
-  LIBC_NAMESPACE::mtx_unlock(&once_func_blocker);
+  initializer_count.fetch_add(1);
+  initializer_entered.store(true);
+  ASSERT_EQ(LIBC_NAMESPACE::mtx_lock(&once_func_blocker), int(thrd_success));
+  initialized_value = 0x600D;
+  ASSERT_EQ(LIBC_NAMESPACE::mtx_unlock(&once_func_blocker), int(thrd_success));
 }
 
 static LIBC_NAMESPACE::cpp::Atomic<unsigned int> start_count;
 static LIBC_NAMESPACE::cpp::Atomic<unsigned int> done_count;
 static int once_func_caller(void *) {
-  static once_flag flag;
+  static once_flag flag = ONCE_FLAG_INIT;
   start_count.fetch_add(1);
   LIBC_NAMESPACE::call_once(&flag, blocking_once_func);
+  // This ordinary read must observe initialization through call_once, not a
+  // separate acquire of the initializer's mutex or completion flag.
+  ASSERT_EQ(initialized_value, 0x600DU);
   done_count.fetch_add(1);
   return 0;
 }
 
-// Test the synchronization aspect of the call_once function.
-// This is not a fool proof test, but something which might be
-// useful when we add a flakiness detection scheme to UnitTest.
+// Observe initializer entry and verify publication to both returning callers.
+// A caller's start counter does not prove it has entered call_once; this test
+// makes no claim to force a particular internal waiter state.
 void test_synchronization() {
   start_count = 0;
   done_count = 0;
+  initializer_entered.store(false);
+  initialized_value = 0;
+  initializer_count.store(0);
 
   ASSERT_EQ(LIBC_NAMESPACE::mtx_init(&once_func_blocker, mtx_plain),
             static_cast<int>(thrd_success));
@@ -88,6 +100,8 @@ void test_synchronization() {
   thrd_t t1, t2;
   ASSERT_EQ(LIBC_NAMESPACE::thrd_create(&t1, once_func_caller, nullptr),
             static_cast<int>(thrd_success));
+  while (!initializer_entered.load())
+    ; // The first caller is inside the initializer, held by the mutex.
   ASSERT_EQ(LIBC_NAMESPACE::thrd_create(&t2, once_func_caller, nullptr),
             static_cast<int>(thrd_success));
 
@@ -95,9 +109,9 @@ void test_synchronization() {
     ; // Spin until both threads start.
 
   // Since the once func is blocked, the threads should not be done yet.
-  EXPECT_EQ(done_count.val, 0U);
+  ASSERT_EQ(done_count.load(), 0U);
 
-  // Unlock the blocking mutex so that the once func blocks.
+  // Release the initializer so both callers can complete.
   ASSERT_EQ(LIBC_NAMESPACE::mtx_unlock(&once_func_blocker),
             static_cast<int>(thrd_success));
 
@@ -109,7 +123,8 @@ void test_synchronization() {
             static_cast<int>(thrd_success));
   ASSERT_EQ(retval, 0);
 
-  ASSERT_EQ(done_count.val, 2U);
+  ASSERT_EQ(done_count.load(), 2U);
+  ASSERT_EQ(initializer_count.load(), 1U);
 
   LIBC_NAMESPACE::mtx_destroy(&once_func_blocker);
 }
