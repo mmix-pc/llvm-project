@@ -18,6 +18,7 @@ set(expected sentinel
   libc.src.termios.tcflow libc.src.termios.tcdrain
   libc.src.termios.tcgetwinsize libc.src.termios.tcsetwinsize
   libc.src.termios.tcsendbreak
+  libc.src.termios.cfmakeraw libc.src.termios.cfsetspeed
   libc.src.termios.cfgetispeed libc.src.termios.cfgetospeed
   libc.src.termios.cfsetispeed libc.src.termios.cfsetospeed)
 list(SORT TARGET_LIBC_ENTRYPOINTS)

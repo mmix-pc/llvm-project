@@ -14,6 +14,9 @@ resource = subprocess.check_output([clang, "--no-default-config", "-print-resour
                                    text=True).strip()
 include = out / "include"
 include.mkdir(exist_ok=True)
+# This fixture checks termios feature visibility, not Linux line disciplines.
+(include / "linux").mkdir(exist_ok=True)
+(include / "linux/tty.h").write_text("/* no line disciplines used by this fixture */\n")
 for name in ("llvm-libc-types", "llvm-libc-macros"):
     shutil.copytree(libc / "include" / name, include / name, dirs_exist_ok=True)
 shutil.copyfile(libc / "include/__llvm-libc-common.h",

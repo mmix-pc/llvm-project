@@ -12,10 +12,10 @@ endif()
 set(LIBC_MMIX_BUILD_OPTION_PARSING ON)
 include(${SOURCE}/libc/config/linux/mmix/OptionParsing.cmake)
 list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
-if(NOT count EQUAL 7)
+if(NOT count EQUAL 8)
   message(FATAL_ERROR "unexpected option-parsing provider selection")
 endif()
-foreach(entry libc.src.unistd.getopt libc.src.getopt.getopt_long
+foreach(entry libc.src.unistd.getopt libc.src.getopt.getopt_long libc.src.getopt.getopt_long_only
               libc.src.unistd.optarg libc.src.unistd.optind
               libc.src.unistd.opterr libc.src.unistd.optopt)
   if(NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)

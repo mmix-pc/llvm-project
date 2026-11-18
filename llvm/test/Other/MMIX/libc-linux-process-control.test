@@ -177,3 +177,6 @@ extern "C" int main() {
   require(prctl(15, 0L, 0L, 0L, 0L) == -1 && int(libc_errno) == EFAULT);
   return 0;
 }
+
+#--- linux/tty.h
+// This fixture exercises flush selectors, not Linux line disciplines.

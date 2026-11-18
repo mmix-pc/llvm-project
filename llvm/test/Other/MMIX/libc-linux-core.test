@@ -91,7 +91,7 @@ headers = crt / "lifecycle/guard/args/headers"
 # adding host kernel headers to the target compilation.
 (headers / "linux").mkdir(exist_ok=True)
 shutil.copyfile(root / "text/wait.h", headers / "linux/wait.h")
-for name in ("ctype", "inttypes", "string", "strings", "stdlib", "fenv", "stdio", "unistd", "search", "ndbm"):
+for name in ("ctype", "inttypes", "string", "strings", "stdlib", "fenv", "stdio", "unistd", "search", "ndbm", "sys/random"):
     run(sys.executable, libc / "utils/hdrgen/main.py", "-o", headers / (name + ".h"),
         libc / "include" / (name + ".yaml"))
 
@@ -123,11 +123,12 @@ for opt in ("0", "2"):
         objects.append(obj)
     for entry in entries + support_entries:
         obj = out / (entry.replace("/", "-") + ".o")
-        source = "unistd/linux/getentropy" if entry == "unistd/getentropy" else entry
+        source = {"unistd/getentropy": "unistd/linux/getentropy",
+                  "sys/random/getrandom": "sys/random/linux/getrandom"}.get(entry, entry)
         if entry.startswith("ndbm/dbm_"):
             source = entry.replace("ndbm/", "ndbm/linux/")
         # Extend the isolated asm-generic UAPI fixture for getrandom.
-        flags = ["-DSYS_getrandom=278", "-DENOSYS=38"] if entry == "unistd/getentropy" else []
+        flags = ["-DSYS_getrandom=278", "-DENOSYS=38"] if entry in ("unistd/getentropy", "sys/random/getrandom") else []
         if entry.startswith("ndbm/"):
             flags += ["-DSYS_openat=56", "-DSYS_close=57", "-DSYS_statx=291",
                       "-DSYS_pread64=67", "-DSYS_pwrite64=68", "-DSYS_fsync=82"]
@@ -144,7 +145,7 @@ for opt in ("0", "2"):
     consumer = out / "consumer.c"
     lines = ["#include <ctype.h>", "#include <inttypes.h>", "#include <stdlib.h>",
              "#include <string.h>", "#include <strings.h>", "#include <unistd.h>",
-             "#include <search.h>", "#include <ndbm.h>"]
+             "#include <search.h>", "#include <ndbm.h>", "#include <sys/random.h>"]
     for entry in entries:
         name = entry.split("/")[-1]
         lines.append(f"__typeof__(&{name}) volatile use_{name} = &{name};")
