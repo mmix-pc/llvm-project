@@ -54,6 +54,11 @@ public:
     return LIBC_NAMESPACE::fflush(reinterpret_cast<FILE *>(this));
   }
 };
+class RegisteredInputFile : public InputFile {
+public:
+  RegisteredInputFile() { File::add_file(this); }
+  ~RegisteredInputFile() { File::remove_file(this); }
+};
 } // namespace
 
 TEST(LlvmLibcInputFlushTest, SeekFailurePreservesUnreadDataAndPushback) {
@@ -126,4 +131,66 @@ TEST(LlvmLibcInputFlushTest, SeekFailurePreservesWidePushback) {
   EXPECT_EQ(wc, L'X');
   ASSERT_EQ(file.read(&wc, 1).value, size_t(1));
   EXPECT_EQ(wc, L'b');
+}
+
+TEST(LlvmLibcInputFlushTest, GlobalFlushPreservesNonseekableInputAndPushback) {
+  RegisteredInputFile file;
+  file.seek_error = ESPIPE;
+  char bytes[2];
+  ASSERT_EQ(file.read(bytes, 2).value, size_t(2));
+  ASSERT_EQ(file.ungetc('X'), int('X'));
+  LIBC_NAMESPACE::libc_errno = EDOM;
+  EXPECT_EQ(LIBC_NAMESPACE::fflush(nullptr), 0);
+  EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), EDOM);
+  EXPECT_FALSE(file.error());
+  EXPECT_FALSE(file.iseof());
+  ASSERT_EQ(file.read(bytes, 2).value, size_t(2));
+  EXPECT_EQ(bytes[0], 'X');
+  EXPECT_EQ(bytes[1], 'c');
+}
+
+TEST(LlvmLibcInputFlushTest, GlobalFlushPreservesNonseekableWidePushback) {
+  RegisteredInputFile file;
+  file.seek_error = ESPIPE;
+  wchar_t wc;
+  ASSERT_EQ(file.read(&wc, 1).value, size_t(1));
+  ASSERT_TRUE(file.ungetwc(L'X').has_value());
+  EXPECT_EQ(LIBC_NAMESPACE::fflush(nullptr), 0);
+  EXPECT_FALSE(file.error());
+  ASSERT_EQ(file.read(&wc, 1).value, size_t(1));
+  EXPECT_EQ(wc, L'X');
+  ASSERT_EQ(file.read(&wc, 1).value, size_t(1));
+  EXPECT_EQ(wc, L'b');
+}
+
+TEST(LlvmLibcInputFlushTest, GlobalFlushLeavesInputAtEofAlone) {
+  RegisteredInputFile file;
+  char bytes[9];
+  ASSERT_EQ(file.read(bytes, sizeof(bytes)).value, size_t(8));
+  ASSERT_TRUE(file.iseof());
+  file.seek_error = EIO;
+  EXPECT_EQ(LIBC_NAMESPACE::fflush(nullptr), 0);
+  EXPECT_EQ(file.seek_calls, 0U);
+  EXPECT_TRUE(file.iseof());
+  EXPECT_FALSE(file.error());
+}
+
+TEST(LlvmLibcInputFlushTest, GlobalFlushSynchronizesSeekableInputAndRetainsErrors) {
+  const int errors[] = {0, EIO, EINTR};
+  for (int error : errors) {
+    RegisteredInputFile file;
+    char bytes[2];
+    ASSERT_EQ(file.read(bytes, 2).value, size_t(2));
+    ASSERT_EQ(file.ungetc('X'), int('X'));
+    file.seek_error = error;
+    EXPECT_EQ(LIBC_NAMESPACE::fflush(nullptr), error ? EOF : 0);
+    EXPECT_EQ(file.offset, off_t(error ? 8 : 1));
+    EXPECT_EQ(file.error(), bool(error));
+    if (error)
+      EXPECT_EQ(int(LIBC_NAMESPACE::libc_errno), error);
+    file.clearerr();
+    ASSERT_EQ(file.read(bytes, 2).value, size_t(2));
+    EXPECT_EQ(bytes[0], error ? 'X' : 'b');
+    EXPECT_EQ(bytes[1], 'c');
+  }
 }

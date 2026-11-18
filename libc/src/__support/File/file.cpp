@@ -723,7 +723,7 @@ ErrorOr<int> File::set_position(const Position &position) {
   return result;
 }
 
-int File::flush_unlocked() {
+int File::flush_unlocked(FlushMode flush_mode) {
   if (prev_op == FileOp::WRITE && wide_size) {
     int error = flush_wide_unlocked();
     if (error)
@@ -746,11 +746,19 @@ int File::flush_unlocked() {
       return buf_result.error ? buf_result.error : EIO;
     }
   } else if (prev_op == FileOp::READ) {
+    if (flush_mode == FlushMode::ALL && eof)
+      return 0;
     size_t unread = read_limit - pos + wide_pushback_bytes +
                     wide_lookahead_bytes + (byte_pushback != EOF);
-    if (unread > 0) {
+    if (unread > 0 || flush_mode == FlushMode::ALL) {
       auto result =
           platform_seek(get_backend(), -static_cast<off_t>(unread), SEEK_CUR);
+      // Global flushing applies only where input synchronization is defined.
+      // Leave nonseekable input, including pushback and conversion state,
+      // untouched. Explicit fflush(stream) retains its discard policy.
+      if (!result.has_value() && result.error() == ESPIPE &&
+          flush_mode == FlushMode::ALL)
+        return 0;
       // Preserve the nonseekable-stream policy, but do not discard unread
       // input when synchronization of a seekable stream actually fails.
       if (!result.has_value() && result.error() != ESPIPE) {

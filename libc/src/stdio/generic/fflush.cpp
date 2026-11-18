@@ -41,7 +41,7 @@ LLVM_LIBC_FUNCTION(int, fflush, (::FILE * stream)) {
                          reinterpret_cast<File *>(stderr)};
   for (auto *s : std_streams) {
     if (s != nullptr) {
-      int result = s->flush();
+      int result = s->flush(File::FlushMode::ALL);
       if (result != 0)
         total_error = result;
     }
@@ -52,7 +52,7 @@ LLVM_LIBC_FUNCTION(int, fflush, (::FILE * stream)) {
   File::lock_list();
   cpp::scope_exit unlock_list([] { File::unlock_list(); });
   for (File *f = File::get_first_file(); f != nullptr; f = f->get_next()) {
-    int result = f->flush();
+    int result = f->flush(File::FlushMode::ALL);
     if (result != 0)
       total_error = result;
   }

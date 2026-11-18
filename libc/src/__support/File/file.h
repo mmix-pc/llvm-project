@@ -302,12 +302,14 @@ public:
   ErrorOr<int> set_position(const Position &position);
 
   // Flush output or synchronize the position of buffered input.
-  int flush() {
+  enum class FlushMode { SINGLE, ALL };
+
+  int flush(FlushMode flush_mode = FlushMode::SINGLE) {
     FileLock lock(this);
-    return flush_unlocked();
+    return flush_unlocked(flush_mode);
   }
 
-  int flush_unlocked();
+  int flush_unlocked(FlushMode flush_mode = FlushMode::SINGLE);
 
   // Returns EOF on error and keeps the file unchanged.
   int ungetc_unlocked(int c);
