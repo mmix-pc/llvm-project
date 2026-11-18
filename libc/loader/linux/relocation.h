@@ -36,7 +36,6 @@ using RelocationValue = StartupRelocationError (*)(void *, size_t,
 struct RelocationWrite {
   unsigned char *destination;
   Address value;
-  bool relative;
 };
 // Reuse whole-batch preflight and RELATIVE-first writes with a caller-owned
 // binding policy. The callback must be deterministic and allocation-free.

@@ -211,6 +211,34 @@ static bool discover(const ElfImage &image, Plan &out) {
 }
 } // namespace snapshot_ranges
 
+// The arena aligns each destination to an octa. The alias type allows
+// reading the object representation without assuming a source object type.
+template <class Word>
+static void copy_snapshot_words(unsigned char *&destination,
+                                const unsigned char *&source,
+                                size_t &remaining) {
+  using Block __attribute__((may_alias)) = Word;
+  if (reinterpret_cast<uintptr_t>(source) % alignof(Block))
+    return;
+  while (remaining >= sizeof(Block)) {
+    *reinterpret_cast<Block *>(destination) =
+        *reinterpret_cast<const volatile Block *>(source);
+    destination += sizeof(Block);
+    source += sizeof(Block);
+    remaining -= sizeof(Block);
+  }
+}
+
+static void copy_snapshot_bytes(unsigned char *destination, Bytes source) {
+  auto *input = source.data();
+  size_t remaining = source.size();
+  copy_snapshot_words<uint64_t>(destination, input, remaining);
+  copy_snapshot_words<uint32_t>(destination, input, remaining);
+  auto *bytes = static_cast<const volatile unsigned char *>(input);
+  for (size_t i = 0; i < remaining; ++i)
+    destination[i] = bytes[i];
+}
+
 class OwnedMetadataInput {
   struct Range {
     Address start;
@@ -246,11 +274,7 @@ public:
       Bytes source = image.file_backed_bytes(r.start, r.size);
       if (source.size() != r.size)
         return -ENOEXEC;
-      // Byte capture preserves unaligned inputs. Use a volatile source so
-      // bootstrap compilation cannot substitute a libc memcpy call.
-      auto *src = static_cast<const volatile unsigned char *>(source.data());
-      for (size_t j = 0; j < r.size; ++j)
-        dst[j] = src[j];
+      copy_snapshot_bytes(dst, source);
       saved[count].start = r.start;
       saved[count].tag = r.tag;
       Bytes span(dst, r.size);

@@ -12,25 +12,47 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
-static unsigned char *destination(const ElfImage &image,
-                                  cpp::span<const WritableRegion> writable,
-                                  Address offset) {
-  if (offset % 8)
-    return nullptr;
-  Bytes expected = image.mapped_memory_bytes(offset, 8, PF_R | PF_W);
-  if (expected.size() != 8)
-    return nullptr;
-  for (const auto &region : writable) {
-    if (!region.bytes.data() || offset < region.vaddr ||
-        offset - region.vaddr > region.bytes.size() ||
-        region.bytes.size() - (offset - region.vaddr) < 8)
-      continue;
-    unsigned char *p = region.bytes.data() + (offset - region.vaddr);
-    if (p == expected.data())
+class RelocationDestinations {
+  const ElfImage &image;
+  cpp::span<const WritableRegion> writable;
+  const WritableRegion *verified = nullptr;
+
+public:
+  RelocationDestinations(const ElfImage &image,
+                         cpp::span<const WritableRegion> writable)
+      : image(image), writable(writable) {}
+
+  unsigned char *get(Address offset) {
+    if (offset % 8)
+      return nullptr;
+    // A whole-range match ties every aligned destination in it to the same
+    // live writable mapping. The cache belongs to this object's preflight.
+    if (verified && offset >= verified->vaddr &&
+        offset - verified->vaddr <= verified->bytes.size() - 8)
+      return verified->bytes.data() + (offset - verified->vaddr);
+
+    Bytes expected = image.mapped_memory_bytes(offset, 8, PF_R | PF_W);
+    if (expected.size() != 8)
+      return nullptr;
+    for (const auto &region : writable) {
+      if (!region.bytes.data() || region.bytes.size() < 8 ||
+          offset < region.vaddr ||
+          offset - region.vaddr > region.bytes.size() - 8)
+        continue;
+      unsigned char *p = region.bytes.data() + (offset - region.vaddr);
+      if (p != expected.data())
+        continue;
+      // Borrowed callers may supply a range that is valid only at this
+      // destination. Retain their per-record fallback in that case.
+      Bytes entire = image.mapped_memory_bytes(region.vaddr, region.bytes.size(),
+                                                PF_R | PF_W);
+      if (entire.data() == region.bytes.data())
+        verified = &region;
       return p;
+    }
+    return nullptr;
   }
-  return nullptr;
-}
+};
 
 // Bounded, transaction-local memoization. Scope snapshots are shared by readers
 // and must remain immutable; only this relocation call owns the cache.
@@ -96,6 +118,16 @@ static StartupRelocationError value(const SymbolObject &object,
              : StartupRelocationError::Value;
 }
 
+static void write_relocation(unsigned char *destination, Address value) {
+  if constexpr (__BYTE_ORDER__ != __ORDER_BIG_ENDIAN__)
+    value = __builtin_bswap64(value);
+  using Octa __attribute__((may_alias)) = Address;
+  if (!(reinterpret_cast<uintptr_t>(destination) % alignof(Octa)))
+    *reinterpret_cast<Octa *>(destination) = value;
+  else
+    __builtin_memcpy_inline(destination, &value, sizeof(value));
+}
+
 StartupRelocationResult
 relocate_objects(cpp::span<const SymbolObject> objects,
                  cpp::span<const cpp::span<const WritableRegion>> writable,
@@ -103,7 +135,7 @@ relocate_objects(cpp::span<const SymbolObject> objects,
                  cpp::span<RelocationWrite> scratch) {
   if (objects.size() != writable.size() || !resolve)
     return {StartupRelocationError::Image, 0, 0};
-  size_t used = 0;
+  size_t relative_end = 0, symbolic_begin = scratch.size();
   for (size_t i = 0; i < objects.size(); ++i) {
     const auto &object = objects[i];
     if (!object.image || !object.metadata || !object.image->is_mapped() ||
@@ -120,39 +152,36 @@ relocate_objects(cpp::span<const SymbolObject> objects,
       if (DynamicInfo::open(*object.image, checked) != DynamicError::None)
         return {StartupRelocationError::Metadata, i, 0};
     }
+    RelocationDestinations destinations(*object.image, writable[i]);
     for (Address j = 0; j < object.metadata->relocation_count(); ++j) {
       DynamicRelocation r;
       Address resolved;
       if (!object.metadata->relocation(j, r))
         return {StartupRelocationError::Metadata, i, j};
-      auto *target = destination(*object.image, writable[i], r.offset);
+      auto *target = destinations.get(r.offset);
       if (!target)
         return {StartupRelocationError::Destination, i, j};
       auto error = resolve(context, i, r, resolved);
       if (error != StartupRelocationError::None)
         return {error, i, j};
       if (!scratch.empty()) {
-        if (used == scratch.size())
+        if (relative_end == symbolic_begin)
           return {StartupRelocationError::Image, i, j};
-        scratch[used++] = {target, resolved, is_relative_relocation(r.info)};
+        // Build both phases in one pass. Symbolic writes grow backwards,
+        // so each phase can replay the original discovery order.
+        size_t slot = is_relative_relocation(r.info) ? relative_end++
+                                                      : --symbolic_begin;
+        scratch[slot] = {target, resolved};
       }
     }
   }
   if (!scratch.empty()) {
-    for (unsigned phase = 0; phase < 2; ++phase)
-      for (const auto &write : scratch.first(used)) {
-        if (write.relative != (phase == 0))
-          continue;
-        Address encoded = write.value;
-        if constexpr (__BYTE_ORDER__ != __ORDER_BIG_ENDIAN__)
-          encoded = __builtin_bswap64(encoded);
-        if (!(reinterpret_cast<uintptr_t>(write.destination) % 8))
-          __builtin_memcpy_inline(
-              __builtin_assume_aligned(write.destination, 8), &encoded,
-              sizeof(encoded));
-        else
-          __builtin_memcpy_inline(write.destination, &encoded, sizeof(encoded));
-      }
+    for (const auto &write : scratch.first(relative_end))
+      write_relocation(write.destination, write.value);
+    for (size_t i = scratch.size(); i > symbolic_begin;) {
+      const auto &write = scratch[--i];
+      write_relocation(write.destination, write.value);
+    }
     return {StartupRelocationError::None, 0, 0};
   }
   // Metadata cannot overlap destinations, so resolving again is safe after
@@ -160,6 +189,7 @@ relocate_objects(cpp::span<const SymbolObject> objects,
   for (unsigned phase = 0; phase < 2; ++phase) {
     for (size_t i = 0; i < objects.size(); ++i) {
       const auto &object = objects[i];
+      RelocationDestinations destinations(*object.image, writable[i]);
       for (Address j = 0; j < object.metadata->relocation_count(); ++j) {
         DynamicRelocation r;
         (void)object.metadata->relocation(j, r);
@@ -167,11 +197,7 @@ relocate_objects(cpp::span<const SymbolObject> objects,
           continue;
         Address resolved;
         (void)resolve(context, i, r, resolved);
-        unsigned char *p = destination(*object.image, writable[i], r.offset);
-        for (unsigned k = 0; k < 8; ++k) {
-          p[7 - k] = static_cast<unsigned char>(resolved);
-          resolved >>= 8;
-        }
+        write_relocation(destinations.get(r.offset), resolved);
       }
     }
   }

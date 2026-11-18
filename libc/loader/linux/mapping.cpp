@@ -129,10 +129,20 @@ long DsoMapping::map_segment(const Elf64_Phdr &p, Address bias) {
     if (error)
       return error;
     if (zero) {
-      auto *bytes =
-          reinterpret_cast<volatile unsigned char *>(bias + zero_start);
-      for (Address i = 0; i < zero_end - zero_start; ++i)
-        bytes[i] = 0;
+      auto *bytes = reinterpret_cast<unsigned char *>(bias + zero_start);
+      Address remaining = zero_end - zero_start;
+      while (remaining && reinterpret_cast<uintptr_t>(bytes) % 8) {
+        *static_cast<volatile unsigned char *>(bytes++) = 0;
+        --remaining;
+      }
+      using Octa __attribute__((may_alias)) = uint64_t;
+      while (remaining >= sizeof(Octa)) {
+        *reinterpret_cast<volatile Octa *>(bytes) = 0;
+        bytes += sizeof(Octa);
+        remaining -= sizeof(Octa);
+      }
+      for (Address i = 0; i < remaining; ++i)
+        static_cast<volatile unsigned char *>(bytes)[i] = 0;
       if (prot != (PROT_READ | PROT_WRITE)) {
         error = raw_syscall(SYS_mprotect, bias + start, file_end - start, prot);
         if (error < 0)
@@ -218,11 +228,9 @@ long DsoMapping::populate(long length) {
       bias + first < reservation.address ||
       bias + last > reservation.address + size)
     return -ENOEXEC;
-  // Recheck rebased LOAD ranges. Dynamic metadata is fully validated on the
-  // final mapping below, before publication, relocation or execution.
-  if (ElfImage::open_file(file, ImageRole::SharedObject, bias, page_size,
-                          input) != ElfError::None)
-    return -ENOEXEC;
+  // The file preflight established the LOAD extents, and the checked
+  // reservation bounds their rebased page ranges. open_mapped below validates
+  // the layout at the actual bias before it can be used for relocation.
   void *storage;
   long error = arena.allocate(count * sizeof(MappedRegion),
                              alignof(MappedRegion), storage);

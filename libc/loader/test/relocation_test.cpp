@@ -184,6 +184,13 @@ static void test_relocations() {
   unaligned.open();
   check(unaligned.apply().error == StartupRelocationError::Destination);
   unaligned.unchanged();
+  Scope partial_storage;
+  partial_storage.open();
+  partial_storage.storage[1] =
+      {0x3ff8, {partial_storage.files[1].bytes + 0x3ff8, 0x1008}};
+  check(partial_storage.apply().error == StartupRelocationError::None);
+  check(octa(partial_storage.files[1].bytes + 0x4808) == bias + 0x2000);
+
   Scope wrong_storage;
   wrong_storage.open();
   wrong_storage.storage[1].bytes = wrong_storage.storage[0].bytes;
@@ -270,6 +277,12 @@ extern "C" int main() {
   check(relocate_startup(short_scratch.objects, short_scratch.writable, scratch)
             .error == StartupRelocationError::Image);
   short_scratch.unchanged();
+  Scope large_scratch;
+  large_scratch.open();
+  RelocationWrite extra[6]{};
+  check(relocate_startup(large_scratch.objects, large_scratch.writable, extra)
+            .error == StartupRelocationError::None);
+  check(octa(large_scratch.files[1].bytes + 0x4808) == bias + 0x2000);
   // Native validation may borrow unaligned host storage for aligned target
   // addresses. Prepared writes must not impose an extra host-alignment rule.
   DynamicFixture input;
