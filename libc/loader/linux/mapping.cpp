@@ -246,10 +246,9 @@ long DsoMapping::populate() {
   if (ElfImage::open_mapped(cpp::span<const MappedRegion>(regions, count),
                             input.header_address(), input.table_address(),
                             ImageRole::SharedObject, bias, page_size,
-                            mapped) != ElfError::None ||
-      DynamicInfo::open(mapped, dynamic) != DynamicError::None)
+                            mapped) != ElfError::None)
     return -ENOEXEC;
-  return 0;
+  return DynamicInfo::open_stable(mapped, arena, dynamic);
 }
 
 } // namespace loader

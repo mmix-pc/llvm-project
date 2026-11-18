@@ -9,6 +9,7 @@
 #include "dynamic_fixture.h"
 #include "loader/linux/relocation.h"
 #include "loader/linux/target.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -30,6 +31,22 @@ static Address octa(const unsigned char *p) {
   return value;
 }
 
+struct SnapshotStorage {
+  alignas(8) unsigned char bytes[4096];
+  size_t used = 0;
+  bool fail = false;
+
+  long allocate(size_t size, size_t alignment, void *&out) {
+    out = nullptr;
+    if (fail || alignment != 8 || used > sizeof(bytes) ||
+        size > sizeof(bytes) - used)
+      return -ENOMEM;
+    out = bytes + used;
+    used += size;
+    return 0;
+  }
+};
+
 struct Scope {
   DynamicFixture files[2];
   ElfImage images[2];
@@ -38,8 +55,9 @@ struct Scope {
   WritableRegion storage[2];
   cpp::span<const WritableRegion> writable[2];
   SymbolObject objects[2];
+  SnapshotStorage snapshots;
 
-  void open() {
+  long admit(bool owned) {
     for (unsigned i = 0; i < 2; ++i) {
       regions[i] = {0, files[i].view()};
       storage[i] = {0x4000, {files[i].bytes + 0x4000, 0x2000}};
@@ -47,10 +65,20 @@ struct Scope {
       check(ElfImage::open_mapped({&regions[i], 1}, 0, 64,
                                   ImageRole::SharedObject, bias + i * 0x100000,
                                   page, images[i]) == ElfError::None);
-      check(DynamicInfo::open(images[i], metadata[i]) == DynamicError::None);
+      if (owned) {
+        long error =
+            DynamicInfo::open_stable(images[i], snapshots, metadata[i]);
+        if (error)
+          return error;
+        check(metadata[i].is_stable_for(images[i]));
+      } else {
+        check(DynamicInfo::open(images[i], metadata[i]) == DynamicError::None);
+      }
       objects[i] = {&images[i], &metadata[i]};
     }
+    return 0;
   }
+  void open() { check(admit(false) == 0); }
   StartupRelocationResult apply() {
     RelocationWrite scratch[4];
     return relocate_startup(objects, writable,
@@ -194,10 +222,48 @@ static void test_relocations() {
        "preflight passed");
 }
 
+static void test_snapshot_relocations() {
+  Scope stable;
+  check(stable.admit(true) == 0);
+  stable.files[1].put(0xb18, 8, 0x4810);
+  stable.files[1].put(0xb20, 8, (Address(1) << 32) | 10);
+  check(stable.apply().error == StartupRelocationError::None);
+  check(octa(stable.files[1].bytes + 0x4808) == bias + 0x2000);
+  check(octa(stable.files[1].bytes + 0x4810) == 0);
+
+  Scope malformed;
+  malformed.files[1].put(0xb20, 8, (Address(1) << 32) | 10);
+  check(malformed.admit(true) == -ENOEXEC);
+  malformed.unchanged();
+
+  Scope allocation;
+  allocation.snapshots.fail = true;
+  check(allocation.admit(true) == -ENOMEM);
+  check(!allocation.metadata[0].is_valid());
+  allocation.unchanged();
+
+  Scope mismatched;
+  check(mismatched.admit(true) == 0);
+  mismatched.objects[1].metadata = &mismatched.metadata[0];
+  auto error = mismatched.apply();
+  check(error.error == StartupRelocationError::Metadata && error.object == 1);
+  mismatched.unchanged();
+
+  Scope wrong_storage;
+  check(wrong_storage.admit(true) == 0);
+  wrong_storage.storage[1].bytes = wrong_storage.storage[0].bytes;
+  error = wrong_storage.apply();
+  check(error.error == StartupRelocationError::Destination &&
+        error.object == 1);
+  wrong_storage.unchanged();
+}
+
 extern "C" int main() {
   test_relocations();
+  test_snapshot_relocations();
   use_scratch = true;
   test_relocations();
+  test_snapshot_relocations();
   Scope short_scratch;
   short_scratch.open();
   RelocationWrite scratch[3];

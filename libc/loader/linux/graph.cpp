@@ -227,9 +227,8 @@ MapResult StartupGraph::build(const ElfImage &main, const FileIdentity *identity
     root->identity_known = true;
   }
   error = path.empty() ? 0 : set_path(*root, path);
-  if (!error &&
-      DynamicInfo::open(main, root->main_dynamic) != DynamicError::None)
-    error = -ENOEXEC;
+  if (!error)
+    error = DynamicInfo::open_stable(main, arena, root->main_dynamic);
   if (error)
     return {error, reset()};
   head = tail = root;

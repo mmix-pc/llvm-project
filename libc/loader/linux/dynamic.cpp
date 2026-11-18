@@ -7,10 +7,280 @@
 //===----------------------------------------------------------------------===//
 
 #include "loader/linux/dynamic.h"
+#include "hdr/errno_macros.h"
 #include "loader/linux/target.h"
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
+
+// Structural extent discovery only. The full parser is the admission step.
+namespace snapshot_ranges {
+struct Range {
+  Address start, size;
+  DynamicTag tag;
+};
+struct Plan {
+  Range ranges[24];
+  unsigned count = 0;
+
+  bool add(const ElfImage &image, Address start, Address size,
+           DynamicTag tag = DynamicTag::Count) {
+    if (!size)
+      return true;
+    if (count == 24 || size > Address(-1) - start ||
+        image.file_backed_bytes(start, size).size() != size)
+      return false;
+    ranges[count++] = {start, size, tag};
+    return true;
+  }
+};
+
+static bool version_extent(Bytes b, bool big, bool def, Address count,
+                           Address &extent) {
+  const Address header = def ? 20 : 16, auxiliary = def ? 8 : 16;
+  if (!count || count > 32767 || count > b.size() / header)
+    return false;
+  Address at = 0;
+  extent = 0;
+  for (Address i = 0; i < count; ++i) {
+    if (at > b.size() || header > b.size() - at)
+      return false;
+    const auto *p = b.data() + at;
+    Address n = read_elf_integer<Elf64_Half>(p + (def ? 6 : 2), big);
+    Address offset = read_elf_integer<Elf64_Word>(p + (def ? 12 : 8), big);
+    Address next = read_elf_integer<Elf64_Word>(p + (def ? 16 : 12), big);
+    if (!n || offset < header || offset > b.size() - at ||
+        n > (b.size() - at - offset) / auxiliary)
+      return false;
+    Address aux = at + offset;
+    if (at + header > extent)
+      extent = at + header;
+    for (Address j = 0; j < n; ++j) {
+      if (aux > b.size() || auxiliary > b.size() - aux)
+        return false;
+      if (aux + auxiliary > extent)
+        extent = aux + auxiliary;
+      Address step =
+          read_elf_integer<Elf64_Word>(b.data() + aux + (def ? 4 : 12), big);
+      if (j + 1 < n && (step < auxiliary || step > b.size() - aux))
+        return false;
+      aux += step;
+    }
+    if (i + 1 < count && (next < header || next > b.size() - at))
+      return false;
+    at += next;
+  }
+  return true;
+}
+
+// When DT_HASH is present it already supplies the symbol count. GNU-only
+// images need a structural chain walk bounded by both tables.
+static bool hash_extents(const ElfImage &image, bool big, Address symbols,
+                         Address sysv, Address gnu, Plan &out, Address &count) {
+  const Address limit = image.file_backed_tail(symbols).size() / 24;
+  auto word = [big](Bytes b, Address i) {
+    return Address(read_elf_integer<Elf64_Word>(b.data() + i * 4, big));
+  };
+  count = 0;
+  if (sysv) {
+    Bytes b = image.file_backed_tail(sysv);
+    if (b.size() < 8)
+      return false;
+    Address buckets = word(b, 0);
+    count = word(b, 1);
+    if (!buckets || !count || count > limit ||
+        !out.add(image, sysv, (2 + buckets + count) * 4, DynamicTag::Hash))
+      return false;
+  }
+  if (gnu) {
+    Bytes b = image.file_backed_tail(gnu);
+    if (b.size() < 16)
+      return false;
+    const Address buckets = word(b, 0), start = word(b, 1), blooms = word(b, 2);
+    const Address chain = 4 + 2 * blooms + buckets;
+    if (!buckets || !blooms || !start || start > limit ||
+        chain > b.size() / 4 || (count && start > count))
+      return false;
+    if (!count) {
+      const Address span = b.size() / 4 - chain;
+      count = start;
+      Address visits = 0;
+      for (Address i = 0; i < buckets; ++i) {
+        Address index = word(b, chain - buckets + i);
+        if (!index)
+          continue;
+        if (index < start)
+          return false;
+        for (;;) {
+          if (index >= limit || index - start >= span || ++visits > span)
+            return false;
+          Address entry = word(b, chain + index - start);
+          if (++index > count)
+            count = index;
+          if (entry & 1)
+            break;
+        }
+      }
+    }
+    if (!out.add(image, gnu, (chain + count - start) * 4, DynamicTag::GnuHash))
+      return false;
+  }
+  return count && out.add(image, symbols, count * 24, DynamicTag::Symtab);
+}
+
+static bool discover(const ElfImage &image, Plan &out) {
+  const auto *header = image.header();
+  const bool big = header->e_ident[EI_DATA] == ELFDATA2MSB;
+  Bytes dynamic;
+  for (unsigned i = 0; i < header->e_phnum; ++i) {
+    Elf64_Phdr ph;
+    if (!image.program_header(i, ph))
+      return false;
+    if (ph.p_type == PT_DYNAMIC && !out.add(image, ph.p_vaddr, ph.p_filesz))
+      return false;
+    if (ph.p_type == PT_DYNAMIC)
+      dynamic = image.file_backed_bytes(ph.p_vaddr, ph.p_filesz);
+  }
+  struct Tags {
+    Address address, size;
+  };
+  static constexpr Tags tags[] = {
+      {DT_STRTAB, DT_STRSZ},
+      {DT_RELA, DT_RELASZ},
+      {DT_VERDEF, DT_VERDEFNUM},
+      {DT_VERNEED, DT_VERNEEDNUM},
+  };
+  struct Table {
+    Address address, size;
+  };
+  Table tables[sizeof(tags) / sizeof(tags[0])];
+  __builtin_memset_inline(tables, 0, sizeof(tables));
+  Address symbols = 0, sysv = 0, gnu = 0, versym = 0;
+  bool terminated = false;
+  for (size_t i = 0; i + 16 <= dynamic.size(); i += 16) {
+    auto tag = read_elf_integer<Address>(dynamic.data() + i, big);
+    auto value = read_elf_integer<Address>(dynamic.data() + i + 8, big);
+    if (tag == DT_NULL) {
+      terminated = true;
+      break;
+    }
+    switch (tag) {
+    case DT_SYMTAB:
+      symbols = value;
+      break;
+    case DT_HASH:
+      sysv = value;
+      break;
+    case DT_GNU_HASH:
+      gnu = value;
+      break;
+    case DT_VERSYM:
+      versym = value;
+      break;
+    default:
+      for (unsigned j = 0; j < sizeof(tags) / sizeof(tags[0]); ++j) {
+        if (tag == tags[j].address)
+          tables[j].address = value;
+        if (tag == tags[j].size)
+          tables[j].size = value;
+      }
+    }
+  }
+  Address count;
+  if (!terminated ||
+      !hash_extents(image, big, symbols, sysv, gnu, out, count) ||
+      (versym && !out.add(image, versym, count * 2)))
+    return false;
+  for (unsigned j = 0; j < sizeof(tags) / sizeof(tags[0]); ++j) {
+    const auto &t = tables[j];
+    Address tag = tags[j].address;
+    if (!t.size)
+      continue;
+    Address size = t.size;
+    if ((tag == DT_VERDEF || tag == DT_VERNEED) &&
+        !version_extent(image.file_backed_tail(t.address), big,
+                        tag == DT_VERDEF, t.size, size))
+      return false;
+    if (!out.add(image, t.address, size,
+                 tag == DT_VERDEF    ? DynamicTag::Verdef
+                 : tag == DT_VERNEED ? DynamicTag::Verneed
+                                     : DynamicTag::Count))
+      return false;
+  }
+  return true;
+}
+} // namespace snapshot_ranges
+
+class OwnedMetadataInput {
+  struct Range {
+    Address start;
+    Bytes data;
+    DynamicTag tag;
+  };
+  Range saved[24];
+  unsigned count = 0;
+  const ElfImage &image;
+  bool owned;
+
+public:
+  explicit OwnedMetadataInput(const ElfImage &image, bool owned = false)
+      : image(image), owned(owned) {}
+
+  long capture(const snapshot_ranges::Plan &plan, void *owner,
+               long (*allocate)(void *, size_t, void *&)) {
+    size_t bytes = 0;
+    for (unsigned i = 0; i < plan.count; ++i) {
+      const auto &r = plan.ranges[i];
+      if (r.size > __SIZE_MAX__ - 7 ||
+          ((r.size + 7) & ~Address(7)) > __SIZE_MAX__ - bytes)
+        return -EOVERFLOW;
+      bytes += (r.size + 7) & ~Address(7);
+    }
+    void *buffer;
+    long error = allocate(owner, bytes, buffer);
+    if (error)
+      return error;
+    auto *dst = static_cast<unsigned char *>(buffer);
+    for (unsigned i = 0; i < plan.count; ++i) {
+      const auto &r = plan.ranges[i];
+      Bytes source = image.file_backed_bytes(r.start, r.size);
+      if (source.size() != r.size)
+        return -ENOEXEC;
+      // Byte capture preserves unaligned inputs. Use a volatile source so
+      // bootstrap compilation cannot substitute a libc memcpy call.
+      auto *src = static_cast<const volatile unsigned char *>(source.data());
+      for (size_t j = 0; j < r.size; ++j)
+        dst[j] = src[j];
+      saved[count].start = r.start;
+      saved[count].tag = r.tag;
+      Bytes span(dst, r.size);
+      __builtin_memcpy_inline(&saved[count].data, &span, sizeof(span));
+      ++count;
+      dst += (r.size + 7) & ~Address(7);
+    }
+    return 0;
+  }
+
+  Bytes tail(Address start, DynamicTag tag) const {
+    if (!owned)
+      return image.file_backed_tail(start);
+    for (unsigned i = 0; i < count; ++i)
+      if (saved[i].start == start && saved[i].tag == tag)
+        return saved[i].data;
+    return {};
+  }
+
+  Bytes bytes(Address start, Address size) const {
+    if (!owned)
+      return image.file_backed_bytes(start, size);
+    if (!size)
+      return {};
+    for (unsigned i = 0; i < count; ++i)
+      if (saved[i].start == start && saved[i].data.size() == size)
+        return saved[i].data;
+    return {};
+  }
+};
 
 // Keep construction beside clear so redundant member initialization cannot
 // become an external memset when this view is embedded in an allocated node.
@@ -250,14 +520,14 @@ bool DynamicInfo::find_definition_impl(Bytes name, Address &out,
   return false;
 }
 
-DynamicError DynamicInfo::validate_hashes(const ElfImage &image) {
+DynamicError DynamicInfo::validate_hashes(const OwnedMetadataInput &input) {
   auto has = [this](DynamicTag t) { return seen & (Address(1) << slot(t)); };
   auto word = [this](Bytes b, Address index) {
     return integer(b.data() + index * 4, 4, big);
   };
   Address symbol_limit = symbols.size() / 24, count = 0;
   if (has(DynamicTag::Hash)) {
-    sysv = image.file_backed_tail(values[slot(DynamicTag::Hash)]);
+    sysv = input.tail(values[slot(DynamicTag::Hash)], DynamicTag::Hash);
     if (sysv.size() < 8)
       return DynamicError::Hash;
     Address buckets = word(sysv, 0);
@@ -304,7 +574,7 @@ DynamicError DynamicInfo::validate_hashes(const ElfImage &image) {
       return DynamicError::Hash;
   }
   if (has(DynamicTag::GnuHash)) {
-    gnu = image.file_backed_tail(values[slot(DynamicTag::GnuHash)]);
+    gnu = input.tail(values[slot(DynamicTag::GnuHash)], DynamicTag::GnuHash);
     if (gnu.size() < 16)
       return DynamicError::Hash;
     Address buckets = word(gnu, 0), start = word(gnu, 1);
@@ -452,7 +722,7 @@ bool DynamicInfo::accepts_dependency(Bytes needed,
   return true;
 }
 
-DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
+DynamicError DynamicInfo::validate_versions(const OwnedMetadataInput &input) {
   auto has = [this](DynamicTag t) {
     return (seen & (Address(1) << slot(t))) != 0;
   };
@@ -463,8 +733,7 @@ DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
        !has(DynamicTag::Versym)))
     return DynamicError::Version;
   if (has(DynamicTag::Versym)) {
-    versym = image.file_backed_bytes(val(DynamicTag::Versym),
-                                     symbols.size() / 24 * 2);
+    versym = input.bytes(val(DynamicTag::Versym), symbols.size() / 24 * 2);
     if (val(DynamicTag::Versym) % 2 || versym.size() != symbols.size() / 24 * 2)
       return DynamicError::Version;
   }
@@ -481,7 +750,7 @@ DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
       continue;
     Address count = val(num);
     Bytes &table = def ? verdef : verneed;
-    table = image.file_backed_tail(val(tag));
+    table = input.tail(val(tag), tag);
     Address header = def ? 20 : 16, aux_size = def ? 8 : 16;
     if (!count || count > 32767 || val(tag) % 4 ||
         count > table.size() / header)
@@ -657,7 +926,8 @@ DynamicError DynamicInfo::validate_versions(const ElfImage &image) {
   return DynamicError::None;
 }
 
-DynamicError DynamicInfo::parse(const ElfImage &image) {
+DynamicError DynamicInfo::parse(const ElfImage &image,
+                                const OwnedMetadataInput &input) {
   const auto *header = image.header();
   if (!header)
     return DynamicError::Image;
@@ -670,7 +940,7 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
     if (p.p_type == PT_TLS)
       tls_required = true;
     if (p.p_type == PT_DYNAMIC) {
-      dynamic = image.file_backed_bytes(p.p_vaddr, p.p_filesz);
+      dynamic = input.bytes(p.p_vaddr, p.p_filesz);
       dynamic_address = p.p_vaddr;
     }
   }
@@ -723,12 +993,11 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
       !has(DynamicTag::Symtab) || !has(DynamicTag::Syment) ||
       val(DynamicTag::Syment) != 24 || !val(DynamicTag::Strsz))
     return DynamicError::Table;
-  strings =
-      image.file_backed_bytes(val(DynamicTag::Strtab), val(DynamicTag::Strsz));
+  strings = input.bytes(val(DynamicTag::Strtab), val(DynamicTag::Strsz));
   if (strings.size() != val(DynamicTag::Strsz) || strings.front() ||
       strings.back())
     return DynamicError::String;
-  symbols = image.file_backed_tail(val(DynamicTag::Symtab));
+  symbols = input.tail(val(DynamicTag::Symtab), DynamicTag::Symtab);
   for (Address i = 0; i < dynamic.size(); i += 16) {
     Address tag = integer(dynamic.data() + i, 8, big);
     if (tag == DT_NULL)
@@ -741,10 +1010,10 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
         return DynamicError::String;
     }
   }
-  DynamicError error = validate_hashes(image);
+  DynamicError error = validate_hashes(input);
   if (error != DynamicError::None)
     return error;
-  error = validate_versions(image);
+  error = validate_versions(input);
   if (error != DynamicError::None)
     return error;
   for (Address i = 0; i < symbols.size() / 24; ++i) {
@@ -801,7 +1070,7 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
         !has(DynamicTag::Relaent) || val(DynamicTag::Relaent) != 24 ||
         size % 24)
       return DynamicError::Relocation;
-    relas = image.file_backed_bytes(val(DynamicTag::Rela), size);
+    relas = input.bytes(val(DynamicTag::Rela), size);
     if (relas.size() != size)
       return DynamicError::Relocation;
   }
@@ -928,13 +1197,36 @@ DynamicError DynamicInfo::parse(const ElfImage &image) {
 
 DynamicError DynamicInfo::open(const ElfImage &image, DynamicInfo &out) {
   out.clear();
-  DynamicError error = out.parse(image);
+  DynamicError error = out.parse(image, OwnedMetadataInput(image));
   if (error == DynamicError::None) {
     out.valid = true;
     out.source = &image;
   } else
     out.clear();
   return error;
+}
+
+long DynamicInfo::open_owned(const ElfImage &image, void *owner,
+                             Allocate allocate, DynamicInfo &out) {
+  out.clear();
+  if (!image.is_mapped())
+    return -ENOEXEC;
+  snapshot_ranges::Plan plan;
+  // A layout outside the snapshot planner's scope keeps the checked borrowed
+  // path and its pre-relocation recheck.
+  if (!snapshot_ranges::discover(image, plan))
+    return open(image, out) == DynamicError::None ? 0 : -ENOEXEC;
+  OwnedMetadataInput input(image, true);
+  long error = input.capture(plan, owner, allocate);
+  if (error)
+    return error;
+  if (out.parse(image, input) != DynamicError::None) {
+    out.clear();
+    return -ENOEXEC;
+  }
+  out.valid = out.stable = true;
+  out.source = &image;
+  return 0;
 }
 
 } // namespace loader

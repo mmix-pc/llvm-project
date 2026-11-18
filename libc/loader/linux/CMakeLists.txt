@@ -265,7 +265,7 @@ add_object_library(
   dynamic
   SRCS dynamic.cpp
   HDRS dynamic.h
-  DEPENDS .elf .mmix.target
+  DEPENDS .elf .mmix.target libc.hdr.errno_macros
   COMPILE_OPTIONS ${LIBC_LOADER_COMPILE_OPTIONS}
 )
 

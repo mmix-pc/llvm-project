@@ -109,11 +109,17 @@ relocate_objects(cpp::span<const SymbolObject> objects,
     if (!object.image || !object.metadata || !object.image->is_mapped() ||
         object.image->role() == ImageRole::Interpreter)
       return {StartupRelocationError::Image, i, 0};
-    // Revalidate before writing, including RELACOUNT, symbol indexes,
-    // metadata exclusion, nonoverlap and unsupported relocation kinds.
-    DynamicInfo checked;
-    if (DynamicInfo::open(*object.image, checked) != DynamicError::None)
+    // Only owned, already validated metadata paired with this image may
+    // omit the live recheck. Destination and value preflight still run for
+    // every record before any write.
+    if (object.metadata->owns_metadata() &&
+        !object.metadata->is_stable_for(*object.image))
       return {StartupRelocationError::Metadata, i, 0};
+    if (!object.metadata->owns_metadata()) {
+      DynamicInfo checked;
+      if (DynamicInfo::open(*object.image, checked) != DynamicError::None)
+        return {StartupRelocationError::Metadata, i, 0};
+    }
     for (Address j = 0; j < object.metadata->relocation_count(); ++j) {
       DynamicRelocation r;
       Address resolved;

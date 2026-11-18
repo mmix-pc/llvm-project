@@ -14,6 +14,8 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
+class OwnedMetadataInput;
+
 enum class DynamicError {
   None,
   Image,
@@ -75,13 +77,15 @@ class DynamicInfo {
   Bytes dynamic, strings, symbols, relas, sysv, gnu, arrays[3];
   Bytes versym, verdef, verneed;
   bool big = true, valid = false;
-  bool tls_required = false;
+  bool tls_required = false, stable = false;
   const ElfImage *source = nullptr;
 
+  using Allocate = long (*)(void *, size_t, void *&);
+  static long open_owned(const ElfImage &, void *, Allocate, DynamicInfo &);
   void clear();
-  DynamicError parse(const ElfImage &image);
-  DynamicError validate_hashes(const ElfImage &image);
-  DynamicError validate_versions(const ElfImage &image);
+  DynamicError parse(const ElfImage &image, const OwnedMetadataInput &input);
+  DynamicError validate_hashes(const OwnedMetadataInput &input);
+  DynamicError validate_versions(const OwnedMetadataInput &input);
   bool version_name(Address index, bool definition, Bytes &out) const;
   bool find_definition_impl(Bytes name, Address &index, Bytes version) const;
   bool read_string(Address offset, Bytes &out) const;
@@ -94,6 +98,21 @@ public:
   // Failed opens invalidate every accessor. Lifecycle arrays remain unexecuted
   // and their pointer contents are not interpreted until after relocation.
   static DynamicError open(const ElfImage &image, DynamicInfo &out);
+  // The owner must keep the arena and admitted image alive while using out.
+  template <class Storage>
+  static long open_stable(const ElfImage &image, Storage &storage,
+                          DynamicInfo &out) {
+    return open_owned(
+        image, &storage,
+        [](void *owner, size_t size, void *&buffer) {
+          return static_cast<Storage *>(owner)->allocate(size, 8, buffer);
+        },
+        out);
+  }
+  bool owns_metadata() const { return stable; }
+  bool is_stable_for(const ElfImage &image) const {
+    return stable && is_for(image);
+  }
   bool is_valid() const { return valid; }
   // Reuse only for the original immutable image view, not another mapping of
   // the same file. Copying this metadata does not extend the backing lifetime.
