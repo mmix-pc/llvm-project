@@ -35,3 +35,8 @@ add_entrypoint_object(
     libc.src.__support.CPP.string_view
     libc.src.__support.common
 )
+
+add_entrypoint_object(addmntent SRCS addmntent.cpp HDRS addmntent.h
+  DEPENDS libc.hdr.types.FILE libc.hdr.types.struct_mntent libc.hdr.stdio_macros
+    libc.src.__support.File.file libc.src.__support.common
+    libc.src.__support.libc_errno libc.src.stdio.snprintf)

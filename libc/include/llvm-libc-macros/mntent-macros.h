@@ -7,5 +7,6 @@
 #ifndef LLVM_LIBC_MACROS_MNTENT_MACROS_H
 #define LLVM_LIBC_MACROS_MNTENT_MACROS_H
 #define MNTTAB "/etc/fstab"
+#define MNTOPT_NOAUTO "noauto"
 #define MOUNTED "/etc/mtab"
 #endif
