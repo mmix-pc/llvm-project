@@ -750,7 +750,11 @@ int File::flush_unlocked(FlushMode flush_mode) {
       return 0;
     size_t unread = read_limit - pos + wide_pushback_bytes +
                     wide_lookahead_bytes + (byte_pushback != EOF);
-    if (unread > 0 || flush_mode == FlushMode::ALL) {
+    // With no offset adjustment or backend work, a synchronized byte stream
+    // needs no seekability probe. Retain the probe when ESPIPE must preserve
+    // wide input history or suppress a backend flush.
+    if (unread > 0 || (flush_mode == FlushMode::ALL &&
+                       (wide_input_bytes != 0 || platform_flush))) {
       auto result =
           platform_seek(get_backend(), -static_cast<off_t>(unread), SEEK_CUR);
       // Global flushing applies only where input synchronization is defined.

@@ -163,6 +163,20 @@ TEST(LlvmLibcInputFlushTest, GlobalFlushPreservesNonseekableWidePushback) {
   EXPECT_EQ(wc, L'b');
 }
 
+TEST(LlvmLibcInputFlushTest, RepeatedGlobalFlushSeeksOnlyForUnreadInput) {
+  RegisteredInputFile file;
+  char ch;
+  ASSERT_EQ(file.read(&ch, 1).value, size_t(1));
+  ASSERT_EQ(LIBC_NAMESPACE::fflush(nullptr), 0);
+  ASSERT_EQ(file.offset, off_t(1));
+  ASSERT_EQ(file.seek_calls, 1U);
+  for (int i = 0; i < 3; ++i)
+    ASSERT_EQ(LIBC_NAMESPACE::fflush(nullptr), 0);
+  EXPECT_EQ(file.seek_calls, 1U);
+  ASSERT_EQ(file.read(&ch, 1).value, size_t(1));
+  EXPECT_EQ(ch, 'b');
+}
+
 TEST(LlvmLibcInputFlushTest, GlobalFlushLeavesInputAtEofAlone) {
   RegisteredInputFile file;
   char bytes[9];
