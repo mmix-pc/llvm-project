@@ -702,3 +702,9 @@ add_entrypoint_object(syncfs ALIAS DEPENDS .${LIBC_TARGET_OS}.syncfs)
 add_entrypoint_object(sethostname ALIAS DEPENDS .${LIBC_TARGET_OS}.sethostname)
 
 add_entrypoint_object(vhangup ALIAS DEPENDS .${LIBC_TARGET_OS}.vhangup)
+
+add_entrypoint_object(getusershell ALIAS DEPENDS .${LIBC_TARGET_OS}.getusershell)
+
+add_entrypoint_object(setusershell ALIAS DEPENDS .${LIBC_TARGET_OS}.setusershell)
+
+add_entrypoint_object(endusershell ALIAS DEPENDS .${LIBC_TARGET_OS}.endusershell)

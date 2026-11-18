@@ -755,3 +755,15 @@ functions:
     standards: [linux]
     return_type: int
     arguments: []
+  - name: getusershell
+    standards: [bsd]
+    return_type: char *
+    arguments: []
+  - name: setusershell
+    standards: [bsd]
+    return_type: void
+    arguments: []
+  - name: endusershell
+    standards: [bsd]
+    return_type: void
+    arguments: []

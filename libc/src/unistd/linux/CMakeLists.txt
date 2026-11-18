@@ -1183,3 +1183,18 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
 )
+
+add_object_library(usershell_internal SRCS usershell.cpp HDRS usershell.h
+  DEPENDS libc.hdr.errno_macros libc.hdr.fcntl_macros libc.hdr.sys_mman_macros
+    libc.src.__support.OSUtil.linux.syscall_wrappers.open
+    libc.src.__support.OSUtil.linux.syscall_wrappers.read
+    libc.src.__support.OSUtil.linux.syscall_wrappers.close
+    libc.src.__support.OSUtil.linux.syscall_wrappers.mmap
+    libc.src.__support.OSUtil.linux.syscall_wrappers.munmap
+    libc.src.errno.errno)
+
+add_entrypoint_object(getusershell SRCS getusershell.cpp HDRS ../getusershell.h DEPENDS .usershell_internal)
+
+add_entrypoint_object(setusershell SRCS setusershell.cpp HDRS ../setusershell.h DEPENDS .usershell_internal)
+
+add_entrypoint_object(endusershell SRCS endusershell.cpp HDRS ../endusershell.h DEPENDS .usershell_internal)

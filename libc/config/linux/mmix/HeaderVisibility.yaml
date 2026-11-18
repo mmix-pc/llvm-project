@@ -156,6 +156,9 @@ unistd.h:
   objects:
     environ: __LIBC_USE_DEFAULT
   functions:
+    getusershell: __LIBC_USE_DEFAULT
+    setusershell: __LIBC_USE_DEFAULT
+    endusershell: __LIBC_USE_DEFAULT
     vhangup: __LIBC_USE_DEFAULT
     sethostname: __LIBC_USE_DEFAULT
     syncfs: __LIBC_USE_GNU
