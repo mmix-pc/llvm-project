@@ -622,3 +622,5 @@ add_macro_header(sys_file_macros HDR sys-file-macros.h)
 add_macro_header(sys_inotify_macros HDR sys-inotify-macros.h DEPENDS .fcntl_macros .stdint_macros)
 
 add_macro_header(sys_timex_macros HDR sys-timex-macros.h)
+
+add_macro_header(sys_swap_macros HDR sys-swap-macros.h)

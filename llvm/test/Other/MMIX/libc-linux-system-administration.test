@@ -13,10 +13,11 @@ endif()
 set(LIBC_MMIX_BUILD_SYSTEM_ADMINISTRATION ON)
 include(${SOURCE}/libc/config/linux/mmix/SystemAdministration.cmake)
 list(LENGTH TARGET_LIBC_ENTRYPOINTS count)
-if(NOT count EQUAL 7)
+if(NOT count EQUAL 22)
   message(FATAL_ERROR "unexpected system provider set")
 endif()
-foreach(entry libc.src.sys.mount.mount libc.src.sys.mount.umount
+foreach(entry libc.src.sys.capability.capget libc.src.sys.capability.capset libc.src.sys.mount.pivot_root libc.src.sys.sysinfo.sysinfo libc.src.sys.swap.swapoff libc.src.sys.swap.swapon libc.src.unistd.acct libc.src.sys.klog.klogctl libc.src.sys.timex.adjtimex libc.src.sys.timex.ntp_adjtime libc.src.unistd.vhangup libc.src.unistd.sethostname libc.src.sched.setns libc.src.sched.unshare libc.src.sys.personality.personality
+    libc.src.sys.mount.mount libc.src.sys.mount.umount
     libc.src.sys.mount.umount2 libc.src.sys.reboot.reboot
     libc.src.sys.utsname.uname libc.src.unistd.sync)
   if(NOT entry IN_LIST TARGET_LIBC_ENTRYPOINTS)
@@ -149,3 +150,6 @@ int main() {
   require(uname(nullptr) == -1 && int(libc_errno) == EFAULT);
   return 0;
 }
+
+#--- linux/ioctl.h
+// This syscall fixture does not expand block-device ioctl requests.

@@ -27,3 +27,6 @@ add_entrypoint_object(
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
 )
+
+add_entrypoint_object(pivot_root SRCS pivot_root.cpp HDRS ../pivot_root.h
+  DEPENDS libc.include.sys_syscall libc.src.__support.OSUtil.osutil libc.src.errno.errno)

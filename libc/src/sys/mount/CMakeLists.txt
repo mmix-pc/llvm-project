@@ -5,3 +5,5 @@ endif()
 add_entrypoint_object(mount ALIAS DEPENDS .${LIBC_TARGET_OS}.mount)
 add_entrypoint_object(umount2 ALIAS DEPENDS .${LIBC_TARGET_OS}.umount2)
 add_entrypoint_object(umount ALIAS DEPENDS .${LIBC_TARGET_OS}.umount)
+
+add_entrypoint_object(pivot_root ALIAS DEPENDS .${LIBC_TARGET_OS}.pivot_root)

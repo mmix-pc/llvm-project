@@ -31,3 +31,6 @@ add_subdirectory(file)
 add_subdirectory(inotify)
 add_subdirectory(timex)
 add_subdirectory(klog)
+add_subdirectory(swap)
+
+add_subdirectory(capability)

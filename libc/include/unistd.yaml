@@ -773,3 +773,8 @@ functions:
     arguments:
       - type: int
       - type: int
+  - name: acct
+    standards: [linux]
+    return_type: int
+    arguments:
+      - type: const char *

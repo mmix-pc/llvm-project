@@ -1,0 +1,15 @@
+header: sys/swap.h
+standards: [linux]
+macros:
+  - macro_name: SWAP_FLAG_PREFER
+    macro_header: sys-swap-macros.h
+functions:
+  - name: swapon
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: int
+  - name: swapoff
+    return_type: int
+    arguments:
+      - type: const char *

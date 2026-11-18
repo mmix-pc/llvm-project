@@ -715,3 +715,5 @@ add_entrypoint_object(daemon SRCS daemon.cpp HDRS daemon.h DEPENDS
   libc.hdr.errno_macros libc.hdr.fcntl_macros
   libc.src.__support.OSUtil.linux.syscall_wrappers.open
   libc.src.__support.OSUtil.linux.syscall_wrappers.close libc.src.errno.errno)
+
+add_entrypoint_object(acct ALIAS DEPENDS .${LIBC_TARGET_OS}.acct)

@@ -1198,3 +1198,5 @@ add_entrypoint_object(getusershell SRCS getusershell.cpp HDRS ../getusershell.h 
 add_entrypoint_object(setusershell SRCS setusershell.cpp HDRS ../setusershell.h DEPENDS .usershell_internal)
 
 add_entrypoint_object(endusershell SRCS endusershell.cpp HDRS ../endusershell.h DEPENDS .usershell_internal)
+
+add_entrypoint_object(acct SRCS acct.cpp HDRS ../acct.h DEPENDS libc.include.sys_syscall libc.src.__support.OSUtil.osutil libc.src.errno.errno)
