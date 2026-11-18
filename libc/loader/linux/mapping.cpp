@@ -67,20 +67,20 @@ MapResult DsoMapping::open(const char *path) {
   if (!is_supported_page_size(page_size))
     return {-EINVAL, 0};
   long error = fd.open_readonly(path);
-  return error ? MapResult{error, 0} : finish_open();
+  return error ? MapResult{error, 0} : finish_open(-1);
 }
 
-MapResult DsoMapping::open(OwnedFd &source) {
+MapResult DsoMapping::open(OwnedFd &source, long length) {
   if (busy())
     return {-EBUSY, 0};
   if (!is_supported_page_size(page_size))
     return {-EINVAL, 0};
   long error = fd.take(source);
-  return error ? MapResult{error, 0} : finish_open();
+  return error ? MapResult{error, 0} : finish_open(length);
 }
 
-MapResult DsoMapping::finish_open() {
-  long error = populate();
+MapResult DsoMapping::finish_open(long length) {
+  long error = populate(length);
   if (error)
     return {error, reset()};
   // Consume the fd even on close failure. Do not immediately retry a failed
@@ -144,8 +144,9 @@ long DsoMapping::map_segment(const Elf64_Phdr &p, Address bias) {
   return start < end ? replace(bias + start, end - start, prot, true, 0) : 0;
 }
 
-long DsoMapping::populate() {
-  long length = raw_syscall(SYS_lseek, fd.get(), 0, SEEK_END);
+long DsoMapping::populate(long length) {
+  if (length < 0)
+    length = raw_syscall(SYS_lseek, fd.get(), 0, SEEK_END);
   if (length < 0)
     return length;
   if (length < 64)

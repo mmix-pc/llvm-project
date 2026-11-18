@@ -39,8 +39,8 @@ class DsoMapping {
   ElfImage mapped;
   DynamicInfo dynamic;
 
-  long populate();
-  MapResult finish_open();
+  long populate(long length);
+  MapResult finish_open(long length);
   bool busy() const;
   long map_segment(const Elf64_Phdr &p, Address bias);
   long replace(Address address, Address size, int prot, bool anonymous,
@@ -56,7 +56,8 @@ public:
   // Errors use negative Linux errno; malformed/unsupported ELF uses ENOEXEC.
   MapResult open(const char *path);
   // Transfer an already identified file without reopening its pathname.
-  MapResult open(OwnedFd &source);
+  // A length obtained with source's identity avoids a second size query.
+  MapResult open(OwnedFd &source, long length = -1);
   long reset();
   // Identity only: survives reset failure, not a usable mapped image view.
   Address load_bias() const { return mapped.load_bias(); }

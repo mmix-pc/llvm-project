@@ -394,6 +394,18 @@ bool DynamicInfo::read_relocation(Address index, DynamicRelocation &out) const {
   return true;
 }
 
+bool DynamicInfo::debug_entry_offset(Address &offset) const {
+  if (!has(DynamicTag::Debug))
+    return false;
+  for (Address i = 0; i < dynamic.size(); i += 16) {
+    if (integer(dynamic.data() + i, 8, big) == DT_DEBUG) {
+      offset = i;
+      return true;
+    }
+  }
+  return false;
+}
+
 bool DynamicInfo::needed(Address index, Bytes &out) const {
   out = {};
   if (!valid || index >= needed_size)
@@ -1077,6 +1089,25 @@ DynamicError DynamicInfo::parse(const ElfImage &image,
   if ((!any_rela && has(DynamicTag::Relacount)) ||
       val(DynamicTag::Relacount) > relas.size() / 24)
     return DynamicError::Relocation;
+  struct MetadataRange {
+    Address start, size;
+  };
+  const MetadataRange protected_ranges[] = {
+      {image.header_address(), 64},
+      {image.table_address(), Address(header->e_phnum) * 56},
+      {dynamic_address, dynamic.size()},
+      {val(DynamicTag::Strtab), strings.size()},
+      {val(DynamicTag::Symtab), symbols.size()},
+      {val(DynamicTag::Hash), sysv.size()},
+      {val(DynamicTag::GnuHash), gnu.size()},
+      {val(DynamicTag::Versym), versym.size()},
+      {val(DynamicTag::Verdef), verdef.size()},
+      {val(DynamicTag::Verneed), verneed.size()},
+      {val(DynamicTag::Rela), relas.size()},
+  };
+  // Most relocations stay in a gap between metadata ranges. Remember the
+  // inclusive interval of eight-byte destinations proven safe in this parse.
+  Address gap_first = 1, gap_last = 0;
   Address highest_destination = 0, sorted_count = 0;
   // A Bloom filter can prove that neither octa touched by a destination has
   // appeared before. Collisions only select the exact check below. Keep storage
@@ -1107,11 +1138,12 @@ DynamicError DynamicInfo::parse(const ElfImage &image,
       return DynamicError::Relocation;
     bool tls_relocation = is_tls_relocation(r.info);
     tls_required |= tls_relocation;
-    Elf64_Sym symbol;
-    (void)read_symbol(r.info >> 32, symbol);
-    if ((r.info >> 32) &&
-        (((symbol.st_info & 15) == STT_TLS) != tls_relocation))
-      return DynamicError::Relocation;
+    if (r.info >> 32) {
+      Elf64_Sym symbol;
+      (void)read_symbol(r.info >> 32, symbol);
+      if (((symbol.st_info & 15) == STT_TLS) != tls_relocation)
+        return DynamicError::Relocation;
+    }
     if (tls_relocation) {
       if (r.offset % 8 || image.role() == ImageRole::Interpreter ||
           (!(r.info >> 32) && !image.tls_header()) ||
@@ -1121,19 +1153,27 @@ DynamicError DynamicInfo::parse(const ElfImage &image,
       if (tls && overlaps(r.offset, tls->p_vaddr, tls->p_filesz))
         return DynamicError::Relocation;
     }
-    if (overlaps(r.offset, image.header_address(), 64) ||
-        overlaps(r.offset, image.table_address(),
-                 Address(header->e_phnum) * 56) ||
-        overlaps(r.offset, dynamic_address, dynamic.size()) ||
-        overlaps(r.offset, val(DynamicTag::Strtab), strings.size()) ||
-        overlaps(r.offset, val(DynamicTag::Symtab), symbols.size()) ||
-        overlaps(r.offset, val(DynamicTag::Hash), sysv.size()) ||
-        overlaps(r.offset, val(DynamicTag::GnuHash), gnu.size()) ||
-        overlaps(r.offset, val(DynamicTag::Versym), versym.size()) ||
-        overlaps(r.offset, val(DynamicTag::Verdef), verdef.size()) ||
-        overlaps(r.offset, val(DynamicTag::Verneed), verneed.size()) ||
-        overlaps(r.offset, val(DynamicTag::Rela), relas.size()))
-      return DynamicError::Relocation;
+    if (r.offset < gap_first || r.offset > gap_last) {
+      gap_first = 0;
+      gap_last = Address(-1) - 7;
+      for (const auto &range : protected_ranges) {
+        if (!range.size)
+          continue;
+        if (overlaps(r.offset, range.start, range.size))
+          return DynamicError::Relocation;
+        // Disjointness makes both arithmetic bounds representable. The
+        // destination's complete eight-byte extent was checked above.
+        if (range.start < r.offset) {
+          const Address bound = range.start + range.size;
+          if (bound > gap_first)
+            gap_first = bound;
+        } else {
+          const Address bound = range.start - 8;
+          if (bound < gap_last)
+            gap_last = bound;
+        }
+      }
+    }
     // An unaligned eight-byte destination touches two aligned octas. Any
     // overlap must share at least one of them, irrespective of input order.
     Address first_block = r.offset / 8;

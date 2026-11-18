@@ -162,7 +162,8 @@ MapResult RuntimeGraph::candidate(void *context, const char *path) {
   if (error)
     return {error, 0};
   FileIdentity identity;
-  error = fd.identity(identity);
+  long length;
+  error = fd.identity(identity, &length);
   if (error)
     return {error, fd.close()};
   for (const auto *image : graph.base->images) {
@@ -198,7 +199,7 @@ MapResult RuntimeGraph::candidate(void *context, const char *path) {
   for (size_t i = 0; i < used; ++i)
     copy[i] = absolute[i];
   node->pathname = {copy, used};
-  MapResult result = node->mapping.open(fd);
+  MapResult result = node->mapping.open(fd, length);
   if (result.error || result.cleanup_error) {
     long cleanup = fd.close();
     if (!result.cleanup_error)

@@ -67,7 +67,8 @@ public:
   }
   r_debug *debug_record() { return &debug; }
   // Called before main RELRO protection, never by a query or debugger callback.
-  long bind_debug(const ElfImage &main, Address interpreter_bias);
+  long bind_debug(const ElfImage &main, const DynamicInfo &admitted,
+                  Address interpreter_bias);
   static long address(const Snapshot &, uintptr_t, Dl_info &);
   static const Record *record(const Snapshot &, const ImageRegistry::Image *);
   static long phdr_info(const Snapshot &, const Record &, void *, PeekTLS,

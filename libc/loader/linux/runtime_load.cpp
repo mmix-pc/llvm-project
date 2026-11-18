@@ -180,7 +180,8 @@ long RuntimeLoad::prepare_records(const ImageRegistry::Image &caller,
   // templates are never used as thread instances or rewritten on reopen.
   if (!images.mark_relocated() || !images.mark_tls_ready())
     return -EINVAL;
-  error = finalize_image_protections({views, count}, page_size);
+  error = finalize_image_protections({views, count}, page_size,
+                                    LoadProtections::PreserveMappedDSOs);
   if (error)
     return error;
   return images.mark_protected() ? namespace_owner->prepare_unwind(scopes)

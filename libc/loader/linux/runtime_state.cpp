@@ -100,7 +100,8 @@ long RuntimeState::prepare(const StartupGraph &graph,
   }
   if ((error = images.prepare(image_tx, {elf, n}, {discovery, n})))
     return error;
-  return api.query_metadata().bind_debug(*elf[0], bias);
+  return api.query_metadata().bind_debug(*elf[0], *discovery[0].metadata,
+                                         bias);
 }
 
 long RuntimeState::publish() {

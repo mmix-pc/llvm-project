@@ -61,6 +61,16 @@ extern "C" int main() {
   for (unsigned i = 6; i < 8; ++i)
     check(calls[i].address == bias + (i - 6) * 0x100000 + 2 * page &&
           calls[i].size == page && calls[i].prot == PROT_READ);
+  count = 0;
+  check(finalize_image_protections(
+            scope, page, LoadProtections::PreserveMappedDSOs) == 0 &&
+        count == 5);
+  for (unsigned i = 0; i < 3; ++i)
+    check(calls[i].address == bias + i * page && calls[i].size == page &&
+          calls[i].prot == flags[i]);
+  for (unsigned i = 3; i < 5; ++i)
+    check(calls[i].address == bias + (i - 3) * 0x100000 + 2 * page &&
+          calls[i].size == page && calls[i].prot == PROT_READ);
   for (unsigned fail = 1; fail <= 8; ++fail) {
     count = 0;
     fail_at = fail;

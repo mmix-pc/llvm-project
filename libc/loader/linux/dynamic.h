@@ -136,6 +136,8 @@ public:
   bool relocation(Address index, DynamicRelocation &out) const {
     return valid && read_relocation(index, out);
   }
+  // Offset of the admitted DT_DEBUG record within PT_DYNAMIC.
+  bool debug_entry_offset(Address &offset) const;
   bool needed(Address index, Bytes &out) const;
   // Empty version selects only public defaults. Nonempty versions match
   // exactly; an unversioned definition is never a compatibility fallback.

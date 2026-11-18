@@ -43,7 +43,8 @@ public:
   ~OwnedFd() { close(); }
   int get() const { return value; }
   long open_readonly(const char *path);
-  long identity(FileIdentity &out) const;
+  // When requested, length is -1 if statx cannot supply a usable size.
+  long identity(FileIdentity &out, long *length = nullptr) const;
   long take(OwnedFd &from);
   // Consumes ownership even on failure; never retry Linux close after EINTR.
   long close();

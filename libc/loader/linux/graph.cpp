@@ -121,7 +121,8 @@ MapResult StartupGraph::candidate(void *context, const char *path) {
   if (error)
     return {error, 0};
   FileIdentity identity;
-  error = fd.identity(identity);
+  long length;
+  error = fd.identity(identity, &length);
   if (error)
     return {error, fd.close()};
   for (Node *node = graph.head; node; node = node->scope_next) {
@@ -139,7 +140,7 @@ MapResult StartupGraph::candidate(void *context, const char *path) {
       *node, Bytes(reinterpret_cast<unsigned char *>(absolute), used));
   if (error)
     return {error, fd.close()};
-  MapResult result = node->mapping.open(fd);
+  MapResult result = node->mapping.open(fd, length);
   if (result.error || result.cleanup_error) {
     long close_error = fd.close();
     if (!result.cleanup_error)
@@ -342,7 +343,8 @@ MapResult StartupGraph::finalize_protections() {
   size_t i = 0;
   for (Node *node = head; node; node = node->scope_next)
     images[i++] = node->image();
-  error = finalize_image_protections({images, count}, page_size);
+  error = finalize_image_protections({images, count}, page_size,
+                                    LoadProtections::PreserveMappedDSOs);
   if (error)
     return {error, reset()};
   protected_images = true;

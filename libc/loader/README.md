@@ -318,9 +318,11 @@ fixtures verify actual relocation contents without executing target instructions
 ## Final Image Protection
 
 `finalize_image_protections` rechecks all borrowed mapped layouts before the
-first syscall. It applies R/RX/RW permissions to each page-disjoint LOAD, then
-read-only permissions to page-bounded RELRO. Holes are never included in a
-transition; executable stacks and W+X LOADs are rejected during admission.
+first syscall. It applies R/RX/RW permissions to borrowed images, then
+read-only permissions to page-bounded RELRO for all images. The loader's
+startup and runtime transactions reuse final LOAD permissions already
+established by DsoMapping. Holes are never included in a transition;
+executable stacks and W+X LOADs are rejected during admission.
 The initial NX stack remains the kernel's responsibility, not a guessed range.
 Call this once after relocation with immutable nonaliasing images, before any
 publication or user execution. A syscall failure may leave partial protection;

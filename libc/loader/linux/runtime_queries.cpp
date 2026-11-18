@@ -158,37 +158,61 @@ void RuntimeQueries::publish() {
 }
 
 long RuntimeQueries::bind_debug(const ElfImage &main,
+                                const DynamicInfo &admitted,
                                 Address interpreter_bias) {
   if (!main.is_mapped() || (main.role() != ImageRole::MainExecutable &&
                             main.role() != ImageRole::MainPIE))
     return -EINVAL;
-  DynamicInfo info;
-  if (DynamicInfo::open(main, info) != DynamicError::None ||
-      !info.has(DynamicTag::Debug))
+  if (!admitted.is_for(main))
     return -ENOEXEC;
+  DynamicInfo borrowed;
+  const DynamicInfo *metadata = &admitted;
+  if (!admitted.is_stable_for(main)) {
+    if (DynamicInfo::open(main, borrowed) != DynamicError::None)
+      return -ENOEXEC;
+    metadata = &borrowed;
+  }
+  Address offset;
+  if (!metadata->debug_entry_offset(offset))
+    return -ENOEXEC;
+
   const bool big = main.header()->e_ident[EI_DATA] == ELFDATA2MSB;
   for (unsigned i = 0; i < main.header()->e_phnum; ++i) {
     Elf64_Phdr p;
-    (void)main.program_header(i, p);
+    if (!main.program_header(i, p))
+      return -ENOEXEC;
     if (p.p_type != PT_DYNAMIC)
       continue;
-    auto bytes = main.mapped_memory_bytes(p.p_vaddr, p.p_filesz, PF_R | PF_W);
-    for (size_t j = 0; j + 16 <= bytes.size(); j += 16) {
-      Address tag = 0;
-      for (unsigned k = 0; k < 8; ++k)
-        tag |= Address(bytes[j + k]) << (8 * (big ? 7 - k : k));
-      if (tag != DT_DEBUG)
-        continue;
-      debug.r_version = 1;
-      debug.r_brk = reinterpret_cast<Address>(notify);
-      debug.r_ldbase = interpreter_bias;
-      auto *destination = const_cast<unsigned char *>(bytes.data()) + j + 8;
-      Address value = reinterpret_cast<Address>(&debug);
-      for (unsigned k = 0; k < 8; ++k)
-        destination[k] =
-            static_cast<unsigned char>(value >> (8 * (big ? 7 - k : k)));
-      return 0;
+    Bytes live = main.file_backed_bytes(p.p_vaddr, p.p_filesz);
+    if (offset > live.size() || live.size() - offset < 16)
+      return -ENOEXEC;
+    // The saved record identifies the slot. Check that the live table still
+    // places it before DT_NULL and contains no other DT_DEBUG record.
+    bool terminated = false;
+    for (size_t j = 0; j + 16 <= live.size(); j += 16) {
+      Address tag = read_elf_integer<Address>(live.data() + j, big);
+      if (tag == DT_NULL) {
+        terminated = j > offset;
+        break;
+      }
+      if ((j == offset) != (tag == DT_DEBUG))
+        return -ENOEXEC;
     }
+    if (!terminated)
+      return -ENOEXEC;
+    Bytes slot = main.mapped_memory_bytes(p.p_vaddr + offset + 8, 8,
+                                          PF_R | PF_W);
+    if (slot.size() != 8)
+      return -ENOEXEC;
+    debug.r_version = 1;
+    debug.r_brk = reinterpret_cast<Address>(notify);
+    debug.r_ldbase = interpreter_bias;
+    auto *destination = const_cast<unsigned char *>(slot.data());
+    Address value = reinterpret_cast<Address>(&debug);
+    for (unsigned k = 0; k < 8; ++k)
+      destination[k] =
+          static_cast<unsigned char>(value >> (8 * (big ? 7 - k : k)));
+    return 0;
   }
   return -ENOEXEC;
 }

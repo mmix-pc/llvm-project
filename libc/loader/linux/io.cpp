@@ -76,7 +76,9 @@ long OwnedFd::take(OwnedFd &from) {
   return 0;
 }
 
-long OwnedFd::identity(FileIdentity &out) const {
+long OwnedFd::identity(FileIdentity &out, long *length) const {
+  if (length)
+    *length = -1;
   if (value < 0)
     return -EBADF;
   struct statx status;
@@ -84,7 +86,8 @@ long OwnedFd::identity(FileIdentity &out) const {
   long result;
   do {
     result = raw_syscall(SYS_statx, value, reinterpret_cast<long>(""),
-                         AT_EMPTY_PATH, STATX_INO | STATX_TYPE,
+                         AT_EMPTY_PATH,
+                         STATX_INO | STATX_TYPE | (length ? STATX_SIZE : 0),
                          reinterpret_cast<long>(&status));
   } while (result == -EINTR);
   if (result < 0)
@@ -93,6 +96,8 @@ long OwnedFd::identity(FileIdentity &out) const {
       (status.stx_mode & S_IFMT) != S_IFREG)
     return -ENOEXEC;
   out = {status.stx_ino, status.stx_dev_major, status.stx_dev_minor};
+  if (length && (status.stx_mask & STATX_SIZE) && status.stx_size <= __LONG_MAX__)
+    *length = static_cast<long>(status.stx_size);
   return 0;
 }
 

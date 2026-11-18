@@ -107,8 +107,8 @@ struct File {
 };
 static File files[8];
 static unsigned file_count, active_file, calls, fail_at, closes, opens,
-    mapped_files;
-static bool fd_live, fail_unmaps, no_identity, interrupt_stat;
+    mapped_files, length_queries;
+static bool fd_live, fail_unmaps, no_identity, interrupt_stat, stat_size;
 static Address fail_release_address;
 static size_t file_position;
 alignas(page) static unsigned char pool[8 * 1024 * 1024];
@@ -131,7 +131,8 @@ static unsigned live() {
 }
 static void start() {
   assert(!fd_live && !live());
-  calls = fail_at = closes = opens = mapped_files = 0;
+  calls = fail_at = closes = opens = mapped_files = length_queries = 0;
+  stat_size = false;
   failed_syscall = 0;
   used = allocations_count = 0;
   fail_unmaps = no_identity = interrupt_stat = false;
@@ -193,13 +194,18 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
   if (number == SYS_statx) {
     assert(fd_live && a == 7);
     assert(!*reinterpret_cast<const char *>(b) && c == AT_EMPTY_PATH &&
-           d == (STATX_INO | STATX_TYPE));
+           (d == (STATX_INO | STATX_TYPE) ||
+            d == (STATX_INO | STATX_TYPE | STATX_SIZE)));
     if (interrupt_stat) {
       interrupt_stat = false;
       return -EINTR;
     }
     auto &out = *reinterpret_cast<struct statx *>(e);
     out.stx_mask = no_identity ? STATX_TYPE : STATX_INO | STATX_TYPE;
+    if (stat_size && (d & STATX_SIZE)) {
+      out.stx_mask |= STATX_SIZE;
+      out.stx_size = sizeof(Library::bytes);
+    }
     out.stx_mode = S_IFREG;
     out.stx_ino = files[active_file].identity.inode;
     out.stx_dev_major = files[active_file].identity.device_major;
@@ -207,6 +213,7 @@ long raw_syscall(long number, long a, long b, long c, long d, long e, long f) {
     return 0;
   }
   if (number == SYS_lseek) {
+    ++length_queries;
     assert(fd_live && a == 7);
     file_position = c == SEEK_END ? sizeof(Library::bytes) : 0;
     return file_position;
@@ -1193,6 +1200,12 @@ extern "C" int main() {
         -EBUSY);
   CHECK(graph.reset() == 0 && !live() && !fd_live && !graph.scope());
   CHECK(main.header() && main_file.bytes[0] == 0x7f && graph.reset() == 0);
+  CHECK(length_queries == 4);
+  start();
+  stat_size = true;
+  CHECK(!graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error);
+  CHECK(graph.size() == 5 && mapped_files == 4 && !length_queries);
+  CHECK(!graph.reset() && !live() && opens == closes);
 
   start();
   CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
@@ -1203,7 +1216,7 @@ extern "C" int main() {
   before_protection = calls;
   CHECK(graph.finalize_protections().error == 0);
   unsigned protection_calls = calls - before_protection;
-  CHECK(protection_calls == 20);
+  CHECK(protection_calls == 8);
   CHECK(graph.finalize_protections().error == 0);
   CHECK(calls == before_protection + protection_calls);
   CHECK(graph.reset() == 0 && !live());
@@ -1222,7 +1235,7 @@ extern "C" int main() {
   CHECK(graph.build(main, {1, 1, 0}, text("/lib/main"), environment).error ==
         0);
   CHECK(graph.relocate().error == 0);
-  fail_at = calls + 20;
+  fail_at = calls + protection_calls;
   fail_unmaps = true;
   auto protection_failure = graph.finalize_protections();
   CHECK(protection_failure.error == -EIO &&

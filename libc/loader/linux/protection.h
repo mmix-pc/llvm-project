@@ -14,13 +14,18 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
+enum class LoadProtections { ApplyAll, PreserveMappedDSOs };
+
 // Call once after relocation, before publication or any user execution.
 // Borrow immutable, nonaliasing mapped images; ownership remains with callers.
+// PreserveMappedDSOs requires each SharedObject to have been mapped with its
+// final LOAD permissions by DsoMapping. RELRO still applies to every image.
 // Preflight every layout before any syscall. Failures may leave permissions
 // partially tightened: abort startup and release owned mappings, never continue
 // or restore writable permissions to retry. Returns negative Linux errno.
 long finalize_image_protections(cpp::span<const ElfImage *const> images,
-                                Address page_size);
+                                Address page_size,
+                                LoadProtections loads = LoadProtections::ApplyAll);
 
 } // namespace loader
 } // namespace LIBC_NAMESPACE_DECL

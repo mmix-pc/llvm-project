@@ -17,7 +17,7 @@ namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
 long finalize_image_protections(cpp::span<const ElfImage *const> images,
-                                Address page_size) {
+                                Address page_size, LoadProtections loads) {
   if (images.empty() || !is_supported_page_size(page_size))
     return -EINVAL;
   for (const ElfImage *image : images)
@@ -30,6 +30,9 @@ long finalize_image_protections(cpp::span<const ElfImage *const> images,
   // the initial stack mapping; this function does not guess its extent.
   for (unsigned phase = 0; phase < 2; ++phase) {
     for (const ElfImage *image : images) {
+      if (!phase && loads == LoadProtections::PreserveMappedDSOs &&
+          image->role() == ImageRole::SharedObject)
+        continue;
       for (unsigned i = 0; i < image->header()->e_phnum; ++i) {
         Elf64_Phdr p;
         (void)image->program_header(i, p);

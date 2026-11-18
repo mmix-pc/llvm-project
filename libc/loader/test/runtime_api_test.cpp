@@ -218,7 +218,24 @@ int main(int argc, char **argv) {
   check(!environment.parse(false, {}, {}));
   RuntimeAPI service(page, registry, scopes, initializers, stack, environment,
                      {&registry, resolve}, nullptr, peek);
-  check(!service.query_metadata().bind_debug(main, 0x123000));
+  DynamicInfo debug_metadata;
+  check(DynamicInfo::open(main, debug_metadata) == DynamicError::None);
+  auto &queries = service.query_metadata();
+  check(!queries.bind_debug(main, debug_metadata, 0x123000));
+
+  Arena debug_storage(page);
+  check(!DynamicInfo::open_stable(main, debug_storage, debug_metadata));
+  check(debug_metadata.is_stable_for(main));
+  const Address debug_tag = main_file.at(DT_DEBUG);
+  const Address debug_value =
+      read_elf_integer<Address>(main_file.bytes + debug_tag + 8, true);
+  main_file.put(debug_tag, 8, DT_NULL);
+  check(queries.bind_debug(main, debug_metadata, 0x456000) == -ENOEXEC);
+  check(read_elf_integer<Address>(main_file.bytes + debug_tag + 8, true) ==
+        debug_value);
+  main_file.put(debug_tag, 8, DT_DEBUG);
+  check(!queries.bind_debug(main, debug_metadata, 0x123000));
+  check(!debug_storage.reset());
   RuntimeQueries failing_queries(page);
   fail_query_allocation = true;
   check(failing_queries.prepare(*registry.snapshot()) == -ENOMEM);
