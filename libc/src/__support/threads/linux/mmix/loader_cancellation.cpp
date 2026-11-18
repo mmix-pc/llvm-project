@@ -92,19 +92,32 @@ long leave(uint64_t saved) {
   return -set_cancel_state(state, nullptr);
 #endif
 }
+#ifdef LIBC_MMIX_SHARED_STARTUP
+void change_callback_depth(bool entering) {
+  auto *control = current_control;
+  if (!control || !control->loader_scopes.load())
+    __builtin_trap();
+  // The owning loader scope stays active across both transitions. Readers
+  // can observe either depth, and no callback runs until entry publishes
+  // the new depth. Check the bounds before storing to avoid publishing a
+  // wrapped depth to a signal handler, even on a fatal path.
+  auto &depth = control->loader_callbacks;
+  uint64_t previous = depth.load();
+  do {
+    if (entering ? previous == UINT64_MAX : previous == 0)
+      __builtin_trap();
+  } while (!depth.compare_exchange_weak(
+      previous, entering ? previous + 1 : previous - 1));
+}
+#endif
 void begin_callback() {
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  Mask mask;
-  if (!current_control || !current_control->loader_scopes.load() ||
-      current_control->loader_callbacks.fetch_add(1) == UINT64_MAX)
-    __builtin_trap();
+  change_callback_depth(true);
 #endif
 }
 void end_callback() {
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  Mask mask;
-  if (!current_control || !current_control->loader_callbacks.fetch_sub(1))
-    __builtin_trap();
+  change_callback_depth(false);
 #endif
 }
 } // namespace

@@ -116,13 +116,19 @@ int main() {
   check(!hooks.enter(&saved) && saved == PTHREAD_CANCEL_ENABLE);
   check(control.loader_scopes.load() == 1 && signal_mask == 0x40);
   check(mask_changes == 2);
+  const unsigned before_callback = mask_changes;
   hooks.begin_callback();
   check(control.loader_callbacks.load() == 1);
+  hooks.begin_callback();
+  check(control.loader_callbacks.load() == 2);
+  hooks.end_callback();
+  check(control.loader_callbacks.load() == 1 && mask_changes == before_callback);
   unsigned before_nested = mask_changes;
   check(!hooks.enter(&nested) && nested == PTHREAD_CANCEL_DISABLE);
   check(!hooks.leave(nested) && cancel_state == PTHREAD_CANCEL_DISABLE);
   check(mask_changes == before_nested + 4);
   hooks.end_callback();
+  check(!control.loader_callbacks.load() && mask_changes == before_nested + 4);
   // A handler interrupting the owner cannot borrow its recursive lock rank.
   active_chain = 8;
   unsigned before = changes;
