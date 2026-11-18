@@ -21,6 +21,7 @@ set(MMIX_TIME_ENTRYPOINTS
   libc.src.time.gmtime_r
   libc.src.time.localtime
   libc.src.time.localtime_r
+  libc.src.time.timegm
   libc.src.time.mktime
   libc.src.time.difftime
   libc.src.time.asctime

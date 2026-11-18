@@ -441,3 +441,16 @@ add_entrypoint_object(
   ALIAS
   DEPENDS .${LIBC_TARGET_OS}.getdate
 )
+
+add_entrypoint_object(
+  timegm
+  SRCS timegm.cpp
+  HDRS timegm.h
+  DEPENDS
+    .time_utils
+    libc.hdr.types.struct_tm
+    libc.hdr.types.time_t
+    libc.src.__support.common
+    libc.src.__support.libc_errno
+    libc.src.__support.macros.null_check
+)
