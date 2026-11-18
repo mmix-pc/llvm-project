@@ -114,17 +114,14 @@ int cancel_thread(ThreadAttributes *handle) {
   return error;
 }
 
-int set_cancel_state(int state, int *old_state) {
-  if (state != PTHREAD_CANCEL_ENABLE && state != PTHREAD_CANCEL_DISABLE)
-    return EINVAL;
-  if (!current_control)
-    return ENOTSUP;
-  {
-    SignalMask mask;
-    bool enabled = current_control->cancellation.set_enabled(
-        state == PTHREAD_CANCEL_ENABLE);
-    if (old_state)
-      *old_state = enabled ? PTHREAD_CANCEL_ENABLE : PTHREAD_CANCEL_DISABLE;
+#ifndef LIBC_MMIX_SHARED_STARTUP
+static
+#endif
+void set_cancel_state_masked(int state, int *old_state) {
+  bool enabled = current_control->cancellation.set_enabled(
+      state == PTHREAD_CANCEL_ENABLE);
+  if (old_state)
+    *old_state = enabled ? PTHREAD_CANCEL_ENABLE : PTHREAD_CANCEL_DISABLE;
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   // An application handler can enable a pending request while its ordinary
   // caller is blocked. Queue the wake before returning to that caller's TRAP.
@@ -138,12 +135,29 @@ int set_cancel_state(int state, int *old_state) {
       __builtin_trap();
   }
 #endif
-  }
+}
+
+#ifndef LIBC_MMIX_SHARED_STARTUP
+static
+#endif
+void finish_cancel_state_change([[maybe_unused]] int state) {
 #ifdef LIBC_MMIX_ASYNC_CANCELLATION
   if (state == PTHREAD_CANCEL_ENABLE &&
       current_control->cancellation.asynchronous())
     test_cancel();
 #endif
+}
+
+int set_cancel_state(int state, int *old_state) {
+  if (state != PTHREAD_CANCEL_ENABLE && state != PTHREAD_CANCEL_DISABLE)
+    return EINVAL;
+  if (!current_control)
+    return ENOTSUP;
+  {
+    SignalMask mask;
+    set_cancel_state_masked(state, old_state);
+  }
+  finish_cancel_state_change(state);
   return 0;
 }
 

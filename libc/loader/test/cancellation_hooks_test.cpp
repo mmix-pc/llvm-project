@@ -27,7 +27,7 @@
 static uint64_t active_chain = 7, signal_mask;
 static long query_failure;
 static int cancel_state = PTHREAD_CANCEL_ENABLE;
-static unsigned changes;
+static unsigned changes, mask_changes;
 static int expected_enabled_on_unmask = -1;
 static void check(bool ok, int line = __builtin_LINE()) {
   if (!ok) {
@@ -54,6 +54,13 @@ int set_cancel_state(int state, int *previous) {
   ++changes;
   return 0;
 }
+void set_cancel_state_masked(int state, int *previous) {
+  check(signal_mask == UINT64_MAX);
+  check(!set_cancel_state(state, previous));
+}
+void finish_cancel_state_change(int state) {
+  check(signal_mask == 0x40 && cancel_state == state);
+}
 } // namespace mmix
 long syscall_impl(long number, long pointer) {
   check(number == __NR_mmix_rstack_query && signal_mask == UINT64_MAX);
@@ -67,6 +74,7 @@ long syscall_impl(long number, long how, long set, long old, long size) {
   if (old)
     *reinterpret_cast<uint64_t *>(old) = signal_mask;
   if (set) {
+    ++mask_changes;
     uint64_t value = *reinterpret_cast<uint64_t *>(set);
     if (how == SIG_SETMASK && expected_enabled_on_unmask != -1) {
       check(mmix::control.cancellation.enabled() ==
@@ -107,10 +115,13 @@ int main() {
   signal_mask = 0x40;
   check(!hooks.enter(&saved) && saved == PTHREAD_CANCEL_ENABLE);
   check(control.loader_scopes.load() == 1 && signal_mask == 0x40);
+  check(mask_changes == 2);
   hooks.begin_callback();
   check(control.loader_callbacks.load() == 1);
+  unsigned before_nested = mask_changes;
   check(!hooks.enter(&nested) && nested == PTHREAD_CANCEL_DISABLE);
   check(!hooks.leave(nested) && cancel_state == PTHREAD_CANCEL_DISABLE);
+  check(mask_changes == before_nested + 4);
   hooks.end_callback();
   // A handler interrupting the owner cannot borrow its recursive lock rank.
   active_chain = 8;

@@ -60,34 +60,37 @@ long enter(uint64_t *saved) {
     return -ENOTSUP;
 #endif
   int previous;
-  int error = set_cancel_state(PTHREAD_CANCEL_DISABLE, &previous);
-  if (!error) {
-    *saved = static_cast<uint64_t>(previous);
 #ifdef LIBC_MMIX_SHARED_STARTUP
-    if (current_control->loader_scopes.fetch_add(1) == UINT64_MAX)
-      __builtin_trap();
-#endif
-  }
+  set_cancel_state_masked(PTHREAD_CANCEL_DISABLE, &previous);
+  *saved = static_cast<uint64_t>(previous);
+  if (current_control->loader_scopes.fetch_add(1) == UINT64_MAX)
+    __builtin_trap();
+  return 0;
+#else
+  int error = set_cancel_state(PTHREAD_CANCEL_DISABLE, &previous);
+  if (!error)
+    *saved = static_cast<uint64_t>(previous);
   return -error;
+#endif
 }
 long leave(uint64_t saved) {
   if (saved != PTHREAD_CANCEL_ENABLE && saved != PTHREAD_CANCEL_DISABLE)
     return -EINVAL;
+  int state = static_cast<int>(saved);
 #ifdef LIBC_MMIX_SHARED_STARTUP
   {
     Mask mask;
-    if (!current_control)
+    if (!current_control || !current_control->loader_scopes.fetch_sub(1))
       __builtin_trap();
-    // Do not expose a callback's enabled state between lifting the guard and
-    // restoring an originally disabled caller.
-    current_control->cancellation.set_enabled(saved == PTHREAD_CANCEL_ENABLE);
-    if (!current_control->loader_scopes.fetch_sub(1))
-      __builtin_trap();
+    // Restore state and queue any wake before unmasking. Remaining outer
+    // scopes still block delivery even if a callback enabled cancellation.
+    set_cancel_state_masked(state, nullptr);
   }
+  finish_cancel_state_change(state);
+  return 0;
+#else
+  return -set_cancel_state(state, nullptr);
 #endif
-  // Restore the entry state only after dropping this scope. Remaining outer
-  // scopes independently block delivery even if a callback enabled it.
-  return -set_cancel_state(static_cast<int>(saved), nullptr);
 }
 void begin_callback() {
 #ifdef LIBC_MMIX_SHARED_STARTUP

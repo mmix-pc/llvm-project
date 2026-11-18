@@ -16,6 +16,12 @@ struct ThreadAttributes;
 namespace mmix {
 int cancel_thread(ThreadAttributes *handle);
 int set_cancel_state(int state, int *old_state);
+#ifdef LIBC_MMIX_SHARED_STARTUP
+// Internal loader transitions already hold a mask blocking all signals.
+// The final asynchronous delivery check must run after restoring the mask.
+void set_cancel_state_masked(int state, int *old_state);
+void finish_cancel_state_change(int state);
+#endif
 int set_cancel_type(int type, int *old_type);
 void test_cancel();
 } // namespace mmix
