@@ -708,3 +708,10 @@ add_entrypoint_object(getusershell ALIAS DEPENDS .${LIBC_TARGET_OS}.getusershell
 add_entrypoint_object(setusershell ALIAS DEPENDS .${LIBC_TARGET_OS}.setusershell)
 
 add_entrypoint_object(endusershell ALIAS DEPENDS .${LIBC_TARGET_OS}.endusershell)
+
+add_entrypoint_object(daemon SRCS daemon.cpp HDRS daemon.h DEPENDS
+  .fork ._exit .setsid .chdir .dup2 libc.src.sys.stat.fstat
+  libc.src.sys.sysmacros.makedev libc.hdr.sys_stat_macros libc.hdr.types.struct_stat
+  libc.hdr.errno_macros libc.hdr.fcntl_macros
+  libc.src.__support.OSUtil.linux.syscall_wrappers.open
+  libc.src.__support.OSUtil.linux.syscall_wrappers.close libc.src.errno.errno)

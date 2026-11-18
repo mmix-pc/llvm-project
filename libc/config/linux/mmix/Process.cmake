@@ -4,6 +4,7 @@ if(NOT LIBC_MMIX_BUILD_PROCESS_BASE)
 endif()
 
 set(MMIX_PROCESS_ENTRYPOINTS
+  libc.src.unistd.daemon
   libc.src.unistd.environ
   libc.src.errno.program_invocation_name
   libc.src.errno.program_invocation_short_name

@@ -1256,3 +1256,13 @@ if(LIBC_TARGET_OS_IS_LINUX)
     DEPENDS libc.src.sys.utsname.uname libc.src.errno.errno
   )
 endif()
+
+add_libc_test(daemon_test SUITE libc_unistd_unittests
+  SRCS daemon_test.cpp ${LIBC_SOURCE_DIR}/src/unistd/daemon.cpp
+  DEPENDS libc.src.unistd.fork libc.src.unistd._exit libc.src.unistd.setsid
+    libc.src.unistd.chdir libc.src.unistd.dup2 libc.src.sys.stat.fstat
+    libc.src.sys.sysmacros.makedev libc.src.unistd.pipe libc.src.unistd.close
+    libc.src.unistd.read libc.src.unistd.write libc.src.unistd.getpid
+    libc.src.unistd.getsid libc.src.sys.wait.waitpid libc.src.errno.errno
+    libc.src.__support.OSUtil.linux.syscall_wrappers.open
+    libc.src.__support.OSUtil.linux.syscall_wrappers.close)
