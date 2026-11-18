@@ -278,17 +278,8 @@ void notification(int signal, siginfo_t *info, void *context) {
   // Any returned ancestor-transfer result is fatal, never a resumable error.
   __builtin_trap();
 }
-} // namespace
 
-void initialize_cancellation_process() {
-  uint64_t old = mask_all();
-  if (initialized || !current_control ||
-      !current_control->retains_resources_until_process_exit())
-    __builtin_trap();
-  process_id = syscall_impl(SYS_getpid);
-  if (process_id <= 0)
-    __builtin_trap();
-  // Normalize inherited caught actions before any enabled user code runs.
+void normalize_caught_actions() {
   for (int signal = 1; signal < NSIG; ++signal) {
     if (signal == SIGKILL || signal == SIGSTOP || private_signal(signal))
       continue;
@@ -306,6 +297,19 @@ void initialize_cancellation_process() {
         __builtin_trap();
     }
   }
+}
+} // namespace
+
+void initialize_cancellation_process(StartupSignalActions actions) {
+  uint64_t old = mask_all();
+  if (initialized || !current_control ||
+      !current_control->retains_resources_until_process_exit())
+    __builtin_trap();
+  process_id = syscall_impl(SYS_getpid);
+  if (process_id <= 0)
+    __builtin_trap();
+  if (actions == StartupSignalActions::NormalizeCaught)
+    normalize_caught_actions();
   KernelSigaction action{};
   action.sa_sigaction = notification;
   action.sa_flags = SA_SIGINFO | SA_RESTART | SA_RESTORER;
@@ -321,7 +325,7 @@ void initialize_cancellation_process() {
 void initialize_cancellation_windows(ThreadControl &control) {
   uint64_t old = mask_all();
   if (control.retains_resources_until_process_exit() && !initialized)
-    initialize_cancellation_process();
+    initialize_cancellation_process(StartupSignalActions::NormalizeCaught);
   if (!initialized || (control.retains_resources_until_process_exit() &&
                        control.cancellation_identity))
     __builtin_trap();

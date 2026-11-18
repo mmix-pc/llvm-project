@@ -18,9 +18,10 @@ struct ThreadControl;
 constexpr int CANCEL_SIGNAL = 32;
 constexpr uint64_t CANCEL_MASK = uint64_t(1) << (CANCEL_SIGNAL - 1);
 void initialize_cancellation_windows(ThreadControl &control);
+enum class StartupSignalActions { NormalizeCaught, ResetByExec };
 // Initial-thread startup only, before callbacks or publishing any worker.
 // Installs notification handling without manufacturing an unwind root.
-void initialize_cancellation_process();
+void initialize_cancellation_process(StartupSignalActions actions);
 // Quiescent fork child only; notification delivery remains masked by the caller.
 bool restore_fork_cancellation(ThreadControl &control,
                                uint64_t expected_suppression = 1);

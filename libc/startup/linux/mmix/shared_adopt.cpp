@@ -219,6 +219,11 @@ long adopt_shared_main(const loader::StartupProcessView *process,
   shared_main.attributes.platform_data = &shared_main.clear_tid.value.val;
   if (!internal::activate_main_thread(shared_main))
     return EINVAL;
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  // Linux exec reset every caught action. Install the private handler before
+  // calling into the unwinder or running any application initializers.
+  initialize_cancellation_process(StartupSignalActions::ResetByExec);
+#endif
   mmix_rstack_query loader_chain{};
   if (syscall_impl(__NR_mmix_rstack_query,
                    reinterpret_cast<long>(&loader_chain)) ||
@@ -249,9 +254,6 @@ long adopt_shared_main(const loader::StartupProcessView *process,
   if (!__libunwind_mmix_prepare_root_image(
           reinterpret_cast<uintptr_t>(&run_with_unwind_root)))
     return EINVAL;
-#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
-  initialize_cancellation_process();
-#endif
   // Register before preinit/constructors: their callbacks run first through
   // the same process manager. _Exit bypasses this path entirely.
   if (atexit(finalize_shared_startup))
