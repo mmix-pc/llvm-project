@@ -4,6 +4,11 @@ if(NOT LIBC_MMIX_BUILD_SOCKETS)
 endif()
 
 list(APPEND TARGET_LIBC_ENTRYPOINTS
+  libc.src.netinet.ether_aton_r
+  libc.src.netinet.ether_aton
+  libc.src.netinet.ether_ntoa_r
+  libc.src.netinet.ether_ntoa
+  libc.src.netinet.ether_hostton
   libc.src.netinet.in6addr_any
   libc.src.netinet.in6addr_loopback
   libc.src.net.getifaddrs

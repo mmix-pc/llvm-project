@@ -1,0 +1,29 @@
+header: netinet/ether.h
+standards: [bsd]
+public_includes: [netinet/if_ether.h]
+types:
+  - type_name: struct_ether_addr
+functions:
+  - name: ether_aton_r
+    return_type: struct ether_addr *
+    arguments:
+      - type: const char *
+      - type: struct ether_addr *
+  - name: ether_aton
+    return_type: struct ether_addr *
+    arguments:
+      - type: const char *
+  - name: ether_ntoa_r
+    return_type: char *
+    arguments:
+      - type: const struct ether_addr *
+      - type: char *
+  - name: ether_ntoa
+    return_type: char *
+    arguments:
+      - type: const struct ether_addr *
+  - name: ether_hostton
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: struct ether_addr *

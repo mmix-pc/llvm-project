@@ -1532,3 +1532,5 @@ add_proxy_header_library(struct_ifaddrs HDRS struct_ifaddrs.h
   FULL_BUILD_DEPENDS libc.include.llvm-libc-types.struct_ifaddrs)
 
 add_proxy_header_library(struct_timex HDRS struct_timex.h FULL_BUILD_DEPENDS libc.include.llvm-libc-types.struct_timex libc.include.sys_timex)
+
+add_proxy_header_library(struct_ether_addr HDRS struct_ether_addr.h FULL_BUILD_DEPENDS libc.include.llvm-libc-types.struct_ether_addr)

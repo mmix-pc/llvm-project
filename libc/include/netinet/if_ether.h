@@ -24,6 +24,8 @@ struct ether_arp {
 #define arp_hln ea_hdr.ar_hln
 #define arp_pln ea_hdr.ar_pln
 #define arp_op ea_hdr.ar_op
+#define ETHERTYPE_IP ETH_P_IP
+#define ETHERTYPE_ARP ETH_P_ARP
 #define ETHER_ADDR_LEN ETH_ALEN
 #define ETHER_TYPE_LEN 2
 #define ETHER_CRC_LEN ETH_FCS_LEN

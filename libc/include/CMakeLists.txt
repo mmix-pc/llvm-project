@@ -1614,6 +1614,8 @@ add_header_macro(ifaddrs ../libc/include/ifaddrs.yaml ifaddrs.h
 add_header(netpacket_packet HDR netpacket/packet.h)
 add_header(net_if_arp HDR net/if_arp.h DEPENDS .net_if)
 add_header(netinet_if_ether HDR netinet/if_ether.h DEPENDS .net_if_arp .llvm-libc-types.struct_ether_addr)
+add_header_macro(netinet_ether ../libc/include/netinet/ether.yaml netinet/ether.h
+  DEPENDS .llvm_libc_common_h .llvm-libc-types.struct_ether_addr .netinet_if_ether)
 add_header(net_ethernet HDR net/ethernet.h DEPENDS .netinet_if_ether)
 add_header(net_route HDR net/route.h DEPENDS .net_if .netinet_in)
 add_header(arpa_telnet HDR arpa/telnet.h)

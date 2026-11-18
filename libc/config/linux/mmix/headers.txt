@@ -57,7 +57,7 @@ if(LIBC_MMIX_ENABLE_UNIX_HEADERS)
     libc.include.netinet_ip6 libc.include.netinet_icmp6
     libc.include.netinet_ip libc.include.netinet_ip_icmp
     libc.include.net_route libc.include.arpa_telnet
-    libc.include.net_ethernet libc.include.net_if_arp libc.include.netinet_if_ether libc.include.netinet_udp
+    libc.include.netinet_ether libc.include.net_ethernet libc.include.net_if_arp libc.include.netinet_if_ether libc.include.netinet_udp
     libc.include.arpa_inet libc.include.netinet_in libc.include.netinet_tcp
     libc.include.sys_select libc.include.sys_uio
     libc.include.mmix_paths libc.include.getopt libc.include.mntent

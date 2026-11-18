@@ -30,6 +30,8 @@
 #define IPPROTO_ICMPV6 58
 #define IPPROTO_NONE 59
 #define IPPROTO_DSTOPTS 60
+#define IN_CLASSB_NET 0xffff0000U
+#define IN_CLASSB_HOST 0x0000ffffU
 #define IN_CLASSD(address) (((__UINT32_TYPE__)(address) & 0xf0000000U) == 0xe0000000U)
 #define IN_MULTICAST(address) IN_CLASSD(address)
 
