@@ -16,6 +16,7 @@ assert not (root / "0/mmix-command-environment-runtime/Inputs.cmake").exists()
 for name in ("rstack", "sigcontext", "ucontext", "ptrace"):
     (root / "sysroot/usr/include/asm" / (name + ".h")).touch()
 with (root / "CMakeLists.txt").open("a") as output:
+    output.write("\nset(LIBC_LIBRARY_DIR ${CMAKE_BINARY_DIR}/lib)\nset(LIBC_INSTALL_LIBRARY_DIR lib)\nfile(MAKE_DIRECTORY ${LIBC_LIBRARY_DIR})\n")
     output.write('\ninclude(${LIBC_SOURCE}/config/linux/mmix/LocalLogging.cmake)\n')
     output.write('\ninclude(${LIBC_SOURCE}/config/linux/mmix/NameResolution.cmake)\n')
     output.write('\ninclude(${LIBC_SOURCE}/config/linux/mmix/CommandEnvironmentRuntime.cmake)\n')

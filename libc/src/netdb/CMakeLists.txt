@@ -81,3 +81,10 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND LIBC_TARGET_OS STREQUAL "linux")
   add_entrypoint_object(getservbyname ALIAS DEPENDS .linux.mmix.getservbyname)
   add_entrypoint_object(getservbyport ALIAS DEPENDS .linux.mmix.getservbyport)
 endif()
+
+add_entrypoint_object(
+  hstrerror
+  SRCS hstrerror.cpp
+  HDRS hstrerror.h
+  DEPENDS libc.hdr.netdb_macros libc.src.__support.common
+)

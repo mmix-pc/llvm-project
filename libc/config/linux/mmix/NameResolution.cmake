@@ -7,6 +7,7 @@ endif()
 # qualification; packet construction/parsing does not provide a DNS transport.
 list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.netdb.gethostbyname libc.src.netdb.gethostbyaddr
+  libc.src.netdb.hstrerror
   libc.src.netdb.__h_errno_location
   libc.src.arpa.inet.inet_addr
   libc.src.arpa.inet.inet_aton
@@ -51,3 +52,5 @@ list(APPEND TARGET_LIBC_ENTRYPOINTS
   libc.src.netdb.getservbyname
   libc.src.netdb.getservbyport
 )
+
+include(${CMAKE_CURRENT_LIST_DIR}/ResolverLinkerScripts.cmake)
