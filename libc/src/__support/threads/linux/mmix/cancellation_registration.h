@@ -31,15 +31,16 @@ class CancellationRegistration {
   alignas(Node) unsigned char storage[sizeof(Node)];
   Node *node = nullptr;
   bool attempted = false;
-  bool active = false;
+  // The unwind cleanup can inspect this flag before masking signals.
+  cpp::Atomic<bool> active{false};
 
   static bool retire(void *opaque) {
     auto &self = *static_cast<CancellationRegistration *>(opaque);
-    if (!self.active || self.publication.load(cpp::MemoryOrder::ACQUIRE) !=
+    if (!self.is_active() || self.publication.load(cpp::MemoryOrder::ACQUIRE) !=
                             self.point)
       return false;
     self.publication.store(self.previous, cpp::MemoryOrder::RELEASE);
-    self.active = false;
+    self.active.store(false, cpp::MemoryOrder::RELAXED);
     return true;
   }
 
@@ -64,12 +65,14 @@ public:
       return false;
     }
     publication.store(point, cpp::MemoryOrder::RELEASE);
-    active = true;
+    active.store(true, cpp::MemoryOrder::RELAXED);
     return true;
   }
 
+  bool is_active() { return active.load(cpp::MemoryOrder::RELAXED); }
+
   bool finish() {
-    if (!active)
+    if (!is_active())
       return true;
     if (!JumpCleanupStack::pop(head, *node))
       return false;

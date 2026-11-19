@@ -213,6 +213,9 @@ bool signal_wait_context(ThreadControl *control, uint64_t &chain,
 #endif
 #ifdef LIBC_MMIX_JUMP_CLEANUP
 void finish_cancellation_registration(CancellationRegistration *registration) {
+  // Normal completion has already retired the registration under the mask.
+  if (!registration->is_active())
+    return;
   const uint64_t mask = mask_all();
   if (!registration->finish())
     __builtin_trap();
