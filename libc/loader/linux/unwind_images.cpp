@@ -13,11 +13,19 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
+static Address add_signed_word(Address base, Elf64_Word raw) {
+  // The checked index base is a user address. A 32-bit displacement cannot
+  // overflow it upwards, and an underflow lands outside the user range.
+  return base + static_cast<Address>(static_cast<int64_t>(
+                    static_cast<int32_t>(raw)));
+}
+
 static bool add_signed(Address base, Address raw, unsigned width,
                        Address &out) {
-  if (width == 4)
-    raw =
-        static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(raw)));
+  if (width == 4) {
+    out = add_signed_word(base, static_cast<Elf64_Word>(raw));
+    return true;
+  }
   if (raw >> 63) {
     Address magnitude = ~raw + 1;
     if (magnitude > base)
@@ -34,6 +42,27 @@ static bool add_signed(Address base, Address raw, unsigned width,
 static Address word(Bytes bytes, size_t at, unsigned width, bool big_endian) {
   return width == 4 ? read_elf_integer<Elf64_Word>(bytes.data() + at, big_endian)
                     : read_elf_integer<Address>(bytes.data() + at, big_endian);
+}
+
+template <class ReadEntry>
+static bool valid_entries(const ElfImage &image, Address count,
+                          ReadEntry read_entry) {
+  Address previous = 0;
+  Address pc_first = 1, pc_last = 0, fde_first = 1, fde_last = 0;
+  for (Address i = 0; i < count; ++i) {
+    Address pc, fde;
+    if (!read_entry(pc, fde) ||
+        ((pc < pc_first || pc > pc_last) &&
+         !image.contains_file_backed_runtime(pc, 1, PF_R | PF_X, pc_first,
+                                             pc_last)) ||
+        ((fde < fde_first || fde > fde_last) &&
+         !image.contains_file_backed_runtime(fde, 4, PF_R, fde_first,
+                                             fde_last)) ||
+        (i && pc < previous))
+      return false;
+    previous = pc;
+  }
+  return true;
 }
 
 static bool valid_index(const ElfImage &image, const Elf64_Phdr &header) {
@@ -59,26 +88,31 @@ static bool valid_index(const ElfImage &image, const Elf64_Phdr &header) {
   Address count = word(bytes, 4 + pointer_width, count_width, big_endian);
   if (count > (bytes.size() - offset) / (2 * table_width))
     return false;
-  Address previous = 0;
-  Address pc_first = 1, pc_last = 0, fde_first = 1, fde_last = 0;
-  for (Address i = 0; i < count; ++i, offset += 2 * table_width) {
-    Address pc, fde;
-    if (!add_signed(base, word(bytes, offset, table_width, big_endian),
-                    table_width, pc) ||
-        !add_signed(base,
-                    word(bytes, offset + table_width, table_width, big_endian),
-                    table_width, fde) ||
-        ((pc < pc_first || pc > pc_last) &&
-         !image.contains_file_backed_runtime(pc, 1, PF_R | PF_X, pc_first,
-                                             pc_last)) ||
-        ((fde < fde_first || fde > fde_last) &&
-         !image.contains_file_backed_runtime(fde, 4, PF_R, fde_first,
-                                             fde_last)) ||
-        (i && pc < previous))
-      return false;
-    previous = pc;
+  const auto *cursor = bytes.data() + offset;
+  if (table_width == 4 && big_endian == (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__) &&
+      reinterpret_cast<uintptr_t>(cursor) % alignof(Elf64_Word) == 0) {
+    return valid_entries(image, count, [&](Address &pc, Address &fde) {
+      const auto *entry = static_cast<const unsigned char *>(
+          __builtin_assume_aligned(cursor, alignof(Elf64_Word)));
+      Elf64_Word relative_pc, relative_fde;
+      __builtin_memcpy_inline(&relative_pc, entry, sizeof(relative_pc));
+      __builtin_memcpy_inline(&relative_fde, entry + 4, sizeof(relative_fde));
+      pc = add_signed_word(base, relative_pc);
+      fde = add_signed_word(base, relative_fde);
+      cursor += 8;
+      return true;
+    });
   }
-  return true;
+  return valid_entries(image, count, [&](Address &pc, Address &fde) {
+    bool ok =
+        add_signed(base, word(bytes, offset, table_width, big_endian),
+                   table_width, pc) &&
+        add_signed(base, word(bytes, offset + table_width, table_width,
+                              big_endian),
+                   table_width, fde);
+    offset += 2 * table_width;
+    return ok;
+  });
 }
 
 static long describe(const ElfImage &image, UnwindImageView &view,

@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
   check(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
         WEXITSTATUS(status) == 127);
   // Published records and arena deliberately remain alive until process exit.
-  for (unsigned mutation = 0; mutation < 14; ++mutation) {
+  for (unsigned mutation = 0; mutation < 15; ++mutation) {
     Input bad(ImageRole::SharedObject, 0x300000);
     MappedRegion clipped[] = {{0, {bad.file.bytes, 0xe00}},
                                {0x2000, {bad.file.bytes + 0x2000, 0x100}},
@@ -230,6 +230,10 @@ int main(int argc, char **argv) {
                                     0x300000, page, bad.image) ==
               ElfError::None);
       }
+      break;
+    case 14:
+      // A signed 32-bit displacement that underflows the runtime base.
+      bad.file.put(0xc10, 4, 0x80000000);
       break;
     }
     const ElfImage *scope[] = {&main.image, &bad.image};
