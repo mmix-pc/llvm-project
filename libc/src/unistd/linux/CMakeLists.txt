@@ -921,6 +921,11 @@ add_entrypoint_object(
     libc.src.errno.errno
 )
 
+if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix" AND
+   LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+  set(raw_syscall_cancellation_dependencies libc.include.sys_syscall
+      libc.src.__support.threads.linux.mmix.cancellation_point)
+endif()
 add_entrypoint_object(
   __llvm_libc_syscall
   SRCS
@@ -931,6 +936,7 @@ add_entrypoint_object(
     libc.include.unistd
     libc.src.__support.OSUtil.osutil
     libc.src.errno.errno
+    ${raw_syscall_cancellation_dependencies}
 )
 
 add_entrypoint_object(

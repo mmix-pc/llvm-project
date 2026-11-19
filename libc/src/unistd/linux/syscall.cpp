@@ -15,11 +15,23 @@
 #include "src/__support/macros/config.h"
 #include <stdarg.h>
 
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "src/__support/threads/linux/mmix/cancellation_point.h"
+#include <sys/syscall.h>
+#endif
+
 namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(long, __llvm_libc_syscall,
                    (long number, long arg1, long arg2, long arg3, long arg4,
                     long arg5, long arg6)) {
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  // The raw interface can install a disposition without public sigaction.
+  // Do not dereference its action pointer. Linux owns argument validation.
+  if ((number == SYS_rt_sigaction && arg2) || number == SYS_clone ||
+      number == SYS_clone3)
+    mmix::revoke_startup_write_fast_path();
+#endif
   long ret = LIBC_NAMESPACE::syscall_impl<long>(number, arg1, arg2, arg3, arg4,
                                                 arg5, arg6);
   // Syscalls may return large positive values that overflow, but will never

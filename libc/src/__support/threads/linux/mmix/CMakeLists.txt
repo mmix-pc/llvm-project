@@ -371,6 +371,10 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     COMPILE_OPTIONS -fno-lto -fno-optimize-sibling-calls ${mmix_robust_options}
       ${mmix_scheduling_options}
   )
+  set(mmix_thread_create_cancellation_dependency)
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    set(mmix_thread_create_cancellation_dependency .cancellation_point)
+  endif()
   add_object_library(
     thread_create
     SRCS thread_create.cpp thread_reaper.cpp
@@ -378,6 +382,7 @@ if(LIBC_MMIX_ENABLE_STATIC_TLS)
     DEPENDS
       .thread_reaper_service .credentials
       ${mmix_scheduling_dependency}
+      ${mmix_thread_create_cancellation_dependency}
       .thread_reclaim
       .resources
       .thread_entry

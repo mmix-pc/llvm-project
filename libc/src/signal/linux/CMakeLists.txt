@@ -47,6 +47,10 @@ if(LIBC_TARGET_ARCHITECTURE STREQUAL "mmix")
     list(APPEND signal_action_deps .mmix.signal_entry)
     set(signal_action_options ${mmix_signal_cancellation_options})
   endif()
+  if(LIBC_MMIX_BUILD_CANCELLATION_WINDOWS)
+    list(APPEND signal_action_deps
+      libc.src.__support.threads.linux.mmix.cancellation_point)
+  endif()
   if(LIBC_MMIX_BUILD_SHARED_LIBC)
     list(APPEND signal_action_deps
       libc.src.__support.OSUtil.linux.mmix.dynamic_tls)

@@ -17,6 +17,9 @@
 #include "hdr/signal_macros.h"
 #include "src/__support/common.h"
 #include "src/__support/libc_errno.h"
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "src/__support/threads/linux/mmix/cancellation_point.h"
+#endif
 #ifdef LIBC_MMIX_SHARED_STARTUP
 #include "src/__support/OSUtil/linux/mmix/dynamic_tls.h"
 #endif
@@ -49,15 +52,21 @@ LLVM_LIBC_FUNCTION(int, sigaction,
 #endif
     }
   }
-#ifdef LIBC_MMIX_SHARED_STARTUP
-  loader::LoaderSignalLease lease;
-  uint64_t saved_mask = 0;
+#if defined(LIBC_MMIX_SHARED_STARTUP) || defined(LIBC_MMIX_CANCELLATION_WINDOWS)
   uintptr_t handler = prepared.sa_flags & SA_SIGINFO
                           ? reinterpret_cast<uintptr_t>(prepared.sa_sigaction)
                           : reinterpret_cast<uintptr_t>(prepared.sa_handler);
-  bool retain = action && handler != reinterpret_cast<uintptr_t>(SIG_DFL) &&
+  bool caught = action && handler != reinterpret_cast<uintptr_t>(SIG_DFL) &&
                 handler != reinterpret_cast<uintptr_t>(SIG_IGN);
-  if (retain) {
+#endif
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  if (caught)
+    mmix::revoke_startup_write_fast_path();
+#endif
+#ifdef LIBC_MMIX_SHARED_STARTUP
+  loader::LoaderSignalLease lease;
+  uint64_t saved_mask = 0;
+  if (caught) {
     // Block interruption across the temporary lease and kernel publication.
     // The service uses only lock-free atomics and immutable leased metadata;
     // sigaction remains usable from a handler, including loader interruption.
@@ -81,7 +90,7 @@ LLVM_LIBC_FUNCTION(int, sigaction,
 #endif
   auto result = mmix::rt_sigaction(signal, action ? &prepared : nullptr, old_action);
 #ifdef LIBC_MMIX_SHARED_STARTUP
-  if (retain) {
+  if (caught) {
     // A successful disposition keeps both images resident, even after reset:
     // Linux may already have delivered an older handler/restorer to a peer.
     mmix::finish_shared_signal(&lease, static_cast<bool>(result));

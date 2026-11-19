@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "thread_create.h"
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+#include "cancellation_point.h"
+#endif
 #include "credentials.h"
 #include "hdr/errno_macros.h"
 #include "hdr/signal_macros.h"
@@ -128,6 +131,9 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
     restore_mask(saved_mask);
     return {-EAGAIN};
   }
+#ifdef LIBC_MMIX_CANCELLATION_WINDOWS
+  revoke_startup_write_fast_path();
+#endif
   input.saved_signal_mask = saved_mask;
   if (!helper) {
     ThreadCreationResult initialized =

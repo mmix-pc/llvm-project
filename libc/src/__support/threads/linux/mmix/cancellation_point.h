@@ -22,6 +22,8 @@ enum class StartupSignalActions { NormalizeCaught, ResetByExec };
 // Initial-thread startup only, before callbacks or publishing any worker.
 // Installs notification handling without manufacturing an unwind root.
 void initialize_cancellation_process(StartupSignalActions actions);
+// Revoke before creating a peer or publishing a caught signal disposition.
+void revoke_startup_write_fast_path();
 // Quiescent fork child only; notification delivery remains masked by the caller.
 bool restore_fork_cancellation(ThreadControl &control,
                                uint64_t expected_suppression = 1);
