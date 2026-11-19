@@ -29,3 +29,17 @@ asm(".section .text.__llvm_libc_mmix_linux_setjmp,\"ax\",@progbits\n"
     ".size setjmp,.-setjmp\n"
 #endif
 );
+
+// The cancellation caller has already admitted this chain with signals
+// blocked. Save its caller window and cleanup watermark without a second query.
+asm(".section .text.__llvm_libc_mmix_save_cancel_context,\"ax\",@progbits\n"
+    ".p2align 2\n"
+    ".global __llvm_libc_mmix_save_cancel_context\n"
+    ".hidden __llvm_libc_mmix_save_cancel_context\n"
+    ".type __llvm_libc_mmix_save_cancel_context,@function\n"
+    "__llvm_libc_mmix_save_cancel_context:\n" MMIX_LINUX_SAVE_FRAME
+    "BZ r232, 9f\n"
+    "STOU r232, r250, 0\n"
+    "SETL r248, 0\n"
+    "STOU r248, r250, 16\n" MMIX_LINUX_SAVE_CALLER
+    ".size __llvm_libc_mmix_save_cancel_context,.-__llvm_libc_mmix_save_cancel_context\n");

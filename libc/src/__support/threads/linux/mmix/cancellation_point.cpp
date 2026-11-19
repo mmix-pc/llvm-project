@@ -28,6 +28,9 @@
 #include <asm/unistd.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
+
+extern "C" [[gnu::returns_twice]] int
+__llvm_libc_mmix_save_cancel_context(jmp_buf, uint64_t chain);
 #include <ucontext.h>
 
 #include "notification_validation.h"
@@ -400,15 +403,17 @@ cancellation_syscall_impl(bool signal_wait, unsigned long number,
   if (!control || !control->cancellation.enabled() ||
       control->loader_cancellation_blocked())
     return __llvm_libc_mmix_syscall(number, a1, a2, a3, a4, a5, a6);
+  const uint64_t mask = mask_all();
   bool signal_io = false;
   if (!signal_wait && cancellation_private_block()) {
 #ifdef LIBC_MMIX_SIGNAL_WAIT
     signal_io = signal_io_operation(number, a2, a3);
 #endif
-    if (!signal_io)
+    if (!signal_io) {
+      restore_mask(mask);
       return __llvm_libc_mmix_syscall(number, a1, a2, a3, a4, a5, a6);
+    }
   }
-  const uint64_t mask = mask_all();
   uint64_t chain = control->unwind_root.chain, signal_generation = 0;
 #ifdef LIBC_MMIX_SIGNAL_WAIT
   if (signal_wait || signal_io) {
@@ -444,7 +449,8 @@ cancellation_syscall_impl(bool signal_wait, unsigned long number,
 #endif
   // The saved continuation is in this wrapper, not inside the raw leaf. Fields
   // changed by the leaf/handler are volatile across the returns-twice boundary.
-  const int recovered = LIBC_NAMESPACE::setjmp(point.environment);
+  const int recovered =
+      __llvm_libc_mmix_save_cancel_context(point.environment, chain);
   long result = -4096;
   if (!recovered) {
 #ifndef LIBC_MMIX_JUMP_CLEANUP

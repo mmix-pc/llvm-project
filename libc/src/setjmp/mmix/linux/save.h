@@ -53,40 +53,25 @@ static_assert(__builtin_offsetof(mmix_rstack_query, sigmask) == 8);
 #define MMIX_CLEANUP_LITERAL ""
 #endif
 
-// Direct query preserves r248/r250/r251/r252, rJ and the current window.
-// Do not call the C syscall adapter: its extra window would save the wrong O.
-// A partially written environment is not valid until this bridge returns.
-#define MMIX_LINUX_SAVE_BODY                                                   \
+#define MMIX_LINUX_SAVE_FRAME                                                  \
   "OR r251, r231, 0\n"                                                         \
   "GET r252, rJ\n"                                                             \
   "STOU r253, r251, 0\n"                                                       \
   "STOU r252, r251, 8\n"                                                       \
   "STOU r254, r251, 16\n"                                                      \
-  "CMPU r248, r232, 0\n"                                                       \
   "SETL r250, 280\n"                                                           \
-  "ADDU r250, r251, r250\n"                                                    \
-  "SETL r255, 0\n"                                                             \
-  "STOU r255, r250, 0\n"                                                       \
-  "STOU r255, r250, 16\n"                                                      \
-  "OR r231, r250, 0\n"                                                         \
-  "SETL r232, 0\n"                                                             \
-  "SETL r233, 0\n"                                                             \
-  "SETL r234, 0\n"                                                             \
-  "SETL r235, 0\n"                                                             \
-  "SETL r236, 0\n"                                                             \
-  "SETL r237, " LLVM_LIBC_STRINGIFY(                                           \
-      __NR_mmix_rstack_query) "\n"                                             \
-                              "TRAP 1, 0, 0\n"                                 \
-                              "BNZ r231, 9f\n"                                 \
-                              "LDOU r255, r250, 0\n"                           \
-                              "BZ r255, 9f\n" MMIX_SAVE_CLEANUP                \
-                              "BNZ r248, 1f\n"                                 \
-                              "STOU r248, r250, 8\n"                           \
-                              "1:\n"                                           \
-                              "GETA r255, 2f\n"                                \
-                              "PUT rJ, r255\n"                                 \
-                              "POP 0, 0\n"                                     \
-                              "2:\n"                                           \
+  "ADDU r250, r251, r250\n"
+
+// A partially written environment is not valid until this bridge returns.
+#define MMIX_LINUX_SAVE_CALLER                                                 \
+  MMIX_SAVE_CLEANUP                                                             \
+  "BNZ r248, 1f\n"                                                            \
+  "STOU r248, r250, 8\n"                                                       \
+  "1:\n"                                                                      \
+  "GETA r255, 2f\n"                                                            \
+  "PUT rJ, r255\n"                                                             \
+  "POP 0, 0\n"                                                                \
+  "2:\n"                                                                      \
                               "GET r255, rO\n"                                 \
                               "STOU r255, r251, 24\n"                          \
                               "ADDU r250, r251, 32\n"                          \
@@ -128,5 +113,25 @@ static_assert(__builtin_offsetof(mmix_rstack_query, sigmask) == 8);
                               "JMP "                                           \
                               "__llvm_libc_mmix_jump_"                         \
                               "fail\n" MMIX_CLEANUP_LITERAL
+
+// Direct query preserves r248/r250/r251/r252, rJ and the current window.
+// Do not call the C syscall adapter: its extra window would save the wrong O.
+#define MMIX_LINUX_SAVE_BODY                                                   \
+  MMIX_LINUX_SAVE_FRAME                                                        \
+  "CMPU r248, r232, 0\n"                                                       \
+  "SETL r255, 0\n"                                                             \
+  "STOU r255, r250, 0\n"                                                       \
+  "STOU r255, r250, 16\n"                                                      \
+  "OR r231, r250, 0\n"                                                         \
+  "SETL r232, 0\n"                                                             \
+  "SETL r233, 0\n"                                                             \
+  "SETL r234, 0\n"                                                             \
+  "SETL r235, 0\n"                                                             \
+  "SETL r236, 0\n"                                                             \
+  "SETL r237, " LLVM_LIBC_STRINGIFY(__NR_mmix_rstack_query) "\n"                \
+  "TRAP 1, 0, 0\n"                                                             \
+  "BNZ r231, 9f\n"                                                             \
+  "LDOU r255, r250, 0\n"                                                       \
+  "BZ r255, 9f\n" MMIX_LINUX_SAVE_CALLER
 
 #endif
