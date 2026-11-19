@@ -29,7 +29,10 @@ public:
   // rollback. Images, metadata and arena must be immutable and process-resident
   // after publication. This is one immutable set; runtime publication builds
   // a replacement set. No unload or reference-counted leases are provided.
-  long prepare(cpp::span<const ElfImage *const> images, Arena &arena);
+  // Matching admitted mappings may reuse descriptions from a prepared set.
+  // Their descriptors and range storage are copied into this set's arena.
+  long prepare(cpp::span<const ElfImage *const> images, Arena &arena,
+               const StartupUnwindImages *prepared = nullptr);
   bool publish();
   bool is_published() const { return published; }
   long find(Address pc, UnwindImageView &out) const;

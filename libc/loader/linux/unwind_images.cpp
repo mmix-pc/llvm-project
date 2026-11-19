@@ -111,7 +111,8 @@ static long describe(const ElfImage &image, UnwindImageView &view,
 }
 
 long StartupUnwindImages::prepare(cpp::span<const ElfImage *const> images,
-                                  Arena &arena) {
+                                  Arena &arena,
+                                  const StartupUnwindImages *prepared) {
   if (published || !records.empty())
     return EBUSY;
   if (images.empty() || images.size() > __SIZE_MAX__ / sizeof(Record))
@@ -133,17 +134,32 @@ long StartupUnwindImages::prepare(cpp::span<const ElfImage *const> images,
       return EINVAL;
     auto *record = new (result + i) Record;
     record->image = images[i];
+    const UnwindImageView *checked = nullptr;
+    if (prepared)
+      for (const auto &old : prepared->records)
+        if (images[i]->same_mapped_image(*old.image)) {
+          checked = &old.view;
+          break;
+        }
     // Each readable range comes from one program header. Allocate an upper
     // bound so describing the image need not revalidate the unwind index.
-    error = arena.allocate(images[i]->header()->e_phnum *
-                               sizeof(UnwindReadableRange),
+    size_t count = checked ? checked->range_count : images[i]->header()->e_phnum;
+    error = arena.allocate(count * sizeof(UnwindReadableRange),
                            alignof(UnwindReadableRange), storage);
     if (error)
       return -error;
-    error = describe(*images[i], record->view,
-                     static_cast<UnwindReadableRange *>(storage));
-    if (error)
-      return error;
+    auto *ranges = static_cast<UnwindReadableRange *>(storage);
+    if (checked) {
+      __builtin_memcpy_inline(&record->view, checked, sizeof(record->view));
+      const auto *source = reinterpret_cast<const UnwindReadableRange *>(
+          checked->readable_ranges);
+      for (size_t j = 0; j < count; ++j)
+        new (ranges + j) UnwindReadableRange{source[j].address, source[j].size};
+    } else {
+      error = describe(*images[i], record->view, ranges);
+      if (error)
+        return error;
+    }
     record->view.readable_ranges = reinterpret_cast<Address>(storage);
     record->view.token = reinterpret_cast<Address>(record);
     // Disjoint LOAD ownership makes containing-image selection unambiguous.

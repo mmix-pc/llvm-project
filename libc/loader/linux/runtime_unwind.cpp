@@ -13,7 +13,8 @@
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
 
-long RuntimeScopes::prepare_unwind(Transaction &transaction) {
+long RuntimeScopes::prepare_unwind(Transaction &transaction,
+                                    const StartupUnwindImages *prepared) {
   if (transaction.owner != this || !transaction.candidate ||
       transaction.published || transaction.base != snapshot())
     return -EINVAL;
@@ -47,7 +48,8 @@ long RuntimeScopes::prepare_unwind(Transaction &transaction) {
     return error;
   auto *state = new (memory) UnwindState;
   state->registry = next.registry;
-  error = state->images.prepare({views, images.size()}, transaction.arena);
+  error = state->images.prepare({views, images.size()}, transaction.arena,
+                                prepared);
   if (error)
     return -error;
   if (!state->images.publish())

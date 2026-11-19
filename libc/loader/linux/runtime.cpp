@@ -160,7 +160,7 @@ long StartupRuntime::prepare(const StartupGraph &graph,
   __builtin_memcpy_inline(&services, &prepared_services, sizeof(services));
   if (!resident)
     return -EINVAL;
-  if ((error = resident->publish()))
+  if ((error = resident->publish(&registry)))
     return error;
   resident->services(services, &registry);
   error = bootstrap.prepare_main(&process, &thread_state);

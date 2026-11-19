@@ -104,7 +104,7 @@ long RuntimeState::prepare(const StartupGraph &graph,
                                          bias);
 }
 
-long RuntimeState::publish() {
+long RuntimeState::publish(const StartupUnwindImages *unwind) {
   if (!image_tx.mark_relocated() || !image_tx.mark_tls_ready() ||
       !image_tx.mark_protected())
     return -EINVAL;
@@ -114,7 +114,7 @@ long RuntimeState::publish() {
   if (!error)
     error = scopes.prepare_startup(*images.snapshot(), scope_tx);
   if (!error)
-    error = scopes.prepare_unwind(scope_tx);
+    error = scopes.prepare_unwind(scope_tx, unwind);
   if (!error)
     error = scopes.publish(scope_tx);
   if (!error)

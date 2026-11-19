@@ -239,6 +239,16 @@ bool ElfImage::contains_file_backed_runtime(Address address, Address size,
          mapped_bytes(vaddr, size).size() == size;
 }
 
+bool ElfImage::same_mapped_image(const ElfImage &other) const {
+  return admitted && mapped && other.admitted && other.mapped &&
+         bias == other.bias && image_role == other.image_role &&
+         header_vaddr == other.header_vaddr && table_vaddr == other.table_vaddr &&
+         phdrs.data() == other.phdrs.data() &&
+         phdrs.size() == other.phdrs.size() &&
+         regions.data() == other.regions.data() &&
+         regions.size() == other.regions.size();
+}
+
 ElfError ElfImage::open_file(Bytes bytes, ImageRole role, Address load_bias,
                              Address page_size, ElfImage &out) {
   out.admitted = false;

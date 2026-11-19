@@ -151,6 +151,19 @@ int main(int argc, char **argv) {
   }
   check(!registry.owns(0) && !registry.owns(~Address(0)));
   check(find_unwind_image(nullptr, 0, &view) == EINVAL && !view.token);
+  ElfImage copied_main = main.image, copied_dso = dso.image;
+  const ElfImage *copied_scope[] = {&copied_main, &copied_dso};
+  Arena copied_arena(page);
+  StartupUnwindImages copied;
+  check(!copied.prepare(copied_scope, copied_arena, &registry) &&
+        copied.publish());
+  UnwindImageView original, reused;
+  check(!registry.find(0x302000, original) && !copied.find(0x302000, reused));
+  check(reused.eh_frame_header == original.eh_frame_header &&
+        reused.range_count == original.range_count &&
+        reused.readable_ranges != original.readable_ranges &&
+        reused.token != original.token && copied.owns(reused.token) &&
+        !registry.owns(reused.token));
   pid_t child = fork();
   check(child >= 0);
   if (!child) {
@@ -202,7 +215,8 @@ int main(int argc, char **argv) {
     const ElfImage *scope[] = {&main.image, &bad.image};
     Arena scratch(page);
     StartupUnwindImages failed;
-    check(failed.prepare(scope, scratch) == ENOEXEC);
+    // The bad image has the previous DSO's bias, but different backing views.
+    check(failed.prepare(scope, scratch, &registry) == ENOEXEC);
     check(!failed.publish() && failed.find(0x102000, view) == EINVAL);
     check(!scratch.reset());
   }

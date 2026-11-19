@@ -43,7 +43,7 @@ public:
             {&tls, resolve_runtime_thread_tls}, nullptr,
             peek_runtime_thread_tls, runtime_debug_record()) {}
   long prepare(const StartupGraph &, const SearchEnvironment &, Address);
-  long publish();
+  long publish(const StartupUnwindImages *unwind = nullptr);
   long reset();
   void services(LoaderServices &, StartupUnwindImages * = nullptr);
 };

@@ -104,7 +104,7 @@ public:
   long prepare_retire(cpp::span<const Image *const>, Transaction &);
   // After relocation/protection, before publication or any user callback.
   // Implemented by runtime_unwind; failed preparation stays private to the tx.
-  long prepare_unwind(Transaction &);
+  long prepare_unwind(Transaction &, const StartupUnwindImages * = nullptr);
   // The coordinator must finish relocation/TLS/protection before publication.
   // This publishes scopes only, not registry records or constructor completion.
   long publish(Transaction &);

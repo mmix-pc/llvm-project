@@ -90,6 +90,8 @@ bool decode_elf_header(Bytes bytes, Elf64_Ehdr &header);
 bool decode_program_header(Bytes bytes, bool big_endian, Elf64_Phdr &header);
 
 class ElfImage {
+  friend class StartupUnwindImages;
+
   Elf64_Ehdr ehdr;
   Bytes file;
   Bytes phdrs;
@@ -120,6 +122,7 @@ class ElfImage {
   bool find_file_address(Address offset, Address size, Address &address) const;
   bool read_program_header(unsigned index, Elf64_Phdr &out) const;
   Bytes read_file_bytes(Address vaddr, Address size) const;
+  bool same_mapped_image(const ElfImage &other) const;
   ElfError validate(ImageRole role, Address page_size);
 
 public:
