@@ -930,12 +930,12 @@ DynamicError DynamicInfo::validate_versions(const OwnedMetadataInput &input) {
   for (Address i = 0; i < versym.size() / 2; ++i) {
     Address raw = integer(versym.data() + i * 2, 2, big);
     Address index = raw & 0x7fff;
-    Elf64_Sym symbol;
-    read_symbol(i, symbol);
     if ((!i && raw) || (index <= VER_NDX_GLOBAL && (raw & 0x8000)))
       return DynamicError::Version;
     if (index <= VER_NDX_GLOBAL)
       continue;
+    Elf64_Sym symbol;
+    read_symbol(i, symbol);
     auto *set = symbol.st_shndx == SHN_UNDEF ? requirements : definitions;
     if (!(set[index / 64] & (Address(1) << (index % 64))))
       return DynamicError::Version;
@@ -955,7 +955,7 @@ DynamicError DynamicInfo::validate_versions(const OwnedMetadataInput &input) {
       version_name(index, true, version);
     Address found = 0;
     if (!find_definition_impl(name, found, version) || found != i ||
-        (!(raw & 0x8000) &&
+        (index > VER_NDX_GLOBAL && !(raw & 0x8000) &&
          (!find_definition_impl(name, found, {}) || found != i)))
       return DynamicError::Version;
   }
@@ -1054,8 +1054,8 @@ DynamicError DynamicInfo::parse(const ElfImage &image,
     return error;
   for (Address i = 0; i < symbols.size() / 24; ++i) {
     Elf64_Sym s;
-    Bytes name;
-    if (!read_symbol(i, s) || !read_string(s.st_name, name))
+    // The string table ends with NUL, so an in-range offset is terminated.
+    if (!read_symbol(i, s) || s.st_name >= strings.size())
       return DynamicError::Symbol;
     unsigned bind = s.st_info >> 4, type = s.st_info & 15;
     tls_required |= type == STT_TLS;

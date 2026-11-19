@@ -284,6 +284,22 @@ extern "C" int main() {
   CHECK(DynamicInfo::open(image, info) == DynamicError::None);
   boundary.put(0x820, 8, 0x6001);
   CHECK(DynamicInfo::open(image, info) == DynamicError::Symbol);
+  // Imported symbols need not appear in a hash chain. Check the name bound
+  // at symbol admission even when hash validation never reads that name.
+  DynamicFixture unhashed;
+  unsigned gnu_hash = unhashed.at(DT_GNU_HASH);
+  unhashed.put(gnu_hash, 8, DT_NEEDED);
+  unhashed.put(gnu_hash + 8, 8, 5);
+  unhashed.put(0x908, 4, 0);
+  unhashed.put(0x81e, 2, SHN_UNDEF);
+  unhashed.put(0x820, 8, 0);
+  unhashed.put(0x818, 4, 0x1c);
+  unhashed.set(DT_STRSZ, 0x1d);
+  CHECK(ElfImage::open_file(unhashed.view(), ImageRole::SharedObject, bias,
+                            page, image) == ElfError::None);
+  CHECK(DynamicInfo::open(image, info) == DynamicError::None);
+  unhashed.put(0x818, 4, 0x1d);
+  CHECK(DynamicInfo::open(image, info) == DynamicError::Symbol);
   duplicate.put(duplicate.at(DT_CHECKSUM), 8, DT_STRSZ);
   CHECK(ElfImage::open_file(duplicate.view(), ImageRole::SharedObject, bias,
                             page, image) == ElfError::None);
