@@ -30,7 +30,7 @@ LLVM_LIBC_FUNCTION(long, __llvm_libc_syscall,
   // Do not dereference its action pointer. Linux owns argument validation.
   if ((number == SYS_rt_sigaction && arg2) || number == SYS_clone ||
       number == SYS_clone3)
-    mmix::revoke_startup_write_fast_path();
+    mmix::revoke_startup_io_fast_path();
 #endif
   long ret = LIBC_NAMESPACE::syscall_impl<long>(number, arg1, arg2, arg3, arg4,
                                                 arg5, arg6);

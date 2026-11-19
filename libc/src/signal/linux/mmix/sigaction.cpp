@@ -61,7 +61,7 @@ LLVM_LIBC_FUNCTION(int, sigaction,
 #endif
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
   if (caught)
-    mmix::revoke_startup_write_fast_path();
+    mmix::revoke_startup_io_fast_path();
 #endif
 #ifdef LIBC_MMIX_SHARED_STARTUP
   loader::LoaderSignalLease lease;

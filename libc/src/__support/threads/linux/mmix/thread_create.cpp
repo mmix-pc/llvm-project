@@ -132,7 +132,7 @@ static ThreadCreationResult create_thread_impl(const ThreadPreparation &request,
     return {-EAGAIN};
   }
 #ifdef LIBC_MMIX_CANCELLATION_WINDOWS
-  revoke_startup_write_fast_path();
+  revoke_startup_io_fast_path();
 #endif
   input.saved_signal_mask = saved_mask;
   if (!helper) {

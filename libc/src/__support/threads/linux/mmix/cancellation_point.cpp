@@ -56,8 +56,8 @@ namespace {
 cpp::Atomic<uint64_t> identities{1};
 long process_id = 0;
 bool initialized = false;
-enum class StartupWrite : uint64_t { Uninitialized, Allowed, Revoked };
-cpp::Atomic<StartupWrite> startup_write{StartupWrite::Uninitialized};
+enum class StartupIO : uint64_t { Uninitialized, Allowed, Revoked };
+cpp::Atomic<StartupIO> startup_io{StartupIO::Uninitialized};
 
 void assign_cancellation_identity(ThreadControl &control) {
   control.cancellation_identity =
@@ -299,7 +299,7 @@ void normalize_caught_actions() {
                             ? reinterpret_cast<uintptr_t>(action.sa_sigaction)
                             : reinterpret_cast<uintptr_t>(action.sa_handler);
     if (handler > 1) {
-      revoke_startup_write_fast_path();
+      revoke_startup_io_fast_path();
       action.sa_mask |= CANCEL_MASK;
       if (syscall_impl(SYS_rt_sigaction, signal,
                        reinterpret_cast<long>(&action), 0, 8))
@@ -328,14 +328,14 @@ void initialize_cancellation_process(StartupSignalActions actions) {
                    reinterpret_cast<long>(&action), 0, 8))
     __builtin_trap();
   initialized = true;
-  auto expected = StartupWrite::Uninitialized;
-  startup_write.compare_exchange_strong(expected, StartupWrite::Allowed,
-                                        cpp::MemoryOrder::RELEASE);
+  auto expected = StartupIO::Uninitialized;
+  startup_io.compare_exchange_strong(expected, StartupIO::Allowed,
+                                     cpp::MemoryOrder::RELEASE);
   restore_mask(old);
 }
 
-void revoke_startup_write_fast_path() {
-  startup_write.store(StartupWrite::Revoked, cpp::MemoryOrder::RELEASE);
+void revoke_startup_io_fast_path() {
+  startup_io.store(StartupIO::Revoked, cpp::MemoryOrder::RELEASE);
 }
 
 void initialize_cancellation_windows(ThreadControl &control) {
@@ -539,8 +539,8 @@ long cancellation_syscall(unsigned long number, long a1, long a2, long a3,
                           long a4, long a5, long a6) {
   // Before a peer or caught action can run, only this thread can request its
   // own cancellation. A pending enabled request still uses the marked leaf.
-  if (number == SYS_write &&
-      startup_write.load(cpp::MemoryOrder::ACQUIRE) == StartupWrite::Allowed) {
+  if ((number == SYS_read || number == SYS_write) &&
+      startup_io.load(cpp::MemoryOrder::ACQUIRE) == StartupIO::Allowed) {
     auto *control = current_control;
     if (control && !control->fork_recovery.is_child() &&
         !control->cancellation.ready())
