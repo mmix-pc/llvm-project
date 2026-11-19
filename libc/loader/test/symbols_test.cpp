@@ -171,6 +171,17 @@ extern "C" int main() {
     CHECK(reopen());
     CHECK(metadata[0].find_definition(foo(), index) && index == 2);
   }
+  files[0] = Symbols();
+  files[0].define(STB_GLOBAL, STV_DEFAULT, SHN_UNDEF, 0);
+  files[1] = Symbols();
+  files[1].remove(DT_GNU_HASH);
+  // GNU and SysV put "foo" in different buckets modulo seven.
+  files[1].put(0x900, 4, 7);
+  files[1].put(0x908, 4, 0);
+  files[1].put(0x908 + 6 * 4, 4, 1);
+  CHECK(reopen());
+  CHECK(scope.lookup(foo(), value) == SymbolError::None && value.object == 1);
+
   CHECK(StartupSymbols::open({}, scope) == SymbolError::Scope);
   CHECK(scope.resolve(0, 1, value) == SymbolError::Scope);
   puts("loader startup symbol binding, visibility and reference checks passed");

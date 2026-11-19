@@ -470,6 +470,13 @@ static Elf64_Word name_hash(Bytes name, bool gnu) {
   return hash;
 }
 
+Elf64_Word DynamicInfo::SymbolName::hash(bool use_gnu) {
+  Address &value = hashes[use_gnu];
+  if (value == ~Address(0))
+    value = name_hash(bytes, use_gnu);
+  return static_cast<Elf64_Word>(value);
+}
+
 static bool lookup_definition(const Elf64_Sym &symbol) {
   return (symbol.st_info >> 4) != STB_LOCAL && symbol.st_shndx != SHN_UNDEF &&
          (symbol.st_other == STV_DEFAULT || symbol.st_other == STV_PROTECTED);
@@ -486,12 +493,19 @@ static bool equal(Bytes a, Bytes b) {
 
 bool DynamicInfo::find_definition(Bytes name, Address &out,
                                   Bytes version) const {
+  SymbolName lookup{name};
+  return find_definition(lookup, out, version);
+}
+
+bool DynamicInfo::find_definition(SymbolName &name, Address &out,
+                                  Bytes version) const {
   out = 0;
   return valid && find_definition_impl(name, out, version);
 }
 
-bool DynamicInfo::find_definition_impl(Bytes name, Address &out,
+bool DynamicInfo::find_definition_impl(SymbolName &lookup, Address &out,
                                        Bytes version) const {
+  Bytes name = lookup.bytes;
   if (name.empty())
     return false;
   auto matches = [&](Address index) {
@@ -525,7 +539,7 @@ bool DynamicInfo::find_definition_impl(Bytes name, Address &out,
     Address start = integer(gnu.data() + 4, 4, big);
     Address blooms = integer(gnu.data() + 8, 4, big);
     Address shift = integer(gnu.data() + 12, 4, big);
-    Elf64_Word hash = name_hash(name, true);
+    Elf64_Word hash = lookup.hash(true);
     Address bloom = integer(gnu.data() + 16 + (hash / 64 % blooms) * 8, 8, big);
     Address mask =
         (Address(1) << (hash % 64)) | (Address(1) << ((hash >> shift) % 64));
@@ -547,7 +561,7 @@ bool DynamicInfo::find_definition_impl(Bytes name, Address &out,
   }
   Address buckets = integer(sysv.data(), 4, big);
   Address index =
-      integer(sysv.data() + 8 + (name_hash(name, false) % buckets) * 4, 4, big);
+      integer(sysv.data() + 8 + (lookup.hash(false) % buckets) * 4, 4, big);
   for (Address steps = 0; index && steps < symbols.size() / 24; ++steps) {
     if (matches(index))
       return true;
@@ -953,10 +967,11 @@ DynamicError DynamicInfo::validate_versions(const OwnedMetadataInput &input) {
     read_string(symbol.st_name, name);
     if (index > VER_NDX_GLOBAL)
       version_name(index, true, version);
+    SymbolName lookup{name};
     Address found = 0;
-    if (!find_definition_impl(name, found, version) || found != i ||
+    if (!find_definition_impl(lookup, found, version) || found != i ||
         (index > VER_NDX_GLOBAL && !(raw & 0x8000) &&
-         (!find_definition_impl(name, found, {}) || found != i)))
+         (!find_definition_impl(lookup, found, {}) || found != i)))
       return DynamicError::Version;
   }
   return DynamicError::None;

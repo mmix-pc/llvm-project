@@ -55,9 +55,10 @@ SymbolError StartupSymbols::lookup(Bytes name, SymbolValue &out,
   out = {};
   if (objects.empty())
     return SymbolError::Scope;
+  DynamicInfo::SymbolName lookup{name};
   for (size_t i = 0; i < objects.size(); ++i) {
     Address index;
-    if (objects[i].metadata->find_definition(name, index, version))
+    if (objects[i].metadata->find_definition(lookup, index, version))
       return definition(i, index, out);
   }
   return SymbolError::Undefined;

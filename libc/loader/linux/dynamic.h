@@ -72,6 +72,16 @@ struct DynamicRelocation {
 };
 
 class DynamicInfo {
+  friend class StartupSymbols;
+
+  // A lookup can visit several objects before it finds a definition. Compute
+  // each hash format on demand and keep it only for the current spelling.
+  struct SymbolName {
+    const Bytes bytes;
+    Address hashes[2] = {~Address(0), ~Address(0)};
+    Elf64_Word hash(bool use_gnu);
+  };
+
   Address values[static_cast<unsigned>(DynamicTag::Count)];
   Address seen = 0, needed_size = 0;
   Bytes dynamic, strings, symbols, relas, sysv, gnu, arrays[3];
@@ -87,7 +97,9 @@ class DynamicInfo {
   DynamicError validate_hashes(const OwnedMetadataInput &input);
   DynamicError validate_versions(const OwnedMetadataInput &input);
   bool version_name(Address index, bool definition, Bytes &out) const;
-  bool find_definition_impl(Bytes name, Address &index, Bytes version) const;
+  bool find_definition(SymbolName &name, Address &index, Bytes version) const;
+  bool find_definition_impl(SymbolName &name, Address &index,
+                            Bytes version) const;
   bool read_string(Address offset, Bytes &out) const;
   bool read_symbol(Address index, Elf64_Sym &out) const;
   bool read_relocation(Address index, DynamicRelocation &out) const;
