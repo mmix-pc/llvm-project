@@ -427,18 +427,18 @@ cancellation_syscall_impl(bool signal_wait, unsigned long number,
 #endif
   if (control->cancellation_generation == UINT64_MAX)
     __builtin_trap();
-  CancellationPoint point{
-      0,
-      0,
-      &control->cancellation,
-      control,
-      control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE),
-      control->cancellation_identity,
-      ++control->cancellation_generation,
-      chain,
-      mask,
-      libc_errno,
-      {}};
+  // The private save fills the complete environment before signals can
+  // observe it. Only initialize the rest of the descriptor here.
+  CancellationPoint point;
+  point.state = &control->cancellation;
+  point.owner = control;
+  point.previous =
+      control->cancellation_point.load(cpp::MemoryOrder::ACQUIRE);
+  point.identity = control->cancellation_identity;
+  point.generation = ++control->cancellation_generation;
+  point.chain = chain;
+  point.mask = mask;
+  point.saved_errno = libc_errno;
   point.signal_generation = signal_generation;
 #ifdef LIBC_MMIX_JUMP_CLEANUP
   CancellationRegistration registration

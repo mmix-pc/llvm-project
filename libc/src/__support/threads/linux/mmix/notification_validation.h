@@ -33,7 +33,7 @@ struct CancellationPoint {
   CancellationPoint *previous;
   uint64_t identity, generation, chain, mask;
   volatile int saved_errno;
-  jmp_buf environment{};
+  jmp_buf environment;
   uint64_t signal_generation = 0;
 };
 static_assert(__builtin_offsetof(CancellationPoint, ro) == 0);
