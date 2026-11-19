@@ -455,19 +455,37 @@ Bytes DynamicInfo::lifecycle_array(DynamicTag tag) const {
   }
 }
 
+static Elf64_Word hash_byte(Elf64_Word hash, unsigned char c, bool gnu) {
+  if (gnu)
+    return hash * 33 + c;
+  hash = (hash << 4) + c;
+  Elf64_Word high = hash & 0xf0000000;
+  return (hash ^ (high >> 24)) & ~high;
+}
+
 static Elf64_Word name_hash(Bytes name, bool gnu) {
   Elf64_Word hash = gnu ? 5381 : 0;
-  for (unsigned char c : name) {
-    if (gnu) {
-      hash = hash * 33 + c;
-    } else {
-      hash = (hash << 4) + c;
-      Elf64_Word high = hash & 0xf0000000;
-      hash ^= high >> 24;
-      hash &= ~high;
-    }
-  }
+  for (unsigned char c : name)
+    hash = hash_byte(hash, c, gnu);
   return hash;
+}
+
+// Validation needs the hash and the string bound, but not a view of the name.
+template <bool Gnu>
+static bool hash_table_name(Bytes strings, Address offset, Elf64_Word &out) {
+  if (offset >= strings.size())
+    return false;
+  Elf64_Word hash = Gnu ? 5381 : 0;
+  for (const unsigned char *p = strings.data() + offset; p != strings.end();
+       ++p) {
+    unsigned char c = *p;
+    if (!c) {
+      out = hash;
+      return true;
+    }
+    hash = hash_byte(hash, c, Gnu);
+  }
+  return false;
 }
 
 Elf64_Word DynamicInfo::SymbolName::hash(bool use_gnu) {
@@ -477,9 +495,15 @@ Elf64_Word DynamicInfo::SymbolName::hash(bool use_gnu) {
   return static_cast<Elf64_Word>(value);
 }
 
+static bool lookup_definition(unsigned char info, unsigned char visibility,
+                              bool defined) {
+  return (info >> 4) != STB_LOCAL && defined &&
+         (visibility == STV_DEFAULT || visibility == STV_PROTECTED);
+}
+
 static bool lookup_definition(const Elf64_Sym &symbol) {
-  return (symbol.st_info >> 4) != STB_LOCAL && symbol.st_shndx != SHN_UNDEF &&
-         (symbol.st_other == STV_DEFAULT || symbol.st_other == STV_PROTECTED);
+  return lookup_definition(symbol.st_info, symbol.st_other,
+                           symbol.st_shndx != SHN_UNDEF);
 }
 
 static bool equal(Bytes a, Bytes b) {
@@ -583,6 +607,11 @@ DynamicError DynamicInfo::validate_hashes(const OwnedMetadataInput &input) {
     return integer(b.data() + index * 4, 4, big);
   };
   Address symbol_limit = symbols.size() / 24, count = 0;
+  auto symbol_at = [this](Address index) { return symbols.data() + index * 24; };
+  auto defined = [](const unsigned char *symbol) {
+    // SHN_UNDEF is zero in either byte order.
+    return lookup_definition(symbol[4], symbol[5], symbol[6] || symbol[7]);
+  };
   if (has(DynamicTag::Hash)) {
     sysv = input.tail(values[slot(DynamicTag::Hash)], DynamicTag::Hash);
     if (sysv.size() < 8)
@@ -604,22 +633,20 @@ DynamicError DynamicInfo::validate_hashes(const OwnedMetadataInput &input) {
     if (word(sysv, 2 + buckets) != 0)
       return DynamicError::Hash;
     Address definitions = 0, reachable = 0;
-    for (Address i = 1; i < count; ++i) {
-      Elf64_Sym symbol;
-      if (!read_symbol(i, symbol))
-        return DynamicError::Hash;
-      definitions += lookup_definition(symbol);
-    }
+    for (Address i = 1; i < count; ++i)
+      definitions += defined(symbol_at(i));
     for (Address b = 0; b < buckets; ++b) {
       Address index = word(sysv, 2 + b), steps = 0;
       while (index) {
-        Elf64_Sym symbol;
-        Bytes name;
-        if (++steps >= count || !read_symbol(index, symbol) ||
-            !read_string(symbol.st_name, name) ||
-            name_hash(name, false) % buckets != b)
+        if (++steps >= count || index >= count)
           return DynamicError::Hash;
-        reachable += lookup_definition(symbol);
+        const auto *symbol = symbol_at(index);
+        Elf64_Word hash;
+        if (!hash_table_name<false>(
+                strings, read_elf_integer<Elf64_Word>(symbol, big), hash) ||
+            hash % buckets != b)
+          return DynamicError::Hash;
+        reachable += defined(symbol);
         index = word(sysv, 2 + buckets + index);
         if (index)
           ++reachable_links;
@@ -642,11 +669,9 @@ DynamicError DynamicInfo::validate_hashes(const OwnedMetadataInput &input) {
         chain_at > gnu.size() / 4)
       return DynamicError::Hash;
     Address end = start, visited = 0;
-    for (Address i = 1; i < start; ++i) {
-      Elf64_Sym symbol;
-      if (!read_symbol(i, symbol) || lookup_definition(symbol))
+    for (Address i = 1; i < start; ++i)
+      if (defined(symbol_at(i)))
         return DynamicError::Hash;
-    }
     // GNU chains are contiguous per bucket. Bound every step by both mapped
     // chain bytes and symbol storage; never infer a count from section headers.
     for (Address b = 0; b < buckets; ++b) {
@@ -659,11 +684,11 @@ DynamicError DynamicInfo::validate_hashes(const OwnedMetadataInput &input) {
         if (index >= symbol_limit || (count && index >= count) ||
             index - start >= gnu.size() / 4 - chain_at)
           return DynamicError::Hash;
-        Elf64_Sym symbol;
-        Bytes name;
-        if (!read_symbol(index, symbol) || !read_string(symbol.st_name, name))
+        Elf64_Word hash;
+        if (!hash_table_name<true>(
+                strings, read_elf_integer<Elf64_Word>(symbol_at(index), big),
+                hash))
           return DynamicError::Hash;
-        Elf64_Word hash = name_hash(name, true);
         Address chain = word(gnu, chain_at + index - start);
         Address bloom =
             integer(gnu.data() + 16 + ((hash / 64) & (blooms - 1)) * 8, 8, big);
