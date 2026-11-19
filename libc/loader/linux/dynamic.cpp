@@ -1166,6 +1166,7 @@ DynamicError DynamicInfo::parse(const ElfImage &image,
   // Most relocations stay in a gap between metadata ranges. Remember the
   // inclusive interval of eight-byte destinations proven safe in this parse.
   Address gap_first = 1, gap_last = 0;
+  Address writable_first = 1, writable_last = 0;
   Address highest_destination = 0, sorted_count = 0;
   // A Bloom filter can prove that neither octa touched by a destination has
   // appeared before. Collisions only select the exact check below. Keep storage
@@ -1187,12 +1188,13 @@ DynamicError DynamicInfo::parse(const ElfImage &image,
   };
   for (Address i = 0; i < relas.size() / 24; ++i) {
     DynamicRelocation r;
-    Address ignored;
     if (!read_relocation(i, r) || !is_supported_dynamic_relocation(r.info))
       return DynamicError::Unsupported;
     if ((r.info >> 32) >= symbols.size() / 24 ||
         (i < val(DynamicTag::Relacount) && !is_relative_relocation(r.info)) ||
-        !image.runtime_address(r.offset, 8, PF_R | PF_W, ignored))
+        ((r.offset < writable_first || r.offset > writable_last) &&
+         !image.writable_relocation_range(r.offset, writable_first,
+                                          writable_last)))
       return DynamicError::Relocation;
     bool tls_relocation = is_tls_relocation(r.info);
     tls_required |= tls_relocation;

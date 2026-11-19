@@ -230,6 +230,25 @@ bool ElfImage::runtime_address(Address address, Address size, unsigned flags,
   return true;
 }
 
+bool ElfImage::writable_relocation_range(Address address, Address &first,
+                                         Address &last) const {
+  constexpr unsigned permissions = PF_R | PF_W;
+  if (admitted && load_cache_ready)
+    for (unsigned i = 0; i < load_count; ++i) {
+      const auto &p = load_cache[i];
+      if ((p.flags & permissions) != permissions ||
+          !contains(p.address, p.memory_size, address, 8))
+        continue;
+      // Admission has already bounded this entire LOAD in the user range.
+      first = p.address;
+      last = p.address + p.memory_size - 8;
+      return true;
+    }
+  // Retain checks for writes spanning adjacent LOADs and larger layouts.
+  Address ignored;
+  return runtime_address(address, 8, permissions, ignored);
+}
+
 bool ElfImage::contains_file_backed_runtime(Address address, Address size,
                                             unsigned flags) const {
   if (!admitted || !mapped || address < bias || !is_user_range(address, size))

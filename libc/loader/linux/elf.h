@@ -90,6 +90,7 @@ bool decode_elf_header(Bytes bytes, Elf64_Ehdr &header);
 bool decode_program_header(Bytes bytes, bool big_endian, Elf64_Phdr &header);
 
 class ElfImage {
+  friend class DynamicInfo;
   friend class StartupUnwindImages;
 
   Elf64_Ehdr ehdr;
@@ -122,6 +123,9 @@ class ElfImage {
   bool find_file_address(Address offset, Address size, Address &address) const;
   bool read_program_header(unsigned index, Elf64_Phdr &out) const;
   Bytes read_file_bytes(Address vaddr, Address size) const;
+  // On a single cached LOAD, return the inclusive starts for an octa write.
+  bool writable_relocation_range(Address address, Address &first,
+                                 Address &last) const;
   bool same_mapped_image(const ElfImage &other) const;
   ElfError validate(ImageRole role, Address page_size);
 

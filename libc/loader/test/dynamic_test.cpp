@@ -125,6 +125,27 @@ extern "C" int main() {
                            bias, page, image) == ElfError::None);
   CHECK(DynamicInfo::open(image, info) == DynamicError::None);
 
+  DynamicFixture split_writable;
+  split_writable.put(56, 2, 9);
+  split_writable.put(ph(0, 32), 8, 9 * 56);
+  split_writable.put(ph(0, 40), 8, 9 * 56);
+  split_writable.segment(8, PT_LOAD, PF_R | PF_W, 0, 0x6000, 0, page, page);
+  // A cached LOAD alone cannot cover this unaligned write. The adjacent
+  // writable LOAD can complete it, but a gap or read-only LOAD cannot.
+  split_writable.put(0xb18, 8, 0x5ffc);
+  CHECK(ElfImage::open_file(split_writable.view(), ImageRole::SharedObject,
+                            bias, page, image) == ElfError::None);
+  CHECK(DynamicInfo::open(image, info) == DynamicError::None);
+  split_writable.put(ph(8, 4), 4, PF_R);
+  CHECK(ElfImage::open_file(split_writable.view(), ImageRole::SharedObject,
+                            bias, page, image) == ElfError::None);
+  CHECK(DynamicInfo::open(image, info) == DynamicError::Relocation);
+  split_writable.put(ph(8, 4), 4, PF_R | PF_W);
+  split_writable.put(ph(8, 16), 8, 0x8000);
+  CHECK(ElfImage::open_file(split_writable.view(), ImageRole::SharedObject,
+                            bias, page, image) == ElfError::None);
+  CHECK(DynamicInfo::open(image, info) == DynamicError::Relocation);
+
   MappedRegion partial[] = {{0, {f.bytes, 0xc00}},
                             {0x4000, {f.bytes + 0x4000, 0x1000}}};
   CHECK(ElfImage::open_mapped({partial, 2}, 0, 64, ImageRole::SharedObject,
