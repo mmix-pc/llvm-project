@@ -332,6 +332,11 @@ FileIOResult File::write_unlocked_fbf(const uint8_t *data, size_t len) {
   const size_t init_pos = pos;
   const size_t bufspace = bufsize - pos;
 
+  if (len == 1 && bufspace != 0) {
+    buf[pos++] = *data;
+    return 1;
+  }
+
   // If data is too large to be buffered at all, then just write it unbuffered.
   if (len > bufspace + bufsize)
     return write_unlocked_nbf(data, len);
