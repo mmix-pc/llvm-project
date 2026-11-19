@@ -258,6 +258,36 @@ bool ElfImage::contains_file_backed_runtime(Address address, Address size,
          mapped_bytes(vaddr, size).size() == size;
 }
 
+bool ElfImage::contains_file_backed_runtime(Address address, Address size,
+                                            unsigned flags, Address &first,
+                                            Address &last) const {
+  if (!contains_file_backed_runtime(address, size, flags))
+    return false;
+  if (!load_cache_ready || !size)
+    return true;
+  Address vaddr = address - bias;
+  flags |= PF_R;
+  for (unsigned i = 0; i < load_count; ++i) {
+    const auto &load = load_cache[i];
+    if ((load.flags & flags) != flags ||
+        !contains(load.address, load.file_size, vaddr, size))
+      continue;
+    for (const auto &region : regions) {
+      if (!contains(region.vaddr, region.bytes.size(), vaddr, size))
+        continue;
+      Address start = load.address > region.vaddr ? load.address : region.vaddr;
+      Address load_end = load.address + load.file_size;
+      Address region_end = region.vaddr + region.bytes.size();
+      Address end = load_end < region_end ? load_end : region_end;
+      first = bias + start;
+      last = bias + end - size;
+      return true;
+    }
+  }
+  // A successful request spanning LOADs cannot establish a single interval.
+  return true;
+}
+
 bool ElfImage::same_mapped_image(const ElfImage &other) const {
   return admitted && mapped && other.admitted && other.mapped &&
          bias == other.bias && image_role == other.image_role &&

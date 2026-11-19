@@ -60,6 +60,7 @@ static bool valid_index(const ElfImage &image, const Elf64_Phdr &header) {
   if (count > (bytes.size() - offset) / (2 * table_width))
     return false;
   Address previous = 0;
+  Address pc_first = 1, pc_last = 0, fde_first = 1, fde_last = 0;
   for (Address i = 0; i < count; ++i, offset += 2 * table_width) {
     Address pc, fde;
     if (!add_signed(base, word(bytes, offset, table_width, big_endian),
@@ -67,8 +68,12 @@ static bool valid_index(const ElfImage &image, const Elf64_Phdr &header) {
         !add_signed(base,
                     word(bytes, offset + table_width, table_width, big_endian),
                     table_width, fde) ||
-        !image.contains_file_backed_runtime(pc, 1, PF_R | PF_X) ||
-        !image.contains_file_backed_runtime(fde, 4, PF_R) ||
+        ((pc < pc_first || pc > pc_last) &&
+         !image.contains_file_backed_runtime(pc, 1, PF_R | PF_X, pc_first,
+                                             pc_last)) ||
+        ((fde < fde_first || fde > fde_last) &&
+         !image.contains_file_backed_runtime(fde, 4, PF_R, fde_first,
+                                             fde_last)) ||
         (i && pc < previous))
       return false;
     previous = pc;

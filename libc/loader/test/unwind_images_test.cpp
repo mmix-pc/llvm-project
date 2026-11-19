@@ -174,8 +174,11 @@ int main(int argc, char **argv) {
   check(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
         WEXITSTATUS(status) == 127);
   // Published records and arena deliberately remain alive until process exit.
-  for (unsigned mutation = 0; mutation < 11; ++mutation) {
+  for (unsigned mutation = 0; mutation < 14; ++mutation) {
     Input bad(ImageRole::SharedObject, 0x300000);
+    MappedRegion clipped[] = {{0, {bad.file.bytes, 0xe00}},
+                               {0x2000, {bad.file.bytes + 0x2000, 0x100}},
+                               {0x4000, {bad.file.bytes + 0x4000, 0x1000}}};
     switch (mutation) {
     case 0:
       bad.file.put(0xc00, 1, 2);
@@ -210,6 +213,23 @@ int main(int argc, char **argv) {
     case 10:
       // The first two FDE bytes are file-backed, but the rest falls in BSS.
       bad.file.put(0xc10, 4, 0xffe - 0xc00);
+      break;
+    case 11:
+    case 12:
+    case 13:
+      // The first entry fills both caches. The second probe reaches BSS
+      // or crosses the end of the actual mapped view.
+      bad.file.put(ph(8, 32), 8, 28);
+      bad.file.put(ph(8, 40), 8, 28);
+      bad.file.put(0xc08, 4, 2);
+      bad.file.put(0xc14, 4, (mutation == 12 ? 0x2100 : 0x2004) - 0xc00);
+      bad.file.put(0xc18, 4, (mutation == 11 ? 0xffe : 0xd00) - 0xc00);
+      if (mutation == 13) {
+        bad.file.put(0xc18, 4, 0xdfe - 0xc00);
+        check(ElfImage::open_mapped(clipped, 0, 64, ImageRole::SharedObject,
+                                    0x300000, page, bad.image) ==
+              ElfError::None);
+      }
       break;
     }
     const ElfImage *scope[] = {&main.image, &bad.image};

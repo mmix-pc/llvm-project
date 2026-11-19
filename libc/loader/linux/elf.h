@@ -214,6 +214,11 @@ public:
   // Check permissions and file backing together for an already rebased span.
   bool contains_file_backed_runtime(Address address, Address size,
                                     unsigned flags) const;
+  // When one LOAD and one mapped view cover the request, also return the
+  // inclusive starts they cover for the same size and permissions.
+  bool contains_file_backed_runtime(Address address, Address size,
+                                    unsigned flags, Address &first,
+                                    Address &last) const;
 };
 
 } // namespace loader
