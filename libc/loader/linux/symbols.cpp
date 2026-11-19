@@ -76,7 +76,7 @@ SymbolError StartupSymbols::resolve(size_t requester, Address index,
   Bytes name, version;
   if (!object.metadata->symbol(index, symbol) ||
       !object.metadata->string(symbol.st_name, name) ||
-      !object.metadata->symbol_version(index, version))
+      !object.metadata->symbol_version(index, symbol, version))
     return SymbolError::Index;
   unsigned binding = symbol.st_info >> 4;
   // lld also uses index zero for unresolved unversioned imports. Only

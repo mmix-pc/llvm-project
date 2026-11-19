@@ -504,7 +504,8 @@ bool DynamicInfo::find_definition(SymbolName &name, Address &out,
 }
 
 bool DynamicInfo::find_definition_impl(SymbolName &lookup, Address &out,
-                                       Bytes version) const {
+                                       Bytes version,
+                                       Address local_version) const {
   Bytes name = lookup.bytes;
   if (name.empty())
     return false;
@@ -520,15 +521,20 @@ bool DynamicInfo::find_definition_impl(SymbolName &lookup, Address &out,
         return false;
     Address vi = versym.empty() ? VER_NDX_GLOBAL
                                 : integer(versym.data() + index * 2, 2, big);
-    if ((vi & 0x7fff) == VER_NDX_LOCAL)
+    Address version_index = vi & 0x7fff;
+    if (version_index == VER_NDX_LOCAL)
       return false;
-    if (version.empty()) {
+    if (local_version) {
+      if (version_index != local_version)
+        return false;
+    } else if (version.empty()) {
       if (vi & 0x8000)
         return false;
     } else {
       Bytes offered;
-      if ((vi & 0x7fff) <= VER_NDX_GLOBAL ||
-          !version_name(vi & 0x7fff, true, offered) || !equal(version, offered))
+      if (version_index <= VER_NDX_GLOBAL ||
+          !version_name(version_index, true, offered) ||
+          !equal(version, offered))
         return false;
     }
     out = index;
@@ -718,10 +724,17 @@ bool DynamicInfo::version_name(Address index, bool definition,
 }
 
 bool DynamicInfo::symbol_version(Address index, Bytes &name) const {
-  name = {};
   Elf64_Sym symbol;
-  if (!valid || !read_symbol(index, symbol))
+  if (!valid || !read_symbol(index, symbol)) {
+    name = {};
     return false;
+  }
+  return symbol_version(index, symbol, name);
+}
+
+bool DynamicInfo::symbol_version(Address index, const Elf64_Sym &symbol,
+                                Bytes &name) const {
+  name = {};
   if (versym.empty())
     return true;
   Address vi = integer(versym.data() + index * 2, 2, big) & 0x7fff;
@@ -968,13 +981,14 @@ DynamicError DynamicInfo::validate_versions(const OwnedMetadataInput &input) {
     Address index = raw & 0x7fff;
     if (!lookup_definition(symbol) || index == VER_NDX_LOCAL)
       continue;
-    Bytes name, version;
+    Bytes name;
     read_string(symbol.st_name, name);
-    if (index > VER_NDX_GLOBAL)
-      version_name(index, true, version);
+    // Within this image the validated definition names and indexes are
+    // unique. Cross-image lookups still have to compare version names.
+    Address local_version = index > VER_NDX_GLOBAL ? index : 0;
     SymbolName lookup{name};
     Address found = 0;
-    if (!find_definition_impl(lookup, found, version) || found != i ||
+    if (!find_definition_impl(lookup, found, {}, local_version) || found != i ||
         (index > VER_NDX_GLOBAL && !(raw & 0x8000) &&
          (!find_definition_impl(lookup, found, {}) || found != i)))
       return DynamicError::Version;

@@ -102,7 +102,9 @@ class DynamicInfo {
   bool version_name(Address index, bool definition, Bytes &out) const;
   bool find_definition(SymbolName &name, Address &index, Bytes version) const;
   bool find_definition_impl(SymbolName &name, Address &index,
-                            Bytes version) const;
+                            Bytes version, Address local_version = 0) const;
+  bool symbol_version(Address index, const Elf64_Sym &symbol,
+                      Bytes &out) const;
   bool read_string(Address offset, Bytes &out) const;
   bool read_symbol(Address index, Elf64_Sym &out) const;
   bool read_relocation(Address index, DynamicRelocation &out) const;
