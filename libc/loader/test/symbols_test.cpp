@@ -182,6 +182,20 @@ extern "C" int main() {
   CHECK(reopen());
   CHECK(scope.lookup(foo(), value) == SymbolError::None && value.object == 1);
 
+  files[0] = Symbols();
+  files[0].remove(DT_HASH);
+  // Reopen the same metadata with a larger bloom filter. "foo" uses word 2.
+  constexpr Address hash = 0x0b887389;
+  files[0].put(0xa08, 4, 4);
+  for (unsigned i = 0; i != 4; ++i)
+    files[0].put(0xa10 + i * 8, 8, 0);
+  files[0].put(0xa20, 8, (Address(1) << (hash % 64)) |
+                             (Address(1) << ((hash >> 5) % 64)));
+  files[0].put(0xa30, 4, 1);
+  files[0].put(0xa34, 4, hash);
+  CHECK(reopen());
+  CHECK(scope.lookup(foo(), value) == SymbolError::None && value.object == 0);
+
   CHECK(StartupSymbols::open({}, scope) == SymbolError::Scope);
   CHECK(scope.resolve(0, 1, value) == SymbolError::Scope);
   puts("loader startup symbol binding, visibility and reference checks passed");

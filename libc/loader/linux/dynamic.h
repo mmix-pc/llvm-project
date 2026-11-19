@@ -85,6 +85,9 @@ class DynamicInfo {
   Address values[static_cast<unsigned>(DynamicTag::Count)];
   Address seen = 0, needed_size = 0;
   Bytes dynamic, strings, symbols, relas, sysv, gnu, arrays[3];
+  struct {
+    Elf64_Word buckets, first_symbol, bloom_mask, bloom_shift;
+  } gnu_layout;
   Bytes versym, verdef, verneed;
   bool big = true, valid = false;
   bool tls_required = false, stable = false;

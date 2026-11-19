@@ -535,17 +535,18 @@ bool DynamicInfo::find_definition_impl(SymbolName &lookup, Address &out,
     return true;
   };
   if (!gnu.empty()) {
-    Address buckets = integer(gnu.data(), 4, big);
-    Address start = integer(gnu.data() + 4, 4, big);
-    Address blooms = integer(gnu.data() + 8, 4, big);
-    Address shift = integer(gnu.data() + 12, 4, big);
+    Address buckets = gnu_layout.buckets;
+    Address start = gnu_layout.first_symbol;
+    Address bloom_mask = gnu_layout.bloom_mask;
+    Address shift = gnu_layout.bloom_shift;
     Elf64_Word hash = lookup.hash(true);
-    Address bloom = integer(gnu.data() + 16 + (hash / 64 % blooms) * 8, 8, big);
+    Address bloom =
+        integer(gnu.data() + 16 + ((hash / 64) & bloom_mask) * 8, 8, big);
     Address mask =
         (Address(1) << (hash % 64)) | (Address(1) << ((hash >> shift) % 64));
     if ((bloom & mask) != mask)
       return false;
-    Address table = 16 + blooms * 8;
+    Address table = 16 + (bloom_mask + 1) * 8;
     Address index = integer(gnu.data() + table + (hash % buckets) * 4, 4, big);
     if (index < start)
       return false;
@@ -659,7 +660,7 @@ DynamicError DynamicInfo::validate_hashes(const OwnedMetadataInput &input) {
         Elf64_Word hash = name_hash(name, true);
         Address chain = word(gnu, chain_at + index - start);
         Address bloom =
-            integer(gnu.data() + 16 + ((hash / 64) % blooms) * 8, 8, big);
+            integer(gnu.data() + 16 + ((hash / 64) & (blooms - 1)) * 8, 8, big);
         Address mask = (Address(1) << (hash % 64)) |
                        (Address(1) << ((hash >> shift) % 64));
         if ((chain | 1) != (Address(hash) | 1) || hash % buckets != b ||
@@ -676,6 +677,10 @@ DynamicError DynamicInfo::validate_hashes(const OwnedMetadataInput &input) {
       return DynamicError::Hash;
     count = end;
     gnu = gnu.first((chain_at + count - start) * 4);
+    gnu_layout = {static_cast<Elf64_Word>(buckets),
+                  static_cast<Elf64_Word>(start),
+                  static_cast<Elf64_Word>(blooms - 1),
+                  static_cast<Elf64_Word>(shift)};
   }
   if (!count)
     return DynamicError::Hash;
