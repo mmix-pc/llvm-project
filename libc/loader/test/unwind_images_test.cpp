@@ -161,7 +161,7 @@ int main(int argc, char **argv) {
   check(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
         WEXITSTATUS(status) == 127);
   // Published records and arena deliberately remain alive until process exit.
-  for (unsigned mutation = 0; mutation < 10; ++mutation) {
+  for (unsigned mutation = 0; mutation < 11; ++mutation) {
     Input bad(ImageRole::SharedObject, 0x300000);
     switch (mutation) {
     case 0:
@@ -193,6 +193,10 @@ int main(int argc, char **argv) {
       break;
     case 9:
       bad.file.put(0xc02, 1, 0xff);
+      break;
+    case 10:
+      // The first two FDE bytes are file-backed, but the rest falls in BSS.
+      bad.file.put(0xc10, 4, 0xffe - 0xc00);
       break;
     }
     const ElfImage *scope[] = {&main.image, &bad.image};

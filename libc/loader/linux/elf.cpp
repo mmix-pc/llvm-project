@@ -230,6 +230,15 @@ bool ElfImage::runtime_address(Address address, Address size, unsigned flags,
   return true;
 }
 
+bool ElfImage::contains_file_backed_runtime(Address address, Address size,
+                                            unsigned flags) const {
+  if (!admitted || !mapped || address < bias || !is_user_range(address, size))
+    return false;
+  Address vaddr = address - bias;
+  return coverage(vaddr, size, flags | PF_R, true, 0, false) &&
+         mapped_bytes(vaddr, size).size() == size;
+}
+
 ElfError ElfImage::open_file(Bytes bytes, ImageRole role, Address load_bias,
                              Address page_size, ElfImage &out) {
   out.admitted = false;

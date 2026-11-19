@@ -13,17 +13,6 @@
 
 namespace LIBC_NAMESPACE_DECL {
 namespace loader {
-static bool contains(const ElfImage &image, Address address, Address size,
-                     unsigned flags) {
-  if (address < image.load_bias())
-    return false;
-  Address unused;
-  return image.runtime_address(address - image.load_bias(), size, flags,
-                               unused) &&
-         image.file_backed_bytes(address - image.load_bias(), size).size() ==
-             size;
-}
-
 static bool add_signed(Address base, Address raw, unsigned width,
                        Address &out) {
   if (width == 4)
@@ -65,7 +54,7 @@ static bool valid_index(const ElfImage &image, const Elf64_Phdr &header) {
   if (!image.runtime_address(header.p_vaddr, header.p_filesz, PF_R, base) ||
       !add_signed(base + 4, word(bytes, 4, pointer_width, big_endian),
                   pointer_width, frame) ||
-      !contains(image, frame, 4, PF_R))
+      !image.contains_file_backed_runtime(frame, 4, PF_R))
     return false;
   Address count = word(bytes, 4 + pointer_width, count_width, big_endian);
   if (count > (bytes.size() - offset) / (2 * table_width))
@@ -78,8 +67,9 @@ static bool valid_index(const ElfImage &image, const Elf64_Phdr &header) {
         !add_signed(base,
                     word(bytes, offset + table_width, table_width, big_endian),
                     table_width, fde) ||
-        !contains(image, pc, 1, PF_R | PF_X) ||
-        !contains(image, fde, 4, PF_R) || (i && pc < previous))
+        !image.contains_file_backed_runtime(pc, 1, PF_R | PF_X) ||
+        !image.contains_file_backed_runtime(fde, 4, PF_R) ||
+        (i && pc < previous))
       return false;
     previous = pc;
   }
@@ -191,7 +181,7 @@ long StartupUnwindImages::find(Address pc, UnwindImageView &out) const {
   if (!published)
     return EINVAL;
   for (const auto &record : records)
-    if (contains(*record.image, pc, 1, PF_R | PF_X)) {
+    if (record.image->contains_file_backed_runtime(pc, 1, PF_R | PF_X)) {
       if (!record.view.eh_frame_header_size)
         return ENOENT;
       __builtin_memcpy_inline(&out, &record.view, sizeof(out));
