@@ -482,12 +482,13 @@ FileIOResult File::read_unlocked_impl(void *data, size_t len) {
     if (len)
       flush_line_buffered_before_read();
     return read_unlocked_nbf(static_cast<uint8_t *>(data), len);
-  } else if (bufmode == _IOFBF) { // fully buffered
-    return read_unlocked_fbf(static_cast<uint8_t *>(data), len);
-  } else /*if (bufmode == _IOLBF) */ { // line buffered
-    // There is no line buffered mode for read. Use fully buffered instead.
-    return read_unlocked_fbf(static_cast<uint8_t *>(data), len);
   }
+  if (len == 1 && byte_pushback == EOF && pos < read_limit) {
+    *static_cast<uint8_t *>(data) = buf[pos++];
+    return 1;
+  }
+  // Both line-buffered and fully buffered input use the same read buffer.
+  return read_unlocked_fbf(static_cast<uint8_t *>(data), len);
 }
 
 void File::flush_line_buffered_before_read() {
